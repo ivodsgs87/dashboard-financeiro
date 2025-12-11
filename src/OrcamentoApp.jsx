@@ -3,21 +3,51 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 
 // Stable Input - uncontrolled para não perder foco
 const StableInput = memo(({type = 'text', initialValue, onSave, className, ...props}) => {
- const inputRef = useRef(null);
- const [key, setKey] = useState(0);
- 
- const handleBlur = (e) => {
- const val = type === 'number' ? (+e.target.value || 0) : e.target.value;
- onSave(val);
- };
- 
- const handleKeyDown = (e) => { if (e.key === 'Enter') e.target.blur(); };
- 
- useEffect(() => {
- if (inputRef.current && document.activeElement !== inputRef.current) setKey(k => k + 1);
- }, [initialValue]);
- 
- return <input key={key} ref={inputRef} type={type} defaultValue={initialValue} onBlur={handleBlur} onKeyDown={handleKeyDown} className={className} {...props}/>;
+  const inputRef = useRef(null);
+  const lastSavedValue = useRef(initialValue);
+  const hasFocus = useRef(false);
+  
+  const handleFocus = () => {
+    hasFocus.current = true;
+  };
+  
+  const handleBlur = (e) => {
+    hasFocus.current = false;
+    const val = type === 'number' ? (+e.target.value || 0) : e.target.value;
+    if (val !== lastSavedValue.current) {
+      lastSavedValue.current = val;
+      onSave(val);
+    }
+  };
+  
+  const handleKeyDown = (e) => { 
+    if (e.key === 'Enter') {
+      e.target.blur();
+    }
+  };
+  
+  // Só atualizar o valor se NÃO tiver foco e o valor for diferente
+  useEffect(() => {
+    if (inputRef.current && !hasFocus.current) {
+      if (inputRef.current.value !== String(initialValue)) {
+        inputRef.current.value = initialValue;
+        lastSavedValue.current = initialValue;
+      }
+    }
+  }, [initialValue]);
+  
+  return (
+    <input 
+      ref={inputRef} 
+      type={type} 
+      defaultValue={initialValue} 
+      onFocus={handleFocus}
+      onBlur={handleBlur} 
+      onKeyDown={handleKeyDown} 
+      className={className} 
+      {...props}
+    />
+  );
 });
 
 // Slider com input manual
