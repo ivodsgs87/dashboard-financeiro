@@ -1466,6 +1466,71 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'ABanca'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'}];
 
+ // Função para exportar Excel real (.xlsx)
+ const exportToExcel = async () => {
+   try {
+     const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+     const wb = XLSX.utils.book_new();
+     
+     // SHEET 1: Resumo Anual
+     const resumoData = [['DASHBOARD FINANCEIRO - RELATÓRIO ' + ano], ['Exportado em: ' + new Date().toLocaleDateString('pt-PT')], [], ['Mês', 'Com Taxas', 'Sem Taxas', 'Total', 'Reserva Taxas', 'Líquido']];
+     let totalAnualCom = 0, totalAnualSem = 0, totalAnualTax = 0;
+     meses.forEach((mesNome, idx) => {
+       const key = `${ano}-${idx + 1}`;
+       const mesData = M[key] || {};
+       const com = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
+       const sem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
+       const tot = com + sem;
+       const tax = com * (G.taxa / 100);
+       totalAnualCom += com; totalAnualSem += sem; totalAnualTax += tax;
+       resumoData.push([mesNome, com, sem, tot, tax, tot - tax]);
+     });
+     resumoData.push(['TOTAL', totalAnualCom, totalAnualSem, totalAnualCom + totalAnualSem, totalAnualTax, totalAnualCom + totalAnualSem - totalAnualTax]);
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumoData), 'Resumo Anual');
+     
+     // SHEET 2: Despesas Fixas
+     const despData = [['DESPESAS FIXAS (ABanca)'], [], ['Descrição', 'Categoria', 'Valor', 'Minha Parte']];
+     G.despABanca.forEach(d => despData.push([d.desc, d.cat, d.val, d.val * G.contrib / 100]));
+     despData.push(['TOTAL', '', G.despABanca.reduce((a, d) => a + d.val, 0), G.despABanca.reduce((a, d) => a + d.val, 0) * G.contrib / 100]);
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(despData), 'Despesas Fixas');
+     
+     // SHEET 3: Despesas Pessoais
+     const pessData = [['DESPESAS PESSOAIS'], [], ['Descrição', 'Categoria', 'Valor']];
+     G.despPess.forEach(d => pessData.push([d.desc, d.cat, d.val]));
+     pessData.push(['TOTAL', '', G.despPess.reduce((a, d) => a + d.val, 0)]);
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pessData), 'Despesas Pessoais');
+     
+     // SHEET 4: Portfolio
+     const portData = [['PORTFOLIO'], [], ['Descrição', 'Categoria', 'Valor']];
+     const pf = M[mesKey]?.portfolio || [];
+     pf.forEach(p => portData.push([p.desc, p.cat, p.val]));
+     portData.push(['TOTAL', '', pf.reduce((a, p) => a + p.val, 0)]);
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(portData), 'Portfolio');
+     
+     // SHEET 5: Sara
+     const saraData = [['FINANÇAS SARA'], [], ['RENDIMENTOS'], ['Descrição', 'Valor']];
+     G.sara.rend.forEach(r => saraData.push([r.desc, r.val]));
+     saraData.push(['TOTAL', G.sara.rend.reduce((a, r) => a + r.val, 0)], [], ['DESPESAS'], ['Descrição', 'Valor']);
+     G.sara.desp.forEach(d => saraData.push([d.desc, d.val]));
+     saraData.push(['TOTAL', G.sara.desp.reduce((a, d) => a + d.val, 0)]);
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(saraData), 'Sara');
+     
+     // SHEET 6: Por Cliente
+     const cliData = [['RECEITAS POR CLIENTE - ' + ano], [], ['Cliente', 'Com Taxas', 'Sem Taxas', 'Total']];
+     G.clientes.forEach(c => {
+       let cCom = 0, cSem = 0;
+       Object.keys(M).filter(k => k.startsWith(ano + '-')).forEach(k => {
+         cCom += M[k]?.regCom?.filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0) || 0;
+         cSem += M[k]?.regSem?.filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0) || 0;
+       });
+       if (cCom || cSem) cliData.push([c.nome, cCom, cSem, cCom + cSem]);
+     });
+     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cliData), 'Por Cliente');
+     
+     XLSX.writeFile(wb, `dashboard-${ano}-${mes}.xlsx`);
+   } catch (e) { alert('Erro ao exportar: ' + e.message); }
+ };
+
  // Modal de Backup
  const BackupModal = () => {
  if (!showBackupModal) return null;
@@ -1731,6 +1796,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
               <div className="flex gap-1 sm:gap-2">
                 <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋<span className="hidden sm:inline"> Backup</span></button>
                 <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤<span className="hidden sm:inline"> Restaurar</span></button>
+                <button onClick={exportToExcel} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">📊<span className="hidden sm:inline"> Excel</span></button>
               </div>
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">Sync...</span></div>
