@@ -306,28 +306,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(() => initialData?.g || defG);
   const [M, setM] = useState(() => initialData?.m || {});
   const [initialized, setInitialized] = useState(false);
+  const lastSaveRef = useRef(null);
 
-  // Atualizar estado quando initialData muda (sync do Firebase)
+  // Apenas inicializar UMA VEZ com dados do Firebase
   useEffect(() => {
-    if (!initialized) {
-      if (initialData) {
-        if (initialData.g) setG(initialData.g);
-        if (initialData.m) setM(initialData.m);
-      }
-      // Marcar como inicializado mesmo se não houver dados (utilizador novo)
-      setInitialized(true);
+    if (!initialized && initialData) {
+      if (initialData.g) setG(initialData.g);
+      if (initialData.m) setM(initialData.m);
     }
-  }, [initialData, initialized]);
+    setInitialized(true);
+  }, []); // Array vazio = só corre uma vez
 
-  // Auto-save para Firebase (com debounce)
+  // Auto-save para Firebase (com debounce de 3 segundos)
   const saveTimeoutRef = useRef(null);
   useEffect(() => {
     if (!initialized) return;
     
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      onSaveData({ g: G, m: M });
-    }, 1500); // Guardar 1.5 segundos após última alteração
+      const dataToSave = { g: G, m: M };
+      lastSaveRef.current = JSON.stringify(dataToSave);
+      onSaveData(dataToSave);
+    }, 3000); // Guardar 3 segundos após última alteração
     
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
