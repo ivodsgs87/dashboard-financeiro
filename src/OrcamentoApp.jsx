@@ -303,36 +303,56 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const defM = {regCom:[],regSem:[],inv:[{id:1,desc:'ETFs',val:0,done:false},{id:2,desc:'Poupança',val:0,done:false},{id:3,desc:'P2P',val:0,done:false},{id:4,desc:'Cripto',val:0,done:false},{id:5,desc:'Degiro Laura',val:0,done:false},{id:6,desc:'Degiro Eduardo',val:0,done:false}],transf:{abanca:false,activo:false,trade:false,revolut:false},portfolio:[{id:1,desc:'Trade Republic',cat:'ETFs',val:0},{id:2,desc:'Degiro',cat:'ETFs',val:0},{id:3,desc:'Poupança',cat:'Liquidez',val:0},{id:4,desc:'PPR',cat:'Reforma',val:0},{id:5,desc:'Cripto',cat:'Cripto',val:0},{id:6,desc:'P2P',cat:'P2P',val:0},{id:7,desc:'Degiro Laura',cat:'Filhos',val:0},{id:8,desc:'Degiro Eduardo',cat:'Filhos',val:0}]};
 
   // Inicializar estado com dados do Firebase ou defaults
-  const [G, setG] = useState(() => initialData?.g || defG);
-  const [M, setM] = useState(() => initialData?.m || {});
-  const [initialized, setInitialized] = useState(false);
-  const lastSaveRef = useRef(null);
+  const [G, setG] = useState(defG);
+  const [M, setM] = useState({});
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const saveTimeoutRef = useRef(null);
+  const isSavingRef = useRef(false);
 
-  // Apenas inicializar UMA VEZ com dados do Firebase
+  // Carregar dados do Firebase UMA VEZ quando initialData chegar
   useEffect(() => {
-    if (!initialized && initialData) {
+    if (dataLoaded) return; // Já carregou, não fazer mais nada
+    
+    if (initialData) {
+      console.log('Carregando dados do Firebase...');
       if (initialData.g) setG(initialData.g);
       if (initialData.m) setM(initialData.m);
+      setDataLoaded(true);
+    } else if (initialData === null) {
+      // Utilizador novo, sem dados - usar defaults
+      console.log('Utilizador novo, usando defaults');
+      setDataLoaded(true);
     }
-    setInitialized(true);
-  }, []); // Array vazio = só corre uma vez
+    // Se initialData === undefined, ainda está a carregar
+  }, [initialData, dataLoaded]);
 
   // Auto-save para Firebase (com debounce de 3 segundos)
-  const saveTimeoutRef = useRef(null);
   useEffect(() => {
-    if (!initialized) return;
+    if (!dataLoaded) return; // Não guardar antes de carregar
+    if (isSavingRef.current) return; // Não guardar se já está a guardar
     
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      const dataToSave = { g: G, m: M };
-      lastSaveRef.current = JSON.stringify(dataToSave);
-      onSaveData(dataToSave);
-    }, 3000); // Guardar 3 segundos após última alteração
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(async () => {
+      console.log('Guardando dados...');
+      isSavingRef.current = true;
+      try {
+        await onSaveData({ g: G, m: M });
+        console.log('Dados guardados!');
+      } catch (e) {
+        console.error('Erro ao guardar:', e);
+      }
+      isSavingRef.current = false;
+    }, 3000);
     
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
-  }, [G, M, initialized, onSaveData]);
+  }, [G, M, dataLoaded]);
 
  // Função para obter o mês anterior
  const getMesAnteriorKey = (currentKey) => {
