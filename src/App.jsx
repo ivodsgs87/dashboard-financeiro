@@ -5,7 +5,7 @@ import OrcamentoApp from './OrcamentoApp';
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState(null);
+  const [userData, setUserData] = useState(undefined); // undefined = loading, null = sem dados
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const dataLoadedRef = useRef(false);
@@ -22,18 +22,25 @@ const App = () => {
   // Load user data ONCE when logged in
   useEffect(() => {
     if (!user) {
-      setUserData(null);
+      setUserData(undefined);
       dataLoadedRef.current = false;
       return;
     }
 
     if (dataLoadedRef.current) return;
+    dataLoadedRef.current = true;
 
     const loadData = async () => {
-      const data = await getUserData(user.uid);
-      setUserData(data);
-      setLastSync(data?.updatedAt || null);
-      dataLoadedRef.current = true;
+      console.log('Carregando dados do utilizador...');
+      try {
+        const data = await getUserData(user.uid);
+        console.log('Dados carregados:', data ? 'sim' : 'não');
+        setUserData(data); // null se não existir, objeto se existir
+        setLastSync(data?.updatedAt || null);
+      } catch (e) {
+        console.error('Erro ao carregar dados:', e);
+        setUserData(null);
+      }
     };
     loadData();
   }, [user]);
@@ -45,6 +52,7 @@ const App = () => {
     try {
       await saveUserData(user.uid, data);
       setLastSync(new Date().toISOString());
+      console.log('Dados salvos no Firebase');
     } catch (error) {
       console.error('Error saving data:', error);
     }
@@ -86,6 +94,18 @@ const App = () => {
           <p className="text-slate-500 text-sm mt-6">
             Os teus dados ficam sincronizados na cloud e acessíveis em qualquer dispositivo.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Mostrar loading enquanto carrega dados do utilizador
+  if (userData === undefined) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-400">A carregar os teus dados...</p>
         </div>
       </div>
     );
