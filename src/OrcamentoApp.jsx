@@ -1472,63 +1472,232 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
      const wb = XLSX.utils.book_new();
      
-     // SHEET 1: Resumo Anual
-     const resumoData = [['DASHBOARD FINANCEIRO - RELATÓRIO ' + ano], ['Exportado em: ' + new Date().toLocaleDateString('pt-PT')], [], ['Mês', 'Com Taxas', 'Sem Taxas', 'Total', 'Reserva Taxas', 'Líquido']];
-     let totalAnualCom = 0, totalAnualSem = 0, totalAnualTax = 0;
+     // Função helper para aplicar estilos
+     const styleCell = (ws, cell, style) => {
+       if (!ws[cell]) return;
+       ws[cell].s = style;
+     };
+     
+     // Estilos
+     const styles = {
+       title: { font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "4F46E5" } }, alignment: { horizontal: "center" } },
+       header: { font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "6366F1" } }, alignment: { horizontal: "center" }, border: { bottom: { style: "thin", color: { rgb: "000000" } } } },
+       sectionTitle: { font: { bold: true, sz: 12, color: { rgb: "1E293B" } }, fill: { fgColor: { rgb: "E2E8F0" } } },
+       total: { font: { bold: true, sz: 11 }, fill: { fgColor: { rgb: "DCFCE7" } }, border: { top: { style: "thin", color: { rgb: "000000" } } } },
+       currency: { numFmt: '#,##0.00 €' },
+       percent: { numFmt: '0%' }
+     };
+     
+     // PRIMEIRA TAB: Resumo Anual
+     const resumoData = [
+       ['DASHBOARD FINANCEIRO ' + ano],
+       ['Exportado: ' + new Date().toLocaleDateString('pt-PT')],
+       [],
+       ['MÊS', 'RECEITA COM TAXAS', 'RECEITA SEM TAXAS', 'TOTAL BRUTO', 'RESERVA TAXAS', 'LÍQUIDO'],
+     ];
+     
+     let totCom = 0, totSem = 0, totTax = 0;
      meses.forEach((mesNome, idx) => {
        const key = `${ano}-${idx + 1}`;
-       const mesData = M[key] || {};
-       const com = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
-       const sem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
-       const tot = com + sem;
+       const md = M[key] || {};
+       const com = md.regCom?.reduce((a, r) => a + r.val, 0) || 0;
+       const sem = md.regSem?.reduce((a, r) => a + r.val, 0) || 0;
        const tax = com * (G.taxa / 100);
-       totalAnualCom += com; totalAnualSem += sem; totalAnualTax += tax;
-       resumoData.push([mesNome, com, sem, tot, tax, tot - tax]);
+       totCom += com; totSem += sem; totTax += tax;
+       resumoData.push([mesNome, com, sem, com + sem, tax, com + sem - tax]);
      });
-     resumoData.push(['TOTAL', totalAnualCom, totalAnualSem, totalAnualCom + totalAnualSem, totalAnualTax, totalAnualCom + totalAnualSem - totalAnualTax]);
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumoData), 'Resumo Anual');
+     resumoData.push(['TOTAL ANUAL', totCom, totSem, totCom + totSem, totTax, totCom + totSem - totTax]);
      
-     // SHEET 2: Despesas Fixas
-     const despData = [['DESPESAS FIXAS (ABanca)'], [], ['Descrição', 'Categoria', 'Valor', 'Minha Parte']];
-     G.despABanca.forEach(d => despData.push([d.desc, d.cat, d.val, d.val * G.contrib / 100]));
-     despData.push(['TOTAL', '', G.despABanca.reduce((a, d) => a + d.val, 0), G.despABanca.reduce((a, d) => a + d.val, 0) * G.contrib / 100]);
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(despData), 'Despesas Fixas');
+     const wsResumo = XLSX.utils.aoa_to_sheet(resumoData);
+     wsResumo['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+     wsResumo['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+     XLSX.utils.book_append_sheet(wb, wsResumo, '📊 Resumo Anual');
      
-     // SHEET 3: Despesas Pessoais
-     const pessData = [['DESPESAS PESSOAIS'], [], ['Descrição', 'Categoria', 'Valor']];
-     G.despPess.forEach(d => pessData.push([d.desc, d.cat, d.val]));
-     pessData.push(['TOTAL', '', G.despPess.reduce((a, d) => a + d.val, 0)]);
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pessData), 'Despesas Pessoais');
-     
-     // SHEET 4: Portfolio
-     const portData = [['PORTFOLIO'], [], ['Descrição', 'Categoria', 'Valor']];
-     const pf = M[mesKey]?.portfolio || [];
-     pf.forEach(p => portData.push([p.desc, p.cat, p.val]));
-     portData.push(['TOTAL', '', pf.reduce((a, p) => a + p.val, 0)]);
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(portData), 'Portfolio');
-     
-     // SHEET 5: Sara
-     const saraData = [['FINANÇAS SARA'], [], ['RENDIMENTOS'], ['Descrição', 'Valor']];
-     G.sara.rend.forEach(r => saraData.push([r.desc, r.val]));
-     saraData.push(['TOTAL', G.sara.rend.reduce((a, r) => a + r.val, 0)], [], ['DESPESAS'], ['Descrição', 'Valor']);
-     G.sara.desp.forEach(d => saraData.push([d.desc, d.val]));
-     saraData.push(['TOTAL', G.sara.desp.reduce((a, d) => a + d.val, 0)]);
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(saraData), 'Sara');
-     
-     // SHEET 6: Por Cliente
-     const cliData = [['RECEITAS POR CLIENTE - ' + ano], [], ['Cliente', 'Com Taxas', 'Sem Taxas', 'Total']];
-     G.clientes.forEach(c => {
-       let cCom = 0, cSem = 0;
-       Object.keys(M).filter(k => k.startsWith(ano + '-')).forEach(k => {
-         cCom += M[k]?.regCom?.filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0) || 0;
-         cSem += M[k]?.regSem?.filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0) || 0;
+     // TAB POR CADA MÊS
+     meses.forEach((mesNome, idx) => {
+       const key = `${ano}-${idx + 1}`;
+       const md = M[key] || {};
+       const regCom = md.regCom || [];
+       const regSem = md.regSem || [];
+       const inv = md.inv || [];
+       const portfolio = md.portfolio || [];
+       const transf = md.transf || {};
+       
+       // Cálculos do mês
+       const inCom = regCom.reduce((a, r) => a + r.val, 0);
+       const inSem = regSem.reduce((a, r) => a + r.val, 0);
+       const totRec = inCom + inSem;
+       const valTax = inCom * (G.taxa / 100);
+       const recLiq = totRec - valTax;
+       const totABanca = G.despABanca.reduce((a, d) => a + d.val, 0);
+       const minhaABanca = totABanca * (G.contrib / 100);
+       const totPess = G.despPess.reduce((a, d) => a + d.val, 0);
+       const restante = recLiq - minhaABanca - totPess - G.ferias;
+       const amort = restante * (G.alocAmort / 100);
+       const investExtra = restante * (1 - G.alocAmort / 100);
+       
+       const data = [
+         [`${mesNome.toUpperCase()} ${ano}`],
+         [],
+         ['═══════════════════════════════════════════════════════'],
+         ['RESUMO DO MÊS'],
+         ['═══════════════════════════════════════════════════════'],
+         [],
+         ['Descrição', 'Valor'],
+         ['Receita Total (Bruta)', totRec],
+         ['  └ Com Taxas', inCom],
+         ['  └ Sem Taxas', inSem],
+         ['Reserva para Taxas (' + G.taxa + '%)', valTax],
+         ['Receita Líquida', recLiq],
+         [],
+         ['Despesas Fixas (ABanca)', minhaABanca],
+         ['Despesas Pessoais', totPess],
+         ['Reserva Férias', G.ferias],
+         [],
+         ['DISPONÍVEL PARA ALOCAR', restante],
+         ['  └ Amortização (' + G.alocAmort + '%)', amort],
+         ['  └ Investimentos (' + (100 - G.alocAmort) + '%)', investExtra],
+         [],
+       ];
+       
+       // Receitas COM taxas
+       if (regCom.length > 0) {
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push(['RECEITAS COM RETENÇÃO']);
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push([]);
+         data.push(['Data', 'Cliente', 'Descrição', 'Valor']);
+         regCom.forEach(r => {
+           const cli = G.clientes.find(c => c.id === r.cid);
+           data.push([r.data, cli?.nome || '-', r.desc, r.val]);
+         });
+         data.push(['', '', 'SUBTOTAL', inCom]);
+         data.push([]);
+       }
+       
+       // Receitas SEM taxas
+       if (regSem.length > 0) {
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push(['RECEITAS SEM RETENÇÃO']);
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push([]);
+         data.push(['Data', 'Cliente', 'Descrição', 'Valor']);
+         regSem.forEach(r => {
+           const cli = G.clientes.find(c => c.id === r.cid);
+           data.push([r.data, cli?.nome || '-', r.desc, r.val]);
+         });
+         data.push(['', '', 'SUBTOTAL', inSem]);
+         data.push([]);
+       }
+       
+       // Despesas Fixas (ABanca)
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push(['DESPESAS FIXAS (ABANCA)']);
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push([]);
+       data.push(['Descrição', 'Categoria', 'Total', 'Minha Parte (' + G.contrib + '%)']);
+       G.despABanca.forEach(d => {
+         data.push([d.desc, d.cat, d.val, d.val * G.contrib / 100]);
        });
-       if (cCom || cSem) cliData.push([c.nome, cCom, cSem, cCom + cSem]);
+       data.push(['TOTAL', '', totABanca, minhaABanca]);
+       data.push([]);
+       
+       // Despesas Pessoais
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push(['DESPESAS PESSOAIS']);
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push([]);
+       data.push(['Descrição', 'Categoria', 'Valor']);
+       G.despPess.forEach(d => {
+         data.push([d.desc, d.cat, d.val]);
+       });
+       data.push(['TOTAL', '', totPess]);
+       data.push([]);
+       
+       // Investimentos do Mês
+       const totInv = inv.reduce((a, i) => a + i.val, 0);
+       if (totInv > 0) {
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push(['INVESTIMENTOS DO MÊS']);
+         data.push(['═══════════════════════════════════════════════════════']);
+         data.push([]);
+         data.push(['Descrição', 'Valor', 'Feito?']);
+         inv.forEach(i => {
+           if (i.val > 0) data.push([i.desc, i.val, i.done ? '✓' : '']);
+         });
+         data.push(['TOTAL', totInv, '']);
+         data.push([]);
+       }
+       
+       // Transferências
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push(['TRANSFERÊNCIAS']);
+       data.push(['═══════════════════════════════════════════════════════']);
+       data.push([]);
+       data.push(['Destino', 'Valor', 'Feito?']);
+       data.push(['ABanca (Despesas Fixas)', minhaABanca, transf.abanca ? '✓' : '']);
+       data.push(['Activo Bank (Pessoais)', totPess, transf.activo ? '✓' : '']);
+       data.push(['Trade Republic (Repor)', minhaABanca + totPess + valTax, transf.trade ? '✓' : '']);
+       data.push(['Revolut (Férias)', G.ferias, transf.revolut ? '✓' : '']);
+       
+       const ws = XLSX.utils.aoa_to_sheet(data);
+       ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+       
+       // Abreviar nome do mês para tab (max 31 chars)
+       const tabName = `${(idx + 1).toString().padStart(2, '0')} ${mesNome}`;
+       XLSX.utils.book_append_sheet(wb, ws, tabName);
      });
-     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cliData), 'Por Cliente');
      
-     XLSX.writeFile(wb, `dashboard-${ano}-${mes}.xlsx`);
-   } catch (e) { alert('Erro ao exportar: ' + e.message); }
+     // ÚLTIMA TAB: Sara (anual)
+     const saraData = [
+       ['FINANÇAS SARA - ' + ano],
+       [],
+       ['═══════════════════════════════════════════════════════'],
+       ['RENDIMENTOS MENSAIS'],
+       ['═══════════════════════════════════════════════════════'],
+       [],
+       ['Descrição', 'Valor'],
+     ];
+     G.sara.rend.forEach(r => saraData.push([r.desc, r.val]));
+     const totSaraRend = G.sara.rend.reduce((a, r) => a + r.val, 0);
+     saraData.push(['TOTAL RENDIMENTOS', totSaraRend]);
+     saraData.push([]);
+     
+     saraData.push(['═══════════════════════════════════════════════════════']);
+     saraData.push(['DESPESAS MENSAIS']);
+     saraData.push(['═══════════════════════════════════════════════════════']);
+     saraData.push([]);
+     saraData.push(['Descrição', 'Valor']);
+     G.sara.desp.forEach(d => saraData.push([d.desc, d.val]));
+     const totSaraDesp = G.sara.desp.reduce((a, d) => a + d.val, 0);
+     saraData.push(['TOTAL DESPESAS', totSaraDesp]);
+     saraData.push([]);
+     
+     const cartaoRef = G.sara.rend.find(r => r.isCR)?.val || 0;
+     const segFilhos = G.despABanca.find(d => d.desc.toLowerCase().includes('seguro filhos'))?.val || 0;
+     const parteABancaSara = (G.despABanca.reduce((a, d) => a + d.val, 0) * (1 - G.contrib / 100)) - cartaoRef - segFilhos;
+     const sobraSara = totSaraRend - totSaraDesp - parteABancaSara;
+     
+     saraData.push(['═══════════════════════════════════════════════════════']);
+     saraData.push(['RESUMO']);
+     saraData.push(['═══════════════════════════════════════════════════════']);
+     saraData.push([]);
+     saraData.push(['Contribuição ABanca', parteABancaSara]);
+     saraData.push(['SOBRA MENSAL', sobraSara]);
+     saraData.push([]);
+     saraData.push(['ALOCAÇÕES']);
+     G.sara.aloc.forEach(a => saraData.push([a.desc, a.val]));
+     
+     const wsSara = XLSX.utils.aoa_to_sheet(saraData);
+     wsSara['!cols'] = [{ wch: 30 }, { wch: 18 }];
+     XLSX.utils.book_append_sheet(wb, wsSara, '👩 Sara');
+     
+     XLSX.writeFile(wb, `Dashboard_Financeiro_${ano}.xlsx`);
+   } catch (e) { 
+     console.error(e);
+     alert('Erro ao exportar: ' + e.message); 
+   }
  };
 
  // Modal de Backup
