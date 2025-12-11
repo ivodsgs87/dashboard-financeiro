@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData, subscribeToUserData } from './firebase';
+import React, { useState, useEffect, useRef } from 'react';
+import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData } from './firebase';
 import OrcamentoApp from './OrcamentoApp';
 
 const App = () => {
@@ -8,6 +8,7 @@ const App = () => {
   const [userData, setUserData] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const dataLoadedRef = useRef(false);
 
   // Listen to auth state
   useEffect(() => {
@@ -18,30 +19,23 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // Subscribe to user data when logged in
+  // Load user data ONCE when logged in
   useEffect(() => {
     if (!user) {
       setUserData(null);
+      dataLoadedRef.current = false;
       return;
     }
 
-    // Load initial data
+    if (dataLoadedRef.current) return;
+
     const loadData = async () => {
       const data = await getUserData(user.uid);
-      if (data) {
-        setUserData(data);
-        setLastSync(data.updatedAt);
-      }
+      setUserData(data);
+      setLastSync(data?.updatedAt || null);
+      dataLoadedRef.current = true;
     };
     loadData();
-
-    // Subscribe to real-time updates
-    const unsubscribe = subscribeToUserData(user.uid, (data) => {
-      setUserData(data);
-      setLastSync(data.updatedAt);
-    });
-
-    return () => unsubscribe();
   }, [user]);
 
   // Save data to Firebase
