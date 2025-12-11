@@ -1707,9 +1707,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  return (
- <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+ <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden">
  <BackupModal />
- <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
+ <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}`}</style>
  
  <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
@@ -1746,14 +1746,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
           </div>
         </header>
 
-      <nav className="flex gap-2 px-6 py-3 bg-slate-800/30 border-b border-slate-700/30">
- {tabs.map(t => (
- <button key={t.id} onClick={()=>setTab(t.id)} className={`px-4 py-2.5 rounded-xl font-medium text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25':'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>{t.icon} {t.label}</button>
- ))}
- </nav>
+      <nav className="flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-slate-800/30 border-b border-slate-700/30 overflow-x-auto scrollbar-hide">
+        {tabs.map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25':'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+        ))}
+      </nav>
 
- <main className="p-3 sm:p-6 max-w-7xl mx-auto">
- {tab==='resumo' && <Resumo/>}
+      <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
+        {tab==='resumo' && <Resumo/>}
  {tab==='receitas' && <Receitas/>}
  {tab==='abanca' && <ABanca/>}
  {tab==='pessoais' && <Pessoais/>}
