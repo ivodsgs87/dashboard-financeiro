@@ -315,6 +315,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       aloc: [{id:1,desc:'Emergência',val:230,cor:'#3b82f6'},{id:2,desc:'ETF',val:100,cor:'#8b5cf6'},{id:3,desc:'Férias',val:130,cor:'#f59e0b'},{id:4,desc:'Amortização',val:130,cor:'#10b981'}]
     },
     portfolioHist: [],
+    metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
     credito: {
       valorCasa: 365000,
       entradaInicial: 36500,
@@ -336,6 +337,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
   const saveTimeoutRef = useRef(null);
   const isSavingRef = useRef(false);
 
@@ -358,8 +360,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
   // Auto-save para Firebase (com debounce de 3 segundos)
   useEffect(() => {
-    if (!dataLoaded) return; // Não guardar antes de carregar
-    if (isSavingRef.current) return; // Não guardar se já está a guardar
+    if (!dataLoaded) return;
+    if (isSavingRef.current) return;
+    
+    setHasChanges(true);
     
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -370,6 +374,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       isSavingRef.current = true;
       try {
         await onSaveData({ g: G, m: M });
+        setHasChanges(false);
         console.log('Dados guardados!');
       } catch (e) {
         console.error('Erro ao guardar:', e);
@@ -448,7 +453,47 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const uS = useCallback((f,v) => setG(p => ({...p, sara:{...p.sara, [f]:v}})), []);
  const uC = useCallback((f,v) => setG(p => ({...p, credito:{...p.credito, [f]:v}})), []);
 
- const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,sara,portfolioHist=[],credito=defG.credito} = G;
+ // Função para aplicar investimentos do mês atual aos meses futuros
+ const aplicarInvFuturos = useCallback(() => {
+   const mesAtualIdx = meses.indexOf(mes);
+   const invAtuais = M[mesKey]?.inv || defM.inv;
+   setM(prev => {
+     const newM = {...prev};
+     for (let i = mesAtualIdx + 1; i < 12; i++) {
+       const k = `${ano}-${i + 1}`;
+       newM[k] = {...(newM[k] || defM), inv: invAtuais.map(x => ({...x, done: false}))};
+     }
+     for (let i = 0; i < 12; i++) {
+       const k = `${ano + 1}-${i + 1}`;
+       newM[k] = {...(newM[k] || defM), inv: invAtuais.map(x => ({...x, done: false}))};
+     }
+     return newM;
+   });
+   alert(`✅ Investimentos aplicados até Dezembro ${ano + 1}`);
+ }, [mes, ano, mesKey, M, meses]);
+
+ // Função para duplicar receitas do mês anterior
+ const duplicarMesAnterior = useCallback(() => {
+   const mesAnteriorKey = getMesAnteriorKey(mesKey);
+   const mesAnteriorData = M[mesAnteriorKey];
+   if (!mesAnteriorData || (mesAnteriorData.regCom?.length === 0 && mesAnteriorData.regSem?.length === 0)) {
+     alert('⚠️ O mês anterior não tem receitas para duplicar');
+     return;
+   }
+   const novasRegCom = mesAnteriorData.regCom?.map(r => ({...r, id: Date.now() + Math.random(), data: new Date().toISOString().split('T')[0]})) || [];
+   const novasRegSem = mesAnteriorData.regSem?.map(r => ({...r, id: Date.now() + Math.random(), data: new Date().toISOString().split('T')[0]})) || [];
+   setM(prev => ({
+     ...prev,
+     [mesKey]: {
+       ...(prev[mesKey] || defM),
+       regCom: [...(prev[mesKey]?.regCom || []), ...novasRegCom],
+       regSem: [...(prev[mesKey]?.regSem || []), ...novasRegSem]
+     }
+   }));
+   alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
+ }, [mesKey, M, getMesAnteriorKey]);
+
+ const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
  const {regCom,regSem,inv,transf} = mesD;
 
  const inCom = regCom.reduce((a,r)=>a+r.val,0);
@@ -492,16 +537,46 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // UI Components
   const Card = ({children, className = ''}) => <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 p-3 sm:p-5 ${className}`}>{children}</div>;
   const StatCard = ({label, value, color = 'text-white', sub, icon}) => <Card className="p-3 sm:p-4"><p className="text-slate-400 text-xs font-medium mb-1">{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color}`}>{value}</p>{sub && <p className="text-slate-500 text-xs mt-1 truncate">{sub}</p>}</Card>;
- const Button = ({children, onClick, variant = 'primary', size = 'md'}) => {
+ const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
  const base = 'font-semibold rounded-xl transition-all duration-200 ';
  const variants = {primary: 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
     const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
- return <button onClick={onClick} className={base + variants[variant] + ' ' + sizes[size]}>{children}</button>;
+ return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
   const Select = ({children, className = '', ...props}) => <select className={`bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer ${className}`} {...props}>{children}</select>;
  const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full bg-slate-700/50 rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-500" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
  const Row = ({children, highlight}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all ${highlight ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
   const inputClass = "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
+
+ // Calcular totais anuais para metas
+ const calcularTotaisAnuais = useCallback(() => {
+   let receitasAnuais = 0;
+   let amortizacaoAnual = 0;
+   let investimentosAnuais = 0;
+   
+   for (let i = 1; i <= 12; i++) {
+     const k = `${ano}-${i}`;
+     const mesData = M[k] || {};
+     const mCom = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
+     const mSem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
+     receitasAnuais += mCom + mSem;
+     
+     // Calcular amortização e investimentos baseado no disponível de cada mês
+     const mTotRec = mCom + mSem;
+     const mValTax = mCom * (taxa / 100);
+     const mRecLiq = mTotRec - mValTax;
+     const mRestante = mRecLiq - minhaAB - totPess - ferias;
+     if (mRestante > 0) {
+       amortizacaoAnual += mRestante * (alocAmort / 100);
+       investimentosAnuais += mRestante * ((100 - alocAmort) / 100);
+     }
+   }
+   return { receitasAnuais, amortizacaoAnual, investimentosAnuais };
+ }, [ano, M, taxa, minhaAB, totPess, ferias, alocAmort]);
+
+ const totaisAnuais = calcularTotaisAnuais();
+ const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
+ const progressoEsperado = mesAtualNum / 12;
 
  // RESUMO
  const Resumo = () => {
@@ -515,6 +590,54 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} do income com retenção`} icon="📋"/>
  <StatCard label="Disponível Alocar" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Após despesas e férias" icon="🎯"/>
  </div>
+
+ {/* METAS ANUAIS */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">🎯 Metas Anuais {ano}</h3>
+     <span className="text-xs text-slate-500">{mesAtualNum} de 12 meses ({fmtP(progressoEsperado * 100)})</span>
+   </div>
+   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+     {[
+       { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6' },
+       { label: '🏠 Amortização', atual: totaisAnuais.amortizacaoAnual, meta: metas.amortizacao, key: 'amortizacao', color: '#10b981' },
+       { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' }
+     ].map(m => {
+       const pct = m.meta > 0 ? (m.atual / m.meta) * 100 : 0;
+       const esperado = m.meta * progressoEsperado;
+       const onTrack = m.atual >= esperado;
+       const diff = m.atual - esperado;
+       return (
+         <div key={m.key} className="p-4 bg-slate-700/30 rounded-xl">
+           <div className="flex justify-between items-start mb-2">
+             <span className="text-sm font-medium text-slate-300">{m.label}</span>
+             <span className={`text-xs px-2 py-0.5 rounded-full ${onTrack ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+               {onTrack ? '✓ On track' : '⚠️ Atrasado'}
+             </span>
+           </div>
+           <div className="flex items-baseline gap-2 mb-1">
+             <span className="text-xl font-bold" style={{color: m.color}}>{fmt(m.atual)}</span>
+             <span className="text-sm text-slate-500">/ {fmt(m.meta)}</span>
+           </div>
+           <ProgressBar value={m.atual} max={m.meta || 1} color={m.color} height="h-2"/>
+           <div className="flex justify-between mt-2 text-xs">
+             <span className="text-slate-500">{pct.toFixed(0)}% da meta</span>
+             <span className={onTrack ? 'text-emerald-400' : 'text-red-400'}>
+               {diff >= 0 ? '+' : ''}{fmt(diff)} vs esperado
+             </span>
+           </div>
+           <div className="mt-2 pt-2 border-t border-slate-600/50">
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-slate-500">Meta:</span>
+               <StableInput type="number" className="flex-1 bg-slate-600/50 border border-slate-500/50 rounded-lg px-2 py-1 text-xs text-white text-right" initialValue={m.meta} onSave={v => setG(p => ({...p, metas: {...p.metas, [m.key]: v}}))}/>
+               <span className="text-xs text-slate-500">€</span>
+             </div>
+           </div>
+         </div>
+       );
+     })}
+   </div>
+ </Card>
 
  {porCli.length > 0 && (
  <Card>
@@ -606,7 +729,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold flex items-center gap-3">💼 Receitas COM Taxas <span className="text-sm px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full font-medium">{fmt(inCom)}</span></h3>
- <Button onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+ Adicionar</Button>
+ <div className="flex gap-2">
+   <Button variant="secondary" onClick={duplicarMesAnterior}>📋 Duplicar mês anterior</Button>
+   <Button onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+ Adicionar</Button>
+ </div>
  </div>
  
  <div className="flex items-center gap-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl mb-4">
@@ -654,7 +780,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
  <h3 className="text-lg font-semibold">🏠 Despesas ABanca (Fixas Partilhadas)</h3>
- <p className="text-xs text-slate-500">Arrasta as linhas para reordenar</p>
+ <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
  </div>
@@ -690,7 +816,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
  <h3 className="text-lg font-semibold">👤 Despesas Pessoais (Activo Bank)</h3>
- <p className="text-xs text-slate-500">Arrasta as linhas para reordenar</p>
+ <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
  </div>
@@ -753,7 +879,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold">📈 Alocação de Investimentos</h3>
  <p className="text-xs text-slate-500">Arrasta as linhas para reordenar</p>
  </div>
- <Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',val:0,done:false}])}>+ Adicionar</Button>
+ <div className="flex gap-2"><Button variant="secondary" onClick={aplicarInvFuturos}>📅 Aplicar a meses futuros</Button><Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',val:0,done:false}])}>+ Adicionar</Button></div>
  </div>
  <DraggableList
  items={inv}
@@ -1044,18 +1170,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6">
- <Card className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 border-blue-500/30">
- <div className="flex justify-between items-center">
- <div>
- <p className="text-sm text-slate-400 mb-1">💎 Portfolio Total</p>
- <p className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">{fmt(totPort)}</p>
- </div>
- <div className="flex gap-2">
- <Button onClick={guardarSnapshot}>📸 Guardar Snapshot</Button>
- <Button variant="danger" onClick={() => setG(p => ({...p, portfolioHist: [], portfolioDetail: {}}))}>🗑️ Limpar Histórico</Button>
- </div>
- </div>
- </Card>
 
  {lineData.length > 1 && (
  <Card>
@@ -1982,9 +2096,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                 <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>{exporting ? '⏳' : '📊'}<span className="hidden sm:inline">{exporting ? ' A exportar...' : ' Google Sheets'}</span></button>
               </div>
               {syncing ? (
-                <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">Sync...</span></div>
+                <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
+              ) : hasChanges ? (
+                <div className="flex items-center gap-1 text-xs text-orange-400"><div className="w-2 h-2 rounded-full bg-orange-400"/><span className="hidden sm:inline">Não guardado</span></div>
               ) : (
-                <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">OK</span></div>
+                <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">Guardado</span></div>
               )}
               <div className="flex items-center gap-2 pl-2 border-l border-slate-700">
                 {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full"/>}
