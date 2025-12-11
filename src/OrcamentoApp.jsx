@@ -249,19 +249,29 @@ const DraggableList = memo(({items, onReorder, renderItem}) => {
 });
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
-  const [mes, setMes] = useState('Dezembro');
-  const [ano, setAno] = useState(2025);
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
+  
+  // Mês e ano atual do sistema
+  const hoje = new Date();
+  const mesAtualSistema = meses[hoje.getMonth()];
+  const anoAtualSistema = hoje.getFullYear();
+  
+  const [mes, setMes] = useState(mesAtualSistema);
+  const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
-  const [histAno, setHistAno] = useState(2025);
+  const [histAno, setHistAno] = useState(anoAtualSistema);
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupMode, setBackupMode] = useState('export');
   const [backupData, setBackupData] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
-  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
+  
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
   const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
   const catsP = ['ETFs','Liquidez','Reforma','Cripto','P2P','Filhos','Imobiliário','PPR','Fundo de Emergência','Outros'];
+  
+  // Verificar se é o mês/ano atual
+  const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
 
   const defG = {
     clientes: [{id:1,nome:'Marius',cor:'#3b82f6'},{id:2,nome:'Sophie',cor:'#ec4899'}],
@@ -426,8 +436,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCores = {'ETFs':'#3b82f6','Liquidez':'#10b981','Reforma':'#f59e0b','Cripto':'#ec4899','P2P':'#8b5cf6','Filhos':'#14b8a6','Imobiliário':'#f97316','PPR':'#eab308','Fundo de Emergência':'#06b6d4','Outros':'#64748b'};
 
  // UI Components
- const Card = ({children, className = ''}) => <div className={`bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-5 ${className}`}>{children}</div>;
- const StatCard = ({label, value, color = 'text-white', sub, icon}) => <Card className="p-4"><p className="text-slate-400 text-xs font-medium mb-1">{icon} {label}</p><p className={`text-xl font-bold ${color}`}>{value}</p>{sub && <p className="text-slate-500 text-xs mt-1 truncate">{sub}</p>}</Card>;
+  const Card = ({children, className = ''}) => <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 p-3 sm:p-5 ${className}`}>{children}</div>;
+  const StatCard = ({label, value, color = 'text-white', sub, icon}) => <Card className="p-3 sm:p-4"><p className="text-slate-400 text-xs font-medium mb-1">{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color}`}>{value}</p>{sub && <p className="text-slate-500 text-xs mt-1 truncate">{sub}</p>}</Card>;
  const Button = ({children, onClick, variant = 'primary', size = 'md'}) => {
  const base = 'font-semibold rounded-xl transition-all duration-200 ';
  const variants = {primary: 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
@@ -445,7 +455,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  
  return (<div key={mesKey} className="space-y-6">
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  <StatCard label="Receita Total" value={fmt(totRec)} color="text-white" sub={`Com: ${fmt(inCom)} + Sem: ${fmt(inSem)}`} icon="💰"/>
  <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Após ${fmtP(taxa)} taxas`} icon="✨"/>
  <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} do income com retenção`} icon="📋"/>
@@ -455,7 +465,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {porCli.length > 0 && (
  <Card>
  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">👥 Receitas por Cliente</h3>
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {porCli.map(c => (
  <div key={c.id} className="p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: c.cor}}>
  <p className="text-sm font-medium text-slate-300">{c.nome}</p>
@@ -677,7 +687,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
 
- <div className="grid grid-cols-3 gap-3 max-w-3xl">
+ <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
  <Card className="bg-purple-500/10 border-purple-500/30"><p className="text-xs text-slate-400 mb-1">💰 Disponível</p><p className="text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
  <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1">📊 Investido</p><p className="text-xl font-bold text-blue-400">{fmt(totInv)}</p></Card>
  <Card className={rest>=0?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️ Excesso'}</p><p className={`text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
@@ -742,7 +752,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6">
- <div className="grid grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
  <StatCard label="Rendimentos" value={fmt(totSaraR)} color="text-emerald-400" icon="💰"/>
  <StatCard label="Despesas" value={fmt(totSaraD)} color="text-orange-400" icon="💸"/>
  <StatCard label="Contrib. Casal" value={fmt(contribSaraAB)} color="text-pink-400" sub={`${fmtP(100-contrib)} - CR - Seg.`} icon="🏠"/>
@@ -808,7 +818,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between text-sm mb-2"><span className="text-slate-400">Alocado: {fmt(totAloc)} de {fmt(sobraSara)}</span><span className={pctAloc>100?'text-red-400':'text-emerald-400'}>{pctAloc.toFixed(1)}%</span></div>
  <ProgressBar value={totAloc} max={sobraSara||1} color={pctAloc>100?'#ef4444':'#10b981'} height="h-2"/>
  </div>
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {sara.aloc.map(a => {
  const pct = sobraSara>0?(a.val/sobraSara)*100:0;
  return (
@@ -859,7 +869,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Select>
  </div>
 
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  <StatCard label={`Total ${histAno}`} value={fmt(totH)} color="text-blue-400" icon="📊"/>
  <StatCard label="Média Mensal" value={fmt(mediaAnual)} color="text-emerald-400" sub={`${hAno.length} meses com dados`} icon="📈"/>
  <StatCard label="Com Taxas" value={fmt(hAno.reduce((a,x)=>a+x.com,0))} color="text-orange-400" icon="📋"/>
@@ -868,7 +878,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  <Card>
  <h3 className="text-lg font-semibold mb-4">📊 Médias por Trimestre</h3>
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {mediaTrim.map(t => (
  <div key={t.q} className={`p-3 rounded-xl ${t.meses > 0 ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
  <p className="text-sm font-semibold text-slate-300 mb-1">{t.q} ({t.meses} meses)</p>
@@ -1192,7 +1202,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6">
- <div className="grid grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
  <StatCard label="Dívida Atual" value={fmt(dividaAtual)} color="text-red-400" icon="🏠"/>
  <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
  <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
@@ -1307,7 +1317,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="text-xs text-slate-500">i = ({simEuribor}% + {simSpread}%) / 12 = {((taxaSimulada/100)/12*100).toFixed(4)}% ao mês</div>
  </div>
  
- <div className="grid grid-cols-3 gap-4">
+ <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
  <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl text-center">
  <p className="text-xs text-slate-500 mb-1">Prestação Atual</p>
  <p className="text-2xl font-bold text-orange-400">{fmt(prestacao)}</p>
@@ -1347,7 +1357,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  ) : (
  <>
  <LineChart data={histLineData} height={200} color="#ef4444"/>
- <div className="mt-4 grid grid-cols-3 gap-4">
+ <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
  <div className="p-3 bg-slate-700/30 rounded-xl text-center">
  <p className="text-xs text-slate-500">Primeiro registo</p>
  <p className="font-bold text-slate-300">{fmt(historico[0]?.divida || 0)}</p>
@@ -1400,7 +1410,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  
- <div className="grid grid-cols-3 gap-4">
+ <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
  <div className="p-4 bg-slate-700/30 rounded-xl text-center">
  <p className="text-xs text-slate-500 mb-1">Sem amortização extra</p>
  <p className="text-lg font-bold text-slate-400">{(calcularMesesParaLiquidar(0)/12).toFixed(1)} anos</p>
@@ -1701,29 +1711,40 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <BackupModal />
  <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
  
- <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-6 py-4 flex justify-between items-center gap-3 sticky top-0 z-50">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">💎 Dashboard Financeiro</h1>
-        <div className="flex items-center gap-4">
-          <div className="flex gap-2">
-            <Select value={mes} onChange={e=>setMes(e.target.value)}>{meses.map(m=><option key={m} value={m}>{m}</option>)}</Select>
-            <Select value={ano} onChange={e=>setAno(+e.target.value)}>{anos.map(a=><option key={a} value={a}>{a}</option>)}</Select>
+ <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+            <div className="flex items-center justify-between sm:justify-start gap-3">
+              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">💎 Dashboard</h1>
+              <div className="flex gap-2">
+                <select value={mes} onChange={e=>setMes(e.target.value)} className={`bg-slate-700/50 border rounded-xl px-2 sm:px-3 py-1.5 text-sm text-white focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : 'border-slate-600'}`}>
+                  {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
+                </select>
+                <select value={ano} onChange={e=>setAno(+e.target.value)} className={`bg-slate-700/50 border rounded-xl px-2 sm:px-3 py-1.5 text-sm text-white focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : 'border-slate-600'}`}>
+                  {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
+                </select>
+                {!isMesAtual(mes, ano) && (
+                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Hoje</button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
+              <div className="flex gap-1 sm:gap-2">
+                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋<span className="hidden sm:inline"> Backup</span></button>
+                <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤<span className="hidden sm:inline"> Restaurar</span></button>
+              </div>
+              {syncing ? (
+                <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">Sync...</span></div>
+              ) : (
+                <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">OK</span></div>
+              )}
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-700">
+                {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full"/>}
+                <span className="hidden sm:inline text-sm text-slate-300">{user?.displayName?.split(' ')[0]}</span>
+                <button onClick={onLogout} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">Sair</button>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋 Backup</button>
-            <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤 Restaurar</button>
-          </div>
-          {syncing ? (
-            <div className="flex items-center gap-2 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/>A sincronizar...</div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/>Sincronizado</div>
-          )}
-          <div className="flex items-center gap-3 pl-3 border-l border-slate-700">
-            {user?.photoURL && <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full"/>}
-            <span className="text-sm text-slate-300">{user?.displayName?.split(' ')[0]}</span>
-            <button onClick={onLogout} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">Sair</button>
-          </div>
-        </div>
-      </header>
+        </header>
 
       <nav className="flex gap-2 px-6 py-3 bg-slate-800/30 border-b border-slate-700/30">
  {tabs.map(t => (
@@ -1731,7 +1752,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  ))}
  </nav>
 
- <main className="p-6 max-w-7xl mx-auto">
+ <main className="p-3 sm:p-6 max-w-7xl mx-auto">
  {tab==='resumo' && <Resumo/>}
  {tab==='receitas' && <Receitas/>}
  {tab==='abanca' && <ABanca/>}
