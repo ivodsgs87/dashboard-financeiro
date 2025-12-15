@@ -6,9 +6,11 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, ...pr
   const inputRef = useRef(null);
   const lastSavedValue = useRef(initialValue);
   const hasFocus = useRef(false);
+  const isEditing = useRef(false);
   
   const handleFocus = () => {
     hasFocus.current = true;
+    isEditing.current = true;
   };
   
   const handleBlur = (e) => {
@@ -18,6 +20,8 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, ...pr
       lastSavedValue.current = val;
       onSave(val);
     }
+    // Pequeno delay para não resetar imediatamente
+    setTimeout(() => { isEditing.current = false; }, 100);
   };
   
   const handleKeyDown = (e) => { 
@@ -26,11 +30,11 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, ...pr
     }
   };
   
-  // Só atualizar o valor se NÃO tiver foco e o valor for diferente
+  // NUNCA atualizar o valor se estiver a editar ou com foco
   useEffect(() => {
-    if (inputRef.current && !hasFocus.current) {
-      if (inputRef.current.value !== String(initialValue)) {
-        inputRef.current.value = initialValue;
+    if (inputRef.current && !hasFocus.current && !isEditing.current) {
+      if (inputRef.current.value !== String(initialValue ?? '')) {
+        inputRef.current.value = initialValue ?? '';
         lastSavedValue.current = initialValue;
       }
     }
@@ -48,6 +52,37 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, ...pr
       {...props}
     />
   );
+});
+
+// Stable Date Input - para campos de data
+const StableDateInput = memo(({value, onChange, className}) => {
+  const inputRef = useRef(null);
+  const hasFocus = useRef(false);
+  
+  const handleFocus = () => { hasFocus.current = true; };
+  const handleBlur = () => { hasFocus.current = false; };
+  const handleChange = (e) => { onChange(e.target.value); };
+  
+  useEffect(() => {
+    if (inputRef.current && !hasFocus.current) {
+      if (inputRef.current.value !== value) {
+        inputRef.current.value = value;
+      }
+    }
+  }, [value]);
+  
+  return (
+    <input 
+      ref={inputRef}
+      type="date" 
+      defaultValue={value}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onChange={handleChange}
+      className={className}
+    />
+  );
+});
 });
 
 // Slider com input manual
@@ -299,7 +334,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
   const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
-  const catsP = ['ETFs','Liquidez','Reforma','Cripto','P2P','Filhos','Imobiliário','PPR','Fundo de Emergência','Outros'];
+  const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
   
   // Verificar se é o mês/ano atual
   const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
@@ -309,6 +344,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     taxa: 38, contrib: 50, alocAmort: 75, ferias: 130,
     despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Utilidades',val:200},{id:5,desc:'Mercado',cat:'Alimentação',val:714},{id:6,desc:'Internet',cat:'Utilidades',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Bancário',val:5},{id:9,desc:'Bar/Café',cat:'Lazer',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Outros',val:120},{id:12,desc:'Ginástica',cat:'Outros',val:45},{id:13,desc:'Seguro filhos',cat:'Seguros',val:60}],
     despPess: [{id:1,desc:'Telemóvel',cat:'Utilidades',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Vários',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Alimentação',val:100}],
+    catsInv: ['ETF','PPR','P2P','CRIPTO','FE','CREDITO'],
     sara: {
       rend: [{id:1,desc:'Flex anual',val:1131},{id:2,desc:'Cartão Refeição',val:224,isCR:true},{id:3,desc:'Salário',val:1360}],
       desp: [{id:1,desc:'Seguro Carro',val:60.39},{id:2,desc:'Carro',val:720},{id:3,desc:'Crossfit',val:89},{id:4,desc:'Seguro Sara',val:20},{id:5,desc:'Disney Plus',val:15},{id:6,desc:'Google',val:2},{id:7,desc:'Despesas extra',val:200}],
@@ -331,7 +367,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     }
   };
 
-  const defM = {regCom:[],regSem:[],inv:[{id:1,desc:'ETFs',val:0,done:false},{id:2,desc:'Poupança',val:0,done:false},{id:3,desc:'P2P',val:0,done:false},{id:4,desc:'Cripto',val:0,done:false},{id:5,desc:'Degiro Laura',val:0,done:false},{id:6,desc:'Degiro Eduardo',val:0,done:false}],transf:{abanca:false,activo:false,trade:false,revolut:false},portfolio:[{id:1,desc:'Trade Republic',cat:'ETFs',val:0},{id:2,desc:'Degiro',cat:'ETFs',val:0},{id:3,desc:'Poupança',cat:'Liquidez',val:0},{id:4,desc:'PPR',cat:'Reforma',val:0},{id:5,desc:'Cripto',cat:'Cripto',val:0},{id:6,desc:'P2P',cat:'P2P',val:0},{id:7,desc:'Degiro Laura',cat:'Filhos',val:0},{id:8,desc:'Degiro Eduardo',cat:'Filhos',val:0}]};
+  const defM = {regCom:[],regSem:[],inv:[{id:1,desc:'Trade Republic',cat:'ETF',val:0,done:false},{id:2,desc:'Degiro',cat:'ETF',val:0,done:false},{id:3,desc:'PPR',cat:'PPR',val:0,done:false},{id:4,desc:'Cripto',cat:'CRIPTO',val:0,done:false},{id:5,desc:'P2P',cat:'P2P',val:0,done:false},{id:6,desc:'Amortização Extra',cat:'CREDITO',val:0,done:false}],transf:{abanca:false,activo:false,trade:false,revolut:false},portfolio:[{id:1,desc:'Trade Republic',cat:'ETF',val:0},{id:2,desc:'Degiro',cat:'ETF',val:0},{id:3,desc:'PPR',cat:'PPR',val:0},{id:4,desc:'Cripto',cat:'CRIPTO',val:0},{id:5,desc:'P2P',cat:'P2P',val:0},{id:6,desc:'Fundo Emergência',cat:'FE',val:0},{id:7,desc:'Amortização Acumulada',cat:'CREDITO',val:0}]};
 
   // Inicializar estado com dados do Firebase ou defaults
   const [G, setG] = useState(defG);
@@ -493,7 +529,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
  }, [mesKey, M, getMesAnteriorKey]);
 
- const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
+ const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
  const {regCom,regSem,inv,transf} = mesD;
 
  const inCom = regCom.reduce((a,r)=>a+r.val,0);
@@ -531,8 +567,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  return h.sort((a,b)=>a.ano===b.ano?a.mes-b.mes:a.ano-b.ano);
  }, [M]);
 
- const invCores = {'ETFs':'#3b82f6','Poupança':'#10b981','P2P':'#ec4899','Cripto':'#14b8a6','PPR':'#f59e0b','Degiro Laura':'#f97316','Degiro Eduardo':'#f97316'};
- const catCores = {'ETFs':'#3b82f6','Liquidez':'#10b981','Reforma':'#f59e0b','Cripto':'#ec4899','P2P':'#8b5cf6','Filhos':'#14b8a6','Imobiliário':'#f97316','PPR':'#eab308','Fundo de Emergência':'#06b6d4','Outros':'#64748b'};
+ const catCoresInv = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
 
  // UI Components
   const Card = ({children, className = ''}) => <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 p-3 sm:p-5 ${className}`}>{children}</div>;
@@ -551,8 +586,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
    let receitasAnuais = 0;
-   let amortizacaoAnual = 0;
    let investimentosAnuais = 0;
+   const receitasPorCliente = {};
+   
+   // Inicializar clientes
+   clientes.forEach(c => { receitasPorCliente[c.id] = { nome: c.nome, cor: c.cor, total: 0 }; });
    
    for (let i = 1; i <= 12; i++) {
      const k = `${ano}-${i}`;
@@ -561,18 +599,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const mSem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
      receitasAnuais += mCom + mSem;
      
-     // Calcular amortização e investimentos baseado no disponível de cada mês
-     const mTotRec = mCom + mSem;
-     const mValTax = mCom * (taxa / 100);
-     const mRecLiq = mTotRec - mValTax;
-     const mRestante = mRecLiq - minhaAB - totPess - ferias;
-     if (mRestante > 0) {
-       amortizacaoAnual += mRestante * (alocAmort / 100);
-       investimentosAnuais += mRestante * ((100 - alocAmort) / 100);
-     }
+     // Receitas por cliente
+     mesData.regCom?.forEach(r => { if (receitasPorCliente[r.cid]) receitasPorCliente[r.cid].total += r.val; });
+     mesData.regSem?.forEach(r => { if (receitasPorCliente[r.cid]) receitasPorCliente[r.cid].total += r.val; });
+     
+     // Investimentos do mês (exceto CREDITO)
+     const invMes = mesData.inv?.filter(i => i.cat !== 'CREDITO').reduce((a, i) => a + i.val, 0) || 0;
+     investimentosAnuais += invMes;
    }
-   return { receitasAnuais, amortizacaoAnual, investimentosAnuais };
- }, [ano, M, taxa, minhaAB, totPess, ferias, alocAmort]);
+   
+   // Amortização = valor do portfolio em CREDITO (acumulado)
+   const portfolioAtual = M[mesKey]?.portfolio || [];
+   const amortizacaoAnual = portfolioAtual.filter(p => p.cat === 'CREDITO').reduce((a, p) => a + p.val, 0);
+   
+   return { receitasAnuais, amortizacaoAnual, investimentosAnuais, receitasPorCliente };
+ }, [ano, M, mesKey, clientes]);
 
  const totaisAnuais = calcularTotaisAnuais();
  const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
@@ -641,7 +682,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {porCli.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">👥 Receitas por Cliente</h3>
+ <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">👥 Receitas por Cliente (Este Mês)</h3>
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {porCli.map(c => (
  <div key={c.id} className="p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: c.cor}}>
@@ -649,6 +690,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="text-lg font-bold mt-1">{fmt(c.tot)}</p>
  </div>
  ))}
+ </div>
+ </Card>
+ )}
+
+ {/* Resumo Anual por Cliente */}
+ {Object.values(totaisAnuais.receitasPorCliente).some(c => c.total > 0) && (
+ <Card>
+ <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">📊 Receitas por Cliente ({ano})</h3>
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+ {Object.values(totaisAnuais.receitasPorCliente).filter(c => c.total > 0).sort((a,b) => b.total - a.total).map((c, i) => (
+ <div key={i} className="p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: c.cor}}>
+ <p className="text-sm font-medium text-slate-300">{c.nome}</p>
+ <p className="text-lg font-bold mt-1">{fmt(c.total)}</p>
+ <p className="text-xs text-slate-500">{((c.total / totaisAnuais.receitasAnuais) * 100).toFixed(0)}% do total</p>
+ </div>
+ ))}
+ </div>
+ <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between">
+   <span className="text-sm text-slate-400">Total Anual {ano}</span>
+   <span className="text-lg font-bold text-white">{fmt(totaisAnuais.receitasAnuais)}</span>
  </div>
  </Card>
  )}
@@ -744,7 +805,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="space-y-2">
  {regCom.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : regCom.map(r => (
  <Row key={r.id}>
- <input type="date" className={`${inputClass} w-36`} defaultValue={r.data} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,data:e.target.value}:x))}/>
+ <StableDateInput value={r.data} onChange={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-36`}/>
  <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-28">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
  <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
  <StableInput type="number" className={`w-28 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
@@ -762,7 +823,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="space-y-2">
  {regSem.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : regSem.map(r => (
  <Row key={r.id}>
- <input type="date" className={`${inputClass} w-36`} defaultValue={r.data} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,data:e.target.value}:x))}/>
+ <StableDateInput value={r.data} onChange={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-36`}/>
  <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-28">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
  <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
  <StableInput type="number" className={`w-28 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
@@ -843,7 +904,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const Invest = () => {
  const disp = restante>0?restante:0;
  const pInv = disp*((100-alocAmort)/100);
- const rest = pInv - totInv;
+ const totInvSemCredito = inv.filter(i => i.cat !== 'CREDITO').reduce((a,i) => a + i.val, 0);
+ const rest = pInv - totInvSemCredito;
+ const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
+ const [novaCat, setNovaCat] = useState('');
+ 
  return (
  <div key={mesKey} className="space-y-6">
  <Card>
@@ -869,7 +934,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
  <Card className="bg-purple-500/10 border-purple-500/30"><p className="text-xs text-slate-400 mb-1">💰 Disponível</p><p className="text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
- <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1">📊 Investido</p><p className="text-xl font-bold text-blue-400">{fmt(totInv)}</p></Card>
+ <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1">📊 Investido</p><p className="text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
  <Card className={rest>=0?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️ Excesso'}</p><p className={`text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
  </div>
 
@@ -877,22 +942,36 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-4 max-w-3xl">
  <div>
  <h3 className="text-lg font-semibold">📈 Alocação de Investimentos</h3>
- <p className="text-xs text-slate-500">Arrasta as linhas para reordenar</p>
+ <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
- <div className="flex gap-2"><Button variant="secondary" onClick={aplicarInvFuturos}>📅 Aplicar a meses futuros</Button><Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',val:0,done:false}])}>+ Adicionar</Button></div>
+ <div className="flex gap-2">
+   <Button variant="secondary" onClick={aplicarInvFuturos}>📅 Aplicar a meses futuros</Button>
+   <Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',cat:catsInv[0]||'ETF',val:0,done:false}])}>+ Adicionar</Button>
  </div>
+ </div>
+ 
+ {/* Adicionar categoria */}
+ <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl max-w-xl">
+   <span className="text-xs text-slate-400">Nova categoria:</span>
+   <input type="text" className={`flex-1 ${inputClass} text-xs`} value={novaCat} onChange={e => setNovaCat(e.target.value.toUpperCase())} placeholder="Ex: ACOES"/>
+   <Button size="sm" onClick={() => { if (novaCat && !catsInv.includes(novaCat)) { uG('catsInv', [...catsInv, novaCat]); setNovaCat(''); } }}>+ Adicionar</Button>
+ </div>
+ 
  <DraggableList
  items={inv}
  onReorder={(newItems) => uM('inv', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => {
  const pct = totInv>0?((d.val/totInv)*100).toFixed(1):0;
- const cor = invCores[d.desc]||'#8b5cf6';
+ const cor = catCores[d.cat]||'#8b5cf6';
  return (
  <div className="flex items-center gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none block">⋮⋮</div>
- <StableInput className={`w-[45%] ${inputClass}`} initialValue={d.desc} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,desc:v}:x))}/>
- <StableInput type="number" className={`w-[20%] ${inputClass} text-right`} initialValue={d.val} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,val:v}:x))}/>
- <span className="w-[15%] text-center text-sm font-semibold" style={{color: cor}}>{pct}%</span>
+ <StableInput className={`w-[30%] ${inputClass}`} initialValue={d.desc} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={d.cat||'ETF'} onChange={e=>uM('inv',inv.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="w-[18%]">
+   {catsInv.map(c=><option key={c} value={c}>{c}</option>)}
+ </Select>
+ <StableInput type="number" className={`w-[18%] ${inputClass} text-right`} initialValue={d.val} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,val:v}:x))}/>
+ <span className="w-[12%] text-center text-sm font-semibold" style={{color: cor}}>{pct}%</span>
  <input type="checkbox" className="w-4 h-4 rounded accent-emerald-500 cursor-pointer" checked={d.done} onChange={e=>uM('inv',inv.map(x=>x.id===d.id?{...x,done:e.target.checked}:x))}/>
  <button onClick={()=>uM('inv',inv.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1">✕</button>
  </div>
@@ -903,19 +982,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {totInv > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-4">📊 Distribuição por Investimento</h3>
+ <h3 className="text-lg font-semibold mb-4">📊 Distribuição por Categoria</h3>
  <div className="space-y-3 max-w-3xl">
- {inv.filter(d=>d.val>0).sort((a,b)=>b.val-a.val).map(d => {
- const pct = (d.val/totInv)*100;
- const cor = invCores[d.desc]||'#8b5cf6';
- return (
- <div key={d.id} className="flex items-center gap-4">
- <span className="w-28 text-sm text-slate-300">{d.desc}</span>
- <div className="flex-1"><ProgressBar value={d.val} max={totInv} color={cor} height="h-4"/></div>
- <span className="w-14 text-right text-sm font-semibold" style={{color: cor}}>{pct.toFixed(1)}%</span>
- <span className="w-24 text-right font-semibold">{fmt(d.val)}</span>
- </div>
- );
+ {catsInv.map(cat => {
+   const catTotal = inv.filter(i => i.cat === cat).reduce((a,i) => a + i.val, 0);
+   if (catTotal === 0) return null;
+   const pct = (catTotal/totInv)*100;
+   const cor = catCores[cat]||'#8b5cf6';
+   return (
+   <div key={cat} className="flex items-center gap-4">
+   <span className="w-20 text-sm font-medium" style={{color: cor}}>{cat}</span>
+   <div className="flex-1"><ProgressBar value={catTotal} max={totInv} color={cor} height="h-4"/></div>
+   <span className="w-14 text-right text-sm font-semibold" style={{color: cor}}>{pct.toFixed(1)}%</span>
+   <span className="w-24 text-right font-semibold">{fmt(catTotal)}</span>
+   </div>
+   );
  })}
  </div>
  </Card>
@@ -1108,9 +1189,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // PORTFOLIO
  const Portfolio = () => {
- const porCat = catsP.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0)})).filter(c=>c.val>0);
+ const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
+ const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0)})).filter(c=>c.val>0);
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  const lineData = portfolioHist.slice(-12).map(h => { const [y,m]=h.date.split('-').map(Number); return {label: `${meses[m-1]?.slice(0,3)||m}`, value: h.total}; });
+ const [novaCatPort, setNovaCatPort] = useState('');
  
  // Calcular mês anterior
  const mesAtualIdx = meses.indexOf(mes);
@@ -1202,11 +1285,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">💰 Investimentos</h3>
- <p className="text-xs text-slate-500">Arrasta as linhas para reordenar</p>
+ <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
+ <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
- <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:'Outros',val:0}])}>+ Adicionar</Button>
+ <div className="flex gap-2">
+   <Button variant="secondary" onClick={guardarSnapshot}>📸 Snapshot</Button>
+   <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+ Adicionar</Button>
  </div>
+ </div>
+ 
+ {/* Adicionar categoria */}
+ <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl max-w-xl">
+   <span className="text-xs text-slate-400">Nova categoria:</span>
+   <input type="text" className={`flex-1 ${inputClass} text-xs`} value={novaCatPort} onChange={e => setNovaCatPort(e.target.value.toUpperCase())} placeholder="Ex: ACOES"/>
+   <Button size="sm" onClick={() => { if (novaCatPort && !catsInv.includes(novaCatPort)) { uG('catsInv', [...catsInv, novaCatPort]); setNovaCatPort(''); } }}>+ Adicionar</Button>
+ </div>
+ 
  <DraggableList
  items={portfolio}
  onReorder={(newItems) => uM('portfolio', newItems)}
@@ -1217,7 +1311,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none block">⋮⋮</div>
  <div className="w-1 h-6 rounded-full block" style={{background: catCores[p.cat]||'#64748b'}}/>
  <StableInput className={`w-[35%] ${inputClass}`} initialValue={p.desc} onSave={v=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,desc:v}:x))}/>
- <Select value={p.cat} onChange={e=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,cat:e.target.value}:x))} className="w-[25%]">{catsP.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <Select value={p.cat} onChange={e=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,cat:e.target.value}:x))} className="w-[25%]">{catsInv.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-[18%] ${inputClass} text-right`} initialValue={p.val} onSave={v=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,val:v}:x))}/>
  {perf !== null ? (
  <span className={`w-[12%] text-right text-xs font-semibold ${perf.pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
