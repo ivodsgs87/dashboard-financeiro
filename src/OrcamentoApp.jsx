@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createGoogleSheet, getAccessToken } from './firebase';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
-const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step}) => {
+const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex}) => {
   const inputRef = useRef(null);
   const onSaveRef = useRef(onSave);
   const initialValueRef = useRef(initialValue);
@@ -34,21 +34,30 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       hasEdited = true;
     };
     
-    const onBlur = () => {
-      isFocused = false;
+    const saveValue = () => {
       if (hasEdited) {
         const val = type === 'number' ? (+input.value || 0) : input.value;
         if (val !== savedValue) {
           savedValue = val;
           onSaveRef.current(val);
         }
+        hasEdited = false;
       }
-      hasEdited = false;
+    };
+    
+    const onBlur = () => {
+      isFocused = false;
+      saveValue();
     };
     
     const onKeyDown = (e) => {
       if (e.key === 'Enter') {
+        saveValue();
         input.blur();
+      } else if (e.key === 'Tab') {
+        // Guardar valor antes de mover para o próximo campo
+        saveValue();
+        // Deixar o Tab funcionar naturalmente (não prevenir default)
       }
     };
     
@@ -90,6 +99,7 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       className={className}
       placeholder={placeholder}
       step={step}
+      tabIndex={tabIndex}
     />
   );
 }, () => true); // NUNCA re-renderizar
