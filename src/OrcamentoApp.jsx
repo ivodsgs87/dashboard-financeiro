@@ -446,19 +446,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [redoHistory, setRedoHistory] = useState([]);
   const lastSavedState = useRef(null);
   
-  // Guardar estado para undo (chamado antes de cada alteração significativa)
-  const saveToUndo = useCallback(() => {
-    const currentState = JSON.stringify({ g: G, m: M });
-    if (currentState !== lastSavedState.current) {
-      setUndoHistory(prev => {
-        const newHistory = [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }];
-        return newHistory.slice(-20); // Manter apenas últimos 20
-      });
-      setRedoHistory([]); // Limpar redo quando há nova ação
-      lastSavedState.current = currentState;
-    }
-  }, [G, M]);
-  
   // Função Undo
   const handleUndo = useCallback(() => {
     if (undoHistory.length === 0) return;
@@ -482,15 +469,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     setM(nextState.m);
     lastSavedState.current = JSON.stringify(nextState);
   }, [redoHistory, G, M]);
-  
-  // Guardar estado periodicamente para undo (a cada 10 segundos de inatividade)
-  useEffect(() => {
-    if (!dataLoaded) return;
-    const timer = setTimeout(() => {
-      saveToUndo();
-    }, 10000);
-    return () => clearTimeout(timer);
-  }, [G, M, dataLoaded, saveToUndo]);
 
   // Carregar dados do Firebase UMA VEZ quando initialData chegar
   useEffect(() => {
@@ -599,13 +577,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }
  }, [mesD.portfolio, mesKey]);
 
- const uM = useCallback((f, v) => setM(p => ({...p, [mesKey]: {...(p[mesKey]||defM), [f]:v}})), [mesKey]);
- const uG = useCallback((f,v) => setG(p => ({...p, [f]:v})), []);
- const uS = useCallback((f,v) => setG(p => ({...p, sara:{...p.sara, [f]:v}})), []);
- const uC = useCallback((f,v) => setG(p => ({...p, credito:{...p.credito, [f]:v}})), []);
+ // Funções de update que guardam estado para undo ANTES de alterar
+ const saveUndo = useCallback(() => {
+   setUndoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }].slice(-20));
+   setRedoHistory([]);
+ }, [G, M]);
+
+ const uM = useCallback((f, v) => {
+   saveUndo();
+   setM(p => ({...p, [mesKey]: {...(p[mesKey]||defM), [f]:v}}));
+ }, [mesKey, saveUndo]);
+ 
+ const uG = useCallback((f,v) => {
+   saveUndo();
+   setG(p => ({...p, [f]:v}));
+ }, [saveUndo]);
+ 
+ const uS = useCallback((f,v) => {
+   saveUndo();
+   setG(p => ({...p, sara:{...p.sara, [f]:v}}));
+ }, [saveUndo]);
+ 
+ const uC = useCallback((f,v) => {
+   saveUndo();
+   setG(p => ({...p, credito:{...p.credito, [f]:v}}));
+ }, [saveUndo]);
+
+ const uMeta = useCallback((key, v) => {
+   saveUndo();
+   setG(p => ({...p, metas: {...p.metas, [key]: v}}));
+ }, [saveUndo]);
+
+ const uPortHist = useCallback((newHist, detail) => {
+   saveUndo();
+   setG(p => ({...p, portfolioHist: newHist, portfolioDetail: detail || p.portfolioDetail}));
+ }, [saveUndo]);
 
  // Função para aplicar investimentos do mês atual aos meses futuros
  const aplicarInvFuturos = useCallback(() => {
+   saveUndo();
    const mesAtualIdx = meses.indexOf(mes);
    const invAtuais = M[mesKey]?.inv || defM.inv;
    setM(prev => {
@@ -631,6 +641,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      alert('⚠️ O mês anterior não tem receitas para duplicar');
      return;
    }
+   saveUndo();
    const novasRegCom = mesAnteriorData.regCom?.map(r => ({...r, id: Date.now() + Math.random(), data: new Date().toISOString().split('T')[0]})) || [];
    const novasRegSem = mesAnteriorData.regSem?.map(r => ({...r, id: Date.now() + Math.random(), data: new Date().toISOString().split('T')[0]})) || [];
    setM(prev => ({
@@ -642,7 +653,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
    }));
    alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
- }, [mesKey, M, getMesAnteriorKey]);
+ }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
  const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
  const {regCom,regSem,inv,transf} = mesD;
@@ -784,7 +795,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="mt-2 pt-2 border-t border-slate-600/50">
              <div className="flex items-center gap-2">
                <span className="text-xs text-slate-500">Meta:</span>
-               <StableInput type="number" className="flex-1 bg-slate-600/50 border border-slate-500/50 rounded-lg px-2 py-1 text-xs text-white text-right" initialValue={m.meta} onSave={v => setG(p => ({...p, metas: {...p.metas, [m.key]: v}}))}/>
+               <StableInput type="number" className="flex-1 bg-slate-600/50 border border-slate-500/50 rounded-lg px-2 py-1 text-xs text-white text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
                <span className="text-xs text-slate-500">€</span>
              </div>
            </div>
@@ -1337,6 +1348,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  // Guardar snapshot do portfolio para histórico detalhado
  const guardarSnapshot = () => {
+ saveUndo();
  const currentKey = `${ano}-${meses.indexOf(mes) + 1}`;
  const totPortAtual = portfolio.reduce((a,p) => a + p.val, 0);
  
@@ -1363,6 +1375,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  const limparHistorico = () => {
+ saveUndo();
  setG(p => ({...p, portfolioHist: [], portfolioDetail: {}}));
  };
  
@@ -2088,6 +2101,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const handleResetAll = () => {
    if (window.confirm('⚠️ ATENÇÃO: Isto vai apagar TODOS os teus dados!\n\nReceitas, investimentos, portfolio, histórico - TUDO será perdido.\n\nTens a certeza que queres continuar?')) {
      if (window.confirm('🔴 ÚLTIMA CONFIRMAÇÃO:\n\nEsta ação é IRREVERSÍVEL!\n\nClica OK para apagar tudo.')) {
+       saveUndo();
        setG(defG);
        setM({});
        setHasChanges(true);
