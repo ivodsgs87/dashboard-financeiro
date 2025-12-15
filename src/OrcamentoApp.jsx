@@ -1920,6 +1920,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    setExporting(false);
  };
 
+ // Função para resetar todos os dados
+ const handleResetAll = () => {
+   if (window.confirm('⚠️ ATENÇÃO: Isto vai apagar TODOS os teus dados!\n\nReceitas, investimentos, portfolio, histórico - TUDO será perdido.\n\nTens a certeza que queres continuar?')) {
+     if (window.confirm('🔴 ÚLTIMA CONFIRMAÇÃO:\n\nEsta ação é IRREVERSÍVEL!\n\nClica OK para apagar tudo.')) {
+       setG(defG);
+       setM({});
+       setHasChanges(true);
+       alert('✅ Todos os dados foram resetados para os valores iniciais.');
+     }
+   }
+ };
+
  // Modal de Backup
  const BackupModal = () => {
  if (!showBackupModal) return null;
@@ -2185,6 +2197,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
               <div className="flex gap-1 sm:gap-2">
                 <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋<span className="hidden sm:inline"> Backup</span></button>
                 <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤<span className="hidden sm:inline"> Restaurar</span></button>
+                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">🗑️<span className="hidden sm:inline"> Reset</span></button>
                 <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>{exporting ? '⏳' : '📊'}<span className="hidden sm:inline">{exporting ? ' A exportar...' : ' Google Sheets'}</span></button>
               </div>
               {syncing ? (
