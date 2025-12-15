@@ -1,44 +1,58 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createGoogleSheet, getAccessToken } from './firebase';
 
-// Stable Input - uncontrolled para não perder foco
+// Stable Input - completamente uncontrolled, NUNCA re-renderiza durante edição
 const StableInput = memo(({type = 'text', initialValue, onSave, className, ...props}) => {
   const inputRef = useRef(null);
-  const lastSavedValue = useRef(initialValue);
-  const hasFocus = useRef(false);
-  const isEditing = useRef(false);
+  const valueRef = useRef(initialValue);
+  const isFocusedRef = useRef(false);
+  const hasEditedRef = useRef(false);
   
-  const handleFocus = () => {
-    hasFocus.current = true;
-    isEditing.current = true;
-  };
+  // Guardar valor inicial na ref
+  useEffect(() => {
+    valueRef.current = initialValue;
+  }, []);
   
-  const handleBlur = (e) => {
-    hasFocus.current = false;
-    const val = type === 'number' ? (+e.target.value || 0) : e.target.value;
-    if (val !== lastSavedValue.current) {
-      lastSavedValue.current = val;
-      onSave(val);
+  const handleFocus = useCallback(() => {
+    isFocusedRef.current = true;
+    hasEditedRef.current = false;
+  }, []);
+  
+  const handleChange = useCallback(() => {
+    hasEditedRef.current = true;
+  }, []);
+  
+  const handleBlur = useCallback((e) => {
+    isFocusedRef.current = false;
+    if (hasEditedRef.current) {
+      const val = type === 'number' ? (+e.target.value || 0) : e.target.value;
+      if (val !== valueRef.current) {
+        valueRef.current = val;
+        onSave(val);
+      }
     }
-    // Pequeno delay para não resetar imediatamente
-    setTimeout(() => { isEditing.current = false; }, 100);
-  };
+    hasEditedRef.current = false;
+  }, [type, onSave]);
   
-  const handleKeyDown = (e) => { 
+  const handleKeyDown = useCallback((e) => { 
     if (e.key === 'Enter') {
       e.target.blur();
     }
-  };
+  }, []);
   
-  // NUNCA atualizar o valor se estiver a editar ou com foco
+  // NUNCA atualizar DOM se está com foco - apenas sync inicial
   useEffect(() => {
-    if (inputRef.current && !hasFocus.current && !isEditing.current) {
-      if (inputRef.current.value !== String(initialValue ?? '')) {
-        inputRef.current.value = initialValue ?? '';
-        lastSavedValue.current = initialValue;
+    const timer = setTimeout(() => {
+      if (inputRef.current && !isFocusedRef.current && !hasEditedRef.current) {
+        const currentDomValue = type === 'number' ? (+inputRef.current.value || 0) : inputRef.current.value;
+        if (currentDomValue !== initialValue && initialValue !== undefined) {
+          inputRef.current.value = initialValue;
+          valueRef.current = initialValue;
+        }
       }
-    }
-  }, [initialValue]);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [initialValue, type]);
   
   return (
     <input 
@@ -46,29 +60,36 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, ...pr
       type={type} 
       defaultValue={initialValue} 
       onFocus={handleFocus}
+      onChange={handleChange}
       onBlur={handleBlur} 
       onKeyDown={handleKeyDown} 
       className={className} 
       {...props}
     />
   );
+}, (prev, next) => {
+  // Só re-renderizar se className ou props mudaram, NUNCA por initialValue
+  return prev.className === next.className && prev.type === next.type;
 });
 
 // Stable Date Input - para campos de data
 const StableDateInput = memo(({value, onChange, className}) => {
   const inputRef = useRef(null);
-  const hasFocus = useRef(false);
+  const isFocusedRef = useRef(false);
   
-  const handleFocus = () => { hasFocus.current = true; };
-  const handleBlur = () => { hasFocus.current = false; };
-  const handleChange = (e) => { onChange(e.target.value); };
+  const handleFocus = useCallback(() => { isFocusedRef.current = true; }, []);
+  const handleBlur = useCallback(() => { isFocusedRef.current = false; }, []);
+  const handleChange = useCallback((e) => { onChange(e.target.value); }, [onChange]);
   
   useEffect(() => {
-    if (inputRef.current && !hasFocus.current) {
-      if (inputRef.current.value !== value) {
-        inputRef.current.value = value;
+    const timer = setTimeout(() => {
+      if (inputRef.current && !isFocusedRef.current) {
+        if (inputRef.current.value !== value) {
+          inputRef.current.value = value;
+        }
       }
-    }
+    }, 200);
+    return () => clearTimeout(timer);
   }, [value]);
   
   return (
@@ -82,7 +103,7 @@ const StableDateInput = memo(({value, onChange, className}) => {
       className={className}
     />
   );
-});
+}, (prev, next) => prev.className === next.className);
 
 // Slider com input manual
 const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', className, color = 'blue'}) => {
@@ -636,10 +657,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="text-lg font-semibold">🎯 Metas Anuais {ano}</h3>
      <span className="text-xs text-slate-500">{mesAtualNum} de 12 meses ({fmtP(progressoEsperado * 100)})</span>
    </div>
-   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
      {[
        { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6' },
-       { label: '🏠 Amortização', atual: totaisAnuais.amortizacaoAnual, meta: metas.amortizacao, key: 'amortizacao', color: '#10b981' },
        { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' }
      ].map(m => {
        const pct = m.meta > 0 ? (m.atual / m.meta) * 100 : 0;
@@ -1188,10 +1208,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // PORTFOLIO
  const Portfolio = () => {
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
- const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0)})).filter(c=>c.val>0);
+ const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0),items:portfolio.filter(p=>p.cat===c)})).filter(c=>c.val>0);
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  const lineData = portfolioHist.slice(-12).map(h => { const [y,m]=h.date.split('-').map(Number); return {label: `${meses[m-1]?.slice(0,3)||m}`, value: h.total}; });
  const [novaCatPort, setNovaCatPort] = useState('');
+ const [expandedCat, setExpandedCat] = useState(null);
  
  // Calcular mês anterior
  const mesAtualIdx = meses.indexOf(mes);
@@ -1264,17 +1285,63 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {porCat.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-6">📊 Distribuição</h3>
- <div className="flex items-center gap-8">
- <PieChart data={pieData} size={180}/>
- <div className="flex-1 grid grid-cols-2 gap-3">
- {porCat.map(c => (
- <div key={c.cat} className="flex items-center gap-3 p-3 bg-slate-700/30 rounded-xl">
- <div className="w-3 h-3 rounded-full" style={{background: catCores[c.cat]}}/>
- <div className="flex-1"><p className="text-sm font-medium">{c.cat}</p><p className="text-xs text-slate-500">{((c.val/totPort)*100).toFixed(1)}%</p></div>
- <p className="font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
+ <h3 className="text-lg font-semibold mb-6">📊 Distribuição por Categoria</h3>
+ <div className="flex flex-col lg:flex-row gap-6">
+ <div className="flex-shrink-0">
+   <PieChart data={pieData} size={180}/>
  </div>
- ))}
+ <div className="flex-1 space-y-2">
+ {porCat.map(c => {
+   const isExpanded = expandedCat === c.cat;
+   const catPct = ((c.val/totPort)*100).toFixed(1);
+   return (
+   <div key={c.cat} className="bg-slate-700/30 rounded-xl overflow-hidden">
+     <div 
+       className="flex items-center gap-3 p-3 cursor-pointer hover:bg-slate-700/50 transition-all"
+       onClick={() => setExpandedCat(isExpanded ? null : c.cat)}
+     >
+       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
+       <div className="flex-1 min-w-0">
+         <div className="flex items-center justify-between">
+           <p className="text-sm font-medium">{c.cat}</p>
+           <span className="text-xs text-slate-400">{c.items.length} {c.items.length === 1 ? 'item' : 'itens'}</span>
+         </div>
+         <div className="flex items-center gap-2 mt-1">
+           <div className="flex-1 h-1.5 bg-slate-600/50 rounded-full overflow-hidden">
+             <div className="h-full rounded-full" style={{width: `${catPct}%`, background: catCores[c.cat]}}/>
+           </div>
+           <span className="text-xs font-medium" style={{color: catCores[c.cat]}}>{catPct}%</span>
+         </div>
+       </div>
+       <p className="font-semibold text-right" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
+       <span className="text-slate-400 text-sm">{isExpanded ? '▼' : '▶'}</span>
+     </div>
+     {isExpanded && c.items.length > 0 && (
+       <div className="px-3 pb-3 pt-1 border-t border-slate-600/30">
+         <div className="space-y-1.5">
+           {c.items.sort((a,b) => b.val - a.val).map(item => {
+             const itemPctCat = c.val > 0 ? ((item.val / c.val) * 100).toFixed(1) : 0;
+             const itemPctTotal = totPort > 0 ? ((item.val / totPort) * 100).toFixed(1) : 0;
+             return (
+               <div key={item.id} className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg">
+                 <span className="flex-1 text-sm text-slate-300">{item.desc}</span>
+                 <div className="w-20">
+                   <div className="h-1 bg-slate-600/50 rounded-full overflow-hidden">
+                     <div className="h-full rounded-full" style={{width: `${itemPctCat}%`, background: catCores[c.cat], opacity: 0.7}}/>
+                   </div>
+                 </div>
+                 <span className="text-xs text-slate-400 w-12 text-right">{itemPctCat}%</span>
+                 <span className="font-medium text-sm w-20 text-right">{fmt(item.val)}</span>
+               </div>
+             );
+           })}
+         </div>
+         <p className="text-xs text-slate-500 mt-2 text-right">% = proporção dentro da categoria {c.cat}</p>
+       </div>
+     )}
+   </div>
+   );
+ })}
  </div>
  </div>
  </Card>
@@ -1347,15 +1414,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const taxaMensal = (taxaJuro / 100) / 12;
  const custoMensal = prestacao + seguros;
  
- // Prazo restante
+ // Prazo restante - cálculo mais preciso
  const hoje = new Date();
  const fimCredito = new Date(dataFim);
  const diffMs = fimCredito - hoje;
  const diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
- const anosRestantes = Math.floor(diffDias / 365);
- const mesesRestantes = Math.floor((diffDias % 365) / 30);
- const diasRestantes = diffDias % 30;
- const totalMesesRestantes = Math.ceil(diffDias / 30);
+ 
+ // Calcular meses de forma mais precisa (média de 30.44 dias por mês)
+ const totalMesesRestantes = Math.max(1, Math.round(diffDias / 30.44));
+ const anosRestantes = Math.floor(totalMesesRestantes / 12);
+ const mesesRestantes = totalMesesRestantes % 12;
  
  // Inicializar simulador com valores atuais
  useEffect(() => {
