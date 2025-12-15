@@ -1,94 +1,142 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createGoogleSheet, getAccessToken } from './firebase';
 
-// Stable Input - completamente uncontrolled, NUNCA re-renderiza durante edição
-const StableInput = memo(({type = 'text', initialValue, onSave, className, ...props}) => {
+// Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
+const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step}) => {
   const inputRef = useRef(null);
-  const valueRef = useRef(initialValue);
-  const isFocusedRef = useRef(false);
-  const hasEditedRef = useRef(false);
+  const onSaveRef = useRef(onSave);
+  const initialValueRef = useRef(initialValue);
+  const mountedRef = useRef(false);
   
-  // Guardar valor inicial na ref
+  // Atualizar refs sem causar re-render
+  onSaveRef.current = onSave;
+  
   useEffect(() => {
-    valueRef.current = initialValue;
-  }, []);
-  
-  const handleFocus = useCallback(() => {
-    isFocusedRef.current = true;
-    hasEditedRef.current = false;
-  }, []);
-  
-  const handleChange = useCallback(() => {
-    hasEditedRef.current = true;
-  }, []);
-  
-  const handleBlur = useCallback((e) => {
-    isFocusedRef.current = false;
-    if (hasEditedRef.current) {
-      const val = type === 'number' ? (+e.target.value || 0) : e.target.value;
-      if (val !== valueRef.current) {
-        valueRef.current = val;
-        onSave(val);
-      }
+    const input = inputRef.current;
+    if (!input) return;
+    
+    let isFocused = false;
+    let hasEdited = false;
+    let savedValue = initialValue;
+    
+    // Set initial value apenas na montagem
+    if (!mountedRef.current) {
+      input.value = initialValue ?? '';
+      mountedRef.current = true;
     }
-    hasEditedRef.current = false;
-  }, [type, onSave]);
-  
-  const handleKeyDown = useCallback((e) => { 
-    if (e.key === 'Enter') {
-      e.target.blur();
-    }
-  }, []);
-  
-  // NUNCA atualizar DOM se está com foco - apenas sync inicial
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (inputRef.current && !isFocusedRef.current && !hasEditedRef.current) {
-        const currentDomValue = type === 'number' ? (+inputRef.current.value || 0) : inputRef.current.value;
-        if (currentDomValue !== initialValue && initialValue !== undefined) {
-          inputRef.current.value = initialValue;
-          valueRef.current = initialValue;
+    
+    const onFocus = () => {
+      isFocused = true;
+      hasEdited = false;
+    };
+    
+    const onInput = () => {
+      hasEdited = true;
+    };
+    
+    const onBlur = () => {
+      isFocused = false;
+      if (hasEdited) {
+        const val = type === 'number' ? (+input.value || 0) : input.value;
+        if (val !== savedValue) {
+          savedValue = val;
+          onSaveRef.current(val);
         }
       }
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [initialValue, type]);
+      hasEdited = false;
+    };
+    
+    const onKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        input.blur();
+      }
+    };
+    
+    input.addEventListener('focus', onFocus);
+    input.addEventListener('input', onInput);
+    input.addEventListener('blur', onBlur);
+    input.addEventListener('keydown', onKeyDown);
+    
+    return () => {
+      input.removeEventListener('focus', onFocus);
+      input.removeEventListener('input', onInput);
+      input.removeEventListener('blur', onBlur);
+      input.removeEventListener('keydown', onKeyDown);
+    };
+  }, []); // Empty deps - só roda uma vez
+  
+  // Sync externo - apenas se valor mudou E não está focado
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || document.activeElement === input) return;
+    
+    // Só atualizar se o valor realmente mudou desde a montagem
+    if (initialValue !== initialValueRef.current) {
+      const timer = setTimeout(() => {
+        if (document.activeElement !== input) {
+          input.value = initialValue ?? '';
+          initialValueRef.current = initialValue;
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [initialValue]);
   
   return (
     <input 
       ref={inputRef} 
       type={type} 
-      defaultValue={initialValue} 
-      onFocus={handleFocus}
-      onChange={handleChange}
-      onBlur={handleBlur} 
-      onKeyDown={handleKeyDown} 
-      className={className} 
-      {...props}
+      defaultValue={initialValue}
+      className={className}
+      placeholder={placeholder}
+      step={step}
     />
   );
-}, (prev, next) => {
-  // Só re-renderizar se className ou props mudaram, NUNCA por initialValue
-  return prev.className === next.className && prev.type === next.type;
-});
+}, () => true); // NUNCA re-renderizar
 
 // Stable Date Input - para campos de data
 const StableDateInput = memo(({value, onChange, className}) => {
   const inputRef = useRef(null);
-  const isFocusedRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  const mountedRef = useRef(false);
   
-  const handleFocus = useCallback(() => { isFocusedRef.current = true; }, []);
-  const handleBlur = useCallback(() => { isFocusedRef.current = false; }, []);
-  const handleChange = useCallback((e) => { onChange(e.target.value); }, [onChange]);
+  onChangeRef.current = onChange;
   
   useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    
+    let isFocused = false;
+    
+    if (!mountedRef.current) {
+      input.value = value ?? '';
+      mountedRef.current = true;
+    }
+    
+    const onFocus = () => { isFocused = true; };
+    const onBlur = () => { isFocused = false; };
+    const handleChange = () => { onChangeRef.current(input.value); };
+    
+    input.addEventListener('focus', onFocus);
+    input.addEventListener('blur', onBlur);
+    input.addEventListener('change', handleChange);
+    
+    return () => {
+      input.removeEventListener('focus', onFocus);
+      input.removeEventListener('blur', onBlur);
+      input.removeEventListener('change', handleChange);
+    };
+  }, []);
+  
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || document.activeElement === input) return;
+    
     const timer = setTimeout(() => {
-      if (inputRef.current && !isFocusedRef.current) {
-        if (inputRef.current.value !== value) {
-          inputRef.current.value = value;
-        }
+      if (document.activeElement !== input && input.value !== value) {
+        input.value = value ?? '';
       }
-    }, 200);
+    }, 500);
     return () => clearTimeout(timer);
   }, [value]);
   
@@ -97,13 +145,10 @@ const StableDateInput = memo(({value, onChange, className}) => {
       ref={inputRef}
       type="date" 
       defaultValue={value}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onChange={handleChange}
       className={className}
     />
   );
-}, (prev, next) => prev.className === next.className);
+}, () => true); // NUNCA re-renderizar
 
 // Slider com input manual
 const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', className, color = 'blue'}) => {
@@ -435,7 +480,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         console.error('Erro ao guardar:', e);
       }
       isSavingRef.current = false;
-    }, 3000);
+    }, 5000); // 5 segundos de debounce
     
     return () => {
       if (saveTimeoutRef.current) {
