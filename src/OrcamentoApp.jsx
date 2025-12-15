@@ -440,6 +440,57 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [hasChanges, setHasChanges] = useState(false);
   const saveTimeoutRef = useRef(null);
   const isSavingRef = useRef(false);
+  
+  // Sistema de Undo - guarda últimos 20 estados
+  const [undoHistory, setUndoHistory] = useState([]);
+  const [redoHistory, setRedoHistory] = useState([]);
+  const lastSavedState = useRef(null);
+  
+  // Guardar estado para undo (chamado antes de cada alteração significativa)
+  const saveToUndo = useCallback(() => {
+    const currentState = JSON.stringify({ g: G, m: M });
+    if (currentState !== lastSavedState.current) {
+      setUndoHistory(prev => {
+        const newHistory = [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }];
+        return newHistory.slice(-20); // Manter apenas últimos 20
+      });
+      setRedoHistory([]); // Limpar redo quando há nova ação
+      lastSavedState.current = currentState;
+    }
+  }, [G, M]);
+  
+  // Função Undo
+  const handleUndo = useCallback(() => {
+    if (undoHistory.length === 0) return;
+    
+    const prevState = undoHistory[undoHistory.length - 1];
+    setRedoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }]);
+    setUndoHistory(prev => prev.slice(0, -1));
+    setG(prevState.g);
+    setM(prevState.m);
+    lastSavedState.current = JSON.stringify(prevState);
+  }, [undoHistory, G, M]);
+  
+  // Função Redo
+  const handleRedo = useCallback(() => {
+    if (redoHistory.length === 0) return;
+    
+    const nextState = redoHistory[redoHistory.length - 1];
+    setUndoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }]);
+    setRedoHistory(prev => prev.slice(0, -1));
+    setG(nextState.g);
+    setM(nextState.m);
+    lastSavedState.current = JSON.stringify(nextState);
+  }, [redoHistory, G, M]);
+  
+  // Guardar estado periodicamente para undo (a cada 10 segundos de inatividade)
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const timer = setTimeout(() => {
+      saveToUndo();
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [G, M, dataLoaded, saveToUndo]);
 
   // Carregar dados do Firebase UMA VEZ quando initialData chegar
   useEffect(() => {
@@ -2308,6 +2359,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
               <div className="flex gap-1 sm:gap-2">
+                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title={`Desfazer (${undoHistory.length})`}>↩️<span className="hidden sm:inline"> Desfazer</span>{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
+                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title={`Refazer (${redoHistory.length})`}>↪️<span className="hidden sm:inline"> Refazer</span></button>
                 <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋<span className="hidden sm:inline"> Backup</span></button>
                 <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤<span className="hidden sm:inline"> Restaurar</span></button>
                 <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">🗑️<span className="hidden sm:inline"> Reset</span></button>
