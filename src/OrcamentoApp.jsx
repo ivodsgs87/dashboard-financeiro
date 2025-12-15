@@ -333,7 +333,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
   const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
-  const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
   
   // Verificar se é o mês/ano atual
   const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
