@@ -83,7 +83,6 @@ const StableDateInput = memo(({value, onChange, className}) => {
     />
   );
 });
-});
 
 // Slider com input manual
 const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', className, color = 'blue'}) => {
