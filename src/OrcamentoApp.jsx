@@ -827,7 +827,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  const projecao = getProjecaoAnual();
- const benchs = getComparacaoBenchmarks();
  const previsaoIRS = getPrevisaoIRS();
  const compDespesas = getComparacaoDespesas();
  const patrimonio = getPatrimonioLiquido();
@@ -842,12 +841,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="flex items-center gap-3">
          <span className="text-2xl">{tarefasPend.atrasadas.length > 0 ? '⚠️' : '📋'}</span>
          <div>
-           {tarefasPend.atrasadas.length > 0 && (
-             <p className="font-medium text-red-400">{tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>
-           )}
-           {tarefasPend.proximas.length > 0 && (
-             <p className="text-sm text-orange-400">{tarefasPend.proximas.length} tarefa(s) nos próximos 5 dias</p>
-           )}
+           {tarefasPend.atrasadas.length > 0 && <p className="font-medium text-red-400">{tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>}
+           {tarefasPend.proximas.length > 0 && <p className="text-sm text-orange-400">{tarefasPend.proximas.length} tarefa(s) nos próximos 5 dias</p>}
          </div>
        </div>
        <button onClick={() => setTab('agenda')} className="px-3 py-1 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg">Ver Agenda →</button>
@@ -855,161 +850,87 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  )}
  
- <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
- <StatCard label="Receita Total" value={fmt(totRec)} color="text-white" sub={`Com: ${fmt(inCom)} + Sem: ${fmt(inSem)}`} icon="💰"/>
- <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Após ${fmtP(taxa)} taxas`} icon="✨"/>
- <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} do income com retenção`} icon="📋"/>
- <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "Bom!" : "Benchmark: 20%"} icon="🐷"/>
- <StatCard label="Disponível Alocar" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Após despesas e férias" icon="🎯"/>
+ {/* ESTATÍSTICAS DO MÊS */}
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+   <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Bruto: ${fmt(totRec)}`} icon="💰"/>
+   <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
+   <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
+   <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
  </div>
 
- {/* PATRIMÓNIO LÍQUIDO */}
- <Card>
-   <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold">💎 Património Líquido Total</h3>
-     <span className="text-2xl font-bold text-emerald-400">{fmt(patrimonio.total)}</span>
-   </div>
-   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Portfolio Investimentos</p>
-       <p className="text-xl font-bold text-blue-400">{fmt(patrimonio.portfolio)}</p>
+ {/* PATRIMÓNIO + IRS */}
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   <Card>
+     <div className="flex justify-between items-center mb-3">
+       <h3 className="font-semibold">💎 Património Líquido</h3>
+       <span className="text-xl font-bold text-emerald-400">{fmt(patrimonio.total)}</span>
      </div>
-     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Valor Casa</p>
-       <p className="text-xl font-bold text-emerald-400">{fmt(patrimonio.valorCasa)}</p>
-     </div>
-     <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Dívida Casa</p>
-       <p className="text-xl font-bold text-red-400">-{fmt(patrimonio.dividaAtual)}</p>
-     </div>
-     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Casa (líquido)</p>
-       <p className="text-xl font-bold text-purple-400">{fmt(patrimonio.casaLiquida)}</p>
-     </div>
-   </div>
- </Card>
-
- {/* PREVISÃO IRS */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📊 Previsão IRS {anoAtualSistema}</h3>
-   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-     <div className="p-3 bg-slate-700/30 rounded-xl">
-       <p className="text-xs text-slate-400">Receitas Brutas</p>
-       <p className="text-lg font-bold">{fmt(previsaoIRS.receitasAnuais)}</p>
-     </div>
-     <div className="p-3 bg-slate-700/30 rounded-xl">
-       <p className="text-xs text-slate-400">Rend. Coletável (75%)</p>
-       <p className="text-lg font-bold">{fmt(previsaoIRS.rendColetavel)}</p>
-     </div>
-     <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">IRS Estimado</p>
-       <p className="text-lg font-bold text-orange-400">{fmt(previsaoIRS.impostoEstimado)}</p>
-       <p className="text-xs text-slate-500">Taxa efetiva: {previsaoIRS.taxaEfetiva.toFixed(1)}%</p>
-     </div>
-     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Já Retido</p>
-       <p className="text-lg font-bold text-blue-400">{fmt(previsaoIRS.retencoes)}</p>
-     </div>
-     <div className={`p-3 rounded-xl ${previsaoIRS.aPagarReceber >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-       <p className="text-xs text-slate-400">{previsaoIRS.aPagarReceber >= 0 ? 'A Receber' : 'A Pagar'}</p>
-       <p className={`text-lg font-bold ${previsaoIRS.aPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(previsaoIRS.aPagarReceber))}</p>
-     </div>
-   </div>
-   <p className="text-xs text-slate-500 mt-3">* Estimativa simplificada com regime simplificado (coef. 75%) e deduções standard. Consulta um contabilista.</p>
- </Card>
-
- {/* COMPARAÇÃO COM MÊS ANTERIOR */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📈 {mes} vs {compDespesas.mesAnterior}</h3>
-   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     {[
-       {label: 'Receitas', ...compDespesas.receitas, icon: '💰'},
-       {label: 'Investimentos', ...compDespesas.investimentos, icon: '📈'}
-     ].map(item => (
-       <div key={item.label} className="p-3 bg-slate-700/30 rounded-xl">
-         <div className="flex justify-between items-start mb-2">
-           <p className="text-xs text-slate-400">{item.icon} {item.label}</p>
-           {item.diff !== 0 && (
-             <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${item.diff > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-               {item.diff > 0 ? '+' : ''}{fmt(item.diff)}
-             </span>
-           )}
-         </div>
-         <p className="text-lg font-bold">{fmt(item.atual)}</p>
-         <p className="text-xs text-slate-500">Anterior: {fmt(item.anterior)}</p>
+     <div className="grid grid-cols-2 gap-2 text-sm">
+       <div className="p-2 bg-blue-500/10 rounded-lg flex justify-between">
+         <span className="text-slate-400">Portfolio</span>
+         <span className="font-semibold text-blue-400">{fmt(patrimonio.portfolio)}</span>
        </div>
-     ))}
-   </div>
- </Card>
-
- {/* PROJEÇÃO ANUAL */}
- {projecao && (
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📈 Projeção Anual {ano}</h3>
-   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Total até agora</p>
-       <p className="text-xl font-bold text-blue-400">{fmt(projecao.totalAtual)}</p>
-       <p className="text-xs text-slate-500">{projecao.mesesComDados} meses</p>
+       <div className="p-2 bg-purple-500/10 rounded-lg flex justify-between">
+         <span className="text-slate-400">Casa líq.</span>
+         <span className="font-semibold text-purple-400">{fmt(patrimonio.casaLiquida)}</span>
+       </div>
      </div>
-     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Média mensal</p>
-       <p className="text-xl font-bold text-purple-400">{fmt(projecao.mediaMensal)}</p>
+   </Card>
+   
+   <Card>
+     <div className="flex justify-between items-center mb-3">
+       <h3 className="font-semibold">📊 Previsão IRS {anoAtualSistema}</h3>
+       <span className={`text-xl font-bold ${previsaoIRS.aPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+         {previsaoIRS.aPagarReceber >= 0 ? 'Receber ' : 'Pagar '}{fmt(Math.abs(previsaoIRS.aPagarReceber))}
+       </span>
      </div>
-     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
-       <p className="text-xs text-slate-400">Projeção fim de ano</p>
-       <p className="text-xl font-bold text-emerald-400">{fmt(projecao.projecao)}</p>
-       <p className="text-xs text-slate-500">+{projecao.mesesRestantes} meses</p>
+     <div className="grid grid-cols-3 gap-2 text-sm">
+       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+         <p className="text-xs text-slate-500">IRS Est.</p>
+         <p className="font-semibold text-orange-400">{fmt(previsaoIRS.impostoEstimado)}</p>
+       </div>
+       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+         <p className="text-xs text-slate-500">Retido</p>
+         <p className="font-semibold text-blue-400">{fmt(previsaoIRS.retencoes)}</p>
+       </div>
+       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+         <p className="text-xs text-slate-500">Taxa</p>
+         <p className="font-semibold">{previsaoIRS.taxaEfetiva.toFixed(1)}%</p>
+       </div>
      </div>
-     <div className={`p-3 rounded-xl ${projecao.diffMeta >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-       <p className="text-xs text-slate-400">vs Meta ({fmt(metas.receitas)})</p>
-       <p className={`text-xl font-bold ${projecao.diffMeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{projecao.diffMeta >= 0 ? '+' : ''}{fmt(projecao.diffMeta)}</p>
-       <p className="text-xs text-slate-500">{projecao.diffMeta >= 0 ? '✓ Acima da meta' : '⚠️ Abaixo'}</p>
-     </div>
-   </div>
- </Card>
- )}
+   </Card>
+ </div>
 
  {/* METAS ANUAIS */}
  <Card>
    <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold">🎯 Metas Anuais {ano}</h3>
-     <span className="text-xs text-slate-500">{mesAtualNum} de 12 meses ({fmtP(progressoEsperado * 100)})</span>
+     <h3 className="font-semibold">🎯 Progresso {ano}</h3>
+     <span className="text-xs text-slate-500">{mesAtualNum}/12 meses</span>
    </div>
    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
      {[
-       { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6' },
+       { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6', proj: projecao?.projecao },
        { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' }
      ].map(m => {
        const pct = m.meta > 0 ? (m.atual / m.meta) * 100 : 0;
-       const esperado = m.meta * progressoEsperado;
-       const onTrack = m.atual >= esperado;
-       const diff = m.atual - esperado;
+       const onTrack = m.atual >= m.meta * progressoEsperado;
        return (
-         <div key={m.key} className="p-4 bg-slate-700/30 rounded-xl">
-           <div className="flex justify-between items-start mb-2">
-             <span className="text-sm font-medium text-slate-300">{m.label}</span>
+         <div key={m.key} className="p-3 bg-slate-700/30 rounded-xl">
+           <div className="flex justify-between items-center mb-2">
+             <span className="text-sm font-medium">{m.label}</span>
              <span className={`text-xs px-2 py-0.5 rounded-full ${onTrack ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-               {onTrack ? '✓ On track' : '⚠️ Atrasado'}
+               {onTrack ? '✓' : '⚠️'} {pct.toFixed(0)}%
              </span>
            </div>
-           <div className="flex items-baseline gap-2 mb-1">
-             <span className="text-xl font-bold" style={{color: m.color}}>{fmt(m.atual)}</span>
+           <div className="flex items-baseline gap-2 mb-2">
+             <span className="text-lg font-bold" style={{color: m.color}}>{fmt(m.atual)}</span>
              <span className="text-sm text-slate-500">/ {fmt(m.meta)}</span>
+             {m.proj && <span className="text-xs text-slate-400 ml-auto">→ {fmt(m.proj)}</span>}
            </div>
-           <ProgressBar value={m.atual} max={m.meta || 1} color={m.color} height="h-2"/>
-           <div className="flex justify-between mt-2 text-xs">
-             <span className="text-slate-500">{pct.toFixed(0)}% da meta</span>
-             <span className={onTrack ? 'text-emerald-400' : 'text-red-400'}>
-               {diff >= 0 ? '+' : ''}{fmt(diff)} vs esperado
-             </span>
-           </div>
-           <div className="mt-2 pt-2 border-t border-slate-600/50">
-             <div className="flex items-center gap-2">
-               <span className="text-xs text-slate-500">Meta:</span>
-               <StableInput type="number" className="flex-1 bg-slate-600/50 border border-slate-500/50 rounded-lg px-2 py-1 text-xs text-white text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
-               <span className="text-xs text-slate-500">€</span>
-             </div>
+           <ProgressBar value={m.atual} max={m.meta || 1} color={m.color} height="h-1.5"/>
+           <div className="mt-2 flex items-center gap-2">
+             <span className="text-xs text-slate-500">Meta:</span>
+             <StableInput type="number" className="w-20 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-0.5 text-xs text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
            </div>
          </div>
        );
@@ -1017,331 +938,97 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  </Card>
 
- {porCli.length > 0 && (
- <Card>
- <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">👥 Receitas por Cliente (Este Mês)</h3>
- <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
- {porCli.map(c => (
- <div key={c.id} className="p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: c.cor}}>
- <p className="text-sm font-medium text-slate-300">{c.nome}</p>
- <p className="text-lg font-bold mt-1">{fmt(c.tot)}</p>
- </div>
- ))}
- </div>
- </Card>
- )}
+ {/* COMPARAÇÃO + CLIENTES */}
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   <Card>
+     <h3 className="font-semibold mb-3">📈 vs {compDespesas.mesAnterior}</h3>
+     <div className="space-y-2">
+       {[{label: 'Receitas', ...compDespesas.receitas, icon: '💰'},{label: 'Investimentos', ...compDespesas.investimentos, icon: '📈'}].map(item => (
+         <div key={item.label} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
+           <span className="text-sm text-slate-400">{item.icon} {item.label}</span>
+           <div className="flex items-center gap-2">
+             <span className="font-semibold">{fmt(item.atual)}</span>
+             {item.diff !== 0 && (
+               <span className={`text-xs px-1.5 py-0.5 rounded ${item.diff > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                 {item.diff > 0 ? '+' : ''}{fmt(item.diff)}
+               </span>
+             )}
+           </div>
+         </div>
+       ))}
+     </div>
+   </Card>
 
- {/* Resumo Anual por Cliente */}
- {Object.values(totaisAnuais.receitasPorCliente).some(c => c.total > 0) && (
- <Card>
- <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">📊 Receitas por Cliente ({ano})</h3>
- <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
- {Object.values(totaisAnuais.receitasPorCliente).filter(c => c.total > 0).sort((a,b) => b.total - a.total).map((c, i) => (
- <div key={i} className="p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: c.cor}}>
- <p className="text-sm font-medium text-slate-300">{c.nome}</p>
- <p className="text-lg font-bold mt-1">{fmt(c.total)}</p>
- <p className="text-xs text-slate-500">{((c.total / totaisAnuais.receitasAnuais) * 100).toFixed(0)}% do total</p>
+   {Object.values(totaisAnuais.receitasPorCliente).some(c => c.total > 0) && (
+   <Card>
+     <h3 className="font-semibold mb-3">👥 Clientes {ano}</h3>
+     <div className="space-y-2">
+       {Object.values(totaisAnuais.receitasPorCliente).filter(c => c.total > 0).sort((a,b) => b.total - a.total).slice(0,4).map((c, i) => (
+         <div key={i} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg" style={{borderLeft: `3px solid ${c.cor}`}}>
+           <span className="text-sm">{c.nome}</span>
+           <div className="flex items-center gap-2">
+             <span className="text-xs text-slate-500">{((c.total / totaisAnuais.receitasAnuais) * 100).toFixed(0)}%</span>
+             <span className="font-semibold">{fmt(c.total)}</span>
+           </div>
+         </div>
+       ))}
+     </div>
+   </Card>
+   )}
  </div>
- ))}
+
+ {/* DISTRIBUIÇÃO + TRANSFERÊNCIAS */}
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+   <Card>
+     <h3 className="font-semibold mb-3">📊 Distribuição Mensal</h3>
+     <div className="flex items-center gap-3 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-3">
+       <span>🏖️</span>
+       <span className="flex-1 text-sm">Férias</span>
+       <StableInput type="number" className={`w-20 ${inputClass} text-amber-400 font-bold text-right`} initialValue={ferias} onSave={v=>uG('ferias',v)}/>
+       <span className="text-slate-400 text-sm">€</span>
+     </div>
+     <div className="space-y-2">
+       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`Amortização (${fmtP(alocAmort)})`,v:restante*(alocAmort/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
+         <div key={k}>
+           <div className="flex justify-between mb-1 text-sm"><span className="text-slate-400">{i.l}</span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
+           <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c} height="h-1"/>
+         </div>
+       ))}
+     </div>
+   </Card>
+
+   <Card>
+     <h3 className="font-semibold mb-3">💸 Transferências</h3>
+     <div className="space-y-2">
+       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
+         <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
+           <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
+           <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
+           <span className="font-bold">{fmt(t.v)}</span>
+         </div>
+       ))}
+     </div>
+   </Card>
  </div>
- <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between">
-   <span className="text-sm text-slate-400">Total Anual {ano}</span>
-   <span className="text-lg font-bold text-white">{fmt(totaisAnuais.receitasAnuais)}</span>
- </div>
- </Card>
- )}
 
  {ultReg.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-4">📝 Últimos Registos</h3>
- <div className="space-y-2">
- {ultReg.map((r,i) => {
- const cli = clientes.find(c=>c.id===r.cid);
- return (
- <div key={i} className="flex items-center gap-4 p-3 bg-slate-700/30 rounded-xl border-l-4" style={{borderColor: r.tipo==='com'?'#f97316':'#10b981'}}>
- <span className="text-xs text-slate-400 w-16">{new Date(r.data).toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})}</span>
- <span className="text-sm w-20" style={{color: cli?.cor}}>{cli?.nome || '-'}</span>
- <span className="flex-1 text-sm text-slate-300">{r.desc || '-'}</span>
- <span className="font-semibold" style={{color: r.tipo==='com'?'#f97316':'#10b981'}}>{fmt(r.val)}</span>
- </div>
- );
- })}
- </div>
- </Card>
- )}
-
- <Card>
- <h3 className="text-lg font-semibold mb-4">📊 Distribuição do Orçamento</h3>
- <div className="flex items-center gap-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-6">
- <span className="text-2xl">🏖️</span>
- <div className="flex-1"><p className="text-sm text-slate-300">Reserva para Férias</p><p className="text-xs text-slate-500">Deduzido antes da alocação</p></div>
- <div className="flex items-center gap-2">
- <span className="text-slate-400">€</span>
- <StableInput type="number" className={`w-24 ${inputClass} text-amber-400 text-lg font-bold text-right`} initialValue={ferias} onSave={v=>uG('ferias',v)}/>
- </div>
- </div>
- <div className="grid grid-cols-2 gap-6">
- {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏠 Amortização (${fmtP(alocAmort)})`,v:restante*(alocAmort/100),c:'#10b981'},{l:`📈 Investimentos (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
- <div key={k}>
- <div className="flex justify-between mb-2"><span className="text-sm text-slate-300">{i.l}</span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
- <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c}/>
- </div>
- ))}
- </div>
- </Card>
-
- <Card>
- <h3 className="text-lg font-semibold mb-4">💸 Transferências do Mês</h3>
- <div className="space-y-3">
- {[{l:'Despesas Casal',s:'Dia 25 do mês',v:minhaAB,k:'abanca'},{l:'Activo Bank (Pessoais)',s:'Dia 25 do mês',v:totPess,k:'activo'},{l:'Trade Republic (Repor)',s:'Dia 31 do mês',v:transfTR,k:'trade'},{l:'Revolut (Férias)',s:'Dia 31 do mês',v:ferias,k:'revolut'}].map(t => (
- <Row key={t.k} highlight={transf[t.k]}>
- <div className="flex-1"><p className="font-medium">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
- <span className="text-xl font-bold">{fmt(t.v)}</span>
- <input type="checkbox" className="w-5 h-5 rounded-lg accent-emerald-500 cursor-pointer" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
- </Row>
- ))}
- </div>
- </Card>
-
- {/* BENCHMARKS */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📊 Comparação com Benchmarks</h3>
-   <p className="text-xs text-slate-500 mb-4">Compara os teus gastos com médias nacionais (Portugal)</p>
-   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     {Object.entries(benchs).map(([key, data]) => {
-       const diff = data.atual - data.benchmark;
-       const isGood = key === 'poupanca' ? diff >= 0 : diff <= 0;
-       const labels = {habitacao: '🏠 Habitação', alimentacao: '🍽️ Alimentação', transporte: '🚗 Transporte', poupanca: '💰 Poupança'};
+   <h3 className="font-semibold mb-3">📝 Últimos Registos</h3>
+   <div className="space-y-1">
+     {ultReg.map((r,i) => {
+       const cli = clientes.find(c=>c.id===r.cid);
        return (
-         <div key={key} className={`p-3 rounded-xl ${isGood ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-orange-500/10 border border-orange-500/30'}`}>
-           <p className="text-sm font-medium text-slate-300">{labels[key]}</p>
-           <div className="flex items-baseline gap-2 mt-1">
-             <span className={`text-xl font-bold ${isGood ? 'text-emerald-400' : 'text-orange-400'}`}>{data.atual.toFixed(1)}%</span>
-             <span className="text-xs text-slate-500">/ {data.benchmark}%</span>
-           </div>
-           <p className="text-xs mt-1 text-slate-500">{isGood ? '✓ OK' : '⚠️ Acima'}</p>
+         <div key={i} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm" style={{borderLeft: `3px solid ${r.tipo==='com'?'#f97316':'#10b981'}`}}>
+           <span className="text-xs text-slate-500 w-12">{new Date(r.data).toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})}</span>
+           <span className="w-14" style={{color: cli?.cor}}>{cli?.nome || '-'}</span>
+           <span className="flex-1 text-slate-300 truncate">{r.desc || '-'}</span>
+           <span className="font-semibold" style={{color: r.tipo==='com'?'#f97316':'#10b981'}}>{fmt(r.val)}</span>
          </div>
        );
      })}
    </div>
  </Card>
-
- {/* COMPARAÇÃO ANO A ANO */}
- <Card>
-   <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold">📅 Receitas: {ano} vs {compareYear || ano - 1}</h3>
-     <div className="flex items-center gap-2">
-       <span className="text-slate-500 text-sm">Comparar com:</span>
-       <Select value={compareYear || ano - 1} onChange={e => setCompareYear(+e.target.value)} className="text-sm">
-         {anos.filter(a => a !== ano).map(a => <option key={a} value={a}>{a}</option>)}
-       </Select>
-     </div>
-   </div>
-   {(() => {
-     const compYear = compareYear || ano - 1;
-     const comp = getComparacaoAnos(ano, compYear);
-     const maxVal = Math.max(...comp.map(c => Math.max(c[ano] || 0, c[compYear] || 0)), 1);
-     return (
-       <div className="space-y-2">
-         {comp.map(c => {
-           const valAno = c[ano] || 0;
-           const valComp = c[compYear] || 0;
-           const diff = valComp > 0 ? ((valAno - valComp) / valComp * 100) : (valAno > 0 ? 100 : 0);
-           return (
-           <div key={c.mes} className="flex items-center gap-3">
-             <span className="w-10 text-xs text-slate-500">{c.mes}</span>
-             <div className="flex-1 flex gap-1 h-5">
-               <div className="h-full bg-blue-500 rounded-l transition-all" style={{width: `${(valAno / maxVal) * 45}%`}}/>
-               <div className="h-full bg-slate-600 rounded-r transition-all" style={{width: `${(valComp / maxVal) * 45}%`}}/>
-             </div>
-             <span className="w-16 text-xs text-right font-medium text-blue-400">{valAno > 0 ? (valAno >= 1000 ? `${(valAno/1000).toFixed(1)}k` : valAno) : '-'}</span>
-             <span className="w-16 text-xs text-right text-slate-500">{valComp > 0 ? (valComp >= 1000 ? `${(valComp/1000).toFixed(1)}k` : valComp) : '-'}</span>
-             <span className={`w-14 text-xs text-right font-medium ${diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-               {valAno > 0 || valComp > 0 ? `${diff >= 0 ? '+' : ''}${diff.toFixed(0)}%` : '-'}
-             </span>
-           </div>
-         );})}
-         <div className="flex gap-6 mt-4 pt-3 border-t border-slate-700 justify-center text-sm">
-           <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"/><span className="text-slate-300">{ano}</span></div>
-           <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-slate-600"/><span className="text-slate-400">{compYear}</span></div>
-         </div>
-       </div>
-     );
-   })()}
- </Card>
-
- {/* PREVISÃO IRS */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">🧾 Previsão de Impostos {ano}</h3>
-   {(() => {
-     const receitaAnual = totaisAnuais.receitasAnuais;
-     const despesasDedut = totAB * 12 * 0.25; // 25% despesas habitação dedutíveis (simplificado)
-     const lucroTrib = Math.max(0, receitaAnual * 0.75 - despesasDedut); // Regime simplificado: 75% tributável
-     
-     // Escalões IRS 2024 (simplificado)
-     let irsEstimado = 0;
-     if (lucroTrib <= 7703) irsEstimado = lucroTrib * 0.1325;
-     else if (lucroTrib <= 11623) irsEstimado = 1020.56 + (lucroTrib - 7703) * 0.18;
-     else if (lucroTrib <= 16472) irsEstimado = 1726.16 + (lucroTrib - 11623) * 0.23;
-     else if (lucroTrib <= 21321) irsEstimado = 2841.43 + (lucroTrib - 16472) * 0.26;
-     else if (lucroTrib <= 27146) irsEstimado = 4102.17 + (lucroTrib - 21321) * 0.3275;
-     else if (lucroTrib <= 39791) irsEstimado = 6009.43 + (lucroTrib - 27146) * 0.37;
-     else if (lucroTrib <= 51997) irsEstimado = 10688.09 + (lucroTrib - 39791) * 0.435;
-     else if (lucroTrib <= 81199) irsEstimado = 15997.30 + (lucroTrib - 51997) * 0.45;
-     else irsEstimado = 29108.20 + (lucroTrib - 81199) * 0.48;
-     
-     const ssAnual = receitaAnual * 0.214; // 21.4% SS
-     const reservaAtual = receitaAnual * (taxa/100);
-     const totalImpostos = irsEstimado + ssAnual;
-     const diffReserva = reservaAtual - totalImpostos;
-     
-     return (
-       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-         <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-           <p className="text-xs text-slate-400">Receita Bruta</p>
-           <p className="text-lg font-bold text-blue-400">{fmt(receitaAnual)}</p>
-         </div>
-         <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
-           <p className="text-xs text-slate-400">IRS Estimado</p>
-           <p className="text-lg font-bold text-orange-400">{fmt(irsEstimado)}</p>
-           <p className="text-xs text-slate-500">{(irsEstimado/receitaAnual*100 || 0).toFixed(1)}% efetiva</p>
-         </div>
-         <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
-           <p className="text-xs text-slate-400">Seg. Social</p>
-           <p className="text-lg font-bold text-purple-400">{fmt(ssAnual)}</p>
-           <p className="text-xs text-slate-500">21.4%</p>
-         </div>
-         <div className={`p-3 rounded-xl ${diffReserva >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-           <p className="text-xs text-slate-400">Reserva vs Real</p>
-           <p className={`text-lg font-bold ${diffReserva >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{diffReserva >= 0 ? '+' : ''}{fmt(diffReserva)}</p>
-           <p className="text-xs text-slate-500">{diffReserva >= 0 ? '✓ Suficiente' : '⚠️ Aumentar'}</p>
-         </div>
-       </div>
-     );
-   })()}
-   <p className="text-xs text-slate-500 mt-4">* Estimativa simplificada baseada no regime simplificado (75% tributável). Consulta um contabilista para valores exatos.</p>
- </Card>
-
- {/* COMPARAÇÃO DESPESAS MÊS A MÊS */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📊 Despesas: Este Mês vs Anterior</h3>
-   {(() => {
-     const mesAnteriorIdx = meses.indexOf(mes) === 0 ? 11 : meses.indexOf(mes) - 1;
-     const anoAnterior = meses.indexOf(mes) === 0 ? ano - 1 : ano;
-     const keyAnterior = `${anoAnterior}-${mesAnteriorIdx + 1}`;
-     const mAnterior = M[keyAnterior] || {};
-     
-     const invAnterior = (mAnterior.inv || []).reduce((a, i) => a + (i.val || 0), 0);
-     const diffInv = totInv - invAnterior;
-     
-     // Despesas são fixas (G), então comparamos investimentos e transferências
-     return (
-       <div className="grid grid-cols-2 gap-4">
-         <div className="p-4 bg-slate-700/30 rounded-xl">
-           <p className="text-sm text-slate-400 mb-2">Investimentos</p>
-           <div className="flex justify-between items-end">
-             <div>
-               <p className="text-xs text-slate-500">{meses[mesAnteriorIdx]?.slice(0,3)}</p>
-               <p className="text-lg font-semibold text-slate-400">{fmt(invAnterior)}</p>
-             </div>
-             <div className="text-2xl text-slate-600">→</div>
-             <div className="text-right">
-               <p className="text-xs text-slate-500">{mes.slice(0,3)}</p>
-               <p className="text-lg font-semibold text-blue-400">{fmt(totInv)}</p>
-             </div>
-           </div>
-           <div className={`mt-2 text-center text-sm font-medium ${diffInv >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-             {diffInv >= 0 ? '↑' : '↓'} {fmt(Math.abs(diffInv))} ({diffInv >= 0 ? '+' : ''}{invAnterior > 0 ? ((diffInv/invAnterior)*100).toFixed(0) : 0}%)
-           </div>
-         </div>
-         <div className="p-4 bg-slate-700/30 rounded-xl">
-           <p className="text-sm text-slate-400 mb-2">Taxa de Poupança</p>
-           <div className="flex justify-between items-center">
-             <div className="flex-1">
-               <div className="h-3 bg-slate-600 rounded-full overflow-hidden">
-                 <div className="h-full bg-emerald-500 transition-all" style={{width: `${Math.min(taxaPoupanca, 100)}%`}}/>
-               </div>
-             </div>
-             <span className={`ml-3 text-xl font-bold ${taxaPoupanca >= 20 ? 'text-emerald-400' : 'text-orange-400'}`}>{taxaPoupanca.toFixed(0)}%</span>
-           </div>
-           <p className="text-xs text-slate-500 mt-2">{taxaPoupanca >= 20 ? '✓ Acima do benchmark (20%)' : '⚠️ Abaixo do benchmark (20%)'}</p>
-         </div>
-       </div>
-     );
-   })()}
- </Card>
-
- {/* PATRIMÓNIO LÍQUIDO */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">🏆 Património Líquido</h3>
-   {(() => {
-     const {valorCasa, dividaAtual} = credito;
-     const casaLiquida = valorCasa - dividaAtual;
-     const portfolioTotal = portfolio.reduce((a, p) => a + p.val, 0);
-     const patrimonioTotal = casaLiquida + portfolioTotal;
-     const patrimonioHist = G.patrimonioHist || [];
-     
-     return (
-       <div>
-         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-           <div className="p-4 bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl">
-             <p className="text-xs text-slate-400">🏠 Casa (valor)</p>
-             <p className="text-xl font-bold text-blue-400">{fmt(valorCasa)}</p>
-           </div>
-           <div className="p-4 bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-xl">
-             <p className="text-xs text-slate-400">🏦 Dívida</p>
-             <p className="text-xl font-bold text-red-400">-{fmt(dividaAtual)}</p>
-           </div>
-           <div className="p-4 bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl">
-             <p className="text-xs text-slate-400">💎 Portfolio</p>
-             <p className="text-xl font-bold text-purple-400">{fmt(portfolioTotal)}</p>
-           </div>
-           <div className="p-4 bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 rounded-xl">
-             <p className="text-xs text-slate-400">🏆 Total Líquido</p>
-             <p className="text-2xl font-bold text-emerald-400">{fmt(patrimonioTotal)}</p>
-           </div>
-         </div>
-         
-         {/* Barra visual */}
-         <div className="mb-4">
-           <div className="flex h-8 rounded-xl overflow-hidden">
-             <div className="bg-blue-500 flex items-center justify-center text-xs font-medium" style={{width: `${(casaLiquida / patrimonioTotal) * 100}%`}} title={`Casa líquida: ${fmt(casaLiquida)}`}>
-               {((casaLiquida / patrimonioTotal) * 100).toFixed(0)}%
-             </div>
-             <div className="bg-purple-500 flex items-center justify-center text-xs font-medium" style={{width: `${(portfolioTotal / patrimonioTotal) * 100}%`}} title={`Portfolio: ${fmt(portfolioTotal)}`}>
-               {((portfolioTotal / patrimonioTotal) * 100).toFixed(0)}%
-             </div>
-           </div>
-           <div className="flex justify-between mt-2 text-xs text-slate-500">
-             <span>🏠 Imobiliário ({((casaLiquida / patrimonioTotal) * 100).toFixed(0)}%)</span>
-             <span>💎 Financeiro ({((portfolioTotal / patrimonioTotal) * 100).toFixed(0)}%)</span>
-           </div>
-         </div>
-         
-         {/* Guardar snapshot património */}
-         <Button variant="secondary" onClick={() => {
-           saveUndo();
-           const currentKey = `${ano}-${meses.indexOf(mes) + 1}`;
-           const newHist = [...patrimonioHist.filter(h => h.date !== currentKey), {
-             date: currentKey,
-             portfolio: portfolioTotal,
-             casaLiquida,
-             total: patrimonioTotal
-           }].sort((a,b) => a.date.localeCompare(b.date));
-           uG('patrimonioHist', newHist);
-         }}>📸 Guardar Snapshot Património</Button>
-         
-         {/* Gráfico evolução */}
-         {patrimonioHist.length > 1 && (
-           <div className="mt-6">
-             <p className="text-sm text-slate-400 mb-3">Evolução do Património</p>
-             <LineChart data={patrimonioHist.slice(-12).map(h => ({label: h.date.split('-')[1], value: h.total}))} height={150} color="#10b981" showValues={true} formatValue={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}/>
-           </div>
-         )}
-       </div>
-     );
-   })()}
- </Card>
+ )}
  </div>);
  };
 
