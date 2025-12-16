@@ -407,6 +407,56 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupData, setBackupData] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
   
+  // Novos estados para funcionalidades
+  const [theme, setTheme] = useState('dark'); // dark/light
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [showImportCSV, setShowImportCSV] = useState(false);
+  const [compareYear, setCompareYear] = useState(null);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  
+  // Detectar offline
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
+  // Atalhos de teclado
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+Z = Undo
+      if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo?.();
+      }
+      // Ctrl+Shift+Z ou Ctrl+Y = Redo
+      if ((e.ctrlKey && e.shiftKey && e.key === 'z') || (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault();
+        handleRedo?.();
+      }
+      // Ctrl+F = Pesquisa
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      // Escape = Fechar modais
+      if (e.key === 'Escape') {
+        setShowSearch(false);
+        setShowAlerts(false);
+        setShowImportCSV(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+  
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
   const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
   
@@ -426,6 +476,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     },
     portfolioHist: [],
     metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
+    alertas: [
+      {id:1, tipo: 'despesa', campo: 'despPess', limite: 800, ativo: true, desc: 'Despesas pessoais > €800'},
+      {id:2, tipo: 'meta', campo: 'receitas', percentagem: 80, ativo: true, desc: 'Receitas < 80% da meta'},
+      {id:3, tipo: 'poupanca', limite: 20, ativo: true, desc: 'Taxa poupança < 20%'}
+    ],
     credito: {
       valorCasa: 365000,
       entradaInicial: 36500,
@@ -437,7 +492,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       dataFim: '2054-02-01',
       spread: 1.0,
       euribor: 2.5,
-      historico: [{date: '2022-01', divida: 328500}, {date: '2025-12', divida: 229693.43}]
+      historico: [{date: '2022-01', divida: 328500}, {date: '2025-12', divida: 229693.43}],
+      amortizacoesPlaneadas: [] // {data: '2025-06', valor: 5000}
     }
   };
 
@@ -759,14 +815,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const Resumo = () => {
  const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
+ const projecao = getProjecaoAnual();
+ const benchs = getComparacaoBenchmarks();
  
  return (<div key={mesKey} className="space-y-6">
- <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
  <StatCard label="Receita Total" value={fmt(totRec)} color="text-white" sub={`Com: ${fmt(inCom)} + Sem: ${fmt(inSem)}`} icon="💰"/>
  <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Após ${fmtP(taxa)} taxas`} icon="✨"/>
  <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} do income com retenção`} icon="📋"/>
+ <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "Bom!" : "Benchmark: 20%"} icon="🐷"/>
  <StatCard label="Disponível Alocar" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Após despesas e férias" icon="🎯"/>
  </div>
+
+ {/* PROJEÇÃO ANUAL */}
+ {projecao && (
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📈 Projeção Anual {ano}</h3>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Total até agora</p>
+       <p className="text-xl font-bold text-blue-400">{fmt(projecao.totalAtual)}</p>
+       <p className="text-xs text-slate-500">{projecao.mesesComDados} meses</p>
+     </div>
+     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Média mensal</p>
+       <p className="text-xl font-bold text-purple-400">{fmt(projecao.mediaMensal)}</p>
+     </div>
+     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Projeção fim de ano</p>
+       <p className="text-xl font-bold text-emerald-400">{fmt(projecao.projecao)}</p>
+       <p className="text-xs text-slate-500">+{projecao.mesesRestantes} meses</p>
+     </div>
+     <div className={`p-3 rounded-xl ${projecao.diffMeta >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+       <p className="text-xs text-slate-400">vs Meta ({fmt(metas.receitas)})</p>
+       <p className={`text-xl font-bold ${projecao.diffMeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{projecao.diffMeta >= 0 ? '+' : ''}{fmt(projecao.diffMeta)}</p>
+       <p className="text-xs text-slate-500">{projecao.diffMeta >= 0 ? '✓ Acima da meta' : '⚠️ Abaixo'}</p>
+     </div>
+   </div>
+ </Card>
+ )}
 
  {/* METAS ANUAIS */}
  <Card>
@@ -879,7 +966,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  <div className="grid grid-cols-2 gap-6">
- {[{l:'Despesas Fixas (ABanca)',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏠 Amortização (${fmtP(alocAmort)})`,v:restante*(alocAmort/100),c:'#10b981'},{l:`📈 Investimentos (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
+ {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏠 Amortização (${fmtP(alocAmort)})`,v:restante*(alocAmort/100),c:'#10b981'},{l:`📈 Investimentos (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
  <div key={k}>
  <div className="flex justify-between mb-2"><span className="text-sm text-slate-300">{i.l}</span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
  <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c}/>
@@ -891,7 +978,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <h3 className="text-lg font-semibold mb-4">💸 Transferências do Mês</h3>
  <div className="space-y-3">
- {[{l:'ABanca (Despesas Fixas)',s:'Dia 25 do mês',v:minhaAB,k:'abanca'},{l:'Activo Bank (Pessoais)',s:'Dia 25 do mês',v:totPess,k:'activo'},{l:'Trade Republic (Repor)',s:'Dia 31 do mês',v:transfTR,k:'trade'},{l:'Revolut (Férias)',s:'Dia 31 do mês',v:ferias,k:'revolut'}].map(t => (
+ {[{l:'Despesas Casal',s:'Dia 25 do mês',v:minhaAB,k:'abanca'},{l:'Activo Bank (Pessoais)',s:'Dia 25 do mês',v:totPess,k:'activo'},{l:'Trade Republic (Repor)',s:'Dia 31 do mês',v:transfTR,k:'trade'},{l:'Revolut (Férias)',s:'Dia 31 do mês',v:ferias,k:'revolut'}].map(t => (
  <Row key={t.k} highlight={transf[t.k]}>
  <div className="flex-1"><p className="font-medium">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
  <span className="text-xl font-bold">{fmt(t.v)}</span>
@@ -899,6 +986,64 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Row>
  ))}
  </div>
+ </Card>
+
+ {/* BENCHMARKS */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📊 Comparação com Benchmarks</h3>
+   <p className="text-xs text-slate-500 mb-4">Compara os teus gastos com médias nacionais (Portugal)</p>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     {Object.entries(benchs).map(([key, data]) => {
+       const diff = data.atual - data.benchmark;
+       const isGood = key === 'poupanca' ? diff >= 0 : diff <= 0;
+       const labels = {habitacao: '🏠 Habitação', alimentacao: '🍽️ Alimentação', transporte: '🚗 Transporte', poupanca: '💰 Poupança'};
+       return (
+         <div key={key} className={`p-3 rounded-xl ${isGood ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-orange-500/10 border border-orange-500/30'}`}>
+           <p className="text-sm font-medium text-slate-300">{labels[key]}</p>
+           <div className="flex items-baseline gap-2 mt-1">
+             <span className={`text-xl font-bold ${isGood ? 'text-emerald-400' : 'text-orange-400'}`}>{data.atual.toFixed(1)}%</span>
+             <span className="text-xs text-slate-500">/ {data.benchmark}%</span>
+           </div>
+           <p className="text-xs mt-1 text-slate-500">{isGood ? '✓ OK' : '⚠️ Acima'}</p>
+         </div>
+       );
+     })}
+   </div>
+ </Card>
+
+ {/* COMPARAÇÃO ANO A ANO */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">📅 Comparação Ano a Ano</h3>
+     <div className="flex gap-2">
+       <Select value={compareYear || ano - 1} onChange={e => setCompareYear(+e.target.value)} className="text-sm">
+         {anos.filter(a => a !== ano).map(a => <option key={a} value={a}>{a}</option>)}
+       </Select>
+       <span className="text-slate-500">vs {ano}</span>
+     </div>
+   </div>
+   {(() => {
+     const comp = getComparacaoAnos(compareYear || ano - 1, ano);
+     const maxVal = Math.max(...comp.map(c => Math.max(c[compareYear || ano - 1], c[ano])), 1);
+     return (
+       <div className="space-y-2">
+         {comp.map(c => (
+           <div key={c.mes} className="flex items-center gap-3">
+             <span className="w-10 text-xs text-slate-500">{c.mes}</span>
+             <div className="flex-1 flex gap-1">
+               <div className="h-4 bg-slate-600 rounded-l" style={{width: `${(c[compareYear || ano - 1] / maxVal) * 50}%`}} title={fmt(c[compareYear || ano - 1])}/>
+               <div className="h-4 bg-blue-500 rounded-r" style={{width: `${(c[ano] / maxVal) * 50}%`}} title={fmt(c[ano])}/>
+             </div>
+             <span className="w-20 text-xs text-right text-slate-400">{c[compareYear || ano - 1] > 0 || c[ano] > 0 ? `${((c[ano] - c[compareYear || ano - 1]) / (c[compareYear || ano - 1] || 1) * 100).toFixed(0)}%` : '-'}</span>
+           </div>
+         ))}
+         <div className="flex gap-4 mt-3 justify-center text-xs">
+           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-slate-600"/><span>{compareYear || ano - 1}</span></div>
+           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-blue-500"/><span>{ano}</span></div>
+         </div>
+       </div>
+     );
+   })()}
  </Card>
  </div>);
  };
@@ -975,7 +1120,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">🏠 Despesas ABanca (Fixas Partilhadas)</h3>
+ <h3 className="text-lg font-semibold">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
@@ -1243,7 +1388,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const h = getHist();
  const hAno = h.filter(x => x.ano === histAno);
  const totH = hAno.reduce((a,x)=>a+x.tot,0);
- const chartData = hAno.map(x => ({label: x.nome.slice(0,3), com: x.com, sem: x.sem}));
+ const chartData = hAno.map(x => ({label: x.nome.slice(0,3), com: x.com, sem: x.sem, total: x.tot}));
  
  // Médias trimestrais
  const trimestres = [[1,2,3],[4,5,6],[7,8,9],[10,11,12]];
@@ -1255,6 +1400,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  const mediaAnual = hAno.length > 0 ? totH / hAno.length : 0;
  const anosComDados = [...new Set(h.map(x => x.ano))].sort();
+ 
+ // Mês com maior e menor receita
+ const maxMes = hAno.length > 0 ? hAno.reduce((a, x) => x.tot > a.tot ? x : a, hAno[0]) : null;
+ const minMes = hAno.filter(x => x.tot > 0).length > 0 ? hAno.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, hAno.filter(x => x.tot > 0)[0]) : null;
  
  return (
  <div key={mesKey} className="space-y-6">
@@ -1287,37 +1436,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {hAno.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-6">📈 Evolução das Receitas - {histAno}</h3>
- <BarChart data={chartData} height={220}/>
+ <div className="flex justify-between items-center mb-6">
+   <h3 className="text-lg font-semibold">📈 Evolução das Receitas - {histAno}</h3>
+   <div className="flex gap-4 text-sm">
+     {maxMes && <span className="text-emerald-400">📈 Melhor: {maxMes.nome} ({fmt(maxMes.tot)})</span>}
+     {minMes && <span className="text-orange-400">📉 Menor: {minMes.nome} ({fmt(minMes.tot)})</span>}
+   </div>
+ </div>
+ <BarChart data={chartData} height={220} showValues={true}/>
  <div className="flex gap-6 mt-4 justify-center text-sm">
  <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-orange-500"/><span className="text-slate-400">Com Taxas</span></div>
  <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-emerald-500"/><span className="text-slate-400">Sem Taxas</span></div>
  </div>
+ 
+ {/* Valores por mês em linha */}
+ <div className="mt-6 pt-4 border-t border-slate-700">
+   <div className="grid grid-cols-6 sm:grid-cols-12 gap-1 text-center">
+     {meses.map((m, i) => {
+       const mesData = hAno.find(x => x.mes === i + 1);
+       return (
+         <div key={m} className="p-1">
+           <p className="text-xs text-slate-500">{m.slice(0,3)}</p>
+           <p className={`text-xs font-semibold ${mesData?.tot > 0 ? 'text-white' : 'text-slate-600'}`}>
+             {mesData?.tot > 0 ? (mesData.tot >= 1000 ? `${(mesData.tot/1000).toFixed(1)}k` : mesData.tot) : '-'}
+           </p>
+         </div>
+       );
+     })}
+   </div>
+ </div>
  </Card>
  )}
-
- <Card>
- <h3 className="text-lg font-semibold mb-4">📋 Detalhes por Mês - {histAno}</h3>
- {hAno.length===0 ? (
- <p className="text-center py-12 text-slate-500">Sem dados para {histAno}. Adiciona receitas nos meses.</p>
- ) : (
- <div className="space-y-3">
- {hAno.map(x => {
- const max = Math.max(...hAno.map(d => d.tot), 1);
- return (
- <div key={x.k} className="flex items-center gap-4">
- <span className="w-20 text-sm text-slate-400">{x.nome}</span>
- <div className="flex-1 h-6 bg-slate-700/30 rounded-lg overflow-hidden flex">
- <div className="h-full bg-orange-500 transition-all duration-500" style={{width: `${(x.com/max)*100}%`}}/>
- <div className="h-full bg-emerald-500 transition-all duration-500" style={{width: `${(x.sem/max)*100}%`}}/>
- </div>
- <span className="w-24 text-right font-bold">{fmt(x.tot)}</span>
- </div>
- );
- })}
- </div>
- )}
- </Card>
  </div>
  );
  };
@@ -1337,6 +1486,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const mesAnteriorIdx = mesAtualIdx === 0 ? 11 : mesAtualIdx - 1;
  const mesAnteriorKey = `${anoAnterior}-${mesAnteriorIdx + 1}`;
  const portfolioMesAnterior = M[mesAnteriorKey]?.portfolio || [];
+ 
  
  // Calcular performance de cada investimento
  // Performance = (valor_atual - valor_mes_anterior - investido_este_mes) / valor_mes_anterior * 100
@@ -1647,6 +1797,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const jurosComAmort = calcularTotalJuros(simAmort);
  const poupancaJuros = jurosSemAmort - jurosComAmort;
  
+ // Calcular percentagens
+ const pctCredito = ((montanteInicial - dividaAtual) / montanteInicial * 100).toFixed(1);
+ const pctCasa = ((valorCasa - dividaAtual) / valorCasa * 100).toFixed(1);
+ 
  return (
  <div className="space-y-6">
  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
@@ -1654,7 +1808,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
  <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
  <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={`Termina: ${fimCredito.toLocaleDateString('pt-PT')}`} icon="⏱️"/>
- <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${((1 - dividaAtual/montanteInicial)*100).toFixed(1)}% do inicial`} icon="✅"/>
+ <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${pctCredito}% crédito · ${pctCasa}% casa`} icon="✅"/>
  </div>
 
  <Card>
@@ -1907,11 +2061,68 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  uC('historico', newHist);
  }}>📊 Registar Dívida Atual ({fmt(dividaAtual)}) para {mes} {ano}</Button>
  </Card>
+
+ {/* PROJEÇÃO DE LIQUIDAÇÃO */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📈 Projeção de Liquidação</h3>
+   <p className="text-sm text-slate-400 mb-4">Evolução da dívida com amortização extra de {fmt(simAmort)}/mês</p>
+   {(() => {
+     const proj = getProjecaoCredito();
+     return (
+       <div>
+         <div className="grid grid-cols-3 gap-3 mb-6">
+           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center">
+             <p className="text-xs text-slate-400">Liquidação em</p>
+             <p className="text-2xl font-bold text-emerald-400">{proj.anos}a {proj.mesesRestantes}m</p>
+           </div>
+           <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
+             <p className="text-xs text-slate-400">Data prevista</p>
+             <p className="text-lg font-bold text-blue-400">{new Date(Date.now() + proj.meses * 30.44 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-PT', {month: 'short', year: 'numeric'})}</p>
+           </div>
+           <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-center">
+             <p className="text-xs text-slate-400">Anos poupados</p>
+             <p className="text-2xl font-bold text-purple-400">{Math.max(0, anosRestantes - proj.anos)}a</p>
+           </div>
+         </div>
+       </div>
+     );
+   })()}
+ </Card>
+
+ {/* AMORTIZAÇÕES PLANEADAS */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">📅 Amortizações Planeadas</h3>
+     <Button onClick={() => {
+       const novaData = prompt('Data da amortização (YYYY-MM):');
+       const novoValor = prompt('Valor da amortização:');
+       if (novaData && novoValor) {
+         const planeadas = credito.amortizacoesPlaneadas || [];
+         uC('amortizacoesPlaneadas', [...planeadas, {data: novaData, valor: +novoValor}]);
+       }
+     }}>+ Adicionar</Button>
+   </div>
+   <div className="space-y-2">
+     {(credito.amortizacoesPlaneadas || []).length === 0 ? (
+       <p className="text-center py-4 text-slate-500">Nenhuma amortização planeada. Adiciona para ver o impacto na projeção.</p>
+     ) : (
+       (credito.amortizacoesPlaneadas || []).map((a, i) => (
+         <div key={i} className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
+           <span className="text-slate-300">{a.data}</span>
+           <div className="flex items-center gap-3">
+             <span className="font-semibold text-emerald-400">{fmt(a.valor)}</span>
+             <button onClick={() => uC('amortizacoesPlaneadas', credito.amortizacoesPlaneadas.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-300">✕</button>
+           </div>
+         </div>
+       ))
+     )}
+   </div>
+ </Card>
  </div>
  );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'ABanca'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'}];
+ const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'}];
 
  // Função para exportar Excel real (.xlsx)
  const [exporting, setExporting] = useState(false);
@@ -2118,6 +2329,340 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        alert('✅ Todos os dados foram resetados para os valores iniciais.');
      }
    }
+ };
+
+ // ========== NOVAS FUNCIONALIDADES ==========
+ 
+ // Função de pesquisa global
+ const searchResults = useCallback(() => {
+   if (!searchQuery.trim()) return [];
+   const q = searchQuery.toLowerCase();
+   const results = [];
+   
+   // Pesquisar em clientes
+   clientes.forEach(c => {
+     if (c.nome.toLowerCase().includes(q)) {
+       results.push({type: 'cliente', item: c, label: `Cliente: ${c.nome}`});
+     }
+   });
+   
+   // Pesquisar em receitas (todos os meses)
+   Object.entries(M).forEach(([mesKey, mesData]) => {
+     mesData.regCom?.forEach(r => {
+       if (r.descricao?.toLowerCase().includes(q)) {
+         results.push({type: 'receita', item: r, mesKey, label: `Receita (${mesKey}): ${r.descricao} - ${fmt(r.valor)}`});
+       }
+     });
+     mesData.regSem?.forEach(r => {
+       if (r.descricao?.toLowerCase().includes(q)) {
+         results.push({type: 'receita', item: r, mesKey, label: `Receita (${mesKey}): ${r.descricao} - ${fmt(r.valor)}`});
+       }
+     });
+   });
+   
+   // Pesquisar em despesas
+   despABanca.forEach(d => {
+     if (d.desc.toLowerCase().includes(q)) {
+       results.push({type: 'despesa', item: d, label: `Despesa Casal: ${d.desc} - ${fmt(d.val)}`});
+     }
+   });
+   despPess.forEach(d => {
+     if (d.desc.toLowerCase().includes(q)) {
+       results.push({type: 'despesa', item: d, label: `Despesa Pessoal: ${d.desc} - ${fmt(d.val)}`});
+     }
+   });
+   
+   return results.slice(0, 20);
+ }, [searchQuery, M, clientes, despABanca, despPess]);
+
+ // Calcular alertas ativos
+ const getActiveAlerts = useCallback(() => {
+   const alerts = [];
+   const alertas = G.alertas || [];
+   
+   // Taxa de poupança
+   const taxaPoupanca = recLiq > 0 ? ((totInv + (restante * (alocAmort/100))) / recLiq * 100) : 0;
+   
+   alertas.forEach(a => {
+     if (!a.ativo) return;
+     
+     if (a.tipo === 'despesa' && a.campo === 'despPess' && totPess > a.limite) {
+       alerts.push({...a, msg: `⚠️ ${a.desc}: ${fmt(totPess)} (limite: ${fmt(a.limite)})`});
+     }
+     if (a.tipo === 'poupanca' && taxaPoupanca < a.limite) {
+       alerts.push({...a, msg: `⚠️ ${a.desc}: ${taxaPoupanca.toFixed(1)}%`});
+     }
+   });
+   
+   // Verificar metas (usando progresso esperado)
+   const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
+   const progressoEsperado = mesAtualNum / 12;
+   const totaisAnuais = calcularTotaisAnuais();
+   
+   if (totaisAnuais.receitasAnuais < metas.receitas * progressoEsperado * 0.8) {
+     alerts.push({tipo: 'meta', msg: `📉 Receitas abaixo do esperado: ${fmt(totaisAnuais.receitasAnuais)} vs ${fmt(metas.receitas * progressoEsperado)}`});
+   }
+   
+   return alerts;
+ }, [G, recLiq, totInv, restante, alocAmort, totPess, metas]);
+
+ // Projeção de fim de ano
+ const getProjecaoAnual = useCallback(() => {
+   const h = getHist();
+   const hAno = h.filter(x => x.ano === ano);
+   const mesesComDados = hAno.filter(x => x.tot > 0).length;
+   if (mesesComDados === 0) return null;
+   
+   const totalAtual = hAno.reduce((a, x) => a + x.tot, 0);
+   const mediaMensal = totalAtual / mesesComDados;
+   const mesesRestantes = 12 - mesesComDados;
+   const projecao = totalAtual + (mediaMensal * mesesRestantes);
+   const diffMeta = projecao - metas.receitas;
+   
+   return { totalAtual, mediaMensal, mesesComDados, mesesRestantes, projecao, diffMeta };
+ }, [ano, metas.receitas, getHist]);
+
+ // Taxa de poupança
+ const taxaPoupanca = recLiq > 0 ? ((totInv + (restante > 0 ? restante : 0)) / recLiq * 100) : 0;
+
+ // Comparação ano a ano
+ const getComparacaoAnos = useCallback((ano1, ano2) => {
+   const h = getHist();
+   return meses.map((m, i) => {
+     const d1 = h.find(x => x.ano === ano1 && x.mes === i + 1);
+     const d2 = h.find(x => x.ano === ano2 && x.mes === i + 1);
+     return {
+       mes: m.slice(0, 3),
+       [ano1]: d1?.tot || 0,
+       [ano2]: d2?.tot || 0
+     };
+   });
+ }, [getHist]);
+
+ // Benchmarks nacionais (valores aproximados Portugal)
+ const benchmarks = {
+   habitacao: 35, // % do rendimento
+   alimentacao: 15,
+   transporte: 10,
+   poupanca: 10
+ };
+
+ const getComparacaoBenchmarks = useCallback(() => {
+   const rendTotal = recLiq || 1;
+   const gastosHab = despABanca.filter(d => d.cat === 'Habitação').reduce((a, d) => a + d.val, 0) * (contrib/100);
+   const gastosAlim = despABanca.filter(d => d.cat === 'Alimentação').reduce((a, d) => a + d.val, 0) * (contrib/100);
+   const gastosTrans = despPess.filter(d => d.cat === 'Transporte').reduce((a, d) => a + d.val, 0);
+   
+   return {
+     habitacao: { atual: (gastosHab / rendTotal * 100), benchmark: benchmarks.habitacao },
+     alimentacao: { atual: (gastosAlim / rendTotal * 100), benchmark: benchmarks.alimentacao },
+     transporte: { atual: (gastosTrans / rendTotal * 100), benchmark: benchmarks.transporte },
+     poupanca: { atual: taxaPoupanca, benchmark: benchmarks.poupanca }
+   };
+ }, [recLiq, despABanca, despPess, contrib, taxaPoupanca]);
+
+ // Projeção de liquidação do crédito com amortizações planeadas
+ const getProjecaoCredito = useCallback(() => {
+   const {dividaAtual, taxaJuro, prestacao, amortizacoesPlaneadas = []} = credito;
+   const taxaMensal = (taxaJuro / 100) / 12;
+   
+   let divida = dividaAtual;
+   let meses = 0;
+   const maxMeses = 500;
+   const projecao = [{mes: 0, divida}];
+   
+   while (divida > 0 && meses < maxMeses) {
+     meses++;
+     const juros = divida * taxaMensal;
+     const amortNormal = prestacao - juros;
+     
+     // Verificar amortização planeada para este mês
+     const dataAtual = new Date();
+     dataAtual.setMonth(dataAtual.getMonth() + meses);
+     const mesKey = `${dataAtual.getFullYear()}-${String(dataAtual.getMonth() + 1).padStart(2, '0')}`;
+     const amortExtra = amortizacoesPlaneadas.find(a => a.data === mesKey)?.valor || 0;
+     
+     divida = Math.max(0, divida - amortNormal - amortExtra);
+     
+     if (meses % 12 === 0 || divida <= 0) {
+       projecao.push({mes: meses, divida, ano: Math.floor(meses / 12)});
+     }
+   }
+   
+   return { meses, anos: Math.floor(meses / 12), mesesRestantes: meses % 12, projecao };
+ }, [credito]);
+
+ // Importar CSV
+ const handleImportCSV = (csvText) => {
+   try {
+     const lines = csvText.trim().split('\n');
+     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+     
+     const dataIdx = headers.findIndex(h => h.includes('data'));
+     const descIdx = headers.findIndex(h => h.includes('desc'));
+     const valorIdx = headers.findIndex(h => h.includes('valor') || h.includes('amount'));
+     const tipoIdx = headers.findIndex(h => h.includes('tipo') || h.includes('type'));
+     
+     if (valorIdx === -1) {
+       alert('❌ CSV deve ter coluna "valor" ou "amount"');
+       return;
+     }
+     
+     const registos = [];
+     for (let i = 1; i < lines.length; i++) {
+       const cols = lines[i].split(',').map(c => c.trim());
+       if (cols.length < 2) continue;
+       
+       const valor = parseFloat(cols[valorIdx]?.replace(/[€\s]/g, '').replace(',', '.')) || 0;
+       if (valor <= 0) continue;
+       
+       registos.push({
+         id: Date.now() + i,
+         clienteId: clientes[0]?.id || 1,
+         valor,
+         data: cols[dataIdx] || new Date().toISOString().split('T')[0],
+         descricao: cols[descIdx] || `Importado ${i}`
+       });
+     }
+     
+     if (registos.length === 0) {
+       alert('❌ Nenhum registo válido encontrado no CSV');
+       return;
+     }
+     
+     saveUndo();
+     setM(prev => ({
+       ...prev,
+       [mesKey]: {
+         ...(prev[mesKey] || defM),
+         regCom: [...(prev[mesKey]?.regCom || []), ...registos]
+       }
+     }));
+     
+     alert(`✅ ${registos.length} registos importados!`);
+     setShowImportCSV(false);
+   } catch (e) {
+     alert('❌ Erro ao processar CSV: ' + e.message);
+   }
+ };
+
+ // Exportar PDF (simples - abre janela de impressão)
+ const exportPDF = () => {
+   window.print();
+ };
+
+ // Modal de Pesquisa
+ const SearchModal = () => {
+   if (!showSearch) return null;
+   const results = searchResults();
+   
+   return (
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-20" onClick={() => setShowSearch(false)}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700">
+           <div className="flex items-center gap-3">
+             <span className="text-2xl">🔍</span>
+             <input
+               autoFocus
+               type="text"
+               className="flex-1 bg-transparent text-xl outline-none text-white placeholder-slate-500"
+               placeholder="Pesquisar clientes, receitas, despesas..."
+               value={searchQuery}
+               onChange={e => setSearchQuery(e.target.value)}
+             />
+             <kbd className="px-2 py-1 bg-slate-700 rounded text-xs text-slate-400">ESC</kbd>
+           </div>
+         </div>
+         <div className="max-h-96 overflow-y-auto p-2">
+           {results.length === 0 && searchQuery && (
+             <p className="text-center py-8 text-slate-500">Nenhum resultado para "{searchQuery}"</p>
+           )}
+           {results.map((r, i) => (
+             <div key={i} className="p-3 hover:bg-slate-700/50 rounded-xl cursor-pointer flex items-center gap-3">
+               <span className="text-lg">{r.type === 'cliente' ? '👤' : r.type === 'receita' ? '💰' : '💸'}</span>
+               <span className="text-slate-300">{r.label}</span>
+             </div>
+           ))}
+         </div>
+       </div>
+     </div>
+   );
+ };
+
+ // Modal de Alertas
+ const AlertsModal = () => {
+   if (!showAlerts) return null;
+   const alerts = getActiveAlerts();
+   const alertas = G.alertas || [];
+   
+   return (
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowAlerts(false)}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+           <h3 className="text-lg font-semibold">🔔 Alertas e Notificações</h3>
+           <button onClick={() => setShowAlerts(false)} className="text-slate-400 hover:text-white">✕</button>
+         </div>
+         <div className="p-4 space-y-4">
+           {alerts.length === 0 ? (
+             <p className="text-center py-4 text-emerald-400">✅ Tudo em ordem! Sem alertas ativos.</p>
+           ) : (
+             <div className="space-y-2">
+               {alerts.map((a, i) => (
+                 <div key={i} className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl text-orange-400">
+                   {a.msg}
+                 </div>
+               ))}
+             </div>
+           )}
+           
+           <div className="pt-4 border-t border-slate-700">
+             <h4 className="text-sm font-semibold text-slate-400 mb-3">Configurar Alertas</h4>
+             {alertas.map(a => (
+               <div key={a.id} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg mb-2">
+                 <span className="text-sm text-slate-300">{a.desc}</span>
+                 <input
+                   type="checkbox"
+                   checked={a.ativo}
+                   onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, ativo: e.target.checked} : x))}
+                   className="w-5 h-5 accent-blue-500"
+                 />
+               </div>
+             ))}
+           </div>
+         </div>
+       </div>
+     </div>
+   );
+ };
+
+ // Modal de Importar CSV
+ const ImportCSVModal = () => {
+   const [csvText, setCsvText] = useState('');
+   if (!showImportCSV) return null;
+   
+   return (
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowImportCSV(false)}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+           <h3 className="text-lg font-semibold">📥 Importar CSV</h3>
+           <button onClick={() => setShowImportCSV(false)} className="text-slate-400 hover:text-white">✕</button>
+         </div>
+         <div className="p-4 space-y-4">
+           <p className="text-sm text-slate-400">Cola o conteúdo do CSV. Deve ter colunas: data, descricao, valor</p>
+           <textarea
+             className="w-full h-48 bg-slate-900 border border-slate-600 rounded-xl p-3 text-sm font-mono text-slate-300 outline-none"
+             placeholder="data,descricao,valor&#10;2025-01-15,Projeto X,1500&#10;2025-01-20,Consultoria,800"
+             value={csvText}
+             onChange={e => setCsvText(e.target.value)}
+           />
+           <div className="flex justify-end gap-3">
+             <Button variant="secondary" onClick={() => setShowImportCSV(false)}>Cancelar</Button>
+             <Button onClick={() => handleImportCSV(csvText)}>Importar</Button>
+           </div>
+         </div>
+       </div>
+     </div>
+   );
  };
 
  // Modal de Backup
@@ -2360,12 +2905,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
+ // Classes de tema
+ const themeClasses = theme === 'light' 
+   ? 'min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900 overflow-x-hidden'
+   : 'min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden';
+
  return (
- <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden">
+ <div className={themeClasses}>
  <BackupModal />
- <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}`}</style>
+ <SearchModal />
+ <AlertsModal />
+ <ImportCSVModal />
+ {isOffline && (
+   <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
+     ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
+   </div>
+ )}
+ <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}`}</style>
  
- <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50">
+ <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50 no-print">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
               <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">💎 Dashboard</h1>
@@ -2382,13 +2940,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
               </div>
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
-              <div className="flex gap-1 sm:gap-2">
-                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title={`Desfazer (${undoHistory.length})`}>↩️<span className="hidden sm:inline"> Desfazer</span>{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
-                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title={`Refazer (${redoHistory.length})`}>↪️<span className="hidden sm:inline"> Refazer</span></button>
-                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋<span className="hidden sm:inline"> Backup</span></button>
-                <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📤<span className="hidden sm:inline"> Restaurar</span></button>
-                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">🗑️<span className="hidden sm:inline"> Reset</span></button>
-                <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>{exporting ? '⏳' : '📊'}<span className="hidden sm:inline">{exporting ? ' A exportar...' : ' Google Sheets'}</span></button>
+              <div className="flex gap-1 sm:gap-2 flex-wrap">
+                <button onClick={() => setShowSearch(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Pesquisar (Ctrl+F)">🔍</button>
+                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Alertas">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
+                <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Alternar tema">{theme === 'dark' ? '☀️' : '🌙'}</button>
+                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
+                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
+                <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar CSV">📥</button>
+                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Exportar PDF">🖨️</button>
+                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋</button>
+                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">🗑️</button>
+                <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>{exporting ? '⏳' : '📊'}</button>
               </div>
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
