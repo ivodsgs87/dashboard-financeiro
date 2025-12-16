@@ -475,12 +475,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       aloc: [{id:1,desc:'Emergência',val:230,cor:'#3b82f6'},{id:2,desc:'ETF',val:100,cor:'#8b5cf6'},{id:3,desc:'Férias',val:130,cor:'#f59e0b'},{id:4,desc:'Amortização',val:130,cor:'#10b981'}]
     },
     portfolioHist: [],
+    patrimonioHist: [], // {date: '2025-01', portfolio: 50000, casaLiquida: 100000}
     metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
     alertas: [
       {id:1, tipo: 'despesa', campo: 'despPess', limite: 800, ativo: true, desc: 'Despesas pessoais > €800'},
       {id:2, tipo: 'meta', campo: 'receitas', percentagem: 80, ativo: true, desc: 'Receitas < 80% da meta'},
       {id:3, tipo: 'poupanca', limite: 20, ativo: true, desc: 'Taxa poupança < 20%'}
     ],
+    // Tarefas financeiras recorrentes
+    tarefas: [
+      {id:1, desc:'Enviar faturas e-Fatura', dia:12, freq:'mensal', cat:'IVA', ativo:true},
+      {id:2, desc:'Pagar Segurança Social', dia:20, freq:'mensal', cat:'SS', ativo:true},
+      {id:3, desc:'Declaração trimestral IVA', dia:15, freq:'trimestral', meses:[2,5,8,11], cat:'IVA', ativo:true},
+      {id:4, desc:'Pagamento por conta IRS', dia:20, freq:'trimestral', meses:[7,9,12], cat:'IRS', ativo:true},
+      {id:5, desc:'Declaração IRS', dia:30, freq:'anual', meses:[6], cat:'IRS', ativo:true},
+      {id:6, desc:'Renovar seguro carro', dia:1, freq:'anual', meses:[3], cat:'Seguros', ativo:true}
+    ],
+    tarefasConcluidas: {}, // {'2025-12-1': true, '2025-12-2': true}
     credito: {
       valorCasa: 365000,
       entradaInicial: 36500,
@@ -493,7 +504,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       spread: 1.0,
       euribor: 2.5,
       historico: [{date: '2022-01', divida: 328500}, {date: '2025-12', divida: 229693.43}],
-      amortizacoesPlaneadas: [] // {data: '2025-06', valor: 5000}
+      amortizacoesPlaneadas: []
     }
   };
 
@@ -817,8 +828,33 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  const projecao = getProjecaoAnual();
  const benchs = getComparacaoBenchmarks();
+ const previsaoIRS = getPrevisaoIRS();
+ const compDespesas = getComparacaoDespesas();
+ const patrimonio = getPatrimonioLiquido();
+ const tarefasPend = getTarefasPendentes();
  
  return (<div key={mesKey} className="space-y-6">
+ 
+ {/* ALERTAS DE TAREFAS */}
+ {(tarefasPend.atrasadas.length > 0 || tarefasPend.proximas.length > 0) && (
+   <div className={`p-4 rounded-xl border ${tarefasPend.atrasadas.length > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-orange-500/10 border-orange-500/30'}`}>
+     <div className="flex items-center justify-between">
+       <div className="flex items-center gap-3">
+         <span className="text-2xl">{tarefasPend.atrasadas.length > 0 ? '⚠️' : '📋'}</span>
+         <div>
+           {tarefasPend.atrasadas.length > 0 && (
+             <p className="font-medium text-red-400">{tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>
+           )}
+           {tarefasPend.proximas.length > 0 && (
+             <p className="text-sm text-orange-400">{tarefasPend.proximas.length} tarefa(s) nos próximos 5 dias</p>
+           )}
+         </div>
+       </div>
+       <button onClick={() => setTab('agenda')} className="px-3 py-1 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg">Ver Agenda →</button>
+     </div>
+   </div>
+ )}
+ 
  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
  <StatCard label="Receita Total" value={fmt(totRec)} color="text-white" sub={`Com: ${fmt(inCom)} + Sem: ${fmt(inSem)}`} icon="💰"/>
  <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Após ${fmtP(taxa)} taxas`} icon="✨"/>
@@ -826,6 +862,85 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "Bom!" : "Benchmark: 20%"} icon="🐷"/>
  <StatCard label="Disponível Alocar" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Após despesas e férias" icon="🎯"/>
  </div>
+
+ {/* PATRIMÓNIO LÍQUIDO */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">💎 Património Líquido Total</h3>
+     <span className="text-2xl font-bold text-emerald-400">{fmt(patrimonio.total)}</span>
+   </div>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Portfolio Investimentos</p>
+       <p className="text-xl font-bold text-blue-400">{fmt(patrimonio.portfolio)}</p>
+     </div>
+     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Valor Casa</p>
+       <p className="text-xl font-bold text-emerald-400">{fmt(patrimonio.valorCasa)}</p>
+     </div>
+     <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Dívida Casa</p>
+       <p className="text-xl font-bold text-red-400">-{fmt(patrimonio.dividaAtual)}</p>
+     </div>
+     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Casa (líquido)</p>
+       <p className="text-xl font-bold text-purple-400">{fmt(patrimonio.casaLiquida)}</p>
+     </div>
+   </div>
+ </Card>
+
+ {/* PREVISÃO IRS */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📊 Previsão IRS {anoAtualSistema}</h3>
+   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+     <div className="p-3 bg-slate-700/30 rounded-xl">
+       <p className="text-xs text-slate-400">Receitas Brutas</p>
+       <p className="text-lg font-bold">{fmt(previsaoIRS.receitasAnuais)}</p>
+     </div>
+     <div className="p-3 bg-slate-700/30 rounded-xl">
+       <p className="text-xs text-slate-400">Rend. Coletável (75%)</p>
+       <p className="text-lg font-bold">{fmt(previsaoIRS.rendColetavel)}</p>
+     </div>
+     <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">IRS Estimado</p>
+       <p className="text-lg font-bold text-orange-400">{fmt(previsaoIRS.impostoEstimado)}</p>
+       <p className="text-xs text-slate-500">Taxa efetiva: {previsaoIRS.taxaEfetiva.toFixed(1)}%</p>
+     </div>
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+       <p className="text-xs text-slate-400">Já Retido</p>
+       <p className="text-lg font-bold text-blue-400">{fmt(previsaoIRS.retencoes)}</p>
+     </div>
+     <div className={`p-3 rounded-xl ${previsaoIRS.aPagarReceber >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+       <p className="text-xs text-slate-400">{previsaoIRS.aPagarReceber >= 0 ? 'A Receber' : 'A Pagar'}</p>
+       <p className={`text-lg font-bold ${previsaoIRS.aPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(previsaoIRS.aPagarReceber))}</p>
+     </div>
+   </div>
+   <p className="text-xs text-slate-500 mt-3">* Estimativa simplificada com regime simplificado (coef. 75%) e deduções standard. Consulta um contabilista.</p>
+ </Card>
+
+ {/* COMPARAÇÃO COM MÊS ANTERIOR */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📈 {mes} vs {compDespesas.mesAnterior}</h3>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     {[
+       {label: 'Receitas', ...compDespesas.receitas, icon: '💰'},
+       {label: 'Investimentos', ...compDespesas.investimentos, icon: '📈'}
+     ].map(item => (
+       <div key={item.label} className="p-3 bg-slate-700/30 rounded-xl">
+         <div className="flex justify-between items-start mb-2">
+           <p className="text-xs text-slate-400">{item.icon} {item.label}</p>
+           {item.diff !== 0 && (
+             <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${item.diff > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+               {item.diff > 0 ? '+' : ''}{fmt(item.diff)}
+             </span>
+           )}
+         </div>
+         <p className="text-lg font-bold">{fmt(item.atual)}</p>
+         <p className="text-xs text-slate-500">Anterior: {fmt(item.anterior)}</p>
+       </div>
+     ))}
+   </div>
+ </Card>
 
  {/* PROJEÇÃO ANUAL */}
  {projecao && (
@@ -1050,6 +1165,179 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"/><span className="text-slate-300">{ano}</span></div>
            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-slate-600"/><span className="text-slate-400">{compYear}</span></div>
          </div>
+       </div>
+     );
+   })()}
+ </Card>
+
+ {/* PREVISÃO IRS */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">🧾 Previsão de Impostos {ano}</h3>
+   {(() => {
+     const receitaAnual = totaisAnuais.receitasAnuais;
+     const despesasDedut = totAB * 12 * 0.25; // 25% despesas habitação dedutíveis (simplificado)
+     const lucroTrib = Math.max(0, receitaAnual * 0.75 - despesasDedut); // Regime simplificado: 75% tributável
+     
+     // Escalões IRS 2024 (simplificado)
+     let irsEstimado = 0;
+     if (lucroTrib <= 7703) irsEstimado = lucroTrib * 0.1325;
+     else if (lucroTrib <= 11623) irsEstimado = 1020.56 + (lucroTrib - 7703) * 0.18;
+     else if (lucroTrib <= 16472) irsEstimado = 1726.16 + (lucroTrib - 11623) * 0.23;
+     else if (lucroTrib <= 21321) irsEstimado = 2841.43 + (lucroTrib - 16472) * 0.26;
+     else if (lucroTrib <= 27146) irsEstimado = 4102.17 + (lucroTrib - 21321) * 0.3275;
+     else if (lucroTrib <= 39791) irsEstimado = 6009.43 + (lucroTrib - 27146) * 0.37;
+     else if (lucroTrib <= 51997) irsEstimado = 10688.09 + (lucroTrib - 39791) * 0.435;
+     else if (lucroTrib <= 81199) irsEstimado = 15997.30 + (lucroTrib - 51997) * 0.45;
+     else irsEstimado = 29108.20 + (lucroTrib - 81199) * 0.48;
+     
+     const ssAnual = receitaAnual * 0.214; // 21.4% SS
+     const reservaAtual = receitaAnual * (taxa/100);
+     const totalImpostos = irsEstimado + ssAnual;
+     const diffReserva = reservaAtual - totalImpostos;
+     
+     return (
+       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+         <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+           <p className="text-xs text-slate-400">Receita Bruta</p>
+           <p className="text-lg font-bold text-blue-400">{fmt(receitaAnual)}</p>
+         </div>
+         <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+           <p className="text-xs text-slate-400">IRS Estimado</p>
+           <p className="text-lg font-bold text-orange-400">{fmt(irsEstimado)}</p>
+           <p className="text-xs text-slate-500">{(irsEstimado/receitaAnual*100 || 0).toFixed(1)}% efetiva</p>
+         </div>
+         <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+           <p className="text-xs text-slate-400">Seg. Social</p>
+           <p className="text-lg font-bold text-purple-400">{fmt(ssAnual)}</p>
+           <p className="text-xs text-slate-500">21.4%</p>
+         </div>
+         <div className={`p-3 rounded-xl ${diffReserva >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+           <p className="text-xs text-slate-400">Reserva vs Real</p>
+           <p className={`text-lg font-bold ${diffReserva >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{diffReserva >= 0 ? '+' : ''}{fmt(diffReserva)}</p>
+           <p className="text-xs text-slate-500">{diffReserva >= 0 ? '✓ Suficiente' : '⚠️ Aumentar'}</p>
+         </div>
+       </div>
+     );
+   })()}
+   <p className="text-xs text-slate-500 mt-4">* Estimativa simplificada baseada no regime simplificado (75% tributável). Consulta um contabilista para valores exatos.</p>
+ </Card>
+
+ {/* COMPARAÇÃO DESPESAS MÊS A MÊS */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">📊 Despesas: Este Mês vs Anterior</h3>
+   {(() => {
+     const mesAnteriorIdx = meses.indexOf(mes) === 0 ? 11 : meses.indexOf(mes) - 1;
+     const anoAnterior = meses.indexOf(mes) === 0 ? ano - 1 : ano;
+     const keyAnterior = `${anoAnterior}-${mesAnteriorIdx + 1}`;
+     const mAnterior = M[keyAnterior] || {};
+     
+     const invAnterior = (mAnterior.inv || []).reduce((a, i) => a + (i.val || 0), 0);
+     const diffInv = totInv - invAnterior;
+     
+     // Despesas são fixas (G), então comparamos investimentos e transferências
+     return (
+       <div className="grid grid-cols-2 gap-4">
+         <div className="p-4 bg-slate-700/30 rounded-xl">
+           <p className="text-sm text-slate-400 mb-2">Investimentos</p>
+           <div className="flex justify-between items-end">
+             <div>
+               <p className="text-xs text-slate-500">{meses[mesAnteriorIdx]?.slice(0,3)}</p>
+               <p className="text-lg font-semibold text-slate-400">{fmt(invAnterior)}</p>
+             </div>
+             <div className="text-2xl text-slate-600">→</div>
+             <div className="text-right">
+               <p className="text-xs text-slate-500">{mes.slice(0,3)}</p>
+               <p className="text-lg font-semibold text-blue-400">{fmt(totInv)}</p>
+             </div>
+           </div>
+           <div className={`mt-2 text-center text-sm font-medium ${diffInv >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+             {diffInv >= 0 ? '↑' : '↓'} {fmt(Math.abs(diffInv))} ({diffInv >= 0 ? '+' : ''}{invAnterior > 0 ? ((diffInv/invAnterior)*100).toFixed(0) : 0}%)
+           </div>
+         </div>
+         <div className="p-4 bg-slate-700/30 rounded-xl">
+           <p className="text-sm text-slate-400 mb-2">Taxa de Poupança</p>
+           <div className="flex justify-between items-center">
+             <div className="flex-1">
+               <div className="h-3 bg-slate-600 rounded-full overflow-hidden">
+                 <div className="h-full bg-emerald-500 transition-all" style={{width: `${Math.min(taxaPoupanca, 100)}%`}}/>
+               </div>
+             </div>
+             <span className={`ml-3 text-xl font-bold ${taxaPoupanca >= 20 ? 'text-emerald-400' : 'text-orange-400'}`}>{taxaPoupanca.toFixed(0)}%</span>
+           </div>
+           <p className="text-xs text-slate-500 mt-2">{taxaPoupanca >= 20 ? '✓ Acima do benchmark (20%)' : '⚠️ Abaixo do benchmark (20%)'}</p>
+         </div>
+       </div>
+     );
+   })()}
+ </Card>
+
+ {/* PATRIMÓNIO LÍQUIDO */}
+ <Card>
+   <h3 className="text-lg font-semibold mb-4">🏆 Património Líquido</h3>
+   {(() => {
+     const {valorCasa, dividaAtual} = credito;
+     const casaLiquida = valorCasa - dividaAtual;
+     const portfolioTotal = portfolio.reduce((a, p) => a + p.val, 0);
+     const patrimonioTotal = casaLiquida + portfolioTotal;
+     const patrimonioHist = G.patrimonioHist || [];
+     
+     return (
+       <div>
+         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+           <div className="p-4 bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl">
+             <p className="text-xs text-slate-400">🏠 Casa (valor)</p>
+             <p className="text-xl font-bold text-blue-400">{fmt(valorCasa)}</p>
+           </div>
+           <div className="p-4 bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-xl">
+             <p className="text-xs text-slate-400">🏦 Dívida</p>
+             <p className="text-xl font-bold text-red-400">-{fmt(dividaAtual)}</p>
+           </div>
+           <div className="p-4 bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl">
+             <p className="text-xs text-slate-400">💎 Portfolio</p>
+             <p className="text-xl font-bold text-purple-400">{fmt(portfolioTotal)}</p>
+           </div>
+           <div className="p-4 bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30 rounded-xl">
+             <p className="text-xs text-slate-400">🏆 Total Líquido</p>
+             <p className="text-2xl font-bold text-emerald-400">{fmt(patrimonioTotal)}</p>
+           </div>
+         </div>
+         
+         {/* Barra visual */}
+         <div className="mb-4">
+           <div className="flex h-8 rounded-xl overflow-hidden">
+             <div className="bg-blue-500 flex items-center justify-center text-xs font-medium" style={{width: `${(casaLiquida / patrimonioTotal) * 100}%`}} title={`Casa líquida: ${fmt(casaLiquida)}`}>
+               {((casaLiquida / patrimonioTotal) * 100).toFixed(0)}%
+             </div>
+             <div className="bg-purple-500 flex items-center justify-center text-xs font-medium" style={{width: `${(portfolioTotal / patrimonioTotal) * 100}%`}} title={`Portfolio: ${fmt(portfolioTotal)}`}>
+               {((portfolioTotal / patrimonioTotal) * 100).toFixed(0)}%
+             </div>
+           </div>
+           <div className="flex justify-between mt-2 text-xs text-slate-500">
+             <span>🏠 Imobiliário ({((casaLiquida / patrimonioTotal) * 100).toFixed(0)}%)</span>
+             <span>💎 Financeiro ({((portfolioTotal / patrimonioTotal) * 100).toFixed(0)}%)</span>
+           </div>
+         </div>
+         
+         {/* Guardar snapshot património */}
+         <Button variant="secondary" onClick={() => {
+           saveUndo();
+           const currentKey = `${ano}-${meses.indexOf(mes) + 1}`;
+           const newHist = [...patrimonioHist.filter(h => h.date !== currentKey), {
+             date: currentKey,
+             portfolio: portfolioTotal,
+             casaLiquida,
+             total: patrimonioTotal
+           }].sort((a,b) => a.date.localeCompare(b.date));
+           uG('patrimonioHist', newHist);
+         }}>📸 Guardar Snapshot Património</Button>
+         
+         {/* Gráfico evolução */}
+         {patrimonioHist.length > 1 && (
+           <div className="mt-6">
+             <p className="text-sm text-slate-400 mb-3">Evolução do Património</p>
+             <LineChart data={patrimonioHist.slice(-12).map(h => ({label: h.date.split('-')[1], value: h.total}))} height={150} color="#10b981" showValues={true} formatValue={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}/>
+           </div>
+         )}
        </div>
      );
    })()}
@@ -1832,22 +2120,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const amortNecessaria = calcularAmortParaAnos(simAnos);
  
  // Projeção da dívida ao longo do tempo
- const gerarProjecao = (amortExtra, mesesMax = 120) => {
+ const gerarProjecao = (amortExtra, mesesMax = 360) => {
  const data = [];
  let divida = dividaAtual;
- for (let m = 0; m <= mesesMax && divida > 0; m += 6) {
- data.push({label: `${Math.floor(m/12)}a`, value: divida});
- for (let i = 0; i < 6 && divida > 0; i++) {
- const juros = divida * taxaMensal;
- const amortNormal = prestacao - juros;
- divida = Math.max(0, divida - amortNormal - amortExtra);
+ let ano = 0;
+ 
+ // Adicionar ponto inicial
+ data.push({label: 'Hoje', value: divida});
+ 
+ // Simular mês a mês mas só guardar a cada 2 anos (ou 1 ano se o prazo for curto)
+ const intervalo = mesesMax <= 120 ? 12 : 24; // 1 ano ou 2 anos
+ 
+ for (let m = 1; m <= mesesMax && divida > 0; m++) {
+   const juros = divida * taxaMensal;
+   const amortNormal = prestacao - juros;
+   divida = Math.max(0, divida - amortNormal - amortExtra);
+   
+   // Guardar a cada intervalo de anos
+   if (m % intervalo === 0) {
+     ano = m / 12;
+     data.push({label: `${ano}a`, value: divida});
+   }
  }
+ 
+ // Adicionar ponto final se não foi adicionado
+ if (divida <= 0 && data[data.length-1]?.value > 0) {
+   data.push({label: 'Fim', value: 0});
  }
- return data;
+ 
+ return data.slice(0, 15); // Máximo 15 pontos
  };
  
- const projecaoSemAmort = gerarProjecao(0, 240);
- const projecaoComAmort = gerarProjecao(simAmort, 180);
+ const projecaoSemAmort = gerarProjecao(0, 400);
+ const projecaoComAmort = gerarProjecao(simAmort, 300);
  
  // Histórico do crédito
  const histLineData = historico.map(h => {
@@ -2120,41 +2425,176 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  </Card>
-
- {/* AMORTIZAÇÕES PLANEADAS */}
- <Card>
-   <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold">📅 Amortizações Planeadas</h3>
-     <Button onClick={() => {
-       const novaData = prompt('Data da amortização (YYYY-MM):');
-       const novoValor = prompt('Valor da amortização:');
-       if (novaData && novoValor) {
-         const planeadas = credito.amortizacoesPlaneadas || [];
-         uC('amortizacoesPlaneadas', [...planeadas, {data: novaData, valor: +novoValor}]);
-       }
-     }}>+ Adicionar</Button>
-   </div>
-   <div className="space-y-2">
-     {(credito.amortizacoesPlaneadas || []).length === 0 ? (
-       <p className="text-center py-4 text-slate-500">Nenhuma amortização planeada. Adiciona para ver o impacto na projeção.</p>
-     ) : (
-       (credito.amortizacoesPlaneadas || []).map((a, i) => (
-         <div key={i} className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
-           <span className="text-slate-300">{a.data}</span>
-           <div className="flex items-center gap-3">
-             <span className="font-semibold text-emerald-400">{fmt(a.valor)}</span>
-             <button onClick={() => uC('amortizacoesPlaneadas', credito.amortizacoesPlaneadas.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-300">✕</button>
-           </div>
-         </div>
-       ))
-     )}
-   </div>
- </Card>
  </div>
  );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'}];
+ // AGENDA FINANCEIRA
+ const Agenda = () => {
+   const tarefas = G.tarefas || [];
+   const tarefasConcluidas = G.tarefasConcluidas || {};
+   const hoje = new Date();
+   const mesAtual = hoje.getMonth() + 1;
+   const anoAtual = hoje.getFullYear();
+   const diaAtual = hoje.getDate();
+   
+   // Determinar tarefas deste mês
+   const getTarefasMes = (mes, anoCheck) => {
+     return tarefas.filter(t => {
+       if (!t.ativo) return false;
+       if (t.freq === 'mensal') return true;
+       if (t.freq === 'trimestral') return t.meses?.includes(mes);
+       if (t.freq === 'anual') return t.meses?.includes(mes);
+       return false;
+     }).map(t => ({
+       ...t,
+       key: `${anoCheck}-${mes}-${t.id}`,
+       concluida: tarefasConcluidas[`${anoCheck}-${mes}-${t.id}`] || false,
+       atrasada: mes < mesAtual || (mes === mesAtual && t.dia < diaAtual),
+       proxima: mes === mesAtual && t.dia >= diaAtual && t.dia <= diaAtual + 7
+     }));
+   };
+   
+   const tarefasMesAtual = getTarefasMes(mesAtual, anoAtual);
+   const tarefasProxMes = getTarefasMes(mesAtual === 12 ? 1 : mesAtual + 1, mesAtual === 12 ? anoAtual + 1 : anoAtual);
+   
+   const toggleTarefa = (key) => {
+     saveUndo();
+     const novas = {...tarefasConcluidas, [key]: !tarefasConcluidas[key]};
+     uG('tarefasConcluidas', novas);
+   };
+   
+   const addTarefa = () => {
+     const desc = prompt('Descrição da tarefa:');
+     if (!desc) return;
+     const dia = parseInt(prompt('Dia do mês (1-31):') || '1');
+     const freq = prompt('Frequência (mensal/trimestral/anual):') || 'mensal';
+     const cat = prompt('Categoria (IVA/SS/IRS/Seguros/Outro):') || 'Outro';
+     let mesesArr = [];
+     if (freq === 'trimestral' || freq === 'anual') {
+       const mesesStr = prompt('Meses (ex: 3,6,9,12):');
+       mesesArr = mesesStr ? mesesStr.split(',').map(m => parseInt(m.trim())) : [];
+     }
+     saveUndo();
+     uG('tarefas', [...tarefas, {id: Date.now(), desc, dia, freq, cat, meses: mesesArr, ativo: true}]);
+   };
+   
+   const removeTarefa = (id) => {
+     saveUndo();
+     uG('tarefas', tarefas.filter(t => t.id !== id));
+   };
+   
+   const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6'};
+   
+   const pendentes = tarefasMesAtual.filter(t => !t.concluida);
+   const atrasadas = pendentes.filter(t => t.atrasada);
+   
+   return (
+     <div className="space-y-6">
+       {/* RESUMO */}
+       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+         <StatCard label="Este Mês" value={tarefasMesAtual.length} color="text-blue-400" sub={`${tarefasMesAtual.filter(t=>t.concluida).length} concluídas`} icon="📋"/>
+         <StatCard label="Pendentes" value={pendentes.length} color={pendentes.length > 0 ? "text-orange-400" : "text-emerald-400"} icon="⏳"/>
+         <StatCard label="Atrasadas" value={atrasadas.length} color={atrasadas.length > 0 ? "text-red-400" : "text-emerald-400"} icon="⚠️"/>
+         <StatCard label="Próximo Mês" value={tarefasProxMes.length} color="text-slate-400" icon="📅"/>
+       </div>
+       
+       {/* TAREFAS URGENTES */}
+       {atrasadas.length > 0 && (
+         <Card>
+           <h3 className="text-lg font-semibold mb-4 text-red-400">⚠️ Tarefas Atrasadas</h3>
+           <div className="space-y-2">
+             {atrasadas.map(t => (
+               <div key={t.key} className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+                 <div className="flex items-center gap-3">
+                   <input type="checkbox" checked={t.concluida} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-red-500"/>
+                   <div>
+                     <p className="font-medium">{t.desc}</p>
+                     <p className="text-xs text-slate-500">Dia {t.dia} · {t.cat}</p>
+                   </div>
+                 </div>
+                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat]}20`, color: catCores[t.cat]}}>{t.cat}</span>
+               </div>
+             ))}
+           </div>
+         </Card>
+       )}
+       
+       {/* TAREFAS DO MÊS */}
+       <Card>
+         <div className="flex justify-between items-center mb-4">
+           <h3 className="text-lg font-semibold">📅 {meses[mesAtual-1]} {anoAtual}</h3>
+           <Button onClick={addTarefa}>+ Nova Tarefa</Button>
+         </div>
+         <div className="space-y-2">
+           {tarefasMesAtual.length === 0 ? (
+             <p className="text-center py-8 text-slate-500">Nenhuma tarefa para este mês</p>
+           ) : (
+             tarefasMesAtual.sort((a,b) => a.dia - b.dia).map(t => (
+               <div key={t.key} className={`flex items-center justify-between p-3 rounded-xl transition-all ${t.concluida ? 'bg-emerald-500/10 border border-emerald-500/30' : t.proxima ? 'bg-orange-500/10 border border-orange-500/30' : 'bg-slate-700/30'}`}>
+                 <div className="flex items-center gap-3">
+                   <input type="checkbox" checked={t.concluida} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-emerald-500"/>
+                   <div className={t.concluida ? 'opacity-50' : ''}>
+                     <p className={`font-medium ${t.concluida ? 'line-through' : ''}`}>{t.desc}</p>
+                     <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq} · {t.cat}</p>
+                   </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   {t.proxima && !t.concluida && <span className="text-xs text-orange-400">Em breve!</span>}
+                   <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+                 </div>
+               </div>
+             ))
+           )}
+         </div>
+       </Card>
+       
+       {/* PRÓXIMO MÊS */}
+       <Card>
+         <h3 className="text-lg font-semibold mb-4 text-slate-400">📆 Próximo Mês: {meses[mesAtual === 12 ? 0 : mesAtual]}</h3>
+         <div className="space-y-2">
+           {tarefasProxMes.length === 0 ? (
+             <p className="text-center py-4 text-slate-500">Nenhuma tarefa</p>
+           ) : (
+             tarefasProxMes.sort((a,b) => a.dia - b.dia).map(t => (
+               <div key={t.key} className="flex items-center justify-between p-3 bg-slate-700/20 rounded-xl opacity-70">
+                 <div>
+                   <p className="font-medium text-sm">{t.desc}</p>
+                   <p className="text-xs text-slate-500">Dia {t.dia}</p>
+                 </div>
+                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+               </div>
+             ))
+           )}
+         </div>
+       </Card>
+       
+       {/* GERIR TAREFAS */}
+       <Card>
+         <h3 className="text-lg font-semibold mb-4">⚙️ Gerir Tarefas Recorrentes</h3>
+         <div className="space-y-2">
+           {tarefas.map(t => (
+             <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl">
+               <div className="flex items-center gap-3">
+                 <input type="checkbox" checked={t.ativo} onChange={() => uG('tarefas', tarefas.map(x => x.id === t.id ? {...x, ativo: !x.ativo} : x))} className="w-5 h-5 accent-blue-500"/>
+                 <div className={!t.ativo ? 'opacity-50' : ''}>
+                   <p className="font-medium text-sm">{t.desc}</p>
+                   <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq}{t.meses?.length > 0 ? ` (meses: ${t.meses.join(',')})` : ''}</p>
+                 </div>
+               </div>
+               <div className="flex items-center gap-2">
+                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+                 <button onClick={() => removeTarefa(t.id)} className="text-red-400 hover:text-red-300 p-1">✕</button>
+               </div>
+             </div>
+           ))}
+         </div>
+       </Card>
+     </div>
+   );
+ };
+
+ const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'agenda',icon:'📋',label:'Agenda'}];
 
  // Função para exportar Excel real (.xlsx)
  const [exporting, setExporting] = useState(false);
@@ -2411,6 +2851,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const getActiveAlerts = useCallback(() => {
    const alerts = [];
    const alertas = G.alertas || [];
+   const tarefas = G.tarefas || [];
+   const tarefasConcluidas = G.tarefasConcluidas || {};
    
    // Taxa de poupança
    const taxaPoupanca = recLiq > 0 ? ((totInv + (restante * (alocAmort/100))) / recLiq * 100) : 0;
@@ -2435,8 +2877,40 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      alerts.push({tipo: 'meta', msg: `📉 Receitas abaixo do esperado: ${fmt(totaisAnuais.receitasAnuais)} vs ${fmt(metas.receitas * progressoEsperado)}`});
    }
    
+   // Verificar tarefas pendentes/atrasadas
+   const hoje = new Date();
+   const diaHoje = hoje.getDate();
+   const mesHoje = hoje.getMonth() + 1;
+   const anoHoje = hoje.getFullYear();
+   
+   tarefas.filter(t => t.ativo).forEach(t => {
+     const deveFazer = t.freq === 'mensal' || (t.meses && t.meses.includes(mesHoje));
+     if (!deveFazer) return;
+     
+     const key = `${anoHoje}-${mesHoje}-${t.id}`;
+     const concluida = tarefasConcluidas[key];
+     
+     if (!concluida) {
+       if (t.dia < diaHoje) {
+         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc} (dia ${t.dia})`});
+       } else if (t.dia <= diaHoje + 3) {
+         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc} (dia ${t.dia})`});
+       }
+     }
+   });
+   
+   // Verificar transferências do mês (dias 25 e 31)
+   if (diaHoje >= 24 && diaHoje <= 26) {
+     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 Transferir para conta conjunta: ${fmt(minhaAB)}`});
+     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 Transferir para Activo Bank: ${fmt(totPess)}`});
+   }
+   if (diaHoje >= 30 || diaHoje <= 2) {
+     if (!transf.trade) alerts.push({tipo: 'transf', msg: `💳 Transferir para Trade Republic: ${fmt(transfTR)}`});
+     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 Transferir para Revolut (férias): ${fmt(ferias)}`});
+   }
+   
    return alerts;
- }, [G, recLiq, totInv, restante, alocAmort, totPess, metas]);
+ }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -2461,6 +2935,126 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // Taxa de poupança
  const taxaPoupanca = recLiq > 0 ? ((totInv + (restante > 0 ? restante : 0)) / recLiq * 100) : 0;
+
+ // Previsão de IRS (simplificada para freelancers)
+ const getPrevisaoIRS = useCallback(() => {
+   const h = getHist();
+   const hAno = h.filter(x => x.ano === anoAtualSistema);
+   const receitasAnuais = hAno.reduce((a, x) => a + x.tot, 0);
+   
+   // Escalões IRS 2024 simplificados
+   const escaloes = [
+     { limite: 7703, taxa: 0.145 },
+     { limite: 11623, taxa: 0.21 },
+     { limite: 16472, taxa: 0.265 },
+     { limite: 21321, taxa: 0.285 },
+     { limite: 27146, taxa: 0.35 },
+     { limite: 39791, taxa: 0.37 },
+     { limite: 51997, taxa: 0.435 },
+     { limite: 81199, taxa: 0.45 },
+     { limite: Infinity, taxa: 0.48 }
+   ];
+   
+   // Rendimento coletável (75% para trabalhadores independentes com regime simplificado)
+   const coeficiente = 0.75;
+   const rendColetavel = receitasAnuais * coeficiente;
+   
+   // Calcular imposto por escalões
+   let imposto = 0;
+   let anterior = 0;
+   for (const e of escaloes) {
+     if (rendColetavel > anterior) {
+       const base = Math.min(rendColetavel, e.limite) - anterior;
+       imposto += base * e.taxa;
+       anterior = e.limite;
+     }
+   }
+   
+   // Deduções estimadas (pessoal + despesas gerais)
+   const deducoes = 4104 + Math.min(receitasAnuais * 0.15, 250);
+   const impostoFinal = Math.max(0, imposto - deducoes);
+   
+   // Retenções já feitas (estimada com base na taxa configurada)
+   const receitasComTaxas = hAno.reduce((a, x) => a + x.com, 0);
+   const retencoes = receitasComTaxas * (taxa / 100);
+   
+   const aPagarReceber = retencoes - impostoFinal;
+   
+   return {
+     receitasAnuais,
+     rendColetavel,
+     impostoEstimado: impostoFinal,
+     retencoes,
+     aPagarReceber,
+     taxaEfetiva: receitasAnuais > 0 ? (impostoFinal / receitasAnuais * 100) : 0
+   };
+ }, [getHist, taxa]);
+
+ // Comparação de despesas mês a mês
+ const getComparacaoDespesas = useCallback(() => {
+   const mesAnteriorIdx = meses.indexOf(mes) === 0 ? 11 : meses.indexOf(mes) - 1;
+   const anoAnterior = meses.indexOf(mes) === 0 ? ano - 1 : ano;
+   const keyAnterior = `${anoAnterior}-${mesAnteriorIdx + 1}`;
+   
+   const mesAtualData = M[mesKey] || {};
+   const mesAnteriorData = M[keyAnterior] || {};
+   
+   // Investimentos
+   const invAtual = (mesAtualData.inv || []).reduce((a, i) => a + i.val, 0);
+   const invAnterior = (mesAnteriorData.inv || []).reduce((a, i) => a + i.val, 0);
+   
+   // Receitas
+   const recAtual = (mesAtualData.regCom || []).reduce((a, r) => a + r.val, 0) + (mesAtualData.regSem || []).reduce((a, r) => a + r.val, 0);
+   const recAnterior = (mesAnteriorData.regCom || []).reduce((a, r) => a + r.val, 0) + (mesAnteriorData.regSem || []).reduce((a, r) => a + r.val, 0);
+   
+   return {
+     mesAnterior: meses[mesAnteriorIdx],
+     investimentos: { atual: invAtual, anterior: invAnterior, diff: invAtual - invAnterior },
+     receitas: { atual: recAtual, anterior: recAnterior, diff: recAtual - recAnterior },
+     despCasal: { atual: totAB, anterior: totAB, diff: 0 }, // Despesas fixas são iguais
+     despPessoais: { atual: totPess, anterior: totPess, diff: 0 }
+   };
+ }, [mes, ano, mesKey, M, totAB, totPess]);
+
+ // Património líquido (Portfolio + Valor líquido da casa)
+ const getPatrimonioLiquido = useCallback(() => {
+   const totPortfolio = portfolio.reduce((a, p) => a + p.val, 0);
+   const valorCasa = credito.valorCasa || 0;
+   const dividaAtual = credito.dividaAtual || 0;
+   const casaLiquida = valorCasa - dividaAtual;
+   const total = totPortfolio + casaLiquida;
+   
+   return { portfolio: totPortfolio, casaLiquida, valorCasa, dividaAtual, total };
+ }, [portfolio, credito]);
+
+ // Tarefas pendentes (para notificações no Resumo)
+ const getTarefasPendentes = useCallback(() => {
+   const tarefas = G.tarefas || [];
+   const tarefasConcluidas = G.tarefasConcluidas || {};
+   const hoje = new Date();
+   const mesAtual = hoje.getMonth() + 1;
+   const anoAtual = hoje.getFullYear();
+   const diaAtual = hoje.getDate();
+   
+   const tarefasMes = tarefas.filter(t => {
+     if (!t.ativo) return false;
+     if (t.freq === 'mensal') return true;
+     if (t.freq === 'trimestral' || t.freq === 'anual') return t.meses?.includes(mesAtual);
+     return false;
+   }).map(t => ({
+     ...t,
+     key: `${anoAtual}-${mesAtual}-${t.id}`,
+     concluida: tarefasConcluidas[`${anoAtual}-${mesAtual}-${t.id}`] || false,
+     atrasada: t.dia < diaAtual,
+     proxima: t.dia >= diaAtual && t.dia <= diaAtual + 5
+   }));
+   
+   const pendentes = tarefasMes.filter(t => !t.concluida);
+   const atrasadas = pendentes.filter(t => t.atrasada);
+   const proximas = pendentes.filter(t => t.proxima);
+   
+   return { pendentes, atrasadas, proximas };
+ }, [G.tarefas, G.tarefasConcluidas]);
 
  // Comparação ano a ano
  const getComparacaoAnos = useCallback((ano1, ano2) => {
@@ -2586,6 +3180,282 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Exportar PDF (simples - abre janela de impressão)
  const exportPDF = () => {
    window.print();
+ };
+
+ // Gerar Relatório Anual
+ const [showRelatorio, setShowRelatorio] = useState(false);
+ 
+ const gerarRelatorioAnual = (anoRel) => {
+   const h = getHist().filter(x => x.ano === anoRel);
+   const totalReceitas = h.reduce((a, x) => a + x.tot, 0);
+   const totalComTaxas = h.reduce((a, x) => a + x.com, 0);
+   const totalSemTaxas = h.reduce((a, x) => a + x.sem, 0);
+   const mediaMensal = h.length > 0 ? totalReceitas / h.length : 0;
+   
+   // Por cliente
+   const porCliente = clientes.map(c => {
+     let total = 0;
+     Object.entries(M).forEach(([key, data]) => {
+       const [a] = key.split('-').map(Number);
+       if (a === anoRel) {
+         total += (data.regCom || []).filter(r => r.cid === c.id).reduce((acc, r) => acc + r.val, 0);
+         total += (data.regSem || []).filter(r => r.cid === c.id).reduce((acc, r) => acc + r.val, 0);
+       }
+     });
+     return { ...c, total };
+   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+   
+   // Investimentos do ano
+   let totalInvestido = 0;
+   Object.entries(M).forEach(([key, data]) => {
+     const [a] = key.split('-').map(Number);
+     if (a === anoRel) {
+       totalInvestido += (data.inv || []).reduce((acc, i) => acc + i.val, 0);
+     }
+   });
+   
+   // Impostos estimados
+   const impostoEstimado = totalComTaxas * (taxa / 100);
+   
+   return {
+     ano: anoRel,
+     totalReceitas,
+     totalComTaxas,
+     totalSemTaxas,
+     mediaMensal,
+     porCliente,
+     totalInvestido,
+     impostoEstimado,
+     mesesComDados: h.length,
+     melhorMes: h.length > 0 ? h.reduce((a, x) => x.tot > a.tot ? x : a, h[0]) : null,
+     piorMes: h.filter(x => x.tot > 0).length > 0 ? h.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, h[0]) : null
+   };
+ };
+ 
+ const RelatorioAnualModal = () => {
+   const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
+   const relatorio = gerarRelatorioAnual(anoRelatorio);
+   
+   if (!showRelatorio) return null;
+   
+   return (
+     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-8" onClick={() => setShowRelatorio(false)}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700 flex justify-between items-center no-print">
+           <div className="flex items-center gap-4">
+             <h3 className="text-xl font-bold">📊 Relatório Anual</h3>
+             <select value={anoRelatorio} onChange={e => setAnoRelatorio(+e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-sm">
+               {anos.map(a => <option key={a} value={a}>{a}</option>)}
+             </select>
+           </div>
+           <div className="flex gap-2">
+             <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium">🖨️ Imprimir</button>
+             <button onClick={() => setShowRelatorio(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+           </div>
+         </div>
+         
+         <div className="p-6 space-y-6" id="relatorio-anual">
+           <div className="text-center pb-4 border-b border-slate-700">
+             <h1 className="text-3xl font-bold mb-2">Relatório Financeiro {relatorio.ano}</h1>
+             <p className="text-slate-400">Dashboard Freelance</p>
+           </div>
+           
+           {/* RESUMO */}
+           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+             <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
+               <p className="text-sm text-slate-400">Total Receitas</p>
+               <p className="text-2xl font-bold text-blue-400">{fmt(relatorio.totalReceitas)}</p>
+             </div>
+             <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center">
+               <p className="text-sm text-slate-400">Média Mensal</p>
+               <p className="text-2xl font-bold text-emerald-400">{fmt(relatorio.mediaMensal)}</p>
+             </div>
+             <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-center">
+               <p className="text-sm text-slate-400">Total Investido</p>
+               <p className="text-2xl font-bold text-purple-400">{fmt(relatorio.totalInvestido)}</p>
+             </div>
+             <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl text-center">
+               <p className="text-sm text-slate-400">Impostos (est.)</p>
+               <p className="text-2xl font-bold text-orange-400">{fmt(relatorio.impostoEstimado)}</p>
+             </div>
+           </div>
+           
+           {/* DETALHES */}
+           <div className="grid grid-cols-2 gap-6">
+             <div className="bg-slate-700/30 rounded-xl p-4">
+               <h4 className="font-semibold mb-3">📊 Receitas por Tipo</h4>
+               <div className="space-y-2">
+                 <div className="flex justify-between">
+                   <span className="text-slate-400">Com retenção</span>
+                   <span className="font-medium text-orange-400">{fmt(relatorio.totalComTaxas)}</span>
+                 </div>
+                 <div className="flex justify-between">
+                   <span className="text-slate-400">Sem retenção</span>
+                   <span className="font-medium text-emerald-400">{fmt(relatorio.totalSemTaxas)}</span>
+                 </div>
+               </div>
+             </div>
+             
+             <div className="bg-slate-700/30 rounded-xl p-4">
+               <h4 className="font-semibold mb-3">📈 Destaques</h4>
+               <div className="space-y-2">
+                 {relatorio.melhorMes && (
+                   <div className="flex justify-between">
+                     <span className="text-slate-400">Melhor mês</span>
+                     <span className="font-medium text-emerald-400">{relatorio.melhorMes.nome}: {fmt(relatorio.melhorMes.tot)}</span>
+                   </div>
+                 )}
+                 {relatorio.piorMes && (
+                   <div className="flex justify-between">
+                     <span className="text-slate-400">Mês mais fraco</span>
+                     <span className="font-medium text-orange-400">{relatorio.piorMes.nome}: {fmt(relatorio.piorMes.tot)}</span>
+                   </div>
+                 )}
+                 <div className="flex justify-between">
+                   <span className="text-slate-400">Meses com dados</span>
+                   <span className="font-medium">{relatorio.mesesComDados}/12</span>
+                 </div>
+               </div>
+             </div>
+           </div>
+           
+           {/* POR CLIENTE */}
+           {relatorio.porCliente.length > 0 && (
+             <div className="bg-slate-700/30 rounded-xl p-4">
+               <h4 className="font-semibold mb-3">👥 Receitas por Cliente</h4>
+               <div className="space-y-2">
+                 {relatorio.porCliente.map(c => (
+                   <div key={c.id} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
+                     <div className="flex items-center gap-2">
+                       <div className="w-3 h-3 rounded-full" style={{background: c.cor}}/>
+                       <span>{c.nome}</span>
+                     </div>
+                     <div className="flex items-center gap-3">
+                       <span className="text-sm text-slate-400">{((c.total / relatorio.totalReceitas) * 100).toFixed(0)}%</span>
+                       <span className="font-bold">{fmt(c.total)}</span>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
+           
+           <p className="text-center text-xs text-slate-500 pt-4 border-t border-slate-700">
+             Gerado em {new Date().toLocaleDateString('pt-PT')} · Dashboard Financeiro Freelance
+           </p>
+         </div>
+       </div>
+     </div>
+   );
+ };
+ const gerarRelatorioAnual = () => {
+   const h = getHist();
+   const hAno = h.filter(x => x.ano === ano);
+   const totRec = hAno.reduce((a, x) => a + x.tot, 0);
+   const totCom = hAno.reduce((a, x) => a + x.com, 0);
+   const totSem = hAno.reduce((a, x) => a + x.sem, 0);
+   const mediaM = hAno.length > 0 ? totRec / hAno.length : 0;
+   
+   // Receitas por cliente
+   const porCliente = clientes.map(c => {
+     let total = 0;
+     Object.values(M).forEach(m => {
+       total += (m.regCom || []).filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0);
+       total += (m.regSem || []).filter(r => r.cid === c.id).reduce((a, r) => a + r.val, 0);
+     });
+     return { nome: c.nome, total };
+   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+   
+   // Impostos estimados
+   const ssAnual = totRec * 0.214;
+   const lucroTrib = totRec * 0.75;
+   let irsEst = 0;
+   if (lucroTrib <= 7703) irsEst = lucroTrib * 0.1325;
+   else if (lucroTrib <= 11623) irsEst = 1020.56 + (lucroTrib - 7703) * 0.18;
+   else if (lucroTrib <= 16472) irsEst = 1726.16 + (lucroTrib - 11623) * 0.23;
+   else if (lucroTrib <= 21321) irsEst = 2841.43 + (lucroTrib - 16472) * 0.26;
+   else if (lucroTrib <= 27146) irsEst = 4102.17 + (lucroTrib - 21321) * 0.3275;
+   else irsEst = 6009.43 + (lucroTrib - 27146) * 0.37;
+   
+   const despAnuais = totAB * 12;
+   const portfolioTotal = portfolio.reduce((a, p) => a + p.val, 0);
+   
+   // Criar HTML do relatório
+   const html = `
+     <!DOCTYPE html>
+     <html><head><title>Relatório Anual ${ano}</title>
+     <style>
+       body { font-family: system-ui, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1e293b; }
+       h1 { color: #3b82f6; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+       h2 { color: #64748b; margin-top: 30px; }
+       .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 20px 0; }
+       .card { background: #f1f5f9; padding: 20px; border-radius: 12px; }
+       .card h3 { margin: 0 0 5px 0; font-size: 14px; color: #64748b; }
+       .card .value { font-size: 24px; font-weight: bold; color: #1e293b; }
+       .card.blue .value { color: #3b82f6; }
+       .card.green .value { color: #10b981; }
+       .card.orange .value { color: #f59e0b; }
+       .card.red .value { color: #ef4444; }
+       table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+       th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+       th { background: #f1f5f9; font-weight: 600; }
+       .right { text-align: right; }
+       .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px; }
+     </style></head><body>
+     <h1>📊 Relatório Financeiro ${ano}</h1>
+     <p style="color:#64748b">Gerado em ${new Date().toLocaleDateString('pt-PT')}</p>
+     
+     <h2>💰 Resumo de Receitas</h2>
+     <div class="grid">
+       <div class="card blue"><h3>Total Anual</h3><div class="value">${fmt(totRec)}</div></div>
+       <div class="card"><h3>Média Mensal</h3><div class="value">${fmt(mediaM)}</div></div>
+       <div class="card orange"><h3>Com Retenção</h3><div class="value">${fmt(totCom)}</div></div>
+       <div class="card green"><h3>Sem Retenção</h3><div class="value">${fmt(totSem)}</div></div>
+     </div>
+     
+     <h2>👥 Receitas por Cliente</h2>
+     <table>
+       <tr><th>Cliente</th><th class="right">Total</th><th class="right">%</th></tr>
+       ${porCliente.map(c => `<tr><td>${c.nome}</td><td class="right">${fmt(c.total)}</td><td class="right">${(c.total/totRec*100).toFixed(1)}%</td></tr>`).join('')}
+     </table>
+     
+     <h2>📅 Receitas por Mês</h2>
+     <table>
+       <tr><th>Mês</th><th class="right">Com Taxas</th><th class="right">Sem Taxas</th><th class="right">Total</th></tr>
+       ${hAno.map(m => `<tr><td>${m.nome}</td><td class="right">${fmt(m.com)}</td><td class="right">${fmt(m.sem)}</td><td class="right"><strong>${fmt(m.tot)}</strong></td></tr>`).join('')}
+     </table>
+     
+     <h2>🧾 Impostos Estimados</h2>
+     <div class="grid">
+       <div class="card red"><h3>IRS Estimado</h3><div class="value">${fmt(irsEst)}</div></div>
+       <div class="card orange"><h3>Segurança Social</h3><div class="value">${fmt(ssAnual)}</div></div>
+       <div class="card"><h3>Total Impostos</h3><div class="value">${fmt(irsEst + ssAnual)}</div></div>
+       <div class="card green"><h3>Líquido Estimado</h3><div class="value">${fmt(totRec - irsEst - ssAnual)}</div></div>
+     </div>
+     
+     <h2>💸 Despesas Anuais</h2>
+     <div class="grid">
+       <div class="card"><h3>Despesas Casal</h3><div class="value">${fmt(despAnuais)}</div></div>
+       <div class="card"><h3>Minha Parte (${contrib}%)</h3><div class="value">${fmt(despAnuais * contrib/100)}</div></div>
+     </div>
+     
+     <h2>💎 Património</h2>
+     <div class="grid">
+       <div class="card blue"><h3>Portfolio Total</h3><div class="value">${fmt(portfolioTotal)}</div></div>
+       <div class="card green"><h3>Casa Líquida</h3><div class="value">${fmt(credito.valorCasa - credito.dividaAtual)}</div></div>
+     </div>
+     
+     <div class="footer">
+       <p>Este relatório é uma estimativa e não substitui aconselhamento fiscal profissional.</p>
+       <p>Dashboard Financeiro Freelance © ${ano}</p>
+     </div>
+     </body></html>
+   `;
+   
+   const win = window.open('', '_blank');
+   win.document.write(html);
+   win.document.close();
+   win.print();
  };
 
  // Modal de Pesquisa
@@ -2948,6 +3818,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <SearchModal />
  <AlertsModal />
  <ImportCSVModal />
+ <RelatorioAnualModal />
  {isOffline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
      ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
@@ -2978,7 +3849,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                 <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer última alteração (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
                 <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer alteração (Ctrl+Y)">↪️</button>
                 <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar receitas de ficheiro CSV">📥</button>
-                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Imprimir / Exportar PDF">🖨️</button>
+                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Imprimir página atual">🖨️</button>
+                <button onClick={() => setShowRelatorio(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-400" title="Gerar relatório anual">📄</button>
                 <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Criar backup dos dados">📋</button>
                 <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar todos os dados">🗑️</button>
                 <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`} title="Exportar para Google Sheets">{exporting ? '⏳' : '📊'}</button>
@@ -3015,6 +3887,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {tab==='historico' && <Historico/>}
  {tab==='portfolio' && <Portfolio/>}
  {tab==='credito' && <Credito/>}
+ {tab==='agenda' && <Agenda/>}
  </main>
  </div>
  );
