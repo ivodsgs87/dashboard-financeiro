@@ -852,21 +852,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (<div key={mesKey} className="space-y-6">
  
- {/* ALERTAS DE TAREFAS */}
- {(tarefasPend.atrasadas.length > 0 || tarefasPend.proximas.length > 0) && (
-   <div className={`p-4 rounded-xl border ${tarefasPend.atrasadas.length > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-orange-500/10 border-orange-500/30'}`}>
-     <div className="flex items-center justify-between">
-       <div className="flex items-center gap-3">
-         <span className="text-2xl">{tarefasPend.atrasadas.length > 0 ? '⚠️' : '📋'}</span>
-         <div>
-           {tarefasPend.atrasadas.length > 0 && <p className="font-medium text-red-400">{tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>}
-           {tarefasPend.proximas.length > 0 && <p className="text-sm text-orange-400">{tarefasPend.proximas.length} tarefa(s) nos próximos 5 dias</p>}
-         </div>
-       </div>
-       <button onClick={() => setTab('agenda')} className="px-3 py-1 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg">Ver Agenda →</button>
-     </div>
+ {/* PRÓXIMAS DATAS FISCAIS - SEMPRE VISÍVEL */}
+ <Card>
+   <div className="flex justify-between items-center mb-3">
+     <h3 className="font-semibold">📅 Próximas Datas Fiscais</h3>
+     <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
    </div>
- )}
+   {tarefasPend.atrasadas.length > 0 && (
+     <div className="p-2 mb-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+       <p className="text-sm text-red-400 font-medium">⚠️ {tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>
+     </div>
+   )}
+   <div className="space-y-2">
+     {(tarefasPend.proximasTarefas || []).slice(0, 5).map((t, i) => {
+       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899'};
+       const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
+       return (
+         <div key={i} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm">
+           <span className={`w-16 text-xs ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>
+             {t.dia} {t.mesNome?.slice(0,3)}
+           </span>
+           <span className="flex-1 truncate">{t.desc}</span>
+           <span className="px-1.5 py-0.5 text-xs rounded" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+           {diasAte <= 5 && <span className="text-xs text-orange-400">{diasAte}d</span>}
+         </div>
+       );
+     })}
+     {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (
+       <p className="text-center text-slate-500 text-sm py-2">Sem tarefas próximas</p>
+     )}
+   </div>
+ </Card>
  
  {/* ESTATÍSTICAS DO MÊS */}
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
@@ -1073,15 +1089,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold flex items-center gap-3">💼 Receitas COM Taxas <span className="text-sm px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full font-medium">{fmt(inCom)}</span></h3>
  <div className="flex gap-2">
-   <Button variant="secondary" onClick={duplicarMesAnterior}>📋 Duplicar mês anterior</Button>
-   <Button onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+ Adicionar</Button>
+   <Button variant="secondary" onClick={duplicarMesAnterior} className="hidden sm:inline-flex">📋 Duplicar</Button>
+   <Button onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
  </div>
  </div>
  
- <div className="flex items-center gap-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl mb-4">
- <span className="text-sm text-slate-300">Taxa de retenção:</span>
- <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-32" color="pink"/>
- <span className="text-xs text-slate-500">Reserva: {fmt(valTax)}</span>
+ <div className="flex flex-wrap items-center gap-2 p-2 sm:p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl mb-4">
+ <span className="text-xs sm:text-sm text-slate-300">Taxa:</span>
+ <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-20 sm:w-32" color="pink"/>
+ <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
  </div>
 
  <div className="space-y-2">
@@ -1163,15 +1179,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
+ <h3 className="text-lg font-semibold text-center">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
  </div>
- <div className="flex items-center gap-4 p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6 max-w-3xl">
- <div className="flex-1"><p className="text-sm text-slate-300">Minha contribuição</p><p className="text-xs text-slate-500">Percentagem das despesas partilhadas</p></div>
- <SliderWithInput value={contrib} onChange={v=>uG('contrib',v)} min={0} max={100} unit="%" className="w-32" color="pink"/>
- <div className="text-right"><p className="text-xs text-slate-500">Sara paga</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
+ <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6">
+ <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm text-slate-300">Minha contrib.</p></div>
+ <SliderWithInput value={contrib} onChange={v=>uG('contrib',v)} min={0} max={100} unit="%" className="w-20 sm:w-32" color="pink"/>
+ <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Sara</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
  </div>
  <DraggableList
  items={despABanca}
@@ -1233,7 +1249,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">👤 Despesas Pessoais (Activo Bank)</h3>
+ <h3 className="text-lg font-semibold text-center">👤 Despesas Pessoais (Activo Bank)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
@@ -1292,36 +1308,36 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  return (
  <div key={mesKey} className="space-y-6">
  <Card>
- <h3 className="text-lg font-semibold mb-4">💰 Disponível para Alocar: {fmt(disp)}</h3>
- <div className="flex items-center gap-4 p-4 bg-slate-700/30 rounded-xl mb-4 max-w-3xl">
- <span className="text-emerald-400 text-sm font-medium">🏠 Amortização</span>
- <SliderWithInput value={alocAmort} onChange={v=>uG('alocAmort',v)} min={0} max={100} unit="%" className="flex-1" color="emerald"/>
- <span className="text-purple-400 text-sm font-medium">📈 Investimentos</span>
+ <h3 className="text-base sm:text-lg font-semibold mb-4 text-center">💰 Disponível: {fmt(disp)}</h3>
+ <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-slate-700/30 rounded-xl mb-4">
+ <span className="text-emerald-400 text-xs font-medium">🏠</span>
+ <SliderWithInput value={alocAmort} onChange={v=>uG('alocAmort',v)} min={0} max={100} unit="%" className="flex-1 min-w-0" color="emerald"/>
+ <span className="text-purple-400 text-xs font-medium">📈</span>
  </div>
- <div className="grid grid-cols-2 gap-4 max-w-3xl">
- <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
- <p className="text-xs text-slate-400 mb-1">🏠 Amortização Casa</p>
- <p className="text-xl font-bold text-emerald-400">{fmt(disp*(alocAmort/100))}</p>
- <p className="text-sm text-emerald-400/70 mt-1">{fmtP(alocAmort)}</p>
+ <div className="grid grid-cols-2 gap-2 sm:gap-4">
+ <div className="p-2 sm:p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+ <p className="text-xs text-slate-400 mb-1">🏠 Amortização</p>
+ <p className="text-lg sm:text-xl font-bold text-emerald-400">{fmt(disp*(alocAmort/100))}</p>
+ <p className="text-xs sm:text-sm text-emerald-400/70">{fmtP(alocAmort)}</p>
  </div>
- <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <p className="text-xs text-slate-400 mb-1">📈 Investimentos</p>
- <p className="text-xl font-bold text-purple-400">{fmt(pInv)}</p>
- <p className="text-sm text-purple-400/70 mt-1">{fmtP(100-alocAmort)}</p>
+ <div className="p-2 sm:p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+ <p className="text-xs text-slate-400 mb-1">📈 Invest.</p>
+ <p className="text-lg sm:text-xl font-bold text-purple-400">{fmt(pInv)}</p>
+ <p className="text-xs sm:text-sm text-purple-400/70">{fmtP(100-alocAmort)}</p>
  </div>
  </div>
  </Card>
 
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
- <Card className="bg-purple-500/10 border-purple-500/30"><p className="text-xs text-slate-400 mb-1">💰 Disponível</p><p className="text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
- <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1">📊 Investido</p><p className="text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
- <Card className={rest>=0?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️ Excesso'}</p><p className={`text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
+ <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
+ <Card className="bg-purple-500/10 border-purple-500/30"><p className="text-xs text-slate-400 mb-1">💰 Disponível</p><p className="text-lg sm:text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
+ <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1">📊 Investido</p><p className="text-lg sm:text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
+ <Card className={rest>=0?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️'}</p><p className={`text-lg sm:text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
  </div>
 
  <Card>
  <div className="flex justify-between items-center mb-4 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">📈 Alocação de Investimentos</h3>
+ <h3 className="text-lg font-semibold text-center">📈 Alocação de Investimentos</h3>
  <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
  <div className="flex gap-2">
@@ -1723,7 +1739,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4 max-w-3xl">
  <div>
- <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
+ <h3 className="text-lg font-semibold text-center">💰 Portfolio Total: {fmt(totPort)}</h3>
  <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
  <div className="flex gap-2">
@@ -2096,27 +2112,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
- <p className="text-sm text-slate-400 mb-2">Se amortizar mensalmente:</p>
+ <p className="text-xs sm:text-sm text-slate-400 mb-2">Amortizar mensalmente:</p>
  <div className="flex items-center gap-2 mb-3">
- <span className="text-slate-400">€</span>
- <input type="number" value={simAmort} onChange={e=>setSimAmort(+e.target.value||0)} className="flex-1 bg-slate-700/50 border border-emerald-500/30 rounded-xl px-3 py-2 text-emerald-400 text-xl font-bold text-right focus:outline-none"/>
- <span className="text-slate-500 text-sm">/mês</span>
+ <span className="text-slate-400 text-sm">€</span>
+ <input type="number" value={simAmort} onChange={e=>setSimAmort(+e.target.value||0)} className="flex-1 bg-slate-700/50 border border-emerald-500/30 rounded-xl px-2 py-2 text-emerald-400 text-lg sm:text-xl font-bold text-right focus:outline-none"/>
  </div>
- <div className="space-y-1 text-sm">
- <div className="flex justify-between"><span className="text-slate-400">Liquidado em:</span><span className="font-bold text-emerald-400">{anosComAmort.toFixed(1)} anos</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Poupança juros:</span><span className="font-bold text-emerald-400">{fmt(poupancaJuros)}</span></div>
+ <div className="space-y-1 text-xs sm:text-sm">
+ <div className="flex justify-between"><span className="text-slate-400">Liquidado:</span><span className="font-bold text-emerald-400">{anosComAmort.toFixed(1)} anos</span></div>
+ <div className="flex justify-between"><span className="text-slate-400">Poupança:</span><span className="font-bold text-emerald-400">{fmt(poupancaJuros)}</span></div>
  </div>
  </div>
  
  <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <p className="text-sm text-slate-400 mb-2">Para liquidar em X anos:</p>
+ <p className="text-xs sm:text-sm text-slate-400 mb-2">Liquidar em X anos:</p>
  <div className="flex items-center gap-2 mb-3">
- <input type="number" value={simAnos} onChange={e=>setSimAnos(Math.max(1,+e.target.value||1))} className="flex-1 bg-slate-700/50 border border-purple-500/30 rounded-xl px-3 py-2 text-purple-400 text-xl font-bold text-right focus:outline-none" min="1" max="30"/>
+ <input type="number" value={simAnos} onChange={e=>setSimAnos(Math.max(1,+e.target.value||1))} className="flex-1 bg-slate-700/50 border border-purple-500/30 rounded-xl px-2 py-2 text-purple-400 text-lg sm:text-xl font-bold text-right focus:outline-none" min="1" max="30"/>
  <span className="text-slate-500 text-sm">anos</span>
  </div>
- <div className="space-y-1 text-sm">
- <div className="flex justify-between"><span className="text-slate-400">Amort. necessária:</span><span className="font-bold text-purple-400">{fmt(amortNecessaria)}/mês</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Total c/ seguros:</span><span className="font-semibold">{fmt(custoMensal + amortNecessaria)}</span></div>
+ <div className="space-y-1 text-xs sm:text-sm">
+ <div className="flex justify-between"><span className="text-slate-400">Amort.:</span><span className="font-bold text-purple-400">{fmt(amortNecessaria)}</span></div>
+ <div className="flex justify-between"><span className="text-slate-400">Total:</span><span className="font-semibold">{fmt(custoMensal + amortNecessaria)}</span></div>
  </div>
  </div>
  </div>
@@ -2297,10 +2312,75 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        </Card>
        
+       {/* CALENDÁRIO ANUAL - VISÃO GERAL */}
+       <Card>
+         <h3 className="text-lg font-semibold mb-4">📅 Calendário Fiscal {anoAtual}</h3>
+         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+           {meses.map((nomeMes, idx) => {
+             const mesNum = idx + 1;
+             const tarefasMes = tarefas.filter(t => {
+               if (!t.ativo) return false;
+               if (t.freq === 'mensal') return true;
+               if (t.freq === 'anual' || t.freq === 'trimestral') return t.meses?.includes(mesNum);
+               return false;
+             });
+             const isCurrentMonth = mesNum === mesAtual;
+             const isPast = mesNum < mesAtual;
+             return (
+               <div key={idx} className={`p-3 rounded-xl border ${isCurrentMonth ? 'bg-blue-500/10 border-blue-500/30' : isPast ? 'bg-slate-700/20 border-slate-700/30 opacity-60' : 'bg-slate-700/30 border-slate-600/30'}`}>
+                 <div className="flex justify-between items-center mb-2">
+                   <span className={`font-semibold text-sm ${isCurrentMonth ? 'text-blue-400' : ''}`}>{nomeMes.slice(0,3)}</span>
+                   <span className="text-xs text-slate-500">{tarefasMes.length}</span>
+                 </div>
+                 <div className="space-y-1">
+                   {tarefasMes.slice(0, 4).map((t, i) => (
+                     <div key={i} className="flex items-center gap-1 text-xs">
+                       <span className="w-1.5 h-1.5 rounded-full" style={{background: catCores[t.cat] || '#64748b'}}/>
+                       <span className="text-slate-400 w-4">{t.dia}</span>
+                       <span className="truncate text-slate-300">{t.desc.length > 15 ? t.desc.slice(0,15)+'...' : t.desc}</span>
+                     </div>
+                   ))}
+                   {tarefasMes.length > 4 && <p className="text-xs text-slate-500">+{tarefasMes.length - 4} mais</p>}
+                 </div>
+               </div>
+             );
+           })}
+         </div>
+       </Card>
+
+       {/* DATAS IMPORTANTES DO ANO */}
+       <Card>
+         <h3 className="text-lg font-semibold mb-4">🗓️ Datas Importantes {anoAtual}</h3>
+         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+           {[
+             {mes: 'Fevereiro', datas: [{d: 20, t: 'Entregar IVA 4º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 4º trim', c: 'IVA'}, {d: 25, t: 'Validar faturas e-Fatura', c: 'IRS'}]},
+             {mes: 'Abril', datas: [{d: 1, t: 'Início entrega IRS', c: 'IRS'}, {d: 30, t: 'Decl. SS (jan-mar)', c: 'SS'}]},
+             {mes: 'Maio', datas: [{d: 20, t: 'Entregar IVA 1º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 1º trim', c: 'IVA'}]},
+             {mes: 'Junho', datas: [{d: 30, t: 'Prazo final IRS', c: 'IRS'}]},
+             {mes: 'Julho', datas: [{d: 31, t: 'Pagamento IRS', c: 'IRS'}, {d: 31, t: 'Decl. SS (abr-jun)', c: 'SS'}]},
+             {mes: 'Agosto', datas: [{d: 20, t: 'Entregar IVA 2º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 2º trim', c: 'IVA'}]},
+             {mes: 'Outubro', datas: [{d: 31, t: 'Decl. SS (jul-set)', c: 'SS'}]},
+             {mes: 'Novembro', datas: [{d: 20, t: 'Entregar IVA 3º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 3º trim', c: 'IVA'}]}
+           ].map(m => (
+             <div key={m.mes} className="p-3 bg-slate-700/30 rounded-xl">
+               <p className="font-semibold text-sm mb-2">{m.mes}</p>
+               <div className="space-y-1">
+                 {m.datas.map((d, i) => (
+                   <div key={i} className="flex items-center gap-2 text-xs">
+                     <span className="px-1.5 py-0.5 rounded text-slate-900 font-medium" style={{background: catCores[d.c]}}>{d.d}</span>
+                     <span className="text-slate-300">{d.t}</span>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           ))}
+         </div>
+       </Card>
+       
        {/* GERIR TAREFAS */}
        <Card>
          <h3 className="text-lg font-semibold mb-4">⚙️ Gerir Tarefas Recorrentes</h3>
-         <div className="space-y-2">
+         <div className="space-y-2 max-h-64 overflow-y-auto">
            {tarefas.map(t => (
              <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl">
                <div className="flex items-center gap-3">
@@ -2781,7 +2861,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const atrasadas = pendentes.filter(t => t.atrasada);
    const proximas = pendentes.filter(t => t.proxima);
    
-   return { pendentes, atrasadas, proximas };
+   // Próximas 5 tarefas importantes (incluindo meses futuros)
+   const proximasTarefas = [];
+   for (let i = 0; i < 3 && proximasTarefas.length < 5; i++) {
+     const mesCheck = ((mesAtual - 1 + i) % 12) + 1;
+     const anoCheck = mesAtual + i > 12 ? anoAtual + 1 : anoAtual;
+     tarefas.filter(t => {
+       if (!t.ativo) return false;
+       if (t.freq === 'mensal') return true;
+       if (t.freq === 'trimestral' || t.freq === 'anual') return t.meses?.includes(mesCheck);
+       return false;
+     }).forEach(t => {
+       const key = `${anoCheck}-${mesCheck}-${t.id}`;
+       if (!tarefasConcluidas[key]) {
+         const dataT = new Date(anoCheck, mesCheck - 1, t.dia);
+         if (dataT >= hoje && proximasTarefas.length < 5) {
+           proximasTarefas.push({...t, data: dataT, mesNome: meses[mesCheck-1]});
+         }
+       }
+     });
+   }
+   proximasTarefas.sort((a, b) => a.data - b.data);
+   
+   return { pendentes, atrasadas, proximas, proximasTarefas: proximasTarefas.slice(0, 5) };
  }, [G.tarefas, G.tarefasConcluidas]);
 
  // Comparação ano a ano
