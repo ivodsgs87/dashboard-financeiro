@@ -872,12 +872,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {(tarefasPend.proximasTarefas || []).slice(0, 5).map((t, i) => {
        const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
        const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
+       // Adicionar mês para tarefas de investir/transferir
+       const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
        return (
          <div key={i} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm">
            <span className={`w-16 text-xs ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>
              {t.dia} {t.mesNome?.slice(0,3)}
            </span>
-           <span className="flex-1 truncate">{t.desc}</span>
+           <span className="flex-1 truncate">{descComMes}</span>
            <span className="px-1.5 py-0.5 text-xs rounded" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
            {diasAte <= 5 && <span className="text-xs text-orange-400">{diasAte}d</span>}
          </div>
@@ -1180,11 +1182,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
- <div className="space-y-6">
+ <div className="space-y-6 max-w-4xl mx-auto">
  <Card>
- <div className="flex justify-between items-center mb-6 max-w-3xl">
+ <div className="flex justify-between items-center mb-6">
  <div>
- <h3 className="text-lg font-semibold text-center">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
+ <h3 className="text-lg font-semibold">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
@@ -1250,11 +1252,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
- <div className="space-y-6">
+ <div className="space-y-6 max-w-4xl mx-auto">
  <Card>
- <div className="flex justify-between items-center mb-6 max-w-3xl">
+ <div className="flex justify-between items-center mb-6">
  <div>
- <h3 className="text-lg font-semibold text-center">👤 Despesas Pessoais (Activo Bank)</h3>
+ <h3 className="text-lg font-semibold">👤 Despesas Pessoais (Activo Bank)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
@@ -1265,14 +1267,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
  <div className="flex items-center gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none block">⋮⋮</div>
- <StableInput className={`w-[50%] ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={d.cat} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="w-[25%]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
- <StableInput type="number" className={`w-[15%] ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
+ <StableInput className={`flex-1 ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={d.cat} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="w-32">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <StableInput type="number" className={`w-20 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1">✕</button>
  </div>
  )}
  />
- <div className="flex justify-end mt-6 p-4 bg-slate-700/30 rounded-xl max-w-3xl">
+ <div className="flex justify-end mt-6 p-4 bg-slate-700/30 rounded-xl">
  <div className="text-right"><p className="text-xs text-slate-500">Total Despesas Pessoais</p><p className="text-xl font-bold">{fmt(totPess)}</p></div>
  </div>
  </Card>
@@ -1311,7 +1313,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [novaCat, setNovaCat] = useState('');
  
  return (
- <div key={mesKey} className="space-y-6">
+ <div key={mesKey} className="space-y-6 max-w-4xl mx-auto">
  <Card>
  <h3 className="text-base sm:text-lg font-semibold mb-4 text-center">💰 Disponível: {fmt(disp)}</h3>
  <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-slate-700/30 rounded-xl mb-4">
@@ -1665,7 +1667,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  return (
- <div className="space-y-6">
+ <div className="space-y-6 max-w-4xl mx-auto">
 
  {lineData.length > 1 && (
  <Card>
@@ -2186,6 +2188,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const anoAtual = hoje.getFullYear();
    const diaAtual = hoje.getDate();
    
+   // Estado para modal de nova tarefa
+   const [showAddModal, setShowAddModal] = useState(false);
+   const [editTarefa, setEditTarefa] = useState(null);
+   const [novaTarefa, setNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []});
+   
    // Determinar tarefas deste mês
    const getTarefasMes = (mes, anoCheck) => {
      return tarefas.filter(t => {
@@ -2212,33 +2219,108 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      uG('tarefasConcluidas', novas);
    };
    
-   const addTarefa = () => {
-     const desc = prompt('Descrição da tarefa:');
-     if (!desc) return;
-     const dia = parseInt(prompt('Dia do mês (1-31):') || '1');
-     const freq = prompt('Frequência (mensal/trimestral/anual):') || 'mensal';
-     const cat = prompt('Categoria (IVA/SS/IRS/Seguros/Outro):') || 'Outro';
-     let mesesArr = [];
-     if (freq === 'trimestral' || freq === 'anual') {
-       const mesesStr = prompt('Meses (ex: 3,6,9,12):');
-       mesesArr = mesesStr ? mesesStr.split(',').map(m => parseInt(m.trim())) : [];
-     }
+   const saveTarefa = () => {
+     if (!novaTarefa.desc) return;
      saveUndo();
-     uG('tarefas', [...tarefas, {id: Date.now(), desc, dia, freq, cat, meses: mesesArr, ativo: true}]);
+     if (editTarefa) {
+       uG('tarefas', tarefas.map(t => t.id === editTarefa.id ? {...novaTarefa, id: editTarefa.id, ativo: true} : t));
+     } else {
+       uG('tarefas', [...tarefas, {...novaTarefa, id: Date.now(), ativo: true}]);
+     }
+     setShowAddModal(false);
+     setEditTarefa(null);
+     setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []});
+   };
+   
+   const openEditModal = (t) => {
+     setEditTarefa(t);
+     setNovaTarefa({desc: t.desc, dia: t.dia, freq: t.freq, cat: t.cat, meses: t.meses || []});
+     setShowAddModal(true);
    };
    
    const removeTarefa = (id) => {
-     saveUndo();
-     uG('tarefas', tarefas.filter(t => t.id !== id));
+     if (confirm('Remover esta tarefa?')) {
+       saveUndo();
+       uG('tarefas', tarefas.filter(t => t.id !== id));
+     }
+   };
+   
+   const toggleMes = (m) => {
+     setNovaTarefa(prev => ({
+       ...prev,
+       meses: prev.meses.includes(m) ? prev.meses.filter(x => x !== m) : [...prev.meses, m].sort((a,b) => a-b)
+     }));
    };
    
    const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6','Transf':'#10b981','Invest':'#8b5cf6','Contab':'#06b6d4'};
+   const categorias = ['IVA', 'SS', 'IRS', 'Contab', 'Transf', 'Invest', 'Seguros', 'Outro'];
    
    const pendentes = tarefasMesAtual.filter(t => !t.concluida);
    const atrasadas = pendentes.filter(t => t.atrasada);
    
+   // Modal para adicionar/editar tarefa
+   const TarefaModal = () => {
+     if (!showAddModal) return null;
+     return (
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
+             <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
+           </div>
+           <div className="p-4 space-y-4">
+             <div>
+               <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
+               <input className={`w-full ${inputClass}`} value={novaTarefa.desc} onChange={e => setNovaTarefa({...novaTarefa, desc: e.target.value})} placeholder="Ex: Pagar IVA trimestral"/>
+             </div>
+             <div className="grid grid-cols-2 gap-3">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
+                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa({...novaTarefa, dia: +e.target.value})}/>
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
+                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa({...novaTarefa, cat: e.target.value})}>
+                   {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                 </select>
+               </div>
+             </div>
+             <div>
+               <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
+               <div className="flex gap-2">
+                 {['mensal', 'anual'].map(f => (
+                   <button key={f} onClick={() => setNovaTarefa({...novaTarefa, freq: f, meses: f === 'mensal' ? [] : novaTarefa.meses})} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                     {f === 'mensal' ? 'Todos os meses' : 'Meses específicos'}
+                   </button>
+                 ))}
+               </div>
+             </div>
+             {novaTarefa.freq === 'anual' && (
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
+                 <div className="grid grid-cols-4 gap-1">
+                   {meses.map((m, i) => (
+                     <button key={i} onClick={() => toggleMes(i+1)} className={`py-1.5 px-2 rounded text-xs font-medium transition-all ${novaTarefa.meses.includes(i+1) ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                       {m.slice(0,3)}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             )}
+           </div>
+           <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+             <Button variant="secondary" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>Cancelar</Button>
+             <Button onClick={saveTarefa} disabled={!novaTarefa.desc}>{editTarefa ? 'Guardar' : 'Adicionar'}</Button>
+           </div>
+         </div>
+       </div>
+     );
+   };
+   
    return (
      <div className="space-y-6">
+       <TarefaModal />
+       
        {/* RESUMO */}
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
          <StatCard label="Este Mês" value={tarefasMesAtual.length} color="text-blue-400" sub={`${tarefasMesAtual.filter(t=>t.concluida).length} concluídas`} icon="📋"/>
@@ -2272,7 +2354,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">📅 {meses[mesAtual-1]} {anoAtual}</h3>
-           <Button onClick={addTarefa}>+ Nova Tarefa</Button>
+           <Button onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+ Nova Tarefa</Button>
          </div>
          <div className="space-y-2">
            {tarefasMesAtual.length === 0 ? (
@@ -2321,26 +2403,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">⚙️ Gerir Tarefas Recorrentes</h3>
-           <Button variant="secondary" onClick={() => {
-             if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
-               saveUndo();
-               uG('tarefas', defG.tarefas);
-             }
-           }}>🔄 Restaurar Padrão</Button>
+           <div className="flex gap-2">
+             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+ Adicionar</Button>
+             <Button variant="secondary" onClick={() => {
+               if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
+                 saveUndo();
+                 uG('tarefas', defG.tarefas);
+               }
+             }}>🔄 Padrão</Button>
+           </div>
          </div>
          <div className="space-y-2 max-h-96 overflow-y-auto">
            {tarefas.map(t => (
-             <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl">
+             <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl group">
                <div className="flex items-center gap-3">
                  <input type="checkbox" checked={t.ativo} onChange={() => uG('tarefas', tarefas.map(x => x.id === t.id ? {...x, ativo: !x.ativo} : x))} className="w-5 h-5 accent-blue-500"/>
                  <div className={!t.ativo ? 'opacity-50' : ''}>
                    <p className="font-medium text-sm">{t.desc}</p>
-                   <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq}{t.meses?.length > 0 ? ` (meses: ${t.meses.join(',')})` : ''}</p>
+                   <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq}{t.meses?.length > 0 ? ` (${t.meses.map(m => meses[m-1]?.slice(0,3)).join(', ')})` : ''}</p>
                  </div>
                </div>
                <div className="flex items-center gap-2">
                  <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <button onClick={() => removeTarefa(t.id)} className="text-red-400 hover:text-red-300 p-1">✕</button>
+                 <button onClick={() => openEditModal(t)} className="text-slate-400 hover:text-blue-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✏️</button>
+                 <button onClick={() => removeTarefa(t.id)} className="text-red-400 hover:text-red-300 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                </div>
              </div>
            ))}
