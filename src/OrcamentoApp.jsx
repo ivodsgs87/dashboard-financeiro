@@ -408,7 +408,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupStatus, setBackupStatus] = useState('');
   
   // Novos estados para funcionalidades
-  const [theme, setTheme] = useState('dark'); // dark/light
+  // Removido: const [theme, setTheme] = useState('dark'); // light mode removido
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
@@ -1014,32 +1014,41 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* COMPARAÇÃO ANO A ANO */}
  <Card>
    <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold">📅 Comparação Ano a Ano</h3>
-     <div className="flex gap-2">
+     <h3 className="text-lg font-semibold">📅 Receitas: {ano} vs {compareYear || ano - 1}</h3>
+     <div className="flex items-center gap-2">
+       <span className="text-slate-500 text-sm">Comparar com:</span>
        <Select value={compareYear || ano - 1} onChange={e => setCompareYear(+e.target.value)} className="text-sm">
          {anos.filter(a => a !== ano).map(a => <option key={a} value={a}>{a}</option>)}
        </Select>
-       <span className="text-slate-500">vs {ano}</span>
      </div>
    </div>
    {(() => {
-     const comp = getComparacaoAnos(compareYear || ano - 1, ano);
-     const maxVal = Math.max(...comp.map(c => Math.max(c[compareYear || ano - 1], c[ano])), 1);
+     const compYear = compareYear || ano - 1;
+     const comp = getComparacaoAnos(ano, compYear);
+     const maxVal = Math.max(...comp.map(c => Math.max(c[ano] || 0, c[compYear] || 0)), 1);
      return (
        <div className="space-y-2">
-         {comp.map(c => (
+         {comp.map(c => {
+           const valAno = c[ano] || 0;
+           const valComp = c[compYear] || 0;
+           const diff = valComp > 0 ? ((valAno - valComp) / valComp * 100) : (valAno > 0 ? 100 : 0);
+           return (
            <div key={c.mes} className="flex items-center gap-3">
              <span className="w-10 text-xs text-slate-500">{c.mes}</span>
-             <div className="flex-1 flex gap-1">
-               <div className="h-4 bg-slate-600 rounded-l" style={{width: `${(c[compareYear || ano - 1] / maxVal) * 50}%`}} title={fmt(c[compareYear || ano - 1])}/>
-               <div className="h-4 bg-blue-500 rounded-r" style={{width: `${(c[ano] / maxVal) * 50}%`}} title={fmt(c[ano])}/>
+             <div className="flex-1 flex gap-1 h-5">
+               <div className="h-full bg-blue-500 rounded-l transition-all" style={{width: `${(valAno / maxVal) * 45}%`}}/>
+               <div className="h-full bg-slate-600 rounded-r transition-all" style={{width: `${(valComp / maxVal) * 45}%`}}/>
              </div>
-             <span className="w-20 text-xs text-right text-slate-400">{c[compareYear || ano - 1] > 0 || c[ano] > 0 ? `${((c[ano] - c[compareYear || ano - 1]) / (c[compareYear || ano - 1] || 1) * 100).toFixed(0)}%` : '-'}</span>
+             <span className="w-16 text-xs text-right font-medium text-blue-400">{valAno > 0 ? (valAno >= 1000 ? `${(valAno/1000).toFixed(1)}k` : valAno) : '-'}</span>
+             <span className="w-16 text-xs text-right text-slate-500">{valComp > 0 ? (valComp >= 1000 ? `${(valComp/1000).toFixed(1)}k` : valComp) : '-'}</span>
+             <span className={`w-14 text-xs text-right font-medium ${diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+               {valAno > 0 || valComp > 0 ? `${diff >= 0 ? '+' : ''}${diff.toFixed(0)}%` : '-'}
+             </span>
            </div>
-         ))}
-         <div className="flex gap-4 mt-3 justify-center text-xs">
-           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-slate-600"/><span>{compareYear || ano - 1}</span></div>
-           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-blue-500"/><span>{ano}</span></div>
+         );})}
+         <div className="flex gap-6 mt-4 pt-3 border-t border-slate-700 justify-center text-sm">
+           <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"/><span className="text-slate-300">{ano}</span></div>
+           <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-slate-600"/><span className="text-slate-400">{compYear}</span></div>
          </div>
        </div>
      );
@@ -1116,7 +1125,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
 
  // ABANCA
- const ABanca = () => (
+ const ABanca = () => {
+ // Agrupar despesas por categoria
+ const porCat = cats.map(c => ({
+   cat: c,
+   val: despABanca.filter(d => d.cat === c).reduce((a, d) => a + d.val, 0)
+ })).filter(c => c.val > 0);
+ 
+ const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
+ const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
+ 
+ return (
+ <div className="space-y-6">
  <Card>
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
@@ -1149,10 +1169,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="text-center"><p className="text-xs text-slate-500">Parte Sara ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
  </div>
  </Card>
+ 
+ {porCat.length > 0 && (
+ <Card>
+ <h3 className="text-lg font-semibold mb-6">📊 Distribuição por Categoria</h3>
+ <div className="flex flex-col lg:flex-row gap-6 items-center">
+ <PieChart data={pieData} size={180}/>
+ <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+ {porCat.sort((a,b) => b.val - a.val).map(c => (
+ <div key={c.cat} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg">
+ <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
+ <div className="flex-1 min-w-0">
+   <p className="text-xs font-medium truncate">{c.cat}</p>
+   <p className="text-xs text-slate-500">{((c.val/totAB)*100).toFixed(0)}%</p>
+ </div>
+ <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
+ </div>
+ ))}
+ </div>
+ </div>
+ </Card>
+ )}
+ </div>
  );
+ };
 
  // PESSOAIS
- const Pessoais = () => (
+ const Pessoais = () => {
+ // Agrupar despesas por categoria
+ const porCat = cats.map(c => ({
+   cat: c,
+   val: despPess.filter(d => d.cat === c).reduce((a, d) => a + d.val, 0)
+ })).filter(c => c.val > 0);
+ 
+ const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
+ const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
+ 
+ return (
+ <div className="space-y-6">
  <Card>
  <div className="flex justify-between items-center mb-6 max-w-3xl">
  <div>
@@ -1178,7 +1232,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="text-right"><p className="text-xs text-slate-500">Total Despesas Pessoais</p><p className="text-xl font-bold">{fmt(totPess)}</p></div>
  </div>
  </Card>
+ 
+ {porCat.length > 0 && (
+ <Card>
+ <h3 className="text-lg font-semibold mb-6">📊 Distribuição por Categoria</h3>
+ <div className="flex flex-col lg:flex-row gap-6 items-center">
+ <PieChart data={pieData} size={180}/>
+ <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+ {porCat.sort((a,b) => b.val - a.val).map(c => (
+ <div key={c.cat} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg">
+ <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
+ <div className="flex-1 min-w-0">
+   <p className="text-xs font-medium truncate">{c.cat}</p>
+   <p className="text-xs text-slate-500">{((c.val/totPess)*100).toFixed(0)}%</p>
+ </div>
+ <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
+ </div>
+ ))}
+ </div>
+ </div>
+ </Card>
+ )}
+ </div>
  );
+ };
 
  // INVESTIMENTOS
  const Invest = () => {
@@ -2044,51 +2121,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
 
- <Card>
- <h3 className="text-lg font-semibold mb-4">📝 Registar Atualização da Dívida</h3>
- <p className="text-sm text-slate-400 mb-4">Atualiza o valor da dívida atual acima e clica em "Registar" para guardar no histórico.</p>
- <Button onClick={() => {
- const currentMonth = `${ano}-${meses.indexOf(mes)+1}`;
- const hist = credito.historico || [];
- const existing = hist.findIndex(h => h.date === currentMonth);
- const newHist = existing >= 0 
- ? hist.map((h,i) => i === existing ? {...h, divida: dividaAtual} : h)
- : [...hist, {date: currentMonth, divida: dividaAtual}].sort((a,b) => {
- const [aY,aM]=a.date.split('-').map(Number);
- const [bY,bM]=b.date.split('-').map(Number);
- return aY===bY?aM-bM:aY-bY;
- });
- uC('historico', newHist);
- }}>📊 Registar Dívida Atual ({fmt(dividaAtual)}) para {mes} {ano}</Button>
- </Card>
-
- {/* PROJEÇÃO DE LIQUIDAÇÃO */}
- <Card>
-   <h3 className="text-lg font-semibold mb-4">📈 Projeção de Liquidação</h3>
-   <p className="text-sm text-slate-400 mb-4">Evolução da dívida com amortização extra de {fmt(simAmort)}/mês</p>
-   {(() => {
-     const proj = getProjecaoCredito();
-     return (
-       <div>
-         <div className="grid grid-cols-3 gap-3 mb-6">
-           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center">
-             <p className="text-xs text-slate-400">Liquidação em</p>
-             <p className="text-2xl font-bold text-emerald-400">{proj.anos}a {proj.mesesRestantes}m</p>
-           </div>
-           <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
-             <p className="text-xs text-slate-400">Data prevista</p>
-             <p className="text-lg font-bold text-blue-400">{new Date(Date.now() + proj.meses * 30.44 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-PT', {month: 'short', year: 'numeric'})}</p>
-           </div>
-           <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-center">
-             <p className="text-xs text-slate-400">Anos poupados</p>
-             <p className="text-2xl font-bold text-purple-400">{Math.max(0, anosRestantes - proj.anos)}a</p>
-           </div>
-         </div>
-       </div>
-     );
-   })()}
- </Card>
-
  {/* AMORTIZAÇÕES PLANEADAS */}
  <Card>
    <div className="flex justify-between items-center mb-4">
@@ -2415,8 +2447,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const totalAtual = hAno.reduce((a, x) => a + x.tot, 0);
    const mediaMensal = totalAtual / mesesComDados;
-   const mesesRestantes = 12 - mesesComDados;
-   const projecao = totalAtual + (mediaMensal * mesesRestantes);
+   
+   // Meses restantes até ao fim do ano (baseado no mês atual do sistema, não nos dados)
+   const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
+   const mesesRestantes = ano === anoAtualSistema ? Math.max(0, 12 - mesAtualNum) : 0;
+   
+   // Projeção: se estamos no ano atual, projeta os meses restantes; senão, usa o total real
+   const projecao = ano === anoAtualSistema ? totalAtual + (mediaMensal * mesesRestantes) : totalAtual;
    const diffMeta = projecao - metas.receitas;
    
    return { totalAtual, mediaMensal, mesesComDados, mesesRestantes, projecao, diffMeta };
@@ -2905,13 +2942,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
- // Classes de tema
- const themeClasses = theme === 'light' 
-   ? 'min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900 overflow-x-hidden'
-   : 'min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden';
-
  return (
- <div className={themeClasses}>
+ <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden">
  <BackupModal />
  <SearchModal />
  <AlertsModal />
@@ -2935,22 +2967,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                   {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                 </select>
                 {!isMesAtual(mes, ano) && (
-                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Hoje</button>
+                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400" title="Ir para mês atual">Hoje</button>
                 )}
               </div>
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
               <div className="flex gap-1 sm:gap-2 flex-wrap">
                 <button onClick={() => setShowSearch(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Pesquisar (Ctrl+F)">🔍</button>
-                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Alertas">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
-                <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Alternar tema">{theme === 'dark' ? '☀️' : '🌙'}</button>
-                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
-                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
-                <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar CSV">📥</button>
-                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Exportar PDF">🖨️</button>
-                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300">📋</button>
-                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">🗑️</button>
-                <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>{exporting ? '⏳' : '📊'}</button>
+                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Ver alertas e notificações">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
+                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer última alteração (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
+                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer alteração (Ctrl+Y)">↪️</button>
+                <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar receitas de ficheiro CSV">📥</button>
+                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Imprimir / Exportar PDF">🖨️</button>
+                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Criar backup dos dados">📋</button>
+                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar todos os dados">🗑️</button>
+                <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`} title="Exportar para Google Sheets">{exporting ? '⏳' : '📊'}</button>
               </div>
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
