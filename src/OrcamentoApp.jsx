@@ -484,12 +484,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     ],
     // Tarefas financeiras recorrentes
     tarefas: [
-      {id:1, desc:'Enviar faturas e-Fatura', dia:12, freq:'mensal', cat:'IVA', ativo:true},
+      // MENSAIS
+      {id:1, desc:'Verificar e validar faturas no e-Fatura', dia:10, freq:'mensal', cat:'IVA', ativo:true},
       {id:2, desc:'Pagar Segurança Social', dia:20, freq:'mensal', cat:'SS', ativo:true},
-      {id:3, desc:'Declaração trimestral IVA', dia:15, freq:'trimestral', meses:[2,5,8,11], cat:'IVA', ativo:true},
-      {id:4, desc:'Pagamento por conta IRS', dia:20, freq:'trimestral', meses:[7,9,12], cat:'IRS', ativo:true},
-      {id:5, desc:'Declaração IRS', dia:30, freq:'anual', meses:[6], cat:'IRS', ativo:true},
-      {id:6, desc:'Renovar seguro carro', dia:1, freq:'anual', meses:[3], cat:'Seguros', ativo:true}
+      {id:3, desc:'Fazer transferências (Casal, Pessoais, Férias)', dia:25, freq:'mensal', cat:'Transf', ativo:true},
+      {id:4, desc:'Investir e amortizar crédito', dia:28, freq:'mensal', cat:'Invest', ativo:true},
+      // SS TRIMESTRAL
+      {id:10, desc:'Declaração trimestral SS (jan-mar)', dia:30, freq:'anual', meses:[4], cat:'SS', ativo:true},
+      {id:11, desc:'Declaração trimestral SS (abr-jun)', dia:31, freq:'anual', meses:[7], cat:'SS', ativo:true},
+      {id:12, desc:'Declaração trimestral SS (jul-set)', dia:31, freq:'anual', meses:[10], cat:'SS', ativo:true},
+      {id:13, desc:'Declaração trimestral SS (out-dez)', dia:31, freq:'anual', meses:[1], cat:'SS', ativo:true},
+      // IVA TRIMESTRAL
+      {id:20, desc:'Entregar declaração IVA (1º trim)', dia:20, freq:'anual', meses:[5], cat:'IVA', ativo:true},
+      {id:21, desc:'Pagar IVA (1º trimestre)', dia:25, freq:'anual', meses:[5], cat:'IVA', ativo:true},
+      {id:22, desc:'Entregar declaração IVA (2º trim)', dia:20, freq:'anual', meses:[8], cat:'IVA', ativo:true},
+      {id:23, desc:'Pagar IVA (2º trimestre)', dia:25, freq:'anual', meses:[8], cat:'IVA', ativo:true},
+      {id:24, desc:'Entregar declaração IVA (3º trim)', dia:20, freq:'anual', meses:[11], cat:'IVA', ativo:true},
+      {id:25, desc:'Pagar IVA (3º trimestre)', dia:25, freq:'anual', meses:[11], cat:'IVA', ativo:true},
+      {id:26, desc:'Entregar declaração IVA (4º trim)', dia:20, freq:'anual', meses:[2], cat:'IVA', ativo:true},
+      {id:27, desc:'Pagar IVA (4º trimestre)', dia:25, freq:'anual', meses:[2], cat:'IVA', ativo:true},
+      // IRS ANUAL
+      {id:30, desc:'Data limite validar faturas e-Fatura (IRS)', dia:25, freq:'anual', meses:[2], cat:'IRS', ativo:true},
+      {id:31, desc:'Início entrega IRS', dia:1, freq:'anual', meses:[4], cat:'IRS', ativo:true},
+      {id:32, desc:'Prazo final entrega IRS', dia:30, freq:'anual', meses:[6], cat:'IRS', ativo:true},
+      {id:33, desc:'Pagamento IRS (se aplicável)', dia:31, freq:'anual', meses:[7], cat:'IRS', ativo:true}
     ],
     tarefasConcluidas: {}, // {'2025-12-1': true, '2025-12-2': true}
     credito: {
@@ -852,7 +870,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  {/* ESTATÍSTICAS DO MÊS */}
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-   <StatCard label="Receita Líquida" value={fmt(recLiq)} color="text-emerald-400" sub={`Bruto: ${fmt(totRec)}`} icon="💰"/>
+   <StatCard label="Receita Bruta" value={fmt(totRec)} color="text-white" sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
    <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
    <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
    <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
@@ -1068,13 +1086,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  <div className="space-y-2">
  {regCom.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : regCom.map(r => (
- <Row key={r.id}>
- <StableDateInput value={r.data} onChange={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-36`}/>
- <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-28">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
- <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
- <StableInput type="number" className={`w-28 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
- <Button variant="danger" size="sm" onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))}>✕</Button>
- </Row>
+ <div key={r.id} className="p-2 bg-slate-700/30 rounded-lg">
+   {/* Desktop */}
+   <div className="hidden sm:flex items-center gap-2">
+     <StableDateInput value={r.data} onChange={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-32`}/>
+     <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-24">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+     <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+     <StableInput type="number" className={`w-24 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+     <Button variant="danger" size="sm" onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))}>✕</Button>
+   </div>
+   {/* Mobile */}
+   <div className="sm:hidden space-y-2">
+     <div className="flex items-center gap-2">
+       <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="flex-1">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+       <StableDateInput value={r.data} onChange={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-28`}/>
+       <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 p-1">✕</button>
+     </div>
+     <div className="flex items-center gap-2">
+       <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+       <StableInput type="number" className={`w-24 ${inputClass} text-right font-bold`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+     </div>
+   </div>
+ </div>
  ))}
  </div>
  </Card>
@@ -1086,13 +1119,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="space-y-2">
  {regSem.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : regSem.map(r => (
- <Row key={r.id}>
- <StableDateInput value={r.data} onChange={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-36`}/>
- <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-28">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
- <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
- <StableInput type="number" className={`w-28 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
- <Button variant="danger" size="sm" onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))}>✕</Button>
- </Row>
+ <div key={r.id} className="p-2 bg-slate-700/30 rounded-lg">
+   {/* Desktop */}
+   <div className="hidden sm:flex items-center gap-2">
+     <StableDateInput value={r.data} onChange={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-32`}/>
+     <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-24">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+     <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+     <StableInput type="number" className={`w-24 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+     <Button variant="danger" size="sm" onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))}>✕</Button>
+   </div>
+   {/* Mobile */}
+   <div className="sm:hidden space-y-2">
+     <div className="flex items-center gap-2">
+       <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="flex-1">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+       <StableDateInput value={r.data} onChange={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,data:v}:x))} className={`${inputClass} w-28`}/>
+       <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 p-1">✕</button>
+     </div>
+     <div className="flex items-center gap-2">
+       <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+       <StableInput type="number" className={`w-24 ${inputClass} text-right font-bold`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+     </div>
+   </div>
+ </div>
  ))}
  </div>
  </Card>
@@ -1365,7 +1413,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
 
- <div className="grid grid-cols-2 gap-6">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold">💵 Rendimentos</h3>
@@ -1373,12 +1421,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="space-y-2">
  {sara.rend.map(r => (
- <Row key={r.id} highlight={r.isCR}>
- <StableInput className={`flex-1 ${inputClass}`} initialValue={r.desc} onSave={v=>uS('rend',sara.rend.map(x=>x.id===r.id?{...x,desc:v}:x))}/>
- {r.isCR && <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-lg whitespace-nowrap">Deduz</span>}
- <StableInput type="number" className={`w-24 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uS('rend',sara.rend.map(x=>x.id===r.id?{...x,val:v}:x))}/>
- <Button variant="danger" size="sm" onClick={()=>uS('rend',sara.rend.filter(x=>x.id!==r.id))}>✕</Button>
- </Row>
+ <div key={r.id} className={`p-2 rounded-lg ${r.isCR ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
+   <div className="flex items-center gap-2">
+     <StableInput className={`flex-1 ${inputClass} min-w-0`} initialValue={r.desc} onSave={v=>uS('rend',sara.rend.map(x=>x.id===r.id?{...x,desc:v}:x))}/>
+     {r.isCR && <span className="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded hidden sm:block">CR</span>}
+     <StableInput type="number" className={`w-20 sm:w-24 ${inputClass} text-right`} initialValue={r.val} onSave={v=>uS('rend',sara.rend.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+     <button onClick={()=>uS('rend',sara.rend.filter(x=>x.id!==r.id))} className="text-red-400 p-1">✕</button>
+   </div>
+ </div>
  ))}
  </div>
  <div className="flex justify-between mt-4 p-3 bg-emerald-500/10 rounded-xl"><span className="text-slate-300">Total</span><span className="font-bold text-emerald-400">{fmt(totSaraR)}</span></div>
@@ -1391,11 +1441,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="space-y-2 max-h-64 overflow-y-auto">
  {sara.desp.map(d => (
- <Row key={d.id}>
- <StableInput className={`flex-1 ${inputClass}`} initialValue={d.desc} onSave={v=>uS('desp',sara.desp.map(x=>x.id===d.id?{...x,desc:v}:x))}/>
- <StableInput type="number" className={`w-24 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uS('desp',sara.desp.map(x=>x.id===d.id?{...x,val:v}:x))}/>
- <Button variant="danger" size="sm" onClick={()=>uS('desp',sara.desp.filter(x=>x.id!==d.id))}>✕</Button>
- </Row>
+ <div key={d.id} className="p-2 bg-slate-700/30 rounded-lg">
+   <div className="flex items-center gap-2">
+     <StableInput className={`flex-1 ${inputClass} min-w-0`} initialValue={d.desc} onSave={v=>uS('desp',sara.desp.map(x=>x.id===d.id?{...x,desc:v}:x))}/>
+     <StableInput type="number" className={`w-20 sm:w-24 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uS('desp',sara.desp.map(x=>x.id===d.id?{...x,val:v}:x))}/>
+     <button onClick={()=>uS('desp',sara.desp.filter(x=>x.id!==d.id))} className="text-red-400 p-1">✕</button>
+   </div>
+ </div>
  ))}
  </div>
  <div className="flex justify-between mt-4 p-3 bg-orange-500/10 rounded-xl"><span className="text-slate-300">Total</span><span className="font-bold text-orange-400">{fmt(totSaraD)}</span></div>
@@ -1882,29 +1934,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  <Card>
  <h3 className="text-lg font-semibold mb-4">📋 Dados do Crédito</h3>
- <div className="grid grid-cols-2 gap-4">
- <div className="space-y-3">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+ <div className="space-y-2">
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Valor da Casa</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={valorCasa} onSave={v=>uC('valorCasa',v)}/>
+ <span className="text-slate-400 text-sm">Valor Casa</span>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={valorCasa} onSave={v=>uC('valorCasa',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Entrada Inicial</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={entradaInicial} onSave={v=>uC('entradaInicial',v)}/>
+ <span className="text-slate-400 text-sm">Entrada</span>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={entradaInicial} onSave={v=>uC('entradaInicial',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Montante Financiado</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v=>uC('montanteInicial',v)}/>
+ <span className="text-slate-400 text-sm">Financiado</span>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v=>uC('montanteInicial',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <span className="text-slate-300">Data Fim do Crédito</span>
- <input type="date" className={`w-40 ${inputClass}`} defaultValue={dataFim} onChange={e=>uC('dataFim',e.target.value)}/>
+ <span className="text-slate-300 text-sm">Data Fim</span>
+ <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e=>uC('dataFim',e.target.value)}/>
  </div>
  </div>
- <div className="space-y-3">
+ <div className="space-y-2">
  <div className="flex justify-between items-center p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
- <span className="text-slate-300 font-medium">Dívida Atual</span>
- <StableInput type="number" className="w-32 bg-slate-700/50 border border-red-500/30 rounded-xl px-3 py-2 text-red-400 font-bold text-right focus:outline-none" initialValue={dividaAtual} onSave={v=>uC('dividaAtual',v)}/>
+ <span className="text-slate-300 font-medium text-sm">Dívida Atual</span>
+ <StableInput type="number" className="w-28 sm:w-32 bg-slate-700/50 border border-red-500/30 rounded-xl px-3 py-2 text-red-400 font-bold text-right focus:outline-none" initialValue={dividaAtual} onSave={v=>uC('dividaAtual',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400">Taxa de Juro Atual (%)</span>
@@ -1924,57 +1976,48 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  <Card>
  <h3 className="text-lg font-semibold mb-4">🧮 Simulador de Prestação</h3>
- <p className="text-sm text-slate-400 mb-4">Simula como a prestação varia com diferentes taxas de juro (Euribor + Spread)</p>
+ <p className="text-sm text-slate-400 mb-4">Simula como a prestação varia com diferentes taxas de juro</p>
  
- <div className="grid grid-cols-2 gap-6 mb-6">
- <div className="space-y-4">
- <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
- <div className="flex justify-between items-center mb-3">
- <span className="text-slate-300">Euribor (%)</span>
- <div className="flex items-center gap-2">
- <input type="number" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value||0)} className="w-20 bg-slate-700/50 border border-blue-500/30 rounded-lg px-2 py-1 text-blue-400 font-bold text-right focus:outline-none"/>
- <span className="text-slate-500">%</span>
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+ <div className="space-y-3">
+ <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Euribor (%)</span>
+ <div className="flex items-center gap-1">
+ <input type="number" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-blue-500/30 rounded-lg px-2 py-1 text-blue-400 font-bold text-right text-sm focus:outline-none"/>
+ <span className="text-slate-500 text-sm">%</span>
  </div>
  </div>
  <input type="range" min="-0.5" max="5" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value)} className="w-full accent-blue-500"/>
- <div className="flex justify-between text-xs text-slate-500 mt-1"><span>-0.5%</span><span>5%</span></div>
  </div>
  
- <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <div className="flex justify-between items-center mb-3">
- <span className="text-slate-300">Spread (%)</span>
- <div className="flex items-center gap-2">
- <input type="number" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value||0)} className="w-20 bg-slate-700/50 border border-purple-500/30 rounded-lg px-2 py-1 text-purple-400 font-bold text-right focus:outline-none"/>
- <span className="text-slate-500">%</span>
+ <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Spread (%)</span>
+ <div className="flex items-center gap-1">
+ <input type="number" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-purple-500/30 rounded-lg px-2 py-1 text-purple-400 font-bold text-right text-sm focus:outline-none"/>
+ <span className="text-slate-500 text-sm">%</span>
  </div>
  </div>
  <input type="range" min="0" max="3" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value)} className="w-full accent-purple-500"/>
- <div className="flex justify-between text-xs text-slate-500 mt-1"><span>0%</span><span>3%</span></div>
  </div>
  </div>
  
- <div className="space-y-4">
- <div className="p-4 bg-slate-700/30 rounded-xl">
- <div className="flex justify-between items-center mb-3">
- <span className="text-slate-300">Dívida para simular</span>
- <div className="flex items-center gap-2">
- <span className="text-slate-500">€</span>
- <input type="number" value={simDivida || dividaAtual} onChange={e=>setSimDivida(+e.target.value||0)} className="w-32 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right focus:outline-none"/>
+ <div className="space-y-3">
+ <div className="p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Dívida simular</span>
+ <input type="number" value={simDivida || dividaAtual} onChange={e=>setSimDivida(+e.target.value||0)} className="w-28 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
  </div>
- </div>
- <button className="text-xs text-blue-400 hover:text-blue-300" onClick={()=>setSimDivida(dividaAtual)}>↺ Usar dívida atual ({fmt(dividaAtual)})</button>
+ <button className="text-xs text-blue-400" onClick={()=>setSimDivida(dividaAtual)}>↺ Usar atual</button>
  </div>
  
- <div className="p-4 bg-slate-700/30 rounded-xl">
- <div className="flex justify-between items-center mb-3">
- <span className="text-slate-300">Prazo (meses)</span>
- <div className="flex items-center gap-2">
- <input type="number" value={simMeses || totalMesesRestantes} onChange={e=>setSimMeses(+e.target.value||1)} className="w-24 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right focus:outline-none"/>
- <span className="text-slate-500">meses</span>
+ <div className="p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Prazo</span>
+ <input type="number" value={simMeses || totalMesesRestantes} onChange={e=>setSimMeses(+e.target.value||1)} className="w-20 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
  </div>
- </div>
- <p className="text-xs text-slate-500">{Math.floor((simMeses || totalMesesRestantes) / 12)} anos e {(simMeses || totalMesesRestantes) % 12} meses</p>
- <button className="text-xs text-blue-400 hover:text-blue-300 mt-1" onClick={()=>setSimMeses(totalMesesRestantes)}>↺ Usar prazo restante ({totalMesesRestantes} meses)</button>
+ <p className="text-xs text-slate-500">{Math.floor((simMeses || totalMesesRestantes) / 12)}a {(simMeses || totalMesesRestantes) % 12}m</p>
  </div>
  </div>
  </div>
@@ -2049,39 +2092,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
 
  <Card>
- <h3 className="text-lg font-semibold mb-6">🎯 Simulador de Amortização</h3>
+ <h3 className="text-lg font-semibold mb-4">🎯 Simulador de Amortização</h3>
  
- <div className="grid grid-cols-2 gap-6 mb-6">
- <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
- <p className="text-sm text-slate-400 mb-3">Se amortizar mensalmente:</p>
- <div className="flex items-center gap-3 mb-4">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+ <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+ <p className="text-sm text-slate-400 mb-2">Se amortizar mensalmente:</p>
+ <div className="flex items-center gap-2 mb-3">
  <span className="text-slate-400">€</span>
- <input type="number" value={simAmort} onChange={e=>setSimAmort(+e.target.value||0)} className="flex-1 bg-slate-700/50 border border-emerald-500/30 rounded-xl px-3 py-2 text-emerald-400 text-2xl font-bold text-right focus:outline-none"/>
- <span className="text-slate-500">/mês</span>
+ <input type="number" value={simAmort} onChange={e=>setSimAmort(+e.target.value||0)} className="flex-1 bg-slate-700/50 border border-emerald-500/30 rounded-xl px-3 py-2 text-emerald-400 text-xl font-bold text-right focus:outline-none"/>
+ <span className="text-slate-500 text-sm">/mês</span>
  </div>
- <div className="space-y-2">
+ <div className="space-y-1 text-sm">
  <div className="flex justify-between"><span className="text-slate-400">Liquidado em:</span><span className="font-bold text-emerald-400">{anosComAmort.toFixed(1)} anos</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Total de juros:</span><span className="font-semibold">{fmt(jurosComAmort)}</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Poupança em juros:</span><span className="font-bold text-emerald-400">{fmt(poupancaJuros)}</span></div>
+ <div className="flex justify-between"><span className="text-slate-400">Poupança juros:</span><span className="font-bold text-emerald-400">{fmt(poupancaJuros)}</span></div>
  </div>
  </div>
  
- <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <p className="text-sm text-slate-400 mb-3">Para liquidar em X anos:</p>
- <div className="flex items-center gap-3 mb-4">
- <input type="number" value={simAnos} onChange={e=>setSimAnos(Math.max(1,+e.target.value||1))} className="flex-1 bg-slate-700/50 border border-purple-500/30 rounded-xl px-3 py-2 text-purple-400 text-2xl font-bold text-right focus:outline-none" min="1" max="30"/>
- <span className="text-slate-500">anos</span>
+ <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+ <p className="text-sm text-slate-400 mb-2">Para liquidar em X anos:</p>
+ <div className="flex items-center gap-2 mb-3">
+ <input type="number" value={simAnos} onChange={e=>setSimAnos(Math.max(1,+e.target.value||1))} className="flex-1 bg-slate-700/50 border border-purple-500/30 rounded-xl px-3 py-2 text-purple-400 text-xl font-bold text-right focus:outline-none" min="1" max="30"/>
+ <span className="text-slate-500 text-sm">anos</span>
  </div>
- <div className="space-y-2">
- <div className="flex justify-between"><span className="text-slate-400">Amortização necessária:</span><span className="font-bold text-purple-400">{fmt(amortNecessaria)}/mês</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Total mensal:</span><span className="font-semibold">{fmt(prestacao + amortNecessaria)}</span></div>
- <div className="flex justify-between"><span className="text-slate-400">Com seguros:</span><span className="font-semibold">{fmt(custoMensal + amortNecessaria)}</span></div>
+ <div className="space-y-1 text-sm">
+ <div className="flex justify-between"><span className="text-slate-400">Amort. necessária:</span><span className="font-bold text-purple-400">{fmt(amortNecessaria)}/mês</span></div>
+ <div className="flex justify-between"><span className="text-slate-400">Total c/ seguros:</span><span className="font-semibold">{fmt(custoMensal + amortNecessaria)}</span></div>
  </div>
  </div>
  </div>
  
  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
- <div className="p-4 bg-slate-700/30 rounded-xl text-center">
+ <div className="p-3 bg-slate-700/30 rounded-xl text-center">
  <p className="text-xs text-slate-500 mb-1">Sem amortização extra</p>
  <p className="text-lg font-bold text-slate-400">{(calcularMesesParaLiquidar(0)/12).toFixed(1)} anos</p>
  <p className="text-xs text-slate-500">Juros: {fmt(jurosSemAmort)}</p>
