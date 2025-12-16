@@ -489,6 +489,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       {id:2, desc:'Pagar Segurança Social', dia:20, freq:'mensal', cat:'SS', ativo:true},
       {id:3, desc:'Fazer transferências (Casal, Pessoais, Férias)', dia:25, freq:'mensal', cat:'Transf', ativo:true},
       {id:4, desc:'Investir e amortizar crédito', dia:28, freq:'mensal', cat:'Invest', ativo:true},
+      // ENVIAR FATURAS AO CONTABILISTA
+      {id:5, desc:'ENVIAR FATURAS AO CONTABILISTA', dia:10, freq:'anual', meses:[2], cat:'Contab', ativo:true},
+      {id:6, desc:'ENVIAR FATURAS AO CONTABILISTA', dia:10, freq:'anual', meses:[5], cat:'Contab', ativo:true},
+      {id:7, desc:'ENVIAR FATURAS AO CONTABILISTA', dia:10, freq:'anual', meses:[8], cat:'Contab', ativo:true},
+      {id:8, desc:'ENVIAR FATURAS AO CONTABILISTA', dia:10, freq:'anual', meses:[11], cat:'Contab', ativo:true},
       // SS TRIMESTRAL
       {id:10, desc:'Declaração trimestral SS (jan-mar)', dia:30, freq:'anual', meses:[4], cat:'SS', ativo:true},
       {id:11, desc:'Declaração trimestral SS (abr-jun)', dia:31, freq:'anual', meses:[7], cat:'SS', ativo:true},
@@ -865,7 +870,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    )}
    <div className="space-y-2">
      {(tarefasPend.proximasTarefas || []).slice(0, 5).map((t, i) => {
-       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899'};
+       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
        const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
        return (
          <div key={i} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm">
@@ -2227,7 +2232,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      uG('tarefas', tarefas.filter(t => t.id !== id));
    };
    
-   const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6'};
+   const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6','Transf':'#10b981','Invest':'#8b5cf6','Contab':'#06b6d4'};
    
    const pendentes = tarefasMesAtual.filter(t => !t.concluida);
    const atrasadas = pendentes.filter(t => t.atrasada);
@@ -2312,75 +2317,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        </Card>
        
-       {/* CALENDÁRIO ANUAL - VISÃO GERAL */}
-       <Card>
-         <h3 className="text-lg font-semibold mb-4">📅 Calendário Fiscal {anoAtual}</h3>
-         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-           {meses.map((nomeMes, idx) => {
-             const mesNum = idx + 1;
-             const tarefasMes = tarefas.filter(t => {
-               if (!t.ativo) return false;
-               if (t.freq === 'mensal') return true;
-               if (t.freq === 'anual' || t.freq === 'trimestral') return t.meses?.includes(mesNum);
-               return false;
-             });
-             const isCurrentMonth = mesNum === mesAtual;
-             const isPast = mesNum < mesAtual;
-             return (
-               <div key={idx} className={`p-3 rounded-xl border ${isCurrentMonth ? 'bg-blue-500/10 border-blue-500/30' : isPast ? 'bg-slate-700/20 border-slate-700/30 opacity-60' : 'bg-slate-700/30 border-slate-600/30'}`}>
-                 <div className="flex justify-between items-center mb-2">
-                   <span className={`font-semibold text-sm ${isCurrentMonth ? 'text-blue-400' : ''}`}>{nomeMes.slice(0,3)}</span>
-                   <span className="text-xs text-slate-500">{tarefasMes.length}</span>
-                 </div>
-                 <div className="space-y-1">
-                   {tarefasMes.slice(0, 4).map((t, i) => (
-                     <div key={i} className="flex items-center gap-1 text-xs">
-                       <span className="w-1.5 h-1.5 rounded-full" style={{background: catCores[t.cat] || '#64748b'}}/>
-                       <span className="text-slate-400 w-4">{t.dia}</span>
-                       <span className="truncate text-slate-300">{t.desc.length > 15 ? t.desc.slice(0,15)+'...' : t.desc}</span>
-                     </div>
-                   ))}
-                   {tarefasMes.length > 4 && <p className="text-xs text-slate-500">+{tarefasMes.length - 4} mais</p>}
-                 </div>
-               </div>
-             );
-           })}
-         </div>
-       </Card>
-
-       {/* DATAS IMPORTANTES DO ANO */}
-       <Card>
-         <h3 className="text-lg font-semibold mb-4">🗓️ Datas Importantes {anoAtual}</h3>
-         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-           {[
-             {mes: 'Fevereiro', datas: [{d: 20, t: 'Entregar IVA 4º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 4º trim', c: 'IVA'}, {d: 25, t: 'Validar faturas e-Fatura', c: 'IRS'}]},
-             {mes: 'Abril', datas: [{d: 1, t: 'Início entrega IRS', c: 'IRS'}, {d: 30, t: 'Decl. SS (jan-mar)', c: 'SS'}]},
-             {mes: 'Maio', datas: [{d: 20, t: 'Entregar IVA 1º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 1º trim', c: 'IVA'}]},
-             {mes: 'Junho', datas: [{d: 30, t: 'Prazo final IRS', c: 'IRS'}]},
-             {mes: 'Julho', datas: [{d: 31, t: 'Pagamento IRS', c: 'IRS'}, {d: 31, t: 'Decl. SS (abr-jun)', c: 'SS'}]},
-             {mes: 'Agosto', datas: [{d: 20, t: 'Entregar IVA 2º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 2º trim', c: 'IVA'}]},
-             {mes: 'Outubro', datas: [{d: 31, t: 'Decl. SS (jul-set)', c: 'SS'}]},
-             {mes: 'Novembro', datas: [{d: 20, t: 'Entregar IVA 3º trim', c: 'IVA'}, {d: 25, t: 'Pagar IVA 3º trim', c: 'IVA'}]}
-           ].map(m => (
-             <div key={m.mes} className="p-3 bg-slate-700/30 rounded-xl">
-               <p className="font-semibold text-sm mb-2">{m.mes}</p>
-               <div className="space-y-1">
-                 {m.datas.map((d, i) => (
-                   <div key={i} className="flex items-center gap-2 text-xs">
-                     <span className="px-1.5 py-0.5 rounded text-slate-900 font-medium" style={{background: catCores[d.c]}}>{d.d}</span>
-                     <span className="text-slate-300">{d.t}</span>
-                   </div>
-                 ))}
-               </div>
-             </div>
-           ))}
-         </div>
-       </Card>
-       
        {/* GERIR TAREFAS */}
        <Card>
-         <h3 className="text-lg font-semibold mb-4">⚙️ Gerir Tarefas Recorrentes</h3>
-         <div className="space-y-2 max-h-64 overflow-y-auto">
+         <div className="flex justify-between items-center mb-4">
+           <h3 className="text-lg font-semibold">⚙️ Gerir Tarefas Recorrentes</h3>
+           <Button variant="secondary" onClick={() => {
+             if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
+               saveUndo();
+               uG('tarefas', defG.tarefas);
+             }
+           }}>🔄 Restaurar Padrão</Button>
+         </div>
+         <div className="space-y-2 max-h-96 overflow-y-auto">
            {tarefas.map(t => (
              <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl">
                <div className="flex items-center gap-3">
