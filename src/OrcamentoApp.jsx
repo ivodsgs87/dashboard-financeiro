@@ -407,12 +407,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupData, setBackupData] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
   
-  // Novos estados para funcionalidades
-  // Removido: const [theme, setTheme] = useState('dark'); // light mode removido
+  // Tema claro/escuro
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') || 'dark';
+    }
+    return 'dark';
+  });
+  
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+  
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  
+  // Estados para funcionalidades
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showImportCSV, setShowImportCSV] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [compareYear, setCompareYear] = useState(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   
@@ -429,8 +443,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, []);
   
   // Atalhos de teclado
+  const tabOrder = ['resumo','receitas','abanca','pessoais','invest','sara','historico','portfolio','credito','agenda'];
+  
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Ignorar se estiver a escrever num input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        if (e.key === 'Escape') {
+          e.target.blur();
+        }
+        return;
+      }
+      
       // Ctrl+Z = Undo
       if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -446,16 +470,58 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         e.preventDefault();
         setShowSearch(true);
       }
+      // Ctrl+P = Exportar PDF
+      if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault();
+        exportToPDF?.();
+      }
+      // Ctrl+T = Toggle tema
+      if (e.ctrlKey && e.key === 't') {
+        e.preventDefault();
+        toggleTheme();
+      }
+      // ? = Mostrar atalhos
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts(s => !s);
+      }
+      // 1-9 = Navegar entre tabs
+      if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.altKey) {
+        const idx = parseInt(e.key) - 1;
+        if (idx < tabOrder.length) {
+          e.preventDefault();
+          setTab(tabOrder[idx]);
+        }
+      }
+      // 0 = Última tab (Agenda)
+      if (e.key === '0' && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setTab('agenda');
+      }
+      // ← → = Mês anterior/seguinte
+      if (e.key === 'ArrowLeft' && !e.ctrlKey) {
+        e.preventDefault();
+        const idx = meses.indexOf(mes);
+        if (idx > 0) setMes(meses[idx - 1]);
+        else { setMes(meses[11]); setAno(a => a - 1); }
+      }
+      if (e.key === 'ArrowRight' && !e.ctrlKey) {
+        e.preventDefault();
+        const idx = meses.indexOf(mes);
+        if (idx < 11) setMes(meses[idx + 1]);
+        else { setMes(meses[0]); setAno(a => a + 1); }
+      }
       // Escape = Fechar modais
       if (e.key === 'Escape') {
         setShowSearch(false);
         setShowAlerts(false);
         setShowImportCSV(false);
+        setShowShortcuts(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [mes, ano]);
   
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
   const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
@@ -796,18 +862,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCoresInv = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
 
  // UI Components
-  const Card = ({children, className = ''}) => <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 p-3 sm:p-5 ${className}`}>{children}</div>;
-  const StatCard = ({label, value, color = 'text-white', sub, icon}) => <Card className="p-3 sm:p-4"><p className="text-slate-400 text-xs font-medium mb-1">{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color}`}>{value}</p>{sub && <p className="text-slate-500 text-xs mt-1 truncate">{sub}</p>}</Card>;
+  const Card = ({children, className = ''}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-sm rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${className}`}>{children}</div>;
+  const StatCard = ({label, value, color = '', sub, icon}) => <Card className="p-3 sm:p-4"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1`}>{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')}`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>;
  const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
  const base = 'font-semibold rounded-xl transition-all duration-200 ';
  const variants = {primary: 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
     const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
-  const Select = ({children, className = '', ...props}) => <select className={`bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer ${className}`} {...props}>{children}</select>;
+  const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer ${className}`} {...props}>{children}</select>;
  const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full bg-slate-700/50 rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-500" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
  const Row = ({children, highlight}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all ${highlight ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
-  const inputClass = "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
+  const inputClass = theme === 'light' 
+    ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+    : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
 
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
@@ -869,7 +937,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    )}
    <div className="space-y-2">
-     {(tarefasPend.proximasTarefas || []).slice(0, 5).map((t, i) => {
+     {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
        const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
        const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
        const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
@@ -1166,7 +1234,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
- <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+ Adicionar</Button>
+ <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
  </div>
  <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6">
  <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm text-slate-300">Minha contrib.</p></div>
@@ -1319,19 +1387,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
  <Card>
- <div className="flex justify-between items-center mb-4 max-w-3xl">
+ <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
- <h3 className="text-lg font-semibold text-center">📈 Alocação de Investimentos</h3>
+ <h3 className="text-lg font-semibold">📈 Alocação de Investimentos</h3>
  <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
- <div className="flex gap-2">
-   <Button variant="secondary" onClick={aplicarInvFuturos}>📅 Aplicar a meses futuros</Button>
-   <Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',cat:catsInv[0]||'ETF',val:0,done:false}])}>+ Adicionar</Button>
+ <div className="flex gap-2 justify-end">
+   <Button variant="secondary" size="sm" onClick={aplicarInvFuturos}>📅 Aplicar a meses futuros</Button>
+   <Button onClick={()=>uM('inv',[...inv,{id:Date.now(),desc:'',cat:catsInv[0]||'ETF',val:0,done:false}])}>+</Button>
  </div>
  </div>
  
  {/* Adicionar categoria */}
- <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl max-w-xl">
+ <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl">
    <span className="text-xs text-slate-400">Nova categoria:</span>
    <input type="text" className={`flex-1 ${inputClass} text-xs`} value={novaCat} onChange={e => setNovaCat(e.target.value.toUpperCase())} placeholder="Ex: ACOES"/>
    <Button size="sm" onClick={() => { if (novaCat && !catsInv.includes(novaCat)) { uG('catsInv', [...catsInv, novaCat]); setNovaCat(''); } }}>+</Button>
@@ -1418,7 +1486,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold">💵 Rendimentos</h3>
- <Button onClick={()=>uS('rend',[...sara.rend,{id:Date.now(),desc:'Novo',val:0}])}>+ Adicionar</Button>
+ <Button onClick={()=>uS('rend',[...sara.rend,{id:Date.now(),desc:'Novo',val:0}])}>+</Button>
  </div>
  <DraggableList
    items={sara.rend}
@@ -1441,7 +1509,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold">💸 Despesas Fixas</h3>
- <Button onClick={()=>uS('desp',[...sara.desp,{id:Date.now(),desc:'Nova',val:0}])}>+ Adicionar</Button>
+ <Button onClick={()=>uS('desp',[...sara.desp,{id:Date.now(),desc:'Nova',val:0}])}>+</Button>
  </div>
  <DraggableList
    items={sara.desp}
@@ -1464,7 +1532,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-lg font-semibold">🎯 Alocação do Dinheiro Disponível</h3>
- <Button onClick={()=>uS('aloc',[...sara.aloc,{id:Date.now(),desc:'Nova',val:0,cor:['#3b82f6','#8b5cf6','#f59e0b','#10b981','#ec4899'][sara.aloc.length%5]}])}>+ Adicionar</Button>
+ <Button onClick={()=>uS('aloc',[...sara.aloc,{id:Date.now(),desc:'Nova',val:0,cor:['#3b82f6','#8b5cf6','#f59e0b','#10b981','#ec4899'][sara.aloc.length%5]}])}>+</Button>
  </div>
  <div className="mb-6">
  <div className="flex justify-between text-sm mb-2"><span className="text-slate-400">Alocado: {fmt(totAloc)} de {fmt(sobraSara)}</span><span className={pctAloc>100?'text-red-400':'text-emerald-400'}>{pctAloc.toFixed(1)}%</span></div>
@@ -1732,19 +1800,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
 
  <Card>
- <div className="flex justify-between items-center mb-4 max-w-3xl">
+ <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
- <h3 className="text-lg font-semibold text-center">💰 Portfolio Total: {fmt(totPort)}</h3>
+ <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
  <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
- <div className="flex gap-2">
-   <Button variant="secondary" onClick={guardarSnapshot}>📸 Snapshot</Button>
-   <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+ Adicionar</Button>
+ <div className="flex gap-2 justify-end">
+   <Button variant="secondary" size="sm" onClick={guardarSnapshot}>📸 Snapshot</Button>
+   <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+</Button>
  </div>
  </div>
  
  {/* Adicionar categoria */}
- <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl max-w-xl">
+ <div className="flex items-center gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl">
    <span className="text-xs text-slate-400">Nova categoria:</span>
    <input type="text" className={`flex-1 ${inputClass} text-xs`} value={novaCatPort} onChange={e => setNovaCatPort(e.target.value.toUpperCase())} placeholder="Ex: ACOES"/>
    <Button size="sm" onClick={() => { if (novaCatPort && !catsInv.includes(novaCatPort)) { uG('catsInv', [...catsInv, novaCatPort]); setNovaCatPort(''); } }}>+</Button>
@@ -2392,7 +2460,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">⚙️ Gerir Tarefas Recorrentes</h3>
            <div className="flex gap-2">
-             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+ Adicionar</Button>
+             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+</Button>
              <Button variant="secondary" onClick={() => {
                if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
                  saveUndo();
@@ -2425,6 +2493,169 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'agenda',icon:'📋',label:'Agenda'}];
+
+ // Função para exportar PDF mensal
+ const exportToPDF = () => {
+   const M = dadosMes || {};
+   const regCom = M.regCom || [];
+   const regSem = M.regSem || [];
+   const inv = M.inv || [];
+   const totRec = regCom.reduce((a,r)=>a+r.val,0) + regSem.reduce((a,r)=>a+r.val,0);
+   const valTax = regCom.reduce((a,r)=>a+r.val,0) * (taxa/100);
+   const recLiq = totRec - valTax;
+   const totAB = despABanca.reduce((a,d)=>a+d.val,0);
+   const minhaAB = totAB * (contrib/100);
+   const totPess = despPess.reduce((a,d)=>a+d.val,0);
+   const totInv = inv.reduce((a,d)=>a+d.val,0);
+   const disp = recLiq - minhaAB - totPess - ferias;
+   const amort = disp * (alocAmort/100);
+   const invExtra = disp * (1 - alocAmort/100);
+   
+   const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório Financeiro - ${mes} ${ano}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
+    h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }
+    h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #334155; }
+    .subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }
+    .card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+    .card-value { font-size: 20px; font-weight: 700; }
+    .card-value.green { color: #10b981; }
+    .card-value.orange { color: #f59e0b; }
+    .card-value.blue { color: #3b82f6; }
+    .card-value.purple { color: #8b5cf6; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f1f5f9; font-weight: 600; color: #475569; }
+    td.right { text-align: right; }
+    .total-row { background: #f8fafc; font-weight: 600; }
+    .section { margin-bottom: 32px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
+    @media print { body { padding: 20px; } .grid { grid-template-columns: repeat(4, 1fr); } }
+  </style>
+</head>
+<body>
+  <h1>📊 Relatório Financeiro</h1>
+  <p class="subtitle">${mes} ${ano} • Gerado em ${new Date().toLocaleDateString('pt-PT')}</p>
+  
+  <div class="grid">
+    <div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">${fmt(totRec)}</div></div>
+    <div class="card"><div class="card-label">Reserva Taxas</div><div class="card-value orange">${fmt(valTax)}</div></div>
+    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">${fmt(recLiq)}</div></div>
+    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">${fmt(disp)}</div></div>
+  </div>
+  
+  <div class="two-col">
+    <div class="section">
+      <h2>💼 Receitas COM Taxas</h2>
+      <table>
+        <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
+        ${regCom.map(r => `<tr><td>${r.desc || '-'}</td><td>${clientes.find(c=>c.id===r.cid)?.nome || '-'}</td><td class="right">${fmt(r.val)}</td></tr>`).join('')}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(regCom.reduce((a,r)=>a+r.val,0))}</td></tr>
+      </table>
+    </div>
+    <div class="section">
+      <h2>💵 Receitas SEM Taxas</h2>
+      <table>
+        <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
+        ${regSem.map(r => `<tr><td>${r.desc || '-'}</td><td>${clientes.find(c=>c.id===r.cid)?.nome || '-'}</td><td class="right">${fmt(r.val)}</td></tr>`).join('')}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(regSem.reduce((a,r)=>a+r.val,0))}</td></tr>
+      </table>
+    </div>
+  </div>
+  
+  <div class="two-col">
+    <div class="section">
+      <h2>🏠 Despesas do Casal</h2>
+      <table>
+        <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
+        ${despABanca.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td></tr>`).join('')}
+        <tr class="total-row"><td colspan="2">Total (minha parte: ${contrib}%)</td><td class="right">${fmt(minhaAB)}</td></tr>
+      </table>
+    </div>
+    <div class="section">
+      <h2>👤 Despesas Pessoais</h2>
+      <table>
+        <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
+        ${despPess.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td></tr>`).join('')}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(totPess)}</td></tr>
+      </table>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h2>📈 Investimentos do Mês</h2>
+    <table>
+      <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>
+      ${inv.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td><td class="right">${totInv>0?((d.val/totInv)*100).toFixed(1):'0'}%</td></tr>`).join('')}
+      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">${fmt(totInv)}</td><td></td></tr>
+    </table>
+  </div>
+  
+  <div class="grid">
+    <div class="card"><div class="card-label">🏠 Amortização</div><div class="card-value green">${fmt(amort)}</div></div>
+    <div class="card"><div class="card-label">📈 Investimentos</div><div class="card-value purple">${fmt(invExtra)}</div></div>
+    <div class="card"><div class="card-label">🏖️ Férias</div><div class="card-value orange">${fmt(ferias)}</div></div>
+    <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
+  </div>
+  
+  <div class="footer">
+    Dashboard Financeiro • Relatório gerado automaticamente
+  </div>
+</body>
+</html>`;
+   
+   const blob = new Blob([html], { type: 'text/html' });
+   const url = URL.createObjectURL(blob);
+   const win = window.open(url, '_blank');
+   if (win) {
+     win.onload = () => {
+       win.print();
+     };
+   }
+ };
+
+ // Modal de atalhos de teclado
+ const ShortcutsModal = () => {
+   if (!showShortcuts) return null;
+   const shortcuts = [
+     { key: '1-9, 0', desc: 'Navegar entre tabs' },
+     { key: '← →', desc: 'Mês anterior/seguinte' },
+     { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
+     { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
+     { key: 'Ctrl+F', desc: 'Pesquisar' },
+     { key: 'Ctrl+P', desc: 'Exportar PDF' },
+     { key: 'Ctrl+T', desc: 'Alternar tema claro/escuro' },
+     { key: '?', desc: 'Mostrar/ocultar atalhos' },
+     { key: 'Esc', desc: 'Fechar modais' },
+   ];
+   return (
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowShortcuts(false)}>
+       <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl`} onClick={e => e.stopPropagation()}>
+         <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
+           <h3 className="text-lg font-semibold">⌨️ Atalhos de Teclado</h3>
+           <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-slate-300">✕</button>
+         </div>
+         <div className="p-4 space-y-2">
+           {shortcuts.map((s, i) => (
+             <div key={i} className={`flex justify-between items-center p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+               <span className="text-sm">{s.desc}</span>
+               <kbd className={`px-2 py-1 rounded text-xs font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-600 text-slate-200'}`}>{s.key}</kbd>
+             </div>
+           ))}
+         </div>
+       </div>
+     </div>
+   );
+ };
 
  // Função para exportar Excel real (.xlsx)
  const [exporting, setExporting] = useState(false);
@@ -2905,7 +3136,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
    proximasTarefas.sort((a, b) => a.data - b.data);
    
-   return { pendentes, atrasadas, proximas, proximasTarefas: proximasTarefas.slice(0, 5) };
+   return { pendentes, atrasadas, proximas, proximasTarefas: proximasTarefas.slice(0, 3) };
  }, [G.tarefas, G.tarefasConcluidas]);
 
  // Comparação ano a ano
@@ -3556,28 +3787,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  return (
- <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white overflow-x-hidden">
+ <div className={`min-h-screen overflow-x-hidden transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
  <BackupModal />
  <SearchModal />
  <AlertsModal />
  <ImportCSVModal />
  <RelatorioAnualModal />
+ <ShortcutsModal />
  {isOffline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
      ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
    </div>
  )}
- <style>{`select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#64748b}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}`}</style>
+ <style>{`
+   ${theme === 'light' 
+     ? 'select option{background:#f8fafc;color:#1e293b}select option:checked{background:#3b82f6;color:white}' 
+     : 'select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}'}
+   ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
+ `}</style>
  
- <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50 no-print">
+ <header className={`${theme === 'light' ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50 no-print`}>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
-              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">💎 Dashboard</h1>
+              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">💎 Dashboard</h1>
               <div className="flex gap-2">
-                <select value={mes} onChange={e=>setMes(e.target.value)} className={`bg-slate-700/50 border rounded-xl px-2 sm:px-3 py-1.5 text-sm text-white focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : 'border-slate-600'}`}>
+                <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                 </select>
-                <select value={ano} onChange={e=>setAno(+e.target.value)} className={`bg-slate-700/50 border rounded-xl px-2 sm:px-3 py-1.5 text-sm text-white focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : 'border-slate-600'}`}>
+                <select value={ano} onChange={e=>setAno(+e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                 </select>
                 {!isMesAtual(mes, ano) && (
@@ -3587,8 +3824,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
               <div className="flex gap-1 sm:gap-2 flex-wrap">
-                <button onClick={() => setShowSearch(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Pesquisar (Ctrl+F)">🔍</button>
-                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Ver alertas e notificações">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
+                <button onClick={toggleTheme} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alternar tema (Ctrl+T)">{theme === 'light' ? '🌙' : '☀️'}</button>
+                <button onClick={() => setShowShortcuts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Atalhos (?)">⌨️</button>
+                <button onClick={exportToPDF} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar PDF (Ctrl+P)">📄</button>
+                <button onClick={() => setShowSearch(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Pesquisar (Ctrl+F)">🔍</button>
+                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Ver alertas e notificações">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
                 <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer última alteração (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
                 <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer alteração (Ctrl+Y)">↪️</button>
                 <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar receitas de ficheiro CSV">📥</button>
@@ -3614,9 +3854,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
           </div>
         </header>
 
-      <nav className="flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-slate-800/30 border-b border-slate-700/30 overflow-x-auto scrollbar-hide">
+      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
         {tabs.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25':'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
         ))}
       </nav>
 
