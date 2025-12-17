@@ -427,6 +427,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [showAlerts, setShowAlerts] = useState(false);
   const [showImportCSV, setShowImportCSV] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [compareYear, setCompareYear] = useState(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   
@@ -3836,21 +3837,48 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
               </div>
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
-              <div className="flex gap-1 sm:gap-2 flex-wrap">
-                <button onClick={toggleTheme} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alternar tema (Ctrl+T)">{theme === 'light' ? '🌙' : '☀️'}</button>
-                <button onClick={() => setShowShortcuts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Atalhos (?)">⌨️</button>
-                <button onClick={exportToPDF} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar PDF (Ctrl+P)">📄</button>
+              <div className="flex gap-1 sm:gap-2 flex-wrap items-center">
+                {/* Undo/Redo */}
+                <div className="flex gap-0.5">
+                  <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-l-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${undoHistory.length === 0 && 'cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️</button>
+                  <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-r-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${redoHistory.length === 0 && 'cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
+                </div>
+                
+                {/* Pesquisa */}
                 <button onClick={() => setShowSearch(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Pesquisar (Ctrl+F)">🔍</button>
-                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400' : theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-700 text-slate-300'} hover:bg-slate-600`} title="Ver alertas e notificações">🔔{getActiveAlerts().length > 0 && <span className="ml-1">({getActiveAlerts().length})</span>}</button>
-                <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Desfazer última alteração (Ctrl+Z)">↩️{undoHistory.length > 0 && <span className="ml-1 text-xs opacity-70">({undoHistory.length})</span>}</button>
-                <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`} title="Refazer alteração (Ctrl+Y)">↪️</button>
-                <button onClick={() => setShowImportCSV(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Importar receitas de ficheiro CSV">📥</button>
-                <button onClick={exportPDF} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Imprimir página atual">🖨️</button>
-                <button onClick={() => setShowRelatorio(true)} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-400" title="Gerar relatório anual">📄</button>
-                <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); }} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Criar backup dos dados">📋</button>
-                <button onClick={handleResetAll} className="px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar todos os dados">🗑️</button>
-                <button onClick={exportToGoogleSheets} disabled={exporting} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${exporting ? 'bg-slate-600 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`} title="Exportar para Google Sheets">{exporting ? '⏳' : '📊'}</button>
+                
+                {/* Alertas */}
+                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alertas">🔔{getActiveAlerts().length > 0 && <span className="ml-0.5">({getActiveAlerts().length})</span>}</button>
+                
+                {/* Menu Export */}
+                <div className="relative">
+                  <button onClick={() => setShowExportMenu(!showExportMenu)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar">📤 <span className="hidden sm:inline">Export</span></button>
+                  {showExportMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)}/>
+                      <div className={`absolute right-0 top-full mt-1 ${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 z-50 min-w-[180px]`}>
+                        <button onClick={() => { exportToPDF(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📄 PDF Mensal</button>
+                        <button onClick={() => { setShowRelatorio(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Relatório Anual</button>
+                        <button onClick={() => { exportToGoogleSheets(); setShowExportMenu(false); }} disabled={exporting} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'} ${exporting && 'opacity-50'}`}>{exporting ? '⏳' : '📗'} Excel (.xlsx)</button>
+                        <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
+                        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
+                        <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* Tema */}
+                <button onClick={toggleTheme} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alternar tema (Ctrl+T)">{theme === 'light' ? '🌙' : '☀️'}</button>
+                
+                {/* Atalhos - escondido em mobile */}
+                <button onClick={() => setShowShortcuts(true)} className={`hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Atalhos (?)">⌨️</button>
+                
+                {/* Reset - escondido em mobile */}
+                <button onClick={handleResetAll} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar dados">🗑️</button>
               </div>
+              
+              {/* Status de sync */}
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
               ) : hasChanges ? (
@@ -3858,9 +3886,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
               ) : (
                 <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">Guardado</span></div>
               )}
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-700">
+              
+              {/* User */}
+              <div className={`flex items-center gap-2 pl-2 border-l ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
                 {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full"/>}
-                <span className="hidden sm:inline text-sm text-slate-300">{user?.displayName?.split(' ')[0]}</span>
+                <span className={`hidden sm:inline text-sm ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{user?.displayName?.split(' ')[0]}</span>
                 <button onClick={onLogout} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">Sair</button>
               </div>
             </div>
