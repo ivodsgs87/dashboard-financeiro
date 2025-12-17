@@ -2228,6 +2228,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // CALENDÁRIO DE PROJETOS
+ // Google Calendar API Config
+ const GOOGLE_CLIENT_ID = '1001287643592-cjgh7ng34pql5asln7qca0n52rvhp90t.apps.googleusercontent.com';
+ const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+ 
  const Calendario = () => {
    const projetos = G.projetos || [];
    const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
@@ -2236,6 +2240,192 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [showAddProjeto, setShowAddProjeto] = useState(false);
    const [editProjeto, setEditProjeto] = useState(null);
    const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
+   
+   // Google Calendar state
+   const [gcalConnected, setGcalConnected] = useState(false);
+   const [gcalLoading, setGcalLoading] = useState(false);
+   const [gcalToken, setGcalToken] = useState(null);
+   const [gcalError, setGcalError] = useState('');
+   const [syncing, setSyncing] = useState(false);
+   
+   // Verificar se já tem token guardado
+   useEffect(() => {
+     const savedToken = localStorage.getItem('gcal_token');
+     const savedExpiry = localStorage.getItem('gcal_expiry');
+     if (savedToken && savedExpiry && new Date().getTime() < parseInt(savedExpiry)) {
+       setGcalToken(savedToken);
+       setGcalConnected(true);
+     }
+   }, []);
+   
+   // Inicializar Google Identity Services
+   useEffect(() => {
+     const script = document.createElement('script');
+     script.src = 'https://accounts.google.com/gsi/client';
+     script.async = true;
+     script.defer = true;
+     document.body.appendChild(script);
+     return () => document.body.removeChild(script);
+   }, []);
+   
+   // Conectar ao Google Calendar
+   const connectGoogleCalendar = () => {
+     setGcalLoading(true);
+     setGcalError('');
+     
+     const client = window.google?.accounts?.oauth2?.initTokenClient({
+       client_id: GOOGLE_CLIENT_ID,
+       scope: GOOGLE_SCOPES,
+       callback: (response) => {
+         if (response.access_token) {
+           setGcalToken(response.access_token);
+           setGcalConnected(true);
+           // Guardar token (expira em ~1 hora)
+           localStorage.setItem('gcal_token', response.access_token);
+           localStorage.setItem('gcal_expiry', (new Date().getTime() + 3600000).toString());
+           setGcalError('');
+         } else {
+           setGcalError('Erro ao conectar');
+         }
+         setGcalLoading(false);
+       },
+       error_callback: (error) => {
+         console.error('Google OAuth error:', error);
+         setGcalError('Erro na autenticação');
+         setGcalLoading(false);
+       }
+     });
+     
+     if (client) {
+       client.requestAccessToken();
+     } else {
+       setGcalError('Google API não carregada. Recarrega a página.');
+       setGcalLoading(false);
+     }
+   };
+   
+   // Desconectar
+   const disconnectGoogleCalendar = () => {
+     setGcalToken(null);
+     setGcalConnected(false);
+     localStorage.removeItem('gcal_token');
+     localStorage.removeItem('gcal_expiry');
+   };
+   
+   // Criar evento no Google Calendar
+   const createGoogleEvent = async (projeto) => {
+     if (!gcalToken) return null;
+     
+     const cliente = clientes.find(c => c.id === projeto.clienteId);
+     const event = {
+       summary: projeto.nome + (cliente ? ` - ${cliente.nome}` : ''),
+       description: `Projeto: ${projeto.nome}\nCliente: ${cliente?.nome || 'Sem cliente'}\nCriado via Dashboard Financeiro`,
+       start: { date: projeto.dataInicio },
+       end: { 
+         // Google Calendar end date é exclusiva, então adicionamos 1 dia
+         date: new Date(new Date(projeto.dataFim).getTime() + 86400000).toISOString().split('T')[0]
+       },
+       colorId: getGoogleColorId(projeto.cor),
+     };
+     
+     try {
+       const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+         method: 'POST',
+         headers: {
+           'Authorization': `Bearer ${gcalToken}`,
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify(event),
+       });
+       
+       if (response.ok) {
+         const data = await response.json();
+         return data.id; // Retorna o ID do evento criado
+       } else if (response.status === 401) {
+         // Token expirado
+         disconnectGoogleCalendar();
+         setGcalError('Sessão expirada. Reconecta ao Google Calendar.');
+       }
+       return null;
+     } catch (error) {
+       console.error('Erro ao criar evento:', error);
+       return null;
+     }
+   };
+   
+   // Atualizar evento no Google Calendar
+   const updateGoogleEvent = async (projeto) => {
+     if (!gcalToken || !projeto.gcalEventId) return;
+     
+     const cliente = clientes.find(c => c.id === projeto.clienteId);
+     const event = {
+       summary: projeto.nome + (cliente ? ` - ${cliente.nome}` : ''),
+       description: `Projeto: ${projeto.nome}\nCliente: ${cliente?.nome || 'Sem cliente'}\nCriado via Dashboard Financeiro`,
+       start: { date: projeto.dataInicio },
+       end: { date: new Date(new Date(projeto.dataFim).getTime() + 86400000).toISOString().split('T')[0] },
+       colorId: getGoogleColorId(projeto.cor),
+     };
+     
+     try {
+       await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${projeto.gcalEventId}`, {
+         method: 'PUT',
+         headers: {
+           'Authorization': `Bearer ${gcalToken}`,
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify(event),
+       });
+     } catch (error) {
+       console.error('Erro ao atualizar evento:', error);
+     }
+   };
+   
+   // Apagar evento do Google Calendar
+   const deleteGoogleEvent = async (gcalEventId) => {
+     if (!gcalToken || !gcalEventId) return;
+     
+     try {
+       await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${gcalEventId}`, {
+         method: 'DELETE',
+         headers: { 'Authorization': `Bearer ${gcalToken}` },
+       });
+     } catch (error) {
+       console.error('Erro ao apagar evento:', error);
+     }
+   };
+   
+   // Mapear cores para Google Calendar colorId (1-11)
+   const getGoogleColorId = (cor) => {
+     const colorMap = {
+       '#3b82f6': '9',  // Azul
+       '#8b5cf6': '3',  // Roxo
+       '#ec4899': '4',  // Rosa
+       '#f59e0b': '5',  // Amarelo
+       '#10b981': '10', // Verde
+       '#ef4444': '11', // Vermelho
+       '#06b6d4': '7',  // Ciano
+       '#84cc16': '2',  // Verde claro
+     };
+     return colorMap[cor] || '9';
+   };
+   
+   // Sync todos os projetos para Google Calendar
+   const syncAllToGoogle = async () => {
+     if (!gcalToken) return;
+     setSyncing(true);
+     
+     for (const projeto of projetos) {
+       if (!projeto.gcalEventId) {
+         const eventId = await createGoogleEvent(projeto);
+         if (eventId) {
+           // Atualizar projeto com o ID do evento
+           uG('projetos', projetos.map(p => p.id === projeto.id ? { ...p, gcalEventId: eventId } : p));
+         }
+       }
+     }
+     
+     setSyncing(false);
+   };
    
    const cores = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#06b6d4', '#84cc16'];
    
@@ -2291,21 +2481,46 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      });
    };
    
-   const saveProjeto = () => {
+   const saveProjeto = async () => {
      if (!novoProjeto.nome || !novoProjeto.dataInicio || !novoProjeto.dataFim) return;
      
      if (editProjeto) {
-       uG('projetos', projetos.map(p => p.id === editProjeto.id ? { ...novoProjeto, id: editProjeto.id } : p));
+       // Atualizar projeto existente
+       const updatedProjeto = { ...novoProjeto, id: editProjeto.id, gcalEventId: editProjeto.gcalEventId };
+       uG('projetos', projetos.map(p => p.id === editProjeto.id ? updatedProjeto : p));
+       
+       // Atualizar no Google Calendar
+       if (gcalConnected && editProjeto.gcalEventId) {
+         await updateGoogleEvent(updatedProjeto);
+       }
      } else {
-       uG('projetos', [...projetos, { ...novoProjeto, id: Date.now(), concluido: false }]);
+       // Criar novo projeto
+       const newProjeto = { ...novoProjeto, id: Date.now(), concluido: false };
+       
+       // Criar no Google Calendar primeiro
+       if (gcalConnected) {
+         const gcalEventId = await createGoogleEvent(newProjeto);
+         if (gcalEventId) {
+           newProjeto.gcalEventId = gcalEventId;
+         }
+       }
+       
+       uG('projetos', [...projetos, newProjeto]);
      }
      setShowAddProjeto(false);
      setEditProjeto(null);
      setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
    };
    
-   const deleteProjeto = (id) => {
+   const deleteProjeto = async (id) => {
      if (confirm('Apagar este projeto?')) {
+       const projeto = projetos.find(p => p.id === id);
+       
+       // Apagar do Google Calendar
+       if (gcalConnected && projeto?.gcalEventId) {
+         await deleteGoogleEvent(projeto.gcalEventId);
+       }
+       
        uG('projetos', projetos.filter(p => p.id !== id));
      }
    };
@@ -2333,6 +2548,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
            
            <div className="flex items-center gap-2">
+             {/* Google Calendar Integration */}
+             {gcalConnected ? (
+               <div className="flex items-center gap-2">
+                 <span className="text-xs text-green-400 flex items-center gap-1">
+                   <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                   Google Calendar
+                 </span>
+                 {syncing ? (
+                   <span className="text-xs text-amber-400">A sincronizar...</span>
+                 ) : (
+                   <button onClick={syncAllToGoogle} className="px-2 py-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg" title="Sincronizar projetos existentes">🔄 Sync</button>
+                 )}
+                 <button onClick={disconnectGoogleCalendar} className="px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg">Desconectar</button>
+               </div>
+             ) : (
+               <button 
+                 onClick={connectGoogleCalendar} 
+                 disabled={gcalLoading}
+                 className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center gap-2"
+               >
+                 {gcalLoading ? '⏳' : '📅'} {gcalLoading ? 'A conectar...' : 'Conectar Google Calendar'}
+               </button>
+             )}
+             {gcalError && <span className="text-xs text-red-400">{gcalError}</span>}
+             
              {vista === 'mes' && (
                <>
                  <button onClick={() => { if (calMes === 0) { setCalMes(11); setCalAno(a => a - 1); } else setCalMes(m => m - 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">←</button>
@@ -2421,6 +2661,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        {cliente && (
                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${cliente.cor}30`, color: cliente.cor }}>{cliente.nome}</span>
                        )}
+                       {p.gcalEventId && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full" title="Sincronizado com Google Calendar">📅</span>}
                        {status === 'atrasado' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full">Atrasado</span>}
                        {status === 'ativo' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">Ativo</span>}
                      </div>
