@@ -871,11 +871,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer ${className}`} {...props}>{children}</select>;
- const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full bg-slate-700/50 rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-500" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
- const Row = ({children, highlight}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all ${highlight ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
+ const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-500" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
+ const Row = ({children, highlight}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
   const inputClass = theme === 'light' 
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
+  
+  // Classes auxiliares para tema
+  const cardBg = theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30';
+  const cardBgHover = theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50';
+  const textMuted = theme === 'light' ? 'text-slate-600' : 'text-slate-400';
 
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
@@ -2613,14 +2618,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 </body>
 </html>`;
    
-   const blob = new Blob([html], { type: 'text/html' });
-   const url = URL.createObjectURL(blob);
-   const win = window.open(url, '_blank');
-   if (win) {
-     win.onload = () => {
-       win.print();
-     };
-   }
+   // Criar iframe para impressão (evita popup blockers)
+   const printFrame = document.createElement('iframe');
+   printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+   document.body.appendChild(printFrame);
+   
+   const frameDoc = printFrame.contentWindow.document;
+   frameDoc.open();
+   frameDoc.write(html);
+   frameDoc.close();
+   
+   // Aguardar carregamento e imprimir
+   setTimeout(() => {
+     printFrame.contentWindow.focus();
+     printFrame.contentWindow.print();
+     setTimeout(() => document.body.removeChild(printFrame), 1000);
+   }, 300);
  };
 
  // Modal de atalhos de teclado
