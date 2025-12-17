@@ -407,19 +407,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupData, setBackupData] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
   
-  // Tema claro/escuro
-  const [theme, setTheme] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') || 'dark';
-    }
-    return 'dark';
-  });
-  
-  useEffect(() => {
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-  
-  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  // Tema fixo escuro
+  const theme = 'dark';
   
   // Estados para funcionalidades
   const [searchQuery, setSearchQuery] = useState('');
@@ -475,11 +464,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
         exportToPDF?.();
-      }
-      // Ctrl+T = Toggle tema
-      if (e.ctrlKey && e.key === 't') {
-        e.preventDefault();
-        toggleTheme();
       }
       // ? = Mostrar atalhos
       if (e.key === '?') {
@@ -542,8 +526,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       aloc: [{id:1,desc:'Emergência',val:230,cor:'#3b82f6'},{id:2,desc:'ETF',val:100,cor:'#8b5cf6'},{id:3,desc:'Férias',val:130,cor:'#f59e0b'},{id:4,desc:'Amortização',val:130,cor:'#10b981'}]
     },
     portfolioHist: [],
-    patrimonioHist: [], // {date: '2025-01', portfolio: 50000, casaLiquida: 100000}
+    patrimonioHist: [],
     metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
+    // Projetos para o calendário
+    projetos: [], // {id, nome, clienteId, dataInicio, dataFim, cor, concluido}
     alertas: [
       {id:1, tipo: 'despesa', campo: 'despPess', limite: 800, ativo: true, desc: 'Despesas pessoais > €800'},
       {id:2, tipo: 'meta', campo: 'receitas', percentagem: 80, ativo: true, desc: 'Receitas < 80% da meta'},
@@ -2241,6 +2227,274 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
+ // CALENDÁRIO DE PROJETOS
+ const Calendario = () => {
+   const projetos = G.projetos || [];
+   const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
+   const [calMes, setCalMes] = useState(meses.indexOf(mes));
+   const [calAno, setCalAno] = useState(ano);
+   const [showAddProjeto, setShowAddProjeto] = useState(false);
+   const [editProjeto, setEditProjeto] = useState(null);
+   const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
+   
+   const cores = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#06b6d4', '#84cc16'];
+   
+   // Gerar dias do mês
+   const getDiasDoMes = (m, a) => {
+     const primeiroDia = new Date(a, m, 1);
+     const ultimoDia = new Date(a, m + 1, 0);
+     const diasNoMes = ultimoDia.getDate();
+     const diaSemanaInicio = primeiroDia.getDay(); // 0 = Domingo
+     
+     const dias = [];
+     // Dias do mês anterior para preencher
+     const mesAnterior = new Date(a, m, 0);
+     for (let i = diaSemanaInicio - 1; i >= 0; i--) {
+       dias.push({ dia: mesAnterior.getDate() - i, mes: m - 1, ano: a, fora: true });
+     }
+     // Dias do mês atual
+     for (let i = 1; i <= diasNoMes; i++) {
+       dias.push({ dia: i, mes: m, ano: a, fora: false });
+     }
+     // Dias do próximo mês
+     const restante = 42 - dias.length; // 6 semanas
+     for (let i = 1; i <= restante; i++) {
+       dias.push({ dia: i, mes: m + 1, ano: a, fora: true });
+     }
+     return dias;
+   };
+   
+   // Gerar dias da semana atual
+   const getDiasDaSemana = () => {
+     const hoje = new Date();
+     const diaSemana = hoje.getDay();
+     const inicio = new Date(hoje);
+     inicio.setDate(hoje.getDate() - diaSemana + 1); // Segunda
+     
+     const dias = [];
+     for (let i = 0; i < 7; i++) {
+       const d = new Date(inicio);
+       d.setDate(inicio.getDate() + i);
+       dias.push({ dia: d.getDate(), mes: d.getMonth(), ano: d.getFullYear(), data: d });
+     }
+     return dias;
+   };
+   
+   // Verificar se projeto está num dia
+   const projetosNoDia = (dia, mesD, anoD) => {
+     const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+     const dataCheck = new Date(dataStr);
+     return projetos.filter(p => {
+       const inicio = new Date(p.dataInicio);
+       const fim = new Date(p.dataFim);
+       return dataCheck >= inicio && dataCheck <= fim;
+     });
+   };
+   
+   const saveProjeto = () => {
+     if (!novoProjeto.nome || !novoProjeto.dataInicio || !novoProjeto.dataFim) return;
+     
+     if (editProjeto) {
+       uG('projetos', projetos.map(p => p.id === editProjeto.id ? { ...novoProjeto, id: editProjeto.id } : p));
+     } else {
+       uG('projetos', [...projetos, { ...novoProjeto, id: Date.now(), concluido: false }]);
+     }
+     setShowAddProjeto(false);
+     setEditProjeto(null);
+     setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
+   };
+   
+   const deleteProjeto = (id) => {
+     if (confirm('Apagar este projeto?')) {
+       uG('projetos', projetos.filter(p => p.id !== id));
+     }
+   };
+   
+   const toggleConcluido = (id) => {
+     uG('projetos', projetos.map(p => p.id === id ? { ...p, concluido: !p.concluido } : p));
+   };
+   
+   const dias = vista === 'mes' ? getDiasDoMes(calMes, calAno) : getDiasDaSemana();
+   const diasSemana = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+   const hoje = new Date();
+   const hojeStr = `${hoje.getFullYear()}-${hoje.getMonth()}-${hoje.getDate()}`;
+   
+   return (
+     <div className="space-y-4">
+       {/* Header */}
+       <Card>
+         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+           <div className="flex items-center gap-3">
+             <h3 className="text-lg font-semibold">📆 Calendário de Projetos</h3>
+             <div className="flex gap-1 bg-slate-700/50 rounded-lg p-0.5">
+               <button onClick={() => setVista('mes')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'mes' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Mês</button>
+               <button onClick={() => setVista('semana')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'semana' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Semana</button>
+             </div>
+           </div>
+           
+           <div className="flex items-center gap-2">
+             {vista === 'mes' && (
+               <>
+                 <button onClick={() => { if (calMes === 0) { setCalMes(11); setCalAno(a => a - 1); } else setCalMes(m => m - 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">←</button>
+                 <span className="font-medium min-w-[140px] text-center">{meses[calMes]} {calAno}</span>
+                 <button onClick={() => { if (calMes === 11) { setCalMes(0); setCalAno(a => a + 1); } else setCalMes(m => m + 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">→</button>
+               </>
+             )}
+             <Button onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' }); }}>+ Projeto</Button>
+           </div>
+         </div>
+       </Card>
+       
+       {/* Calendário */}
+       <Card className="overflow-hidden">
+         {/* Dias da semana */}
+         <div className="grid grid-cols-7 gap-px bg-slate-700">
+           {diasSemana.map(d => (
+             <div key={d} className="bg-slate-800 p-2 text-center text-xs font-medium text-slate-400">{d}</div>
+           ))}
+         </div>
+         
+         {/* Dias */}
+         <div className="grid grid-cols-7 gap-px bg-slate-700">
+           {dias.map((d, i) => {
+             const projetosHoje = projetosNoDia(d.dia, d.mes, d.ano);
+             const isHoje = d.dia === hoje.getDate() && d.mes === hoje.getMonth() && d.ano === hoje.getFullYear();
+             
+             return (
+               <div key={i} className={`bg-slate-800 ${vista === 'mes' ? 'min-h-[80px] sm:min-h-[100px]' : 'min-h-[150px]'} p-1 ${d.fora ? 'opacity-40' : ''}`}>
+                 <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isHoje ? 'bg-blue-500 text-white' : 'text-slate-400'}`}>
+                   {d.dia}
+                 </div>
+                 <div className="space-y-0.5">
+                   {projetosHoje.slice(0, vista === 'mes' ? 3 : 10).map(p => {
+                     const cliente = clientes.find(c => c.id === p.clienteId);
+                     return (
+                       <div 
+                         key={p.id} 
+                         onClick={() => { setEditProjeto(p); setNovoProjeto(p); setShowAddProjeto(true); }}
+                         className={`text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 ${p.concluido ? 'opacity-50 line-through' : ''}`}
+                         style={{ background: `${p.cor}30`, borderLeft: `2px solid ${p.cor}` }}
+                         title={`${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
+                       >
+                         {p.nome}
+                       </div>
+                     );
+                   })}
+                   {projetosHoje.length > (vista === 'mes' ? 3 : 10) && (
+                     <div className="text-xs text-slate-500 px-1">+{projetosHoje.length - (vista === 'mes' ? 3 : 10)}</div>
+                   )}
+                 </div>
+               </div>
+             );
+           })}
+         </div>
+       </Card>
+       
+       {/* Lista de projetos */}
+       <Card>
+         <div className="flex justify-between items-center mb-4">
+           <h3 className="text-lg font-semibold">📋 Todos os Projetos</h3>
+           <span className="text-sm text-slate-400">{projetos.length} projeto(s)</span>
+         </div>
+         
+         {projetos.length === 0 ? (
+           <p className="text-slate-500 text-center py-8">Nenhum projeto. Clica em "+ Projeto" para adicionar.</p>
+         ) : (
+           <div className="space-y-2">
+             {projetos.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(p => {
+               const cliente = clientes.find(c => c.id === p.clienteId);
+               const inicio = new Date(p.dataInicio);
+               const fim = new Date(p.dataFim);
+               const diasTotal = Math.ceil((fim - inicio) / (1000 * 60 * 60 * 24)) + 1;
+               const hojeDate = new Date();
+               const diasPassados = Math.max(0, Math.ceil((hojeDate - inicio) / (1000 * 60 * 60 * 24)));
+               const progresso = Math.min(100, (diasPassados / diasTotal) * 100);
+               const status = p.concluido ? 'concluido' : hojeDate > fim ? 'atrasado' : hojeDate >= inicio ? 'ativo' : 'futuro';
+               
+               return (
+                 <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 ${p.concluido ? 'opacity-60' : ''}`}>
+                   <input type="checkbox" checked={p.concluido} onChange={() => toggleConcluido(p.id)} className="w-5 h-5 accent-green-500 cursor-pointer" />
+                   <div className="w-1 h-10 rounded-full" style={{ background: p.cor }} />
+                   <div className="flex-1 min-w-0">
+                     <div className="flex items-center gap-2">
+                       <span className={`font-medium ${p.concluido ? 'line-through text-slate-400' : ''}`}>{p.nome}</span>
+                       {cliente && (
+                         <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${cliente.cor}30`, color: cliente.cor }}>{cliente.nome}</span>
+                       )}
+                       {status === 'atrasado' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full">Atrasado</span>}
+                       {status === 'ativo' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">Ativo</span>}
+                     </div>
+                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                       <span>{inicio.toLocaleDateString('pt-PT')} → {fim.toLocaleDateString('pt-PT')}</span>
+                       <span>({diasTotal} dias)</span>
+                     </div>
+                     {!p.concluido && status !== 'futuro' && (
+                       <div className="mt-1.5 h-1 bg-slate-600 rounded-full overflow-hidden">
+                         <div className="h-full rounded-full" style={{ width: `${progresso}%`, background: p.cor }} />
+                       </div>
+                     )}
+                   </div>
+                   <div className="flex gap-1">
+                     <button onClick={() => { setEditProjeto(p); setNovoProjeto(p); setShowAddProjeto(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg" title="Editar">✏️</button>
+                     <button onClick={() => deleteProjeto(p.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg" title="Apagar">🗑️</button>
+                   </div>
+                 </div>
+               );
+             })}
+           </div>
+         )}
+       </Card>
+       
+       {/* Modal Adicionar/Editar Projeto */}
+       {showAddProjeto && (
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddProjeto(false)}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+             <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+               <h3 className="text-lg font-semibold">{editProjeto ? '✏️ Editar Projeto' : '➕ Novo Projeto'}</h3>
+               <button onClick={() => setShowAddProjeto(false)} className="text-slate-400 hover:text-white">✕</button>
+             </div>
+             <div className="p-4 space-y-4">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Nome do Projeto</label>
+                 <input type="text" value={novoProjeto.nome} onChange={e => setNovoProjeto({ ...novoProjeto, nome: e.target.value })} className={inputClass + ' w-full'} placeholder="Ex: Website redesign" />
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Cliente</label>
+                 <Select value={novoProjeto.clienteId} onChange={e => setNovoProjeto({ ...novoProjeto, clienteId: parseInt(e.target.value) })} className="w-full">
+                   <option value={0}>Sem cliente</option>
+                   {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                 </Select>
+               </div>
+               <div className="grid grid-cols-2 gap-3">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Data Início</label>
+                   <input type="date" value={novoProjeto.dataInicio} onChange={e => setNovoProjeto({ ...novoProjeto, dataInicio: e.target.value })} className={inputClass + ' w-full'} />
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Data Fim</label>
+                   <input type="date" value={novoProjeto.dataFim} onChange={e => setNovoProjeto({ ...novoProjeto, dataFim: e.target.value })} className={inputClass + ' w-full'} />
+                 </div>
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Cor</label>
+                 <div className="flex gap-2">
+                   {cores.map(c => (
+                     <button key={c} onClick={() => setNovoProjeto({ ...novoProjeto, cor: c })} className={`w-8 h-8 rounded-lg ${novoProjeto.cor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-800' : ''}`} style={{ background: c }} />
+                   ))}
+                 </div>
+               </div>
+             </div>
+             <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+               <Button variant="secondary" onClick={() => setShowAddProjeto(false)}>Cancelar</Button>
+               <Button onClick={saveProjeto} disabled={!novoProjeto.nome || !novoProjeto.dataInicio || !novoProjeto.dataFim}>{editProjeto ? 'Guardar' : 'Criar'}</Button>
+             </div>
+           </div>
+         </div>
+       )}
+     </div>
+   );
+ };
+
  // AGENDA FINANCEIRA
  const Agenda = () => {
    const tarefas = G.tarefas || [];
@@ -2498,24 +2752,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'agenda',icon:'📋',label:'Agenda'}];
+ const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
-   const M = dadosMes || {};
-   const regCom = M.regCom || [];
-   const regSem = M.regSem || [];
-   const inv = M.inv || [];
-   const totRec = regCom.reduce((a,r)=>a+r.val,0) + regSem.reduce((a,r)=>a+r.val,0);
-   const valTax = regCom.reduce((a,r)=>a+r.val,0) * (taxa/100);
-   const recLiq = totRec - valTax;
-   const totAB = despABanca.reduce((a,d)=>a+d.val,0);
-   const minhaAB = totAB * (contrib/100);
-   const totPess = despPess.reduce((a,d)=>a+d.val,0);
-   const totInv = inv.reduce((a,d)=>a+d.val,0);
-   const disp = recLiq - minhaAB - totPess - ferias;
-   const amort = disp * (alocAmort/100);
-   const invExtra = disp * (1 - alocAmort/100);
+   // Usar os dados do mês atual (mesD já está disponível no scope)
+   const totRec = inCom + inSem;
+   const valTaxPDF = inCom * (taxa/100);
+   const recLiqPDF = totRec - valTaxPDF;
+   const totABPDF = despABanca.reduce((a,d)=>a+d.val,0);
+   const minhaABPDF = totABPDF * (contrib/100);
+   const totPessPDF = despPess.reduce((a,d)=>a+d.val,0);
+   const totInvPDF = inv.reduce((a,d)=>a+d.val,0);
+   const dispPDF = recLiqPDF - minhaABPDF - totPessPDF - ferias;
+   const amortPDF = dispPDF > 0 ? dispPDF * (alocAmort/100) : 0;
+   const invExtraPDF = dispPDF > 0 ? dispPDF * (1 - alocAmort/100) : 0;
    
    const html = `
 <!DOCTYPE html>
@@ -2545,7 +2796,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     .section { margin-bottom: 32px; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
-    @media print { body { padding: 20px; } .grid { grid-template-columns: repeat(4, 1fr); } }
+    @media print { body { padding: 20px; } }
   </style>
 </head>
 <body>
@@ -2554,9 +2805,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   <div class="grid">
     <div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">${fmt(totRec)}</div></div>
-    <div class="card"><div class="card-label">Reserva Taxas</div><div class="card-value orange">${fmt(valTax)}</div></div>
-    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">${fmt(recLiq)}</div></div>
-    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">${fmt(disp)}</div></div>
+    <div class="card"><div class="card-label">Reserva Taxas</div><div class="card-value orange">${fmt(valTaxPDF)}</div></div>
+    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">${fmt(recLiqPDF)}</div></div>
+    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">${fmt(dispPDF)}</div></div>
   </div>
   
   <div class="two-col">
@@ -2564,16 +2815,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       <h2>💼 Receitas COM Taxas</h2>
       <table>
         <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        ${regCom.map(r => `<tr><td>${r.desc || '-'}</td><td>${clientes.find(c=>c.id===r.cid)?.nome || '-'}</td><td class="right">${fmt(r.val)}</td></tr>`).join('')}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(regCom.reduce((a,r)=>a+r.val,0))}</td></tr>
+        ${regCom.length > 0 ? regCom.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(inCom)}</td></tr>
       </table>
     </div>
     <div class="section">
       <h2>💵 Receitas SEM Taxas</h2>
       <table>
         <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        ${regSem.map(r => `<tr><td>${r.desc || '-'}</td><td>${clientes.find(c=>c.id===r.cid)?.nome || '-'}</td><td class="right">${fmt(r.val)}</td></tr>`).join('')}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(regSem.reduce((a,r)=>a+r.val,0))}</td></tr>
+        ${regSem.length > 0 ? regSem.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(inSem)}</td></tr>
       </table>
     </div>
   </div>
@@ -2583,16 +2834,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       <h2>🏠 Despesas do Casal</h2>
       <table>
         <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        ${despABanca.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td></tr>`).join('')}
-        <tr class="total-row"><td colspan="2">Total (minha parte: ${contrib}%)</td><td class="right">${fmt(minhaAB)}</td></tr>
+        ${despABanca.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
+        <tr class="total-row"><td colspan="2">Total (minha parte: ${contrib}%)</td><td class="right">${fmt(minhaABPDF)}</td></tr>
       </table>
     </div>
     <div class="section">
       <h2>👤 Despesas Pessoais</h2>
       <table>
         <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        ${despPess.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td></tr>`).join('')}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(totPess)}</td></tr>
+        ${despPess.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(totPessPDF)}</td></tr>
       </table>
     </div>
   </div>
@@ -2601,14 +2852,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     <h2>📈 Investimentos do Mês</h2>
     <table>
       <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>
-      ${inv.map(d => `<tr><td>${d.desc}</td><td>${d.cat}</td><td class="right">${fmt(d.val)}</td><td class="right">${totInv>0?((d.val/totInv)*100).toFixed(1):'0'}%</td></tr>`).join('')}
-      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">${fmt(totInv)}</td><td></td></tr>
+      ${inv.length > 0 ? inv.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td><td class="right">'+(totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0')+'%</td></tr>').join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>'}
+      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">${fmt(totInvPDF)}</td><td></td></tr>
     </table>
   </div>
   
   <div class="grid">
-    <div class="card"><div class="card-label">🏠 Amortização</div><div class="card-value green">${fmt(amort)}</div></div>
-    <div class="card"><div class="card-label">📈 Investimentos</div><div class="card-value purple">${fmt(invExtra)}</div></div>
+    <div class="card"><div class="card-label">🏠 Amortização</div><div class="card-value green">${fmt(amortPDF)}</div></div>
+    <div class="card"><div class="card-label">📈 Investimentos</div><div class="card-value purple">${fmt(invExtraPDF)}</div></div>
     <div class="card"><div class="card-label">🏖️ Férias</div><div class="card-value orange">${fmt(ferias)}</div></div>
     <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
   </div>
@@ -2619,22 +2870,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 </body>
 </html>`;
    
-   // Criar iframe para impressão (evita popup blockers)
-   const printFrame = document.createElement('iframe');
-   printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-   document.body.appendChild(printFrame);
-   
-   const frameDoc = printFrame.contentWindow.document;
-   frameDoc.open();
-   frameDoc.write(html);
-   frameDoc.close();
-   
-   // Aguardar carregamento e imprimir
-   setTimeout(() => {
-     printFrame.contentWindow.focus();
-     printFrame.contentWindow.print();
-     setTimeout(() => document.body.removeChild(printFrame), 1000);
-   }, 300);
+   // Download como ficheiro HTML (pode abrir e imprimir como PDF)
+   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+   const url = URL.createObjectURL(blob);
+   const a = document.createElement('a');
+   a.href = url;
+   a.download = `Relatorio-${mes}-${ano}.html`;
+   document.body.appendChild(a);
+   a.click();
+   document.body.removeChild(a);
+   URL.revokeObjectURL(url);
  };
 
  // Modal de atalhos de teclado
@@ -2647,7 +2892,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
      { key: 'Ctrl+F', desc: 'Pesquisar' },
      { key: 'Ctrl+P', desc: 'Exportar PDF' },
-     { key: 'Ctrl+T', desc: 'Alternar tema claro/escuro' },
      { key: '?', desc: 'Mostrar/ocultar atalhos' },
      { key: 'Esc', desc: 'Fechar modais' },
    ];
@@ -3815,8 +4059,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  <style>{`
    ${theme === 'light' 
-     ? 'select option{background:#f8fafc;color:#1e293b}select option:checked{background:#3b82f6;color:white}' 
-     : 'select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}'}
+     ? `
+       select option{background:#f8fafc;color:#1e293b}
+       select option:checked{background:#3b82f6;color:white}
+       .text-slate-400{color:#64748b!important}
+       .text-slate-500{color:#64748b!important}
+       .text-slate-300{color:#475569!important}
+       .text-white{color:#0f172a!important}
+       .bg-slate-700\\/30{background:rgb(241 245 249)!important}
+       .bg-slate-700\\/50{background:rgb(241 245 249)!important}
+       .bg-slate-700\\/20{background:rgb(248 250 252)!important}
+       .bg-slate-800\\/30{background:rgb(248 250 252)!important}
+       .hover\\:bg-slate-700\\/50:hover{background:rgb(226 232 240)!important}
+       .hover\\:bg-slate-600:hover{background:rgb(226 232 240)!important}
+       .border-slate-700{border-color:#e2e8f0!important}
+       .border-slate-700\\/50{border-color:#e2e8f0!important}
+       .border-slate-600{border-color:#cbd5e1!important}
+       .bg-slate-700{background:rgb(241 245 249)!important}
+       .bg-slate-800{background:rgb(255 255 255)!important}
+       ` 
+     : `select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}`}
    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
  `}</style>
  
@@ -3868,11 +4130,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                   )}
                 </div>
                 
-                {/* Tema */}
-                <button onClick={toggleTheme} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alternar tema (Ctrl+T)">{theme === 'light' ? '🌙' : '☀️'}</button>
-                
                 {/* Atalhos - escondido em mobile */}
-                <button onClick={() => setShowShortcuts(true)} className={`hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Atalhos (?)">⌨️</button>
+                <button onClick={() => setShowShortcuts(true)} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Atalhos (?)">⌨️</button>
                 
                 {/* Reset - escondido em mobile */}
                 <button onClick={handleResetAll} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar dados">🗑️</button>
@@ -3913,6 +4172,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {tab==='historico' && <Historico/>}
  {tab==='portfolio' && <Portfolio/>}
  {tab==='credito' && <Credito/>}
+ {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
  </main>
  </div>
