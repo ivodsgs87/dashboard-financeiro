@@ -1126,7 +1126,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">💵 SEM Taxas <span className="text-xs sm:text-sm px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-medium">{fmt(inSem)}</span></h3>
- <Button size="sm" onClick={()=>uM('regSem',[...regSem,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''})}>+</Button>
+ <Button size="sm" onClick={()=>uM('regSem',[...regSem,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
  </div>
  {regSem.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : (
  <DraggableList
