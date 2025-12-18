@@ -957,41 +957,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Ordenar histórico por data
    const historicoOrdenado = [...historico].sort((a, b) => a.date.localeCompare(b.date));
    
-   // Encontrar registos relevantes
-   const registosAnoAnterior = historicoOrdenado.filter(h => h.date.startsWith(anoAnteriorStr));
-   const registosAno = historicoOrdenado.filter(h => h.date.startsWith(anoStr));
-   const registosAnteriores = historicoOrdenado.filter(h => h.date < `${anoStr}-01`);
+   // Encontrar o registo mais próximo do início do ano (dezembro do ano anterior ou antes)
+   const registosAteInicioAno = historicoOrdenado.filter(h => h.date <= `${anoAnteriorStr}-12`);
+   const registosDoAno = historicoOrdenado.filter(h => h.date.startsWith(anoStr));
    
-   // Dívida no início do ano (procurar o melhor valor disponível)
+   // Dívida no início do ano
    let dividaInicio = G.credito?.montanteInicial || 328500;
    
-   if (registosAnoAnterior.length > 0) {
-     // Ideal: usar último registo do ano anterior (ex: dez 2024)
-     dividaInicio = registosAnoAnterior[registosAnoAnterior.length - 1].divida;
-   } else if (registosAnteriores.length > 0) {
-     // Alternativa: usar o registo mais recente antes deste ano
-     dividaInicio = registosAnteriores[registosAnteriores.length - 1].divida;
-   } else if (registosAno.length > 1) {
-     // Se só temos registos deste ano, usar o primeiro
-     dividaInicio = registosAno[0].divida;
+   if (registosAteInicioAno.length > 0) {
+     // Usar o último registo até dezembro do ano anterior
+     dividaInicio = registosAteInicioAno[registosAteInicioAno.length - 1].divida;
    }
    
-   // Dívida atual (valor mais recente)
-   let dividaAtualCalc = G.credito?.dividaAtual || dividaInicio;
-   if (registosAno.length > 0) {
-     dividaAtualCalc = registosAno[registosAno.length - 1].divida;
-   }
+   // Dívida atual - usar o valor guardado em G.credito.dividaAtual (que é sempre o mais recente)
+   const dividaAtualCalc = G.credito?.dividaAtual || dividaInicio;
    
-   // Amortização real = diferença entre início e fim
-   // Se dividaInicio e dividaAtual são iguais (só 1 registo), calcular baseado na prestação
+   // Amortização real = diferença entre início do ano e valor atual
    let amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
    
    // Se não há diferença mas temos prestação, estimar amortização
-   // (prestação média - juros médios) × meses passados
-   if (amortizacaoAnual === 0 && G.credito?.prestacao) {
+   if (amortizacaoAnual === 0 && G.credito?.prestacao && dividaInicio === dividaAtualCalc) {
      const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
-     const dividaMedia = dividaAtualCalc;
-     const jurosMensais = dividaMedia * taxaMensal;
+     const jurosMensais = dividaAtualCalc * taxaMensal;
      const amortMensal = G.credito.prestacao - jurosMensais;
      amortizacaoAnual = Math.max(0, amortMensal * mesAtualNum);
    }
@@ -2327,6 +2314,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const projecaoComAmort = gerarProjecao(simAmort, 300);
  
  // Histórico do crédito
+ // Histórico do crédito ordenado
+ const historicoOrdenado = [...historico].sort((a, b) => a.date.localeCompare(b.date));
+ 
  const histLineData = historico.map(h => {
  const [y,m] = h.date.split('-').map(Number);
  return {label: `${meses[m-1]?.slice(0,3)||m} ${y}`, value: h.divida};
@@ -2522,6 +2512,79 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </>
  )}
+ </Card>
+
+ {/* Histórico de Dívida */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">📈 Histórico de Dívida</h3>
+     <button 
+       onClick={() => {
+         const novaData = prompt('Data (AAAA-MM):', `${ano}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
+         if (novaData && /^\d{4}-\d{2}$/.test(novaData)) {
+           const novoValor = prompt('Valor da dívida nessa data:', dividaAtual.toString());
+           if (novoValor && !isNaN(parseFloat(novoValor))) {
+             const novoHist = [...historico, { date: novaData, divida: parseFloat(novoValor) }]
+               .sort((a, b) => a.date.localeCompare(b.date));
+             uC('historico', novoHist);
+           }
+         }
+       }}
+       className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
+     >
+       + Adicionar
+     </button>
+   </div>
+   <p className="text-xs text-slate-500 mb-3">
+     O histórico é usado para calcular a amortização anual. Certifica-te de ter um registo de dezembro do ano anterior.
+   </p>
+   <div className="space-y-2">
+     {historico.length === 0 ? (
+       <p className="text-slate-500 text-sm text-center py-4">Nenhum registo no histórico</p>
+     ) : (
+       historicoOrdenado.map((h, i) => {
+         const [y, m] = h.date.split('-').map(Number);
+         const mesNome = meses[m-1] || m;
+         const isInicioAno = h.date === `${ano-1}-12`;
+         return (
+           <div key={h.date} className={`flex items-center justify-between p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-700/30'}`}>
+             <div className="flex items-center gap-3">
+               <span className="text-sm font-medium">{mesNome} {y}</span>
+               {isInicioAno && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Início {ano}</span>}
+             </div>
+             <div className="flex items-center gap-3">
+               <StableInput 
+                 type="number" 
+                 className="w-32 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-1 text-right text-sm" 
+                 initialValue={h.divida} 
+                 onSave={v => {
+                   const novoHist = historico.map(x => x.date === h.date ? { ...x, divida: parseFloat(v) } : x);
+                   uC('historico', novoHist);
+                 }}
+               />
+               <button 
+                 onClick={() => {
+                   if (confirm(`Remover registo de ${mesNome} ${y}?`)) {
+                     uC('historico', historico.filter(x => x.date !== h.date));
+                   }
+                 }}
+                 className="text-red-400 hover:text-red-300 p-1"
+               >
+                 🗑️
+               </button>
+             </div>
+           </div>
+         );
+       })
+     )}
+   </div>
+   {historico.length > 0 && (
+     <div className="mt-4 p-3 bg-slate-700/30 rounded-lg">
+       <p className="text-sm text-slate-400">
+         <strong>Amortização {ano}:</strong> {fmt(totaisAnuais.dividaInicio)} → {fmt(totaisAnuais.dividaAtual)} = <span className="text-green-400 font-bold">{fmt(totaisAnuais.amortAnual)}</span>
+       </p>
+     </div>
+   )}
  </Card>
 
  <Card>
