@@ -607,7 +607,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       dataFim: '2054-02-01',
       spread: 1.0,
       euribor: 2.5,
-      historico: [{date: '2022-01', divida: 328500}, {date: '2025-12', divida: 229693.43}],
+      historico: [{date: '2022-01', divida: 328500}, {date: '2024-12', divida: 235000}, {date: '2025-12', divida: 229693.43}],
       amortizacoesPlaneadas: []
     }
   };
@@ -948,44 +948,70 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Amortização real baseada no histórico de dívida
    const historico = G.credito?.historico || [];
    const anoStr = ano.toString();
+   const anoAnteriorStr = (ano - 1).toString();
    
-   // Encontrar dívida no início do ano (dezembro do ano anterior ou primeiro registo do ano)
-   const registosAnoAnterior = historico.filter(h => h.date.startsWith((ano-1).toString()));
-   const registosAno = historico.filter(h => h.date.startsWith(anoStr));
+   // Ordenar histórico por data
+   const historicoOrdenado = [...historico].sort((a, b) => a.date.localeCompare(b.date));
    
+   // Encontrar registos relevantes
+   const registosAnoAnterior = historicoOrdenado.filter(h => h.date.startsWith(anoAnteriorStr));
+   const registosAno = historicoOrdenado.filter(h => h.date.startsWith(anoStr));
+   const registosAnteriores = historicoOrdenado.filter(h => h.date < `${anoStr}-01`);
+   
+   // Dívida no início do ano (procurar o melhor valor disponível)
    let dividaInicio = G.credito?.montanteInicial || 328500;
+   
    if (registosAnoAnterior.length > 0) {
-     // Usar último registo do ano anterior
+     // Ideal: usar último registo do ano anterior (ex: dez 2024)
      dividaInicio = registosAnoAnterior[registosAnoAnterior.length - 1].divida;
-   } else if (registosAno.length > 0) {
-     // Usar primeiro registo do ano
+   } else if (registosAnteriores.length > 0) {
+     // Alternativa: usar o registo mais recente antes deste ano
+     dividaInicio = registosAnteriores[registosAnteriores.length - 1].divida;
+   } else if (registosAno.length > 1) {
+     // Se só temos registos deste ano, usar o primeiro
      dividaInicio = registosAno[0].divida;
    }
    
-   // Dívida atual (último registo do ano ou dívida atual)
-   let dividaAtual = G.credito?.dividaAtual || dividaInicio;
+   // Dívida atual (valor mais recente)
+   let dividaAtualCalc = G.credito?.dividaAtual || dividaInicio;
    if (registosAno.length > 0) {
-     dividaAtual = registosAno[registosAno.length - 1].divida;
+     dividaAtualCalc = registosAno[registosAno.length - 1].divida;
    }
    
-   // Amortização real = diferença entre início e fim do ano
-   const amortizacaoAnual = Math.max(0, dividaInicio - dividaAtual);
+   // Amortização real = diferença entre início e fim
+   // Se dividaInicio e dividaAtual são iguais (só 1 registo), calcular baseado na prestação
+   let amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
    
-   // Investimentos em portfolio com categoria CREDITO (para compatibilidade)
+   // Se não há diferença mas temos prestação, estimar amortização
+   // (prestação média - juros médios) × meses passados
+   if (amortizacaoAnual === 0 && G.credito?.prestacao) {
+     const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
+     const dividaMedia = dividaAtualCalc;
+     const jurosMensais = dividaMedia * taxaMensal;
+     const amortMensal = G.credito.prestacao - jurosMensais;
+     amortizacaoAnual = Math.max(0, amortMensal * mesAtualNum);
+   }
+   
+   // Investimentos em portfolio com categoria CREDITO (amortizações extra manuais)
    const portfolioAtual = M[mesKey]?.portfolio || [];
-   const amortizacaoPortfolio = portfolioAtual.filter(p => p.cat === 'CREDITO').reduce((a, p) => a + p.val, 0);
+   const amortizacaoExtra = portfolioAtual.filter(p => p.cat === 'CREDITO').reduce((a, p) => a + p.val, 0);
+   
+   // Total = amortização calculada + extras manuais
+   const amortizacaoTotal = amortizacaoAnual + amortizacaoExtra;
    
    return { 
      receitasAnuais, 
-     amortAnual: amortizacaoAnual, // Amortização real baseada na dívida
-     amortizacaoAnual: amortizacaoAnual, // Alias
+     amortAnual: amortizacaoTotal,
+     amortizacaoAnual: amortizacaoTotal,
+     amortizacaoBase: amortizacaoAnual,
+     amortizacaoExtra,
      investAnual: investimentosAnuais,
      investimentosAnuais,
      receitasPorCliente,
      dividaInicio,
-     dividaAtual
+     dividaAtual: dividaAtualCalc
    };
- }, [ano, M, mesKey, clientes, G.credito]);
+ }, [ano, M, mesKey, clientes, G.credito, mesAtualNum]);
 
  const totaisAnuais = calcularTotaisAnuais();
  const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
@@ -1335,19 +1361,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
          
          {/* Detalhe da Amortização */}
-         {totaisAnuais.amortAnual > 0 && (
-           <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-             <div className="flex items-center justify-between">
-               <div>
-                 <p className="text-sm text-green-400 font-medium">🏠 Amortização Real em {ano}</p>
-                 <p className="text-xs text-slate-400">
-                   Dívida Jan: {fmt(totaisAnuais.dividaInicio)} → Atual: {fmt(totaisAnuais.dividaAtual)}
+         <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+           <div className="flex items-center justify-between">
+             <div>
+               <p className="text-sm text-green-400 font-medium">🏠 Amortização em {ano}</p>
+               <p className="text-xs text-slate-400">
+                 Dívida Dez {ano-1}: {fmt(totaisAnuais.dividaInicio)} → Atual: {fmt(totaisAnuais.dividaAtual)}
+               </p>
+               {totaisAnuais.amortizacaoExtra > 0 && (
+                 <p className="text-xs text-emerald-400 mt-1">
+                   Inclui {fmt(totaisAnuais.amortizacaoExtra)} de amortização extra
                  </p>
-               </div>
+               )}
+             </div>
+             <div className="text-right">
                <p className="text-xl font-bold text-green-400">{fmt(totaisAnuais.amortAnual)}</p>
+               <p className="text-xs text-slate-500">
+                 {((totaisAnuais.amortAnual / metas.amortizacao) * 100).toFixed(0)}% da meta
+               </p>
              </div>
            </div>
-         )}
+         </div>
          
          <div className="mt-4 p-3 bg-slate-700/30 rounded-lg">
            <p className="text-sm">
