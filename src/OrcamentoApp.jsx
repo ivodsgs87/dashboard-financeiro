@@ -2239,7 +2239,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [calAno, setCalAno] = useState(ano);
    const [showAddProjeto, setShowAddProjeto] = useState(false);
    const [editProjeto, setEditProjeto] = useState(null);
-   const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
+   const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
    
    // Google Calendar state
    const [gcalConnected, setGcalConnected] = useState(false);
@@ -2474,11 +2474,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const projetosNoDia = (dia, mesD, anoD) => {
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
+     const diaSemana = dataCheck.getDay(); // 0 = Domingo, 6 = Sábado
+     
      return projetos.filter(p => {
        const inicio = new Date(p.dataInicio);
        const fim = new Date(p.dataFim);
-       return dataCheck >= inicio && dataCheck <= fim;
+       if (dataCheck < inicio || dataCheck > fim) return false;
+       
+       // Verificar se este dia está excluído
+       if (p.excluirSab && diaSemana === 6) return false;
+       if (p.excluirDom && diaSemana === 0) return false;
+       if (p.diasExcluidos && p.diasExcluidos.includes(dataStr)) return false;
+       
+       return true;
      });
+   };
+   
+   // Função para clicar num dia e criar projeto
+   const handleDiaClick = (dia, mesD, anoD) => {
+     const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+     setNovoProjeto({ 
+       nome: '', 
+       clienteId: clientes[0]?.id || 0, 
+       dataInicio: dataStr, 
+       dataFim: dataStr, 
+       cor: '#3b82f6',
+       excluirSab: false,
+       excluirDom: false,
+       diasExcluidos: []
+     });
+     setEditProjeto(null);
+     setShowAddProjeto(true);
    };
    
    const saveProjeto = async () => {
@@ -2509,7 +2535,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
      setShowAddProjeto(false);
      setEditProjeto(null);
-     setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' });
+     setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
    };
    
    const deleteProjeto = async (id) => {
@@ -2580,7 +2606,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button onClick={() => { if (calMes === 11) { setCalMes(0); setCalAno(a => a + 1); } else setCalMes(m => m + 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">→</button>
                </>
              )}
-             <Button onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6' }); }}>+ Projeto</Button>
+             <Button onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] }); }}>+ Projeto</Button>
            </div>
          </div>
        </Card>
@@ -2601,17 +2627,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const isHoje = d.dia === hoje.getDate() && d.mes === hoje.getMonth() && d.ano === hoje.getFullYear();
              
              return (
-               <div key={i} className={`bg-slate-800 ${vista === 'mes' ? 'min-h-[80px] sm:min-h-[100px]' : 'min-h-[150px]'} p-1 ${d.fora ? 'opacity-40' : ''}`}>
-                 <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isHoje ? 'bg-blue-500 text-white' : 'text-slate-400'}`}>
+               <div 
+                 key={i} 
+                 className={`bg-slate-800 ${vista === 'mes' ? 'min-h-[80px] sm:min-h-[100px]' : 'min-h-[150px]'} p-1 ${d.fora ? 'opacity-40' : 'cursor-pointer hover:bg-slate-700/50'} transition-colors`}
+                 onClick={(e) => {
+                   // Só criar novo se clicar no fundo, não num projeto
+                   if (e.target === e.currentTarget || e.target.classList.contains('dia-numero')) {
+                     if (!d.fora) handleDiaClick(d.dia, d.mes, d.ano);
+                   }
+                 }}
+               >
+                 <div className={`dia-numero text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isHoje ? 'bg-blue-500 text-white' : 'text-slate-400 hover:bg-slate-600'}`}>
                    {d.dia}
                  </div>
-                 <div className="space-y-0.5">
+                 <div className="space-y-0.5" onClick={e => e.stopPropagation()}>
                    {projetosHoje.slice(0, vista === 'mes' ? 3 : 10).map(p => {
                      const cliente = clientes.find(c => c.id === p.clienteId);
                      return (
                        <div 
                          key={p.id} 
-                         onClick={() => { setEditProjeto(p); setNovoProjeto(p); setShowAddProjeto(true); }}
+                         onClick={(e) => { e.stopPropagation(); setEditProjeto(p); setNovoProjeto({...p, excluirSab: p.excluirSab || false, excluirDom: p.excluirDom || false, diasExcluidos: p.diasExcluidos || []}); setShowAddProjeto(true); }}
                          className={`text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 ${p.concluido ? 'opacity-50 line-through' : ''}`}
                          style={{ background: `${p.cor}30`, borderLeft: `2px solid ${p.cor}` }}
                          title={`${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
@@ -2687,12 +2722,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </Card>
        
        {/* Modal Adicionar/Editar Projeto */}
-       {showAddProjeto && (
+       {showAddProjeto && (() => {
+         // Calcular dias do projeto para mostrar na pré-visualização
+         const getDiasProjetoPreview = () => {
+           if (!novoProjeto.dataInicio || !novoProjeto.dataFim) return [];
+           const dias = [];
+           const inicio = new Date(novoProjeto.dataInicio);
+           const fim = new Date(novoProjeto.dataFim);
+           const current = new Date(inicio);
+           while (current <= fim) {
+             const dataStr = current.toISOString().split('T')[0];
+             const diaSemana = current.getDay();
+             const excluido = (novoProjeto.excluirSab && diaSemana === 6) || 
+                              (novoProjeto.excluirDom && diaSemana === 0) ||
+                              (novoProjeto.diasExcluidos || []).includes(dataStr);
+             dias.push({ data: dataStr, diaSemana, excluido, dia: current.getDate(), mes: current.getMonth() });
+             current.setDate(current.getDate() + 1);
+           }
+           return dias;
+         };
+         const diasPreview = getDiasProjetoPreview();
+         const diasNomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+         
+         return (
          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddProjeto(false)}>
-           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editProjeto ? '✏️ Editar Projeto' : '➕ Novo Projeto'}</h3>
-               <button onClick={() => setShowAddProjeto(false)} className="text-slate-400 hover:text-white">✕</button>
+               <div className="flex items-center gap-2">
+                 {editProjeto && (
+                   <button 
+                     onClick={() => { deleteProjeto(editProjeto.id); setShowAddProjeto(false); }} 
+                     className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
+                     title="Eliminar projeto"
+                   >
+                     🗑️
+                   </button>
+                 )}
+                 <button onClick={() => setShowAddProjeto(false)} className="text-slate-400 hover:text-white">✕</button>
+               </div>
              </div>
              <div className="p-4 space-y-4">
                <div>
@@ -2716,22 +2784,90 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <input type="date" value={novoProjeto.dataFim} onChange={e => setNovoProjeto({ ...novoProjeto, dataFim: e.target.value })} className={inputClass + ' w-full'} />
                  </div>
                </div>
+               
+               {/* Excluir fins de semana */}
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Excluir dias da semana</label>
+                 <div className="flex gap-4">
+                   <label className="flex items-center gap-2 cursor-pointer">
+                     <input 
+                       type="checkbox" 
+                       checked={novoProjeto.excluirSab || false} 
+                       onChange={e => setNovoProjeto({ ...novoProjeto, excluirSab: e.target.checked })}
+                       className="w-4 h-4 accent-blue-500"
+                     />
+                     <span className="text-sm">Sábados</span>
+                   </label>
+                   <label className="flex items-center gap-2 cursor-pointer">
+                     <input 
+                       type="checkbox" 
+                       checked={novoProjeto.excluirDom || false} 
+                       onChange={e => setNovoProjeto({ ...novoProjeto, excluirDom: e.target.checked })}
+                       className="w-4 h-4 accent-blue-500"
+                     />
+                     <span className="text-sm">Domingos</span>
+                   </label>
+                 </div>
+               </div>
+               
+               {/* Preview dos dias - clicável para excluir individualmente */}
+               {diasPreview.length > 0 && diasPreview.length <= 60 && (
+                 <div>
+                   <label className="text-xs text-slate-400 mb-2 block">
+                     Dias do projeto ({diasPreview.filter(d => !d.excluido).length} dias ativos) 
+                     <span className="text-slate-500 ml-1">- clica para excluir</span>
+                   </label>
+                   <div className="flex flex-wrap gap-1">
+                     {diasPreview.map(d => (
+                       <button
+                         key={d.data}
+                         onClick={() => {
+                           const excluidos = novoProjeto.diasExcluidos || [];
+                           if (excluidos.includes(d.data)) {
+                             setNovoProjeto({ ...novoProjeto, diasExcluidos: excluidos.filter(x => x !== d.data) });
+                           } else {
+                             setNovoProjeto({ ...novoProjeto, diasExcluidos: [...excluidos, d.data] });
+                           }
+                         }}
+                         className={`px-2 py-1 text-xs rounded transition-all ${
+                           d.excluido 
+                             ? 'bg-slate-700/50 text-slate-500 line-through' 
+                             : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                         } ${d.diaSemana === 0 || d.diaSemana === 6 ? 'opacity-70' : ''}`}
+                         title={`${diasNomes[d.diaSemana]} ${d.dia}/${d.mes + 1} - ${d.excluido ? 'Excluído (clica para incluir)' : 'Clica para excluir'}`}
+                       >
+                         {d.dia}
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               )}
+               
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Cor</label>
-                 <div className="flex gap-2">
+                 <div className="flex gap-2 flex-wrap">
                    {cores.map(c => (
                      <button key={c} onClick={() => setNovoProjeto({ ...novoProjeto, cor: c })} className={`w-8 h-8 rounded-lg ${novoProjeto.cor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-800' : ''}`} style={{ background: c }} />
                    ))}
                  </div>
                </div>
              </div>
-             <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
-               <Button variant="secondary" onClick={() => setShowAddProjeto(false)}>Cancelar</Button>
-               <Button onClick={saveProjeto} disabled={!novoProjeto.nome || !novoProjeto.dataInicio || !novoProjeto.dataFim}>{editProjeto ? 'Guardar' : 'Criar'}</Button>
+             <div className="p-4 border-t border-slate-700 flex justify-between">
+               <div>
+                 {editProjeto && (
+                   <Button variant="secondary" onClick={() => { deleteProjeto(editProjeto.id); setShowAddProjeto(false); }} className="text-red-400 hover:text-red-300">
+                     🗑️ Eliminar
+                   </Button>
+                 )}
+               </div>
+               <div className="flex gap-2">
+                 <Button variant="secondary" onClick={() => setShowAddProjeto(false)}>Cancelar</Button>
+                 <Button onClick={saveProjeto} disabled={!novoProjeto.nome || !novoProjeto.dataInicio || !novoProjeto.dataFim}>{editProjeto ? 'Guardar' : 'Criar'}</Button>
+               </div>
              </div>
            </div>
          </div>
-       )}
+       );})()}
      </div>
    );
  };
