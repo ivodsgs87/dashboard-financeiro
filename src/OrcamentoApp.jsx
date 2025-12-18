@@ -1358,7 +1358,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
              <div className="p-3 bg-slate-700/30 rounded-lg">
                <p className="text-xs text-slate-400">Valor/Dia Útil</p>
-               <p className="text-lg font-bold">{fmt(totRec / 22)}</p>
+               <p className="text-lg font-bold">{fmt((totaisAnuais.receitasAnuais / mesAtualNum) / 22)}</p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Valor/Hora (8h)</p>
+               <p className="text-lg font-bold">{fmt((totaisAnuais.receitasAnuais / mesAtualNum) / 22 / 8)}</p>
              </div>
              <div className="p-3 bg-slate-700/30 rounded-lg">
                <p className="text-xs text-slate-400">Meses p/ Meta</p>
@@ -1367,6 +1371,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    ? Math.ceil((metas.receitas - totaisAnuais.receitasAnuais) / receitaMedia)
                    : '✅ Atingida'}
                </p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Horas/Mês (est.)</p>
+               <p className="text-lg font-bold">~176h</p>
              </div>
            </div>
          </Card>
