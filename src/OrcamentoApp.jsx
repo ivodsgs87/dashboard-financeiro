@@ -1103,7 +1103,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <Card>
      <h3 className="font-semibold mb-3">💸 Transferências</h3>
      <div className="space-y-2">
-       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
+       {/* Despesas agrupadas */}
+       <div className={`flex items-center gap-2 p-2 rounded-lg ${transf.abanca && transf.activo ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
+         <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf.abanca && transf.activo} onChange={e=>{uM('transf',{...transf, abanca:e.target.checked, activo:e.target.checked})}}/>
+         <div className="flex-1">
+           <p className="text-sm">Despesas (Casal + Pessoais)</p>
+           <p className="text-xs text-slate-500">Dia 25</p>
+         </div>
+         <div className="text-right">
+           <span className="font-bold">{fmt(minhaAB + totPess)}</span>
+           <p className="text-xs text-slate-500">{fmt(minhaAB)} + {fmt(totPess)}</p>
+         </div>
+       </div>
+       {[{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
          <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
            <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
            <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
@@ -2388,6 +2400,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const anosDisponiveis = [...new Set(transacoes.map(t => t.data.substring(0, 4)))].sort().reverse();
    
    const tiposCores = { compra: '#10b981', venda: '#ef4444', dividendo: '#f59e0b', transferencia: '#8b5cf6' };
+   const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444','Ações':'#8b5cf6','Obrigações':'#06b6d4','Imobiliário':'#84cc16'};
    const tiposLabels = { compra: 'Compra', venda: 'Venda', dividendo: 'Dividendo', transferencia: 'Transferência' };
    
    return (
@@ -2518,8 +2531,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {transacoesOrdenadas.map(t => (
                <div 
                  key={t.id} 
-                 className="flex items-center gap-3 p-3 bg-slate-700/30 hover:bg-slate-700/50 rounded-xl cursor-pointer transition-colors"
-                 onClick={() => { setEditTransacao(t); setNovaTransacao({...t, quantidade: t.quantidade.toString(), precoUnitario: t.precoUnitario.toString(), valorTotal: t.valorTotal.toString(), comissao: t.comissao || 0}); setShowAddTransacao(true); }}
+                 className="flex items-center gap-3 p-3 bg-slate-700/30 hover:bg-slate-700/50 rounded-xl transition-colors"
                >
                  {/* Indicador de tipo */}
                  <div className="w-1 h-12 rounded-full" style={{ background: tiposCores[t.tipo] }} />
@@ -2547,11 +2559,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                  
                  {/* Valor */}
-                 <div className="text-right">
+                 <div className="text-right mr-2">
                    <div className={`text-lg font-bold ${t.tipo === 'venda' ? 'text-red-400' : t.tipo === 'dividendo' ? 'text-amber-400' : 'text-green-400'}`}>
                      {t.tipo === 'venda' ? '-' : '+'}{fmt(t.valorTotal)}
                    </div>
                  </div>
+                 
+                 {/* Botão editar */}
+                 <button 
+                   onClick={() => { setEditTransacao(t); setNovaTransacao({...t, quantidade: t.quantidade.toString(), precoUnitario: t.precoUnitario.toString(), valorTotal: t.valorTotal.toString(), comissao: t.comissao || 0}); setShowAddTransacao(true); }}
+                   className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg transition-colors"
+                   title="Editar"
+                 >
+                   ✏️
+                 </button>
                </div>
              ))}
            </div>
