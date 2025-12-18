@@ -3857,6 +3857,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sara',icon:'👩',label:'Sara'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
+ const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -5517,42 +5518,50 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto overflow-y-visible scrollbar-hide`} style={{overflowY: 'visible'}}>
+      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
         {tabs.map(t => (
           t.submenu ? (
-            <div 
-              key={t.id} 
-              className="relative"
-              onMouseEnter={() => setHoveredTab(t.id)}
-              onMouseLeave={() => setHoveredTab(null)}
-            >
+            <div key={t.id} className="relative flex-shrink-0">
               <button 
-                className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${(tab==='abanca'||tab==='pessoais')?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setDespesasPos({ left: rect.left, top: rect.bottom + 4 });
+                  setHoveredTab(hoveredTab === t.id ? null : t.id);
+                }}
+                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${(tab==='abanca'||tab==='pessoais')?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
               >
                 <span className="sm:mr-1">{t.icon}</span>
                 <span className="hidden sm:inline">{t.label}</span>
                 <span className="ml-1 text-xs">▾</span>
               </button>
-              {hoveredTab === t.id && (
-                <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl py-1 shadow-xl z-50 min-w-[140px]">
-                  {t.submenu.map(sub => (
-                    <button 
-                      key={sub.id} 
-                      onClick={() => { setTab(sub.id); setHoveredTab(null); }}
-                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${tab===sub.id ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-slate-700'}`}
-                    >
-                      <span>{sub.icon}</span>
-                      <span>{sub.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           ) : (
             <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           )
         ))}
       </nav>
+      
+      {/* Dropdown de Despesas - posição fixa baseada no botão */}
+      {hoveredTab === 'despesas' && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setHoveredTab(null)} />
+          <div 
+            className="fixed bg-slate-800 border border-slate-700 rounded-xl py-1 shadow-xl z-50 min-w-[140px]"
+            style={{ left: despesasPos.left, top: despesasPos.top }}
+          >
+            {tabs.find(t => t.id === 'despesas')?.submenu?.map(sub => (
+              <button 
+                key={sub.id} 
+                onClick={() => { setTab(sub.id); setHoveredTab(null); }}
+                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${tab===sub.id ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-slate-700'}`}
+              >
+                <span>{sub.icon}</span>
+                <span>{sub.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
         {tab==='resumo' && <Resumo/>}
