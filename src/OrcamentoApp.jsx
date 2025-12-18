@@ -3751,6 +3751,205 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Função para exportar Excel real (.xlsx)
  const [exporting, setExporting] = useState(false);
  
+ // Export Transações para PDF
+ const exportTransacoesPDF = (anoExport = ano) => {
+   const transacoes = G.transacoes || [];
+   const transacoesAno = transacoes.filter(t => t.data.startsWith(anoExport.toString()));
+   
+   if (transacoesAno.length === 0) {
+     alert(`Não há transações registadas em ${anoExport}`);
+     return;
+   }
+   
+   // Ordenar por data
+   const transacoesOrdenadas = [...transacoesAno].sort((a, b) => new Date(a.data) - new Date(b.data));
+   
+   // Calcular totais
+   const totalCompras = transacoesOrdenadas.filter(t => t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0);
+   const totalVendas = transacoesOrdenadas.filter(t => t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0);
+   const totalDividendos = transacoesOrdenadas.filter(t => t.tipo === 'dividendo').reduce((a, t) => a + t.valorTotal, 0);
+   const totalComissoes = transacoesOrdenadas.reduce((a, t) => a + (t.comissao || 0), 0);
+   
+   // Por corretora
+   const corretoras = [...new Set(transacoesOrdenadas.map(t => t.corretora))];
+   const porCorretora = corretoras.map(c => ({
+     nome: c,
+     compras: transacoesOrdenadas.filter(t => t.corretora === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+     vendas: transacoesOrdenadas.filter(t => t.corretora === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0)
+   }));
+   
+   // Por categoria
+   const categorias = [...new Set(transacoesOrdenadas.map(t => t.categoria))];
+   const porCategoria = categorias.map(c => ({
+     nome: c,
+     compras: transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+     vendas: transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0)
+   }));
+   
+   const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Transações de Investimento ${anoExport}</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:900px;margin:0 auto;padding:20px;background:#f8fafc;color:#1e293b}
+h1{color:#3b82f6;border-bottom:2px solid #3b82f6;padding-bottom:10px}
+h2{color:#475569;margin-top:30px;font-size:1.2em}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:0.9em}
+th,td{padding:10px;text-align:left;border-bottom:1px solid #e2e8f0}
+th{background:#f1f5f9;font-weight:600}
+.compra{color:#10b981}.venda{color:#ef4444}.dividendo{color:#f59e0b}
+.total-row{font-weight:bold;background:#f1f5f9}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}
+.summary-card{background:white;padding:15px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+.summary-card h3{margin:0 0 5px;font-size:0.8em;color:#64748b}
+.summary-card .value{font-size:1.5em;font-weight:bold}
+.green{color:#10b981}.red{color:#ef4444}.amber{color:#f59e0b}.purple{color:#8b5cf6}
+@media print{body{background:white}@page{margin:1cm}}
+</style></head><body>
+<h1>📊 Transações de Investimento - ${anoExport}</h1>
+<p style="color:#64748b">Gerado em ${new Date().toLocaleDateString('pt-PT')} • ${transacoesOrdenadas.length} transações</p>
+
+<div class="summary-grid">
+<div class="summary-card"><h3>💰 Total Compras</h3><div class="value green">${fmt(totalCompras)}</div></div>
+<div class="summary-card"><h3>📤 Total Vendas</h3><div class="value red">${fmt(totalVendas)}</div></div>
+<div class="summary-card"><h3>💵 Dividendos</h3><div class="value amber">${fmt(totalDividendos)}</div></div>
+<div class="summary-card"><h3>📊 Comissões</h3><div class="value purple">${fmt(totalComissoes)}</div></div>
+</div>
+
+<h2>🏦 Por Corretora</h2>
+<table>
+<tr><th>Corretora</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
+${porCorretora.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
+</table>
+
+<h2>📁 Por Categoria</h2>
+<table>
+<tr><th>Categoria</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
+${porCategoria.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
+</table>
+
+<h2>📝 Todas as Transações</h2>
+<table>
+<tr><th>Data</th><th>Tipo</th><th>Ticker</th><th>Categoria</th><th>Corretora</th><th>Qtd</th><th>Preço</th><th>Comissão</th><th>Total</th></tr>
+${transacoesOrdenadas.map(t => `<tr>
+<td>${new Date(t.data).toLocaleDateString('pt-PT')}</td>
+<td class="${t.tipo}">${t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1)}</td>
+<td>${t.ticker || '-'}</td>
+<td>${t.categoria}</td>
+<td>${t.corretora}</td>
+<td>${t.quantidade || '-'}</td>
+<td>${t.precoUnitario ? fmt(t.precoUnitario) : '-'}</td>
+<td>${t.comissao ? fmt(t.comissao) : '-'}</td>
+<td class="${t.tipo}"><strong>${t.tipo === 'venda' ? '-' : '+'}${fmt(t.valorTotal)}</strong></td>
+</tr>`).join('')}
+<tr class="total-row">
+<td colspan="8">TOTAL</td>
+<td class="compra"><strong>${fmt(totalCompras + totalDividendos - totalVendas)}</strong></td>
+</tr>
+</table>
+
+</body></html>`;
+   
+   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+   const url = URL.createObjectURL(blob);
+   const a = document.createElement('a');
+   a.href = url;
+   a.download = `Transacoes-Investimento-${anoExport}.html`;
+   document.body.appendChild(a);
+   a.click();
+   document.body.removeChild(a);
+   URL.revokeObjectURL(url);
+ };
+ 
+ // Export Transações para Excel
+ const exportTransacoesExcel = async (anoExport = ano) => {
+   const transacoes = G.transacoes || [];
+   const transacoesAno = transacoes.filter(t => t.data.startsWith(anoExport.toString()));
+   
+   if (transacoesAno.length === 0) {
+     alert(`Não há transações registadas em ${anoExport}`);
+     return;
+   }
+   
+   // Ordenar por data
+   const transacoesOrdenadas = [...transacoesAno].sort((a, b) => new Date(a.data) - new Date(b.data));
+   
+   try {
+     const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+     
+     // Sheet 1: Todas as transações
+     const dadosTransacoes = transacoesOrdenadas.map(t => ({
+       'Data': new Date(t.data).toLocaleDateString('pt-PT'),
+       'Tipo': t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1),
+       'Ticker': t.ticker || '',
+       'Categoria': t.categoria,
+       'Corretora': t.corretora,
+       'Quantidade': t.quantidade || 0,
+       'Preço Unitário': t.precoUnitario || 0,
+       'Valor Total': t.valorTotal,
+       'Comissão': t.comissao || 0,
+       'Notas': t.notas || ''
+     }));
+     
+     // Sheet 2: Resumo por corretora
+     const corretoras = [...new Set(transacoesOrdenadas.map(t => t.corretora))];
+     const resumoCorretora = corretoras.map(c => ({
+       'Corretora': c,
+       'Total Compras': transacoesOrdenadas.filter(t => t.corretora === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+       'Total Vendas': transacoesOrdenadas.filter(t => t.corretora === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0),
+       'Dividendos': transacoesOrdenadas.filter(t => t.corretora === c && t.tipo === 'dividendo').reduce((a, t) => a + t.valorTotal, 0),
+       'Comissões': transacoesOrdenadas.filter(t => t.corretora === c).reduce((a, t) => a + (t.comissao || 0), 0),
+       'Nº Transações': transacoesOrdenadas.filter(t => t.corretora === c).length
+     }));
+     
+     // Sheet 3: Resumo por categoria
+     const categorias = [...new Set(transacoesOrdenadas.map(t => t.categoria))];
+     const resumoCategoria = categorias.map(c => ({
+       'Categoria': c,
+       'Total Compras': transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+       'Total Vendas': transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0),
+       'Dividendos': transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'dividendo').reduce((a, t) => a + t.valorTotal, 0),
+       'Quantidade Líquida': transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'compra').reduce((a, t) => a + (t.quantidade || 0), 0) -
+                            transacoesOrdenadas.filter(t => t.categoria === c && t.tipo === 'venda').reduce((a, t) => a + (t.quantidade || 0), 0)
+     }));
+     
+     // Sheet 4: Resumo mensal
+     const mesesAno = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+     const resumoMensal = mesesAno.map((m, i) => {
+       const mesStr = `${anoExport}-${m}`;
+       const transacoesMes = transacoesOrdenadas.filter(t => t.data.startsWith(mesStr));
+       return {
+         'Mês': meses[i],
+         'Compras': transacoesMes.filter(t => t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+         'Vendas': transacoesMes.filter(t => t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0),
+         'Dividendos': transacoesMes.filter(t => t.tipo === 'dividendo').reduce((a, t) => a + t.valorTotal, 0),
+         'Comissões': transacoesMes.reduce((a, t) => a + (t.comissao || 0), 0),
+         'Nº Transações': transacoesMes.length
+       };
+     });
+     
+     // Criar workbook
+     const wb = XLSX.utils.book_new();
+     
+     const ws1 = XLSX.utils.json_to_sheet(dadosTransacoes);
+     XLSX.utils.book_append_sheet(wb, ws1, 'Transações');
+     
+     const ws2 = XLSX.utils.json_to_sheet(resumoCorretora);
+     XLSX.utils.book_append_sheet(wb, ws2, 'Por Corretora');
+     
+     const ws3 = XLSX.utils.json_to_sheet(resumoCategoria);
+     XLSX.utils.book_append_sheet(wb, ws3, 'Por Categoria');
+     
+     const ws4 = XLSX.utils.json_to_sheet(resumoMensal);
+     XLSX.utils.book_append_sheet(wb, ws4, 'Resumo Mensal');
+     
+     // Download
+     XLSX.writeFile(wb, `Transacoes-Investimento-${anoExport}.xlsx`);
+     
+   } catch (error) {
+     console.error('Erro ao exportar Excel:', error);
+     alert('Erro ao exportar para Excel. Tenta novamente.');
+   }
+ };
+
  const exportToGoogleSheets = async () => {
    if (exporting) return;
    setExporting(true);
@@ -4951,11 +5150,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                   {showExportMenu && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)}/>
-                      <div className={`absolute right-0 top-full mt-1 ${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 z-50 min-w-[180px]`}>
+                      <div className={`absolute right-0 top-full mt-1 ${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 z-50 min-w-[200px]`}>
+                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Orçamento</div>
                         <button onClick={() => { exportToPDF(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📄 PDF Mensal</button>
                         <button onClick={() => { setShowRelatorio(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Relatório Anual</button>
                         <button onClick={() => { exportToGoogleSheets(); setShowExportMenu(false); }} disabled={exporting} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'} ${exporting && 'opacity-50'}`}>{exporting ? '⏳' : '📗'} Excel (.xlsx)</button>
                         <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
+                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Investimentos ({ano})</div>
+                        <button onClick={() => { exportTransacoesPDF(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📈 Transações PDF</button>
+                        <button onClick={() => { exportTransacoesExcel(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Transações Excel</button>
+                        <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
+                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
                         <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
                         <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
                       </div>
