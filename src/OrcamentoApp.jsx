@@ -398,6 +398,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const mesAtualSistema = meses[hoje.getMonth()];
   const anoAtualSistema = hoje.getFullYear();
   
+  // Estado online/offline
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOfflineNotice, setShowOfflineNotice] = useState(false);
+  
+  // Registar Service Worker para PWA/Offline
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('Service Worker registado:', reg.scope))
+        .catch(err => console.log('Erro no Service Worker:', err));
+    }
+    
+    // Listeners de conectividade
+    const handleOnline = () => { setIsOnline(true); setShowOfflineNotice(false); };
+    const handleOffline = () => { setIsOnline(false); setShowOfflineNotice(true); };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
@@ -1133,6 +1158,221 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
  )}
  </div>);
+ };
+
+ // PERFORMANCE DASHBOARD
+ const Performance = () => {
+   const totaisAnuais = calcularTotaisAnuais();
+   const portfolioHist = G.portfolioHist || [];
+   const patrimonioHist = G.patrimonioHist || [];
+   
+   // Calcular métricas de performance
+   const receitasMensais = meses.map((m, i) => {
+     const mesKey = `${ano}-${String(i+1).padStart(2,'0')}`;
+     const dadosMes = Object.entries(M).find(([k]) => k === mesKey)?.[1] || {};
+     const regCom = dadosMes.regCom || [];
+     const regSem = dadosMes.regSem || [];
+     return {
+       mes: m.substring(0, 3),
+       receitas: regCom.reduce((a, r) => a + r.val, 0) + regSem.reduce((a, r) => a + r.val, 0),
+       meta: metas.receitas / 12
+     };
+   });
+   
+   // Crescimento do portfolio
+   const portfolioAtual = (G.portfolio || []).reduce((a, p) => a + p.valor, 0);
+   const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0].valor || 0 : portfolioAtual;
+   const crescimentoPortfolio = portfolioInicio > 0 ? ((portfolioAtual - portfolioInicio) / portfolioInicio * 100) : 0;
+   
+   // Taxa de poupança média
+   const taxaPoupancaAtual = recLiq > 0 ? ((totInv + (restante * (alocAmort/100))) / recLiq * 100) : 0;
+   
+   // Projeção anual
+   const projecao = getProjecaoAnual();
+   const progressoReceitas = metas.receitas > 0 ? (totaisAnuais.receitasAnuais / metas.receitas * 100) : 0;
+   const progressoAmortizacao = metas.amortizacao > 0 ? (totaisAnuais.amortAnual / metas.amortizacao * 100) : 0;
+   const progressoInvestimentos = metas.investimentos > 0 ? (totaisAnuais.investAnual / metas.investimentos * 100) : 0;
+   
+   // Comparação com mês anterior
+   const mesAnteriorKey = mes === 'Janeiro' ? `${ano-1}-12` : `${ano}-${String(meses.indexOf(mes)).padStart(2,'0')}`;
+   const dadosMesAnterior = M[mesAnteriorKey] || {};
+   const receitasMesAnterior = (dadosMesAnterior.regCom || []).reduce((a, r) => a + r.val, 0) + (dadosMesAnterior.regSem || []).reduce((a, r) => a + r.val, 0);
+   const variacaoReceitas = receitasMesAnterior > 0 ? ((totRec - receitasMesAnterior) / receitasMesAnterior * 100) : 0;
+   
+   // Meses até atingir meta
+   const receitaMedia = totaisAnuais.receitasAnuais / mesAtualNum;
+   const mesesRestantes = 12 - mesAtualNum;
+   const projecaoFinal = totaisAnuais.receitasAnuais + (receitaMedia * mesesRestantes);
+   const atingeMeta = projecaoFinal >= metas.receitas;
+   
+   return (
+     <div className="space-y-4">
+       {/* KPIs Principais */}
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+         <Card className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30">
+           <p className="text-xs text-slate-400 mb-1">📈 Taxa de Poupança</p>
+           <p className="text-2xl font-bold text-blue-400">{taxaPoupancaAtual.toFixed(1)}%</p>
+           <p className="text-xs text-slate-500 mt-1">
+             {taxaPoupancaAtual >= 20 ? '✅ Excelente' : taxaPoupancaAtual >= 10 ? '⚠️ Razoável' : '❌ Baixa'}
+           </p>
+         </Card>
+         
+         <Card className="bg-gradient-to-br from-green-500/20 to-green-600/10 border-green-500/30">
+           <p className="text-xs text-slate-400 mb-1">💎 Portfolio Total</p>
+           <p className="text-2xl font-bold text-green-400">{fmt(portfolioAtual)}</p>
+           <p className={`text-xs mt-1 ${crescimentoPortfolio >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+             {crescimentoPortfolio >= 0 ? '↑' : '↓'} {Math.abs(crescimentoPortfolio).toFixed(1)}% YTD
+           </p>
+         </Card>
+         
+         <Card className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border-purple-500/30">
+           <p className="text-xs text-slate-400 mb-1">🎯 Progresso Metas</p>
+           <p className="text-2xl font-bold text-purple-400">{progressoReceitas.toFixed(0)}%</p>
+           <p className="text-xs text-slate-500 mt-1">
+             {fmt(totaisAnuais.receitasAnuais)} / {fmt(metas.receitas)}
+           </p>
+         </Card>
+         
+         <Card className={`bg-gradient-to-br ${variacaoReceitas >= 0 ? 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30' : 'from-red-500/20 to-red-600/10 border-red-500/30'}`}>
+           <p className="text-xs text-slate-400 mb-1">📊 vs Mês Anterior</p>
+           <p className={`text-2xl font-bold ${variacaoReceitas >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+             {variacaoReceitas >= 0 ? '+' : ''}{variacaoReceitas.toFixed(1)}%
+           </p>
+           <p className="text-xs text-slate-500 mt-1">
+             {fmt(totRec)} vs {fmt(receitasMesAnterior)}
+           </p>
+         </Card>
+       </div>
+       
+       {/* Progresso das Metas Anuais */}
+       <Card>
+         <h3 className="font-semibold mb-4">🎯 Progresso das Metas Anuais ({ano})</h3>
+         <div className="space-y-4">
+           {[
+             { label: 'Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, cor: '#3b82f6', icon: '💰' },
+             { label: 'Amortização', atual: totaisAnuais.amortAnual, meta: metas.amortizacao, cor: '#10b981', icon: '🏠' },
+             { label: 'Investimentos', atual: totaisAnuais.investAnual, meta: metas.investimentos, cor: '#8b5cf6', icon: '📈' },
+           ].map(m => {
+             const progresso = m.meta > 0 ? (m.atual / m.meta * 100) : 0;
+             const esperado = progressoEsperado * 100;
+             const noTarget = progresso >= esperado;
+             return (
+               <div key={m.label}>
+                 <div className="flex justify-between text-sm mb-1">
+                   <span className="flex items-center gap-2">
+                     <span>{m.icon}</span>
+                     <span>{m.label}</span>
+                     {noTarget ? <span className="text-xs text-green-400">✓ No target</span> : <span className="text-xs text-amber-400">⚠ Abaixo</span>}
+                   </span>
+                   <span className="text-slate-400">{fmt(m.atual)} / {fmt(m.meta)} ({progresso.toFixed(0)}%)</span>
+                 </div>
+                 <div className="h-3 bg-slate-700 rounded-full overflow-hidden relative">
+                   {/* Marcador do esperado */}
+                   <div className="absolute h-full w-0.5 bg-white/50 z-10" style={{ left: `${esperado}%` }} title={`Esperado: ${esperado.toFixed(0)}%`} />
+                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(progresso, 100)}%`, background: m.cor }} />
+                 </div>
+               </div>
+             );
+           })}
+         </div>
+         
+         <div className="mt-4 p-3 bg-slate-700/30 rounded-lg">
+           <p className="text-sm">
+             {atingeMeta ? (
+               <span className="text-green-400">✅ Ao ritmo atual, vais atingir a meta de receitas! Projeção: {fmt(projecaoFinal)}</span>
+             ) : (
+               <span className="text-amber-400">⚠️ Ao ritmo atual, ficarás abaixo da meta. Projeção: {fmt(projecaoFinal)} ({((projecaoFinal/metas.receitas)*100).toFixed(0)}%)</span>
+             )}
+           </p>
+         </div>
+       </Card>
+       
+       {/* Gráfico de Receitas Mensais */}
+       <Card>
+         <h3 className="font-semibold mb-4">📊 Receitas Mensais vs Meta ({ano})</h3>
+         <div className="h-48 flex items-end gap-1">
+           {receitasMensais.map((m, i) => {
+             const maxVal = Math.max(...receitasMensais.map(x => Math.max(x.receitas, x.meta)), 1);
+             const alturaReceita = (m.receitas / maxVal) * 100;
+             const alturaMeta = (m.meta / maxVal) * 100;
+             const isMesAtual = i === meses.indexOf(mes);
+             const isPast = i < mesAtualNum;
+             
+             return (
+               <div key={m.mes} className="flex-1 flex flex-col items-center gap-1">
+                 <div className="w-full h-40 flex items-end justify-center relative">
+                   {/* Linha da meta */}
+                   <div className="absolute w-full border-t border-dashed border-slate-500" style={{ bottom: `${alturaMeta}%` }} />
+                   {/* Barra de receitas */}
+                   <div 
+                     className={`w-full max-w-[30px] rounded-t transition-all ${isMesAtual ? 'bg-blue-500' : isPast ? (m.receitas >= m.meta ? 'bg-green-500/70' : 'bg-amber-500/70') : 'bg-slate-600/50'}`}
+                     style={{ height: `${alturaReceita}%` }}
+                     title={`${m.mes}: ${fmt(m.receitas)}`}
+                   />
+                 </div>
+                 <span className={`text-xs ${isMesAtual ? 'text-blue-400 font-bold' : 'text-slate-500'}`}>{m.mes}</span>
+               </div>
+             );
+           })}
+         </div>
+         <div className="flex justify-center gap-4 mt-3 text-xs text-slate-400">
+           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500/70 rounded" /> Acima da meta</span>
+           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-500/70 rounded" /> Abaixo da meta</span>
+           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded" /> Mês atual</span>
+           <span className="flex items-center gap-1"><span className="w-3 h-1 border-t border-dashed border-slate-500" /> Meta mensal</span>
+         </div>
+       </Card>
+       
+       {/* Distribuição de Despesas */}
+       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+         <Card>
+           <h3 className="font-semibold mb-4">💳 Distribuição do Rendimento</h3>
+           <div className="space-y-3">
+             {[
+               { label: 'Despesas Fixas (Casal)', valor: minhaAB, cor: '#ec4899', pct: recLiq > 0 ? (minhaAB/recLiq*100) : 0 },
+               { label: 'Despesas Pessoais', valor: totPess, cor: '#f59e0b', pct: recLiq > 0 ? (totPess/recLiq*100) : 0 },
+               { label: 'Férias', valor: ferias, cor: '#06b6d4', pct: recLiq > 0 ? (ferias/recLiq*100) : 0 },
+               { label: 'Amortização', valor: restante*(alocAmort/100), cor: '#10b981', pct: recLiq > 0 ? (restante*(alocAmort/100)/recLiq*100) : 0 },
+               { label: 'Investimentos', valor: restante*((100-alocAmort)/100), cor: '#8b5cf6', pct: recLiq > 0 ? (restante*((100-alocAmort)/100)/recLiq*100) : 0 },
+             ].map(d => (
+               <div key={d.label} className="flex items-center gap-3">
+                 <div className="w-3 h-3 rounded-full" style={{ background: d.cor }} />
+                 <span className="flex-1 text-sm">{d.label}</span>
+                 <span className="text-sm font-medium">{fmt(d.valor)}</span>
+                 <span className="text-xs text-slate-500 w-12 text-right">{d.pct.toFixed(1)}%</span>
+               </div>
+             ))}
+           </div>
+         </Card>
+         
+         <Card>
+           <h3 className="font-semibold mb-4">📈 Métricas Chave</h3>
+           <div className="grid grid-cols-2 gap-3">
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Receita Média/Mês</p>
+               <p className="text-lg font-bold">{fmt(totaisAnuais.receitasAnuais / mesAtualNum)}</p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Dias Úteis/Mês</p>
+               <p className="text-lg font-bold">~22 dias</p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Valor/Dia Útil</p>
+               <p className="text-lg font-bold">{fmt(totRec / 22)}</p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Meses p/ Meta</p>
+               <p className="text-lg font-bold">
+                 {metas.receitas > totaisAnuais.receitasAnuais 
+                   ? Math.ceil((metas.receitas - totaisAnuais.receitasAnuais) / receitaMedia)
+                   : '✅ Atingida'}
+               </p>
+             </div>
+           </div>
+         </Card>
+       </div>
+     </div>
+   );
  };
 
  // RECEITAS
@@ -3594,7 +3834,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
+ // Tabs reorganizadas por função:
+ // 1. Visão Geral: Resumo, Performance
+ // 2. Entradas: Receitas
+ // 3. Saídas: Despesas (Casal, Pessoais)
+ // 4. Investir: Investimentos, Portfolio, Transações
+ // 5. Planeamento: Crédito, Projetos, Agenda
+ // 6. Análise: Histórico
+ // 7. Sara (separado)
+ const tabs = [
+   {id:'resumo',icon:'📊',label:'Resumo'},
+   {id:'performance',icon:'🚀',label:'Performance'},
+   {id:'receitas',icon:'💰',label:'Receitas'},
+   {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
+   {id:'invest',icon:'📈',label:'Investimentos'},
+   {id:'portfolio',icon:'💎',label:'Portfolio'},
+   {id:'transacoes',icon:'📝',label:'Transações'},
+   {id:'credito',icon:'🏦',label:'Crédito'},
+   {id:'calendario',icon:'📆',label:'Projetos'},
+   {id:'historico',icon:'📅',label:'Histórico'},
+   {id:'agenda',icon:'📋',label:'Agenda'},
+   {id:'sara',icon:'👩',label:'Sara'}
+ ];
  const [hoveredTab, setHoveredTab] = useState(null);
 
  // Função para exportar PDF mensal
@@ -5229,6 +5490,14 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <button onClick={handleResetAll} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar dados">🗑️</button>
               </div>
               
+              {/* Status offline */}
+              {!isOnline && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 rounded-lg text-xs text-amber-400">
+                  <span>📴</span>
+                  <span className="hidden sm:inline">Offline</span>
+                </div>
+              )}
+              
               {/* Status de sync */}
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
@@ -5248,7 +5517,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
+      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto overflow-y-visible scrollbar-hide`} style={{overflowY: 'visible'}}>
         {tabs.map(t => (
           t.submenu ? (
             <div 
@@ -5287,6 +5556,7 @@ ${transacoesOrdenadas.map(t => `<tr>
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
         {tab==='resumo' && <Resumo/>}
+ {tab==='performance' && <Performance/>}
  {tab==='receitas' && <Receitas/>}
  {tab==='abanca' && <ABanca/>}
  {tab==='pessoais' && <Pessoais/>}
