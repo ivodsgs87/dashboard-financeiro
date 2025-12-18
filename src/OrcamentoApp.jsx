@@ -530,6 +530,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
     // Projetos para o calendário
     projetos: [], // {id, nome, clienteId, dataInicio, dataFim, cor, concluido}
+    // Transações de investimento
+    transacoes: [], // {id, data, tipo, categoria, ticker, corretora, quantidade, precoUnitario, valorTotal, comissao, notas}
+    corretoras: ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'],
     alertas: [
       {id:1, tipo: 'despesa', campo: 'despPess', limite: 800, ativo: true, desc: 'Despesas pessoais > €800'},
       {id:2, tipo: 'meta', campo: 'receitas', percentagem: 80, ativo: true, desc: 'Receitas < 80% da meta'},
@@ -2227,6 +2230,455 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
+ // TRANSAÇÕES DE INVESTIMENTOS
+ const Transacoes = () => {
+   const transacoes = G.transacoes || [];
+   const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
+   
+   const [showAddTransacao, setShowAddTransacao] = useState(false);
+   const [editTransacao, setEditTransacao] = useState(null);
+   const [novaTransacao, setNovaTransacao] = useState({
+     data: new Date().toISOString().split('T')[0],
+     tipo: 'compra',
+     categoria: catsInv[0] || 'ETF',
+     ticker: '',
+     corretora: corretoras[0],
+     quantidade: '',
+     precoUnitario: '',
+     valorTotal: '',
+     comissao: 0,
+     notas: ''
+   });
+   
+   // Filtros
+   const [filtroCorretora, setFiltroCorretora] = useState('todas');
+   const [filtroCategoria, setFiltroCategoria] = useState('todas');
+   const [filtroTipo, setFiltroTipo] = useState('todos');
+   const [filtroAno, setFiltroAno] = useState('todos');
+   const [novaCorretora, setNovaCorretora] = useState('');
+   
+   // Ordenação
+   const [ordenacao, setOrdenacao] = useState('data-desc');
+   
+   // Calcular valor total automaticamente
+   const handleQuantidadeChange = (val) => {
+     const quantidade = parseFloat(val) || 0;
+     const precoUnitario = parseFloat(novaTransacao.precoUnitario) || 0;
+     setNovaTransacao({
+       ...novaTransacao,
+       quantidade: val,
+       valorTotal: (quantidade * precoUnitario).toFixed(2)
+     });
+   };
+   
+   const handlePrecoChange = (val) => {
+     const precoUnitario = parseFloat(val) || 0;
+     const quantidade = parseFloat(novaTransacao.quantidade) || 0;
+     setNovaTransacao({
+       ...novaTransacao,
+       precoUnitario: val,
+       valorTotal: (quantidade * precoUnitario).toFixed(2)
+     });
+   };
+   
+   const handleValorTotalChange = (val) => {
+     const valorTotal = parseFloat(val) || 0;
+     const quantidade = parseFloat(novaTransacao.quantidade) || 0;
+     setNovaTransacao({
+       ...novaTransacao,
+       valorTotal: val,
+       precoUnitario: quantidade > 0 ? (valorTotal / quantidade).toFixed(4) : ''
+     });
+   };
+   
+   const saveTransacao = () => {
+     if (!novaTransacao.valorTotal || parseFloat(novaTransacao.valorTotal) <= 0) return;
+     
+     const transacao = {
+       ...novaTransacao,
+       quantidade: parseFloat(novaTransacao.quantidade) || 0,
+       precoUnitario: parseFloat(novaTransacao.precoUnitario) || 0,
+       valorTotal: parseFloat(novaTransacao.valorTotal) || 0,
+       comissao: parseFloat(novaTransacao.comissao) || 0,
+     };
+     
+     if (editTransacao) {
+       uG('transacoes', transacoes.map(t => t.id === editTransacao.id ? { ...transacao, id: editTransacao.id } : t));
+     } else {
+       uG('transacoes', [...transacoes, { ...transacao, id: Date.now() }]);
+     }
+     
+     setShowAddTransacao(false);
+     setEditTransacao(null);
+     resetForm();
+   };
+   
+   const resetForm = () => {
+     setNovaTransacao({
+       data: new Date().toISOString().split('T')[0],
+       tipo: 'compra',
+       categoria: catsInv[0] || 'ETF',
+       ticker: '',
+       corretora: corretoras[0],
+       quantidade: '',
+       precoUnitario: '',
+       valorTotal: '',
+       comissao: 0,
+       notas: ''
+     });
+   };
+   
+   const deleteTransacao = (id) => {
+     if (confirm('Apagar esta transação?')) {
+       uG('transacoes', transacoes.filter(t => t.id !== id));
+     }
+   };
+   
+   const addCorretora = () => {
+     if (novaCorretora && !corretoras.includes(novaCorretora)) {
+       uG('corretoras', [...corretoras, novaCorretora]);
+       setNovaCorretora('');
+     }
+   };
+   
+   // Filtrar transações
+   const transacoesFiltradas = transacoes.filter(t => {
+     if (filtroCorretora !== 'todas' && t.corretora !== filtroCorretora) return false;
+     if (filtroCategoria !== 'todas' && t.categoria !== filtroCategoria) return false;
+     if (filtroTipo !== 'todos' && t.tipo !== filtroTipo) return false;
+     if (filtroAno !== 'todos' && !t.data.startsWith(filtroAno)) return false;
+     return true;
+   });
+   
+   // Ordenar
+   const transacoesOrdenadas = [...transacoesFiltradas].sort((a, b) => {
+     switch (ordenacao) {
+       case 'data-asc': return new Date(a.data) - new Date(b.data);
+       case 'data-desc': return new Date(b.data) - new Date(a.data);
+       case 'valor-asc': return a.valorTotal - b.valorTotal;
+       case 'valor-desc': return b.valorTotal - a.valorTotal;
+       default: return 0;
+     }
+   });
+   
+   // Calcular estatísticas
+   const totalCompras = transacoes.filter(t => t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0);
+   const totalVendas = transacoes.filter(t => t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0);
+   const totalDividendos = transacoes.filter(t => t.tipo === 'dividendo').reduce((a, t) => a + t.valorTotal, 0);
+   const totalComissoes = transacoes.reduce((a, t) => a + (t.comissao || 0), 0);
+   
+   // Por corretora
+   const porCorretora = corretoras.map(c => ({
+     nome: c,
+     compras: transacoes.filter(t => t.corretora === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+     vendas: transacoes.filter(t => t.corretora === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0),
+     total: transacoes.filter(t => t.corretora === c).length
+   })).filter(c => c.total > 0);
+   
+   // Por categoria
+   const porCategoria = catsInv.map(c => ({
+     nome: c,
+     compras: transacoes.filter(t => t.categoria === c && t.tipo === 'compra').reduce((a, t) => a + t.valorTotal, 0),
+     vendas: transacoes.filter(t => t.categoria === c && t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0),
+     quantidade: transacoes.filter(t => t.categoria === c && t.tipo === 'compra').reduce((a, t) => a + t.quantidade, 0) -
+                 transacoes.filter(t => t.categoria === c && t.tipo === 'venda').reduce((a, t) => a + t.quantidade, 0)
+   })).filter(c => c.compras > 0 || c.vendas > 0);
+   
+   // Anos disponíveis
+   const anosDisponiveis = [...new Set(transacoes.map(t => t.data.substring(0, 4)))].sort().reverse();
+   
+   const tiposCores = { compra: '#10b981', venda: '#ef4444', dividendo: '#f59e0b', transferencia: '#8b5cf6' };
+   const tiposLabels = { compra: 'Compra', venda: 'Venda', dividendo: 'Dividendo', transferencia: 'Transferência' };
+   
+   return (
+     <div className="space-y-4">
+       {/* Header com estatísticas */}
+       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+         <Card className="bg-green-500/10 border-green-500/30">
+           <p className="text-xs text-slate-400 mb-1">💰 Total Compras</p>
+           <p className="text-xl font-bold text-green-400">{fmt(totalCompras)}</p>
+         </Card>
+         <Card className="bg-red-500/10 border-red-500/30">
+           <p className="text-xs text-slate-400 mb-1">📤 Total Vendas</p>
+           <p className="text-xl font-bold text-red-400">{fmt(totalVendas)}</p>
+         </Card>
+         <Card className="bg-amber-500/10 border-amber-500/30">
+           <p className="text-xs text-slate-400 mb-1">💵 Dividendos</p>
+           <p className="text-xl font-bold text-amber-400">{fmt(totalDividendos)}</p>
+         </Card>
+         <Card className="bg-purple-500/10 border-purple-500/30">
+           <p className="text-xs text-slate-400 mb-1">📊 Comissões</p>
+           <p className="text-xl font-bold text-purple-400">{fmt(totalComissoes)}</p>
+         </Card>
+       </div>
+       
+       {/* Resumos por corretora e categoria */}
+       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+         {/* Por Corretora */}
+         <Card>
+           <h3 className="text-lg font-semibold mb-3">🏦 Por Corretora</h3>
+           {porCorretora.length === 0 ? (
+             <p className="text-slate-500 text-sm">Nenhuma transação registada</p>
+           ) : (
+             <div className="space-y-2">
+               {porCorretora.map(c => (
+                 <div key={c.nome} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
+                   <span className="font-medium">{c.nome}</span>
+                   <div className="flex gap-3 text-sm">
+                     <span className="text-green-400">+{fmt(c.compras)}</span>
+                     {c.vendas > 0 && <span className="text-red-400">-{fmt(c.vendas)}</span>}
+                     <span className="text-slate-400">({c.total})</span>
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
+           {/* Adicionar corretora */}
+           <div className="flex gap-2 mt-3 pt-3 border-t border-slate-700">
+             <input
+               type="text"
+               value={novaCorretora}
+               onChange={e => setNovaCorretora(e.target.value)}
+               placeholder="Nova corretora..."
+               className={`${inputClass} flex-1 text-sm`}
+               onKeyPress={e => e.key === 'Enter' && addCorretora()}
+             />
+             <Button size="sm" onClick={addCorretora}>+</Button>
+           </div>
+         </Card>
+         
+         {/* Por Categoria */}
+         <Card>
+           <h3 className="text-lg font-semibold mb-3">📁 Por Categoria</h3>
+           {porCategoria.length === 0 ? (
+             <p className="text-slate-500 text-sm">Nenhuma transação registada</p>
+           ) : (
+             <div className="space-y-2">
+               {porCategoria.map(c => (
+                 <div key={c.nome} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
+                   <div className="flex items-center gap-2">
+                     <div className="w-2 h-2 rounded-full" style={{ background: catCores[c.nome] || '#8b5cf6' }} />
+                     <span className="font-medium">{c.nome}</span>
+                   </div>
+                   <div className="flex gap-3 text-sm">
+                     <span className="text-green-400">+{fmt(c.compras)}</span>
+                     {c.vendas > 0 && <span className="text-red-400">-{fmt(c.vendas)}</span>}
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
+         </Card>
+       </div>
+       
+       {/* Lista de Transações */}
+       <Card>
+         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+           <h3 className="text-lg font-semibold">📝 Histórico de Transações</h3>
+           <Button onClick={() => { setShowAddTransacao(true); setEditTransacao(null); resetForm(); }}>+ Transação</Button>
+         </div>
+         
+         {/* Filtros */}
+         <div className="flex flex-wrap gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl">
+           <Select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="text-sm">
+             <option value="todos">Todos os tipos</option>
+             <option value="compra">Compras</option>
+             <option value="venda">Vendas</option>
+             <option value="dividendo">Dividendos</option>
+           </Select>
+           <Select value={filtroCorretora} onChange={e => setFiltroCorretora(e.target.value)} className="text-sm">
+             <option value="todas">Todas corretoras</option>
+             {corretoras.map(c => <option key={c} value={c}>{c}</option>)}
+           </Select>
+           <Select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} className="text-sm">
+             <option value="todas">Todas categorias</option>
+             {catsInv.map(c => <option key={c} value={c}>{c}</option>)}
+           </Select>
+           {anosDisponiveis.length > 0 && (
+             <Select value={filtroAno} onChange={e => setFiltroAno(e.target.value)} className="text-sm">
+               <option value="todos">Todos os anos</option>
+               {anosDisponiveis.map(a => <option key={a} value={a}>{a}</option>)}
+             </Select>
+           )}
+           <Select value={ordenacao} onChange={e => setOrdenacao(e.target.value)} className="text-sm">
+             <option value="data-desc">Data ↓</option>
+             <option value="data-asc">Data ↑</option>
+             <option value="valor-desc">Valor ↓</option>
+             <option value="valor-asc">Valor ↑</option>
+           </Select>
+         </div>
+         
+         {/* Lista */}
+         {transacoesOrdenadas.length === 0 ? (
+           <p className="text-slate-500 text-center py-8">
+             {transacoes.length === 0 ? 'Nenhuma transação registada. Clica em "+ Transação" para começar.' : 'Nenhuma transação corresponde aos filtros.'}
+           </p>
+         ) : (
+           <div className="space-y-2">
+             {transacoesOrdenadas.map(t => (
+               <div 
+                 key={t.id} 
+                 className="flex items-center gap-3 p-3 bg-slate-700/30 hover:bg-slate-700/50 rounded-xl cursor-pointer transition-colors"
+                 onClick={() => { setEditTransacao(t); setNovaTransacao({...t, quantidade: t.quantidade.toString(), precoUnitario: t.precoUnitario.toString(), valorTotal: t.valorTotal.toString(), comissao: t.comissao || 0}); setShowAddTransacao(true); }}
+               >
+                 {/* Indicador de tipo */}
+                 <div className="w-1 h-12 rounded-full" style={{ background: tiposCores[t.tipo] }} />
+                 
+                 {/* Info principal */}
+                 <div className="flex-1 min-w-0">
+                   <div className="flex items-center gap-2 flex-wrap">
+                     <span className="font-medium">{t.ticker || t.categoria}</span>
+                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${tiposCores[t.tipo]}20`, color: tiposCores[t.tipo] }}>
+                       {tiposLabels[t.tipo]}
+                     </span>
+                     <span className="text-xs px-2 py-0.5 bg-slate-600 rounded-full">{t.corretora}</span>
+                     {t.categoria && t.ticker && (
+                       <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${catCores[t.categoria] || '#8b5cf6'}30`, color: catCores[t.categoria] || '#8b5cf6' }}>
+                         {t.categoria}
+                       </span>
+                     )}
+                   </div>
+                   <div className="text-xs text-slate-400 mt-1">
+                     {new Date(t.data).toLocaleDateString('pt-PT')}
+                     {t.quantidade > 0 && ` • ${t.quantidade} un. @ ${fmt(t.precoUnitario)}`}
+                     {t.comissao > 0 && ` • Comissão: ${fmt(t.comissao)}`}
+                   </div>
+                   {t.notas && <div className="text-xs text-slate-500 mt-1 truncate">{t.notas}</div>}
+                 </div>
+                 
+                 {/* Valor */}
+                 <div className="text-right">
+                   <div className={`text-lg font-bold ${t.tipo === 'venda' ? 'text-red-400' : t.tipo === 'dividendo' ? 'text-amber-400' : 'text-green-400'}`}>
+                     {t.tipo === 'venda' ? '-' : '+'}{fmt(t.valorTotal)}
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+         )}
+         
+         {transacoesOrdenadas.length > 0 && (
+           <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between text-sm">
+             <span className="text-slate-400">{transacoesOrdenadas.length} transação(ões)</span>
+             <span className="font-medium">
+               Total filtrado: <span className="text-green-400">{fmt(transacoesOrdenadas.filter(t => t.tipo !== 'venda').reduce((a, t) => a + t.valorTotal, 0))}</span>
+               {transacoesOrdenadas.some(t => t.tipo === 'venda') && (
+                 <span className="text-red-400 ml-2">-{fmt(transacoesOrdenadas.filter(t => t.tipo === 'venda').reduce((a, t) => a + t.valorTotal, 0))}</span>
+               )}
+             </span>
+           </div>
+         )}
+       </Card>
+       
+       {/* Modal Adicionar/Editar Transação */}
+       {showAddTransacao && (
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddTransacao(false)}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+             <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+               <h3 className="text-lg font-semibold">{editTransacao ? '✏️ Editar Transação' : '➕ Nova Transação'}</h3>
+               <div className="flex items-center gap-2">
+                 {editTransacao && (
+                   <button onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg">🗑️</button>
+                 )}
+                 <button onClick={() => setShowAddTransacao(false)} className="text-slate-400 hover:text-white">✕</button>
+               </div>
+             </div>
+             
+             <div className="p-4 space-y-4">
+               {/* Tipo de operação */}
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Tipo de Operação</label>
+                 <div className="flex gap-2">
+                   {['compra', 'venda', 'dividendo'].map(tipo => (
+                     <button
+                       key={tipo}
+                       onClick={() => setNovaTransacao({ ...novaTransacao, tipo })}
+                       className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTransacao.tipo === tipo ? '' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'}`}
+                       style={novaTransacao.tipo === tipo ? { background: `${tiposCores[tipo]}30`, color: tiposCores[tipo] } : {}}
+                     >
+                       {tiposLabels[tipo]}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+               
+               {/* Data e Corretora */}
+               <div className="grid grid-cols-2 gap-3">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Data</label>
+                   <input type="date" value={novaTransacao.data} onChange={e => setNovaTransacao({ ...novaTransacao, data: e.target.value })} className={inputClass + ' w-full'} />
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Corretora</label>
+                   <Select value={novaTransacao.corretora} onChange={e => setNovaTransacao({ ...novaTransacao, corretora: e.target.value })} className="w-full">
+                     {corretoras.map(c => <option key={c} value={c}>{c}</option>)}
+                   </Select>
+                 </div>
+               </div>
+               
+               {/* Categoria e Ticker */}
+               <div className="grid grid-cols-2 gap-3">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
+                   <Select value={novaTransacao.categoria} onChange={e => setNovaTransacao({ ...novaTransacao, categoria: e.target.value })} className="w-full">
+                     {catsInv.map(c => <option key={c} value={c}>{c}</option>)}
+                   </Select>
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Ticker / Símbolo</label>
+                   <input type="text" value={novaTransacao.ticker} onChange={e => setNovaTransacao({ ...novaTransacao, ticker: e.target.value.toUpperCase() })} className={inputClass + ' w-full'} placeholder="Ex: VUAA, BTC" />
+                 </div>
+               </div>
+               
+               {/* Quantidade, Preço e Valor */}
+               <div className="grid grid-cols-3 gap-3">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Quantidade</label>
+                   <input type="number" step="any" value={novaTransacao.quantidade} onChange={e => handleQuantidadeChange(e.target.value)} className={inputClass + ' w-full'} placeholder="0" />
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Preço Unit.</label>
+                   <input type="number" step="any" value={novaTransacao.precoUnitario} onChange={e => handlePrecoChange(e.target.value)} className={inputClass + ' w-full'} placeholder="0.00" />
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Valor Total €</label>
+                   <input type="number" step="any" value={novaTransacao.valorTotal} onChange={e => handleValorTotalChange(e.target.value)} className={inputClass + ' w-full'} placeholder="0.00" />
+                 </div>
+               </div>
+               
+               {/* Comissão */}
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Comissão €</label>
+                 <input type="number" step="any" value={novaTransacao.comissao} onChange={e => setNovaTransacao({ ...novaTransacao, comissao: e.target.value })} className={inputClass + ' w-full'} placeholder="0.00" />
+               </div>
+               
+               {/* Notas */}
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Notas</label>
+                 <textarea value={novaTransacao.notas} onChange={e => setNovaTransacao({ ...novaTransacao, notas: e.target.value })} className={inputClass + ' w-full h-20 resize-none'} placeholder="Observações opcionais..." />
+               </div>
+             </div>
+             
+             <div className="p-4 border-t border-slate-700 flex justify-between">
+               <div>
+                 {editTransacao && (
+                   <Button variant="secondary" onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="text-red-400">🗑️ Eliminar</Button>
+                 )}
+               </div>
+               <div className="flex gap-2">
+                 <Button variant="secondary" onClick={() => setShowAddTransacao(false)}>Cancelar</Button>
+                 <Button onClick={saveTransacao} disabled={!novaTransacao.valorTotal || parseFloat(novaTransacao.valorTotal) <= 0}>
+                   {editTransacao ? 'Guardar' : 'Adicionar'}
+                 </Button>
+               </div>
+             </div>
+           </div>
+         </div>
+       )}
+     </div>
+   );
+ };
+
  // CALENDÁRIO DE PROJETOS
  // Google Calendar API Config
  const GOOGLE_CLIENT_ID = '1001287643592-cjgh7ng34pql5asln7qca0n52rvhp90t.apps.googleusercontent.com';
@@ -3133,7 +3585,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
+ const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -4552,6 +5004,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {tab==='sara' && <Sara/>}
  {tab==='historico' && <Historico/>}
  {tab==='portfolio' && <Portfolio/>}
+ {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
  {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
