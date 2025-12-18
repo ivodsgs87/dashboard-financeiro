@@ -2439,8 +2439,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const dias = [];
      // Dias do mês anterior para preencher
      const mesAnterior = new Date(a, m, 0);
+     const mesAntNum = m === 0 ? 11 : m - 1;
+     const anoAnt = m === 0 ? a - 1 : a;
      for (let i = diaSemanaInicio - 1; i >= 0; i--) {
-       dias.push({ dia: mesAnterior.getDate() - i, mes: m - 1, ano: a, fora: true });
+       dias.push({ dia: mesAnterior.getDate() - i, mes: mesAntNum, ano: anoAnt, fora: true });
      }
      // Dias do mês atual
      for (let i = 1; i <= diasNoMes; i++) {
@@ -2448,8 +2450,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
      // Dias do próximo mês
      const restante = 42 - dias.length; // 6 semanas
+     const mesProxNum = m === 11 ? 0 : m + 1;
+     const anoProx = m === 11 ? a + 1 : a;
      for (let i = 1; i <= restante; i++) {
-       dias.push({ dia: i, mes: m + 1, ano: a, fora: true });
+       dias.push({ dia: i, mes: mesProxNum, ano: anoProx, fora: true });
      }
      return dias;
    };
