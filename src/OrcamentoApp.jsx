@@ -607,7 +607,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       dataFim: '2054-02-01',
       spread: 1.0,
       euribor: 2.5,
-      historico: [{date: '2022-01', divida: 328500}, {date: '2024-12', divida: 235000}, {date: '2025-12', divida: 229693.43}],
+      historico: [{date: '2022-01', divida: 328500}, {date: '2024-12', divida: 272000}, {date: '2025-12', divida: 229693.43}],
       amortizacoesPlaneadas: []
     }
   };
@@ -1121,9 +1121,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="font-semibold">🎯 Progresso {ano}</h3>
      <span className="text-xs text-slate-500">{mesAtualNum}/12 meses</span>
    </div>
-   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
      {[
        { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6', proj: projecao?.projecao },
+       { label: '🏠 Amortização', atual: totaisAnuais.amortAnual, meta: metas.amortizacao, key: 'amortizacao', color: '#10b981', sub: totaisAnuais.dividaInicio && totaisAnuais.dividaAtual ? `${fmt(totaisAnuais.dividaInicio)} → ${fmt(totaisAnuais.dividaAtual)}` : null },
        { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' }
      ].map(m => {
        const pct = m.meta > 0 ? (m.atual / m.meta) * 100 : 0;
@@ -1132,15 +1133,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div key={m.key} className="p-3 bg-slate-700/30 rounded-xl">
            <div className="flex justify-between items-center mb-2">
              <span className="text-sm font-medium">{m.label}</span>
-             <span className={`text-xs px-2 py-0.5 rounded-full ${onTrack ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-               {onTrack ? '✓' : '⚠️'} {pct.toFixed(0)}%
+             <span className={`text-xs px-2 py-0.5 rounded-full ${onTrack ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+               {onTrack ? '✓' : '⚠'} {pct.toFixed(0)}%
              </span>
            </div>
-           <div className="flex items-baseline gap-2 mb-2">
+           <div className="flex items-baseline gap-2 mb-1">
              <span className="text-lg font-bold" style={{color: m.color}}>{fmt(m.atual)}</span>
              <span className="text-sm text-slate-500">/ {fmt(m.meta)}</span>
-             {m.proj && <span className="text-xs text-slate-400 ml-auto">→ {fmt(m.proj)}</span>}
            </div>
+           {m.sub && <p className="text-xs text-slate-500 mb-1">{m.sub}</p>}
+           {m.proj && <p className="text-xs text-slate-400 mb-1">→ Projeção: {fmt(m.proj)}</p>}
            <ProgressBar value={m.atual} max={m.meta || 1} color={m.color} height="h-1.5"/>
            <div className="mt-2 flex items-center gap-2">
              <span className="text-xs text-slate-500">Meta:</span>
