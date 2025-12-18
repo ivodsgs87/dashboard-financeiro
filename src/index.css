@@ -1,3 +1,5 @@
+<link rel="manifest" href="/manifest.json">
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
