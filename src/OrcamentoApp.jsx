@@ -1103,19 +1103,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <Card>
      <h3 className="font-semibold mb-3">💸 Transferências</h3>
      <div className="space-y-2">
-       {/* Despesas agrupadas */}
-       <div className={`flex items-center gap-2 p-2 rounded-lg ${transf.abanca && transf.activo ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
-         <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf.abanca && transf.activo} onChange={e=>{uM('transf',{...transf, abanca:e.target.checked, activo:e.target.checked})}}/>
-         <div className="flex-1">
-           <p className="text-sm">Despesas (Casal + Pessoais)</p>
-           <p className="text-xs text-slate-500">Dia 25</p>
-         </div>
-         <div className="text-right">
-           <span className="font-bold">{fmt(minhaAB + totPess)}</span>
-           <p className="text-xs text-slate-500">{fmt(minhaAB)} + {fmt(totPess)}</p>
-         </div>
-       </div>
-       {[{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
+       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
          <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
            <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
            <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
@@ -2593,8 +2581,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        {/* Modal Adicionar/Editar Transação */}
        {showAddTransacao && (
-         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddTransacao(false)}>
-           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editTransacao ? '✏️ Editar Transação' : '➕ Nova Transação'}</h3>
                <div className="flex items-center gap-2">
@@ -3606,7 +3594,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
+ const tabs = [{id:'resumo',icon:'📊',label:'Resumo'},{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},{id:'invest',icon:'📈',label:'Investimentos'},{id:'sara',icon:'👩',label:'Sara'},{id:'historico',icon:'📅',label:'Histórico'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Agenda'}];
+ const [hoveredTab, setHoveredTab] = useState(null);
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -4808,18 +4797,62 @@ ${transacoesOrdenadas.map(t => `<tr>
            )}
            
            <div className="pt-4 border-t border-slate-700">
-             <h4 className="text-sm font-semibold text-slate-400 mb-3">Configurar Alertas</h4>
-             {alertas.map(a => (
-               <div key={a.id} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg mb-2">
-                 <span className="text-sm text-slate-300">{a.desc}</span>
-                 <input
-                   type="checkbox"
-                   checked={a.ativo}
-                   onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, ativo: e.target.checked} : x))}
-                   className="w-5 h-5 accent-blue-500"
-                 />
-               </div>
-             ))}
+             <h4 className="text-sm font-semibold text-slate-400 mb-3">⚙️ Configurar Alertas</h4>
+             <div className="space-y-3">
+               {/* Alerta Despesas Pessoais */}
+               {alertas.filter(a => a.tipo === 'despesa').map(a => (
+                 <div key={a.id} className="p-3 bg-slate-700/30 rounded-lg">
+                   <div className="flex items-center justify-between mb-2">
+                     <span className="text-sm text-slate-300">💳 Despesas pessoais excedem limite</span>
+                     <input type="checkbox" checked={a.ativo} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, ativo: e.target.checked} : x))} className="w-5 h-5 accent-blue-500"/>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-xs text-slate-500">Limite:</span>
+                     <div className="flex items-center gap-1 bg-slate-600/50 rounded px-2 py-1">
+                       <span className="text-slate-400">€</span>
+                       <input type="number" value={a.limite} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, limite: parseFloat(e.target.value) || 0, desc: `Despesas pessoais > €${e.target.value}`} : x))} className="w-20 bg-transparent text-white text-sm outline-none" placeholder="800"/>
+                     </div>
+                     <span className="text-xs text-slate-500 ml-2">Sugestão: €700-€1000</span>
+                   </div>
+                 </div>
+               ))}
+               
+               {/* Alerta Taxa Poupança */}
+               {alertas.filter(a => a.tipo === 'poupanca').map(a => (
+                 <div key={a.id} className="p-3 bg-slate-700/30 rounded-lg">
+                   <div className="flex items-center justify-between mb-2">
+                     <span className="text-sm text-slate-300">💰 Taxa de poupança abaixo do mínimo</span>
+                     <input type="checkbox" checked={a.ativo} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, ativo: e.target.checked} : x))} className="w-5 h-5 accent-blue-500"/>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-xs text-slate-500">Mínimo:</span>
+                     <div className="flex items-center gap-1 bg-slate-600/50 rounded px-2 py-1">
+                       <input type="number" value={a.limite} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, limite: parseFloat(e.target.value) || 0, desc: `Taxa poupança < ${e.target.value}%`} : x))} className="w-16 bg-transparent text-white text-sm outline-none" placeholder="20"/>
+                       <span className="text-slate-400">%</span>
+                     </div>
+                     <span className="text-xs text-slate-500 ml-2">Sugestão: 15%-30%</span>
+                   </div>
+                 </div>
+               ))}
+               
+               {/* Alerta Metas */}
+               {alertas.filter(a => a.tipo === 'meta').map(a => (
+                 <div key={a.id} className="p-3 bg-slate-700/30 rounded-lg">
+                   <div className="flex items-center justify-between mb-2">
+                     <span className="text-sm text-slate-300">📉 Receitas abaixo da meta esperada</span>
+                     <input type="checkbox" checked={a.ativo} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, ativo: e.target.checked} : x))} className="w-5 h-5 accent-blue-500"/>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-xs text-slate-500">Alertar se abaixo de:</span>
+                     <div className="flex items-center gap-1 bg-slate-600/50 rounded px-2 py-1">
+                       <input type="number" value={a.percentagem || 80} onChange={e => uG('alertas', alertas.map(x => x.id === a.id ? {...x, percentagem: parseFloat(e.target.value) || 80, desc: `Receitas < ${e.target.value}% da meta`} : x))} className="w-16 bg-transparent text-white text-sm outline-none" placeholder="80"/>
+                       <span className="text-slate-400">%</span>
+                     </div>
+                     <span className="text-xs text-slate-500 ml-2">da meta anual</span>
+                   </div>
+                 </div>
+               ))}
+             </div>
            </div>
          </div>
        </div>
@@ -5217,7 +5250,38 @@ ${transacoesOrdenadas.map(t => `<tr>
 
       <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
         {tabs.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+          t.submenu ? (
+            <div 
+              key={t.id} 
+              className="relative"
+              onMouseEnter={() => setHoveredTab(t.id)}
+              onMouseLeave={() => setHoveredTab(null)}
+            >
+              <button 
+                className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${(tab==='abanca'||tab==='pessoais')?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+              >
+                <span className="sm:mr-1">{t.icon}</span>
+                <span className="hidden sm:inline">{t.label}</span>
+                <span className="ml-1 text-xs">▾</span>
+              </button>
+              {hoveredTab === t.id && (
+                <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl py-1 shadow-xl z-50 min-w-[140px]">
+                  {t.submenu.map(sub => (
+                    <button 
+                      key={sub.id} 
+                      onClick={() => { setTab(sub.id); setHoveredTab(null); }}
+                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${tab===sub.id ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-slate-700'}`}
+                    >
+                      <span>{sub.icon}</span>
+                      <span>{sub.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+          )
         ))}
       </nav>
 
