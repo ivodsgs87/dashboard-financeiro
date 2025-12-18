@@ -920,6 +920,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const cardBgHover = theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50';
   const textMuted = theme === 'light' ? 'text-slate-600' : 'text-slate-400';
 
+ // Mês atual do sistema (para cálculos)
+ const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
+ const progressoEsperado = mesAtualNum / 12;
+
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
    let receitasAnuais = 0;
@@ -1014,8 +1018,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }, [ano, M, mesKey, clientes, G.credito, mesAtualNum]);
 
  const totaisAnuais = calcularTotaisAnuais();
- const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
- const progressoEsperado = mesAtualNum / 12;
 
  // RESUMO
  const Resumo = () => {
