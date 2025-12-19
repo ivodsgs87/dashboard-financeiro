@@ -3863,16 +3863,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="p-4 space-y-4">
              <div>
                <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
-               <input className={`w-full ${inputClass}`} value={novaTarefa.desc} onChange={e => setNovaTarefa({...novaTarefa, desc: e.target.value})} placeholder="Ex: Pagar IVA trimestral"/>
+               <input 
+                 className={`w-full ${inputClass}`} 
+                 value={novaTarefa.desc} 
+                 onChange={e => setNovaTarefa(prev => ({...prev, desc: e.target.value}))} 
+                 onKeyDown={e => e.stopPropagation()}
+                 placeholder="Ex: Pagar IVA trimestral"
+                 autoFocus
+               />
              </div>
              <div className="grid grid-cols-2 gap-3">
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
-                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa({...novaTarefa, dia: +e.target.value})}/>
+                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value}))} onKeyDown={e => e.stopPropagation()}/>
                </div>
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
-                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa({...novaTarefa, cat: e.target.value})}>
+                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))} onKeyDown={e => e.stopPropagation()}>
                    {categorias.map(c => <option key={c} value={c}>{c}</option>)}
                  </select>
                </div>
