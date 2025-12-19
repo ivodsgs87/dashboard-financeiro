@@ -1293,6 +1293,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <p className="text-xs text-slate-500 mt-1">
              {taxaPoupancaAtual >= 20 ? '✅ Excelente' : taxaPoupancaAtual >= 10 ? '⚠️ Razoável' : '❌ Baixa'}
            </p>
+           <p className="text-[10px] text-slate-600 mt-1">(Invest + Amort) / Receitas</p>
          </Card>
          
          <Card className="bg-gradient-to-br from-green-500/20 to-green-600/10 border-green-500/30">
