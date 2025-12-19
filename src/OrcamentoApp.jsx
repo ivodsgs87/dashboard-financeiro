@@ -463,9 +463,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Ignorar se estiver a escrever num input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        activeEl.tagName === 'SELECT' ||
+        activeEl.isContentEditable
+      );
+      
+      if (isInputFocused) {
         if (e.key === 'Escape') {
-          e.target.blur();
+          activeEl.blur();
         }
         return;
       }
