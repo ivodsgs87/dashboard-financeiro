@@ -1255,8 +1255,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    });
    
    // Crescimento do portfolio
-   const portfolioAtual = (G.portfolio || []).reduce((a, p) => a + (p.val || 0), 0);
-   const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0].valor || 0 : portfolioAtual;
+   const portfolioData = M[mesKey]?.portfolio || [];
+   const portfolioAtual = portfolioData.reduce((a, p) => a + (p.val || 0), 0);
+   const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0].total || 0 : portfolioAtual;
    const crescimentoPortfolio = portfolioInicio > 0 ? ((portfolioAtual - portfolioInicio) / portfolioInicio * 100) : 0;
    
    // Taxa de poupança média
