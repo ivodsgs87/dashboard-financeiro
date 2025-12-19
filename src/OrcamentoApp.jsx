@@ -1260,8 +1260,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0].total || 0 : portfolioAtual;
    const crescimentoPortfolio = portfolioInicio > 0 ? ((portfolioAtual - portfolioInicio) / portfolioInicio * 100) : 0;
    
-   // Taxa de poupança média
-   const taxaPoupancaAtual = recLiq > 0 ? ((totInv + (restante * (alocAmort/100))) / recLiq * 100) : 0;
+   // Taxa de poupança anual (baseada em totais anuais)
+   const taxaPoupancaAtual = totaisAnuais.receitasAnuais > 0 
+     ? ((totaisAnuais.investAnual + totaisAnuais.amortAnual) / totaisAnuais.receitasAnuais * 100) 
+     : 0;
    
    // Projeção anual
    const projecao = getProjecaoAnual();
