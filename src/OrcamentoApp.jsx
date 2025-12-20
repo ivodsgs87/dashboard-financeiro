@@ -1641,8 +1641,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    value={editRecibo.valIliq || ''} 
                    onChange={e => {
                      const val = parseFloat(e.target.value) || 0;
-                     const taxaIva = editRecibo.pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
-                     setEditRecibo({...editRecibo, valIliq: val, iva: val * taxaIva / 100, val: val});
+                     const pais = editRecibo.pais || 'PT';
+                     const taxaIva = pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
+                     const iva = val * taxaIva / 100;
+                     const retIRS = pais === 'PT' ? val * 0.25 : 0; // 25% retenção padrão
+                     setEditRecibo({...editRecibo, valIliq: val, iva, retIRS, val: val});
                    }}
                    
                    placeholder="0.00"
@@ -1658,7 +1661,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      setEditRecibo({...editRecibo, taxaIva: taxa, iva: (editRecibo.valIliq || 0) * taxa / 100});
                    }}
                    
-                   disabled={editRecibo.pais !== 'PT'}
+                   disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  >
                    <option value={0}>0% (Isento)</option>
                    <option value={6}>6% (Reduzida)</option>
@@ -1673,25 +1676,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <label className="text-xs text-slate-400 mb-1 block">IVA (€)</label>
                  <input 
                    type="number" 
-                   className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
+                   className={`w-full ${inputClass} ${(editRecibo.pais || 'PT') !== 'PT' ? 'opacity-50' : ''}`} 
                    value={editRecibo.iva || ''} 
                    onChange={e => setEditRecibo({...editRecibo, iva: parseFloat(e.target.value) || 0})}
                    
                    placeholder="0.00"
-                   disabled={editRecibo.pais !== 'PT'}
+                   disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
                </div>
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Retenção IRS (€)</label>
                  <input 
                    type="number" 
-                   className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
+                   className={`w-full ${inputClass} ${(editRecibo.pais || 'PT') !== 'PT' ? 'opacity-50' : ''}`} 
                    value={editRecibo.retIRS || ''} 
                    onChange={e => setEditRecibo({...editRecibo, retIRS: parseFloat(e.target.value) || 0})}
                    
                    placeholder="0.00"
-                   disabled={editRecibo.pais !== 'PT'}
+                   disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
+                 {(editRecibo.pais || 'PT') === 'PT' && editRecibo.valIliq > 0 && (
+                   <p className="text-[10px] text-slate-500 mt-1">Sugestão 25%: {fmt((editRecibo.valIliq || 0) * 0.25)}</p>
+                 )}
                </div>
              </div>
              
