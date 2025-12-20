@@ -1097,6 +1097,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
    </div>
    <div className="space-y-2">
+     {/* DEBUG - remover depois */}
+     {false && <div className="text-xs text-red-400 p-2 bg-red-500/20 rounded">
+       Debug: {JSON.stringify({atrasadas: tarefasPend.atrasadas?.length, proximas: tarefasPend.proximasTarefas?.length})}
+     </div>}
      {/* Tarefas atrasadas primeiro - em laranja */}
      {(tarefasPend.atrasadas || []).map((t, i) => {
        const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
@@ -5149,22 +5153,32 @@ ${transacoesOrdenadas.map(t => `<tr>
    const tarefas = G.tarefas || [];
    const tarefasConcluidas = G.tarefasConcluidas || {};
    const hoje = new Date();
-   const mesAtual = hoje.getMonth() + 1;
+   const mesAtual = hoje.getMonth() + 1; // 1-12
    const anoAtual = hoje.getFullYear();
    const diaAtual = hoje.getDate();
    
+   // Filtrar tarefas do mês atual
    const tarefasMes = tarefas.filter(t => {
-     if (!t.ativo) return false;
+     // Verificar se está ativa (default true se não existir)
+     if (t.ativo === false) return false;
+     // Tarefas mensais aparecem sempre
      if (t.freq === 'mensal') return true;
-     if (t.freq === 'trimestral' || t.freq === 'anual') return t.meses?.includes(mesAtual);
+     // Tarefas trimestrais/anuais só aparecem nos meses especificados
+     if (t.freq === 'trimestral' || t.freq === 'anual') {
+       return Array.isArray(t.meses) && t.meses.includes(mesAtual);
+     }
      return false;
-   }).map(t => ({
-     ...t,
-     key: `${anoAtual}-${mesAtual}-${t.id}`,
-     concluida: tarefasConcluidas[`${anoAtual}-${mesAtual}-${t.id}`] || false,
-     atrasada: t.dia < diaAtual,
-     proxima: t.dia >= diaAtual && t.dia <= diaAtual + 5
-   }));
+   }).map(t => {
+     const key = `${anoAtual}-${mesAtual}-${t.id}`;
+     const concluida = tarefasConcluidas[key] === true;
+     return {
+       ...t,
+       key,
+       concluida,
+       atrasada: t.dia < diaAtual && !concluida,
+       proxima: t.dia >= diaAtual && t.dia <= diaAtual + 5 && !concluida
+     };
+   });
    
    const pendentes = tarefasMes.filter(t => !t.concluida);
    const atrasadas = pendentes.filter(t => t.atrasada).map(t => ({
@@ -5174,19 +5188,21 @@ ${transacoesOrdenadas.map(t => `<tr>
    }));
    const proximas = pendentes.filter(t => t.proxima);
    
-   // Próximas 5 tarefas importantes (incluindo meses futuros, mas NÃO atrasadas - essas vão separadas)
+   // Próximas tarefas (futuras, não atrasadas)
    const proximasTarefas = [];
    for (let i = 0; i < 3 && proximasTarefas.length < 5; i++) {
      const mesCheck = ((mesAtual - 1 + i) % 12) + 1;
      const anoCheck = mesAtual + i > 12 ? anoAtual + 1 : anoAtual;
      tarefas.filter(t => {
-       if (!t.ativo) return false;
+       if (t.ativo === false) return false;
        if (t.freq === 'mensal') return true;
-       if (t.freq === 'trimestral' || t.freq === 'anual') return t.meses?.includes(mesCheck);
+       if (t.freq === 'trimestral' || t.freq === 'anual') {
+         return Array.isArray(t.meses) && t.meses.includes(mesCheck);
+       }
        return false;
      }).forEach(t => {
        const key = `${anoCheck}-${mesCheck}-${t.id}`;
-       if (!tarefasConcluidas[key]) {
+       if (tarefasConcluidas[key] !== true) {
          const dataT = new Date(anoCheck, mesCheck - 1, t.dia);
          if (dataT >= hoje && proximasTarefas.length < 5) {
            proximasTarefas.push({...t, data: dataT, mesNome: meses[mesCheck-1]});
