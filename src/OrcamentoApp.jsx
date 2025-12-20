@@ -462,19 +462,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignorar se estiver a escrever num input
+      // Ignorar se estiver a escrever num input - verificar tanto target como activeElement
+      const target = e.target;
       const activeEl = document.activeElement;
-      const isInputFocused = activeEl && (
-        activeEl.tagName === 'INPUT' || 
-        activeEl.tagName === 'TEXTAREA' || 
-        activeEl.tagName === 'SELECT' ||
-        activeEl.isContentEditable
+      
+      const isInput = (el) => el && (
+        el.tagName === 'INPUT' || 
+        el.tagName === 'TEXTAREA' || 
+        el.tagName === 'SELECT' ||
+        el.isContentEditable ||
+        el.closest('input, textarea, select, [contenteditable="true"]')
       );
       
-      if (isInputFocused) {
+      if (isInput(target) || isInput(activeEl)) {
+        // Só permitir Escape para sair do input
         if (e.key === 'Escape') {
-          activeEl.blur();
+          activeEl?.blur();
         }
+        // Não fazer mais nada - deixar o input funcionar normalmente
         return;
       }
       
@@ -1573,7 +1578,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      setEditRecibo(null);
    };
    
-   const ReciboModal = () => {
+   const renderReciboModal = () => {
      if (!showReciboModal || !editRecibo) return null;
      
      // Calcular total do documento e total a pagar
@@ -1585,12 +1590,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      
      return (
        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowReciboModal(false); setEditRecibo(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">📄 Detalhes do Recibo Verde</h3>
              <button onClick={() => {setShowReciboModal(false); setEditRecibo(null);}} className="text-slate-400 hover:text-white">✕</button>
            </div>
-           <div className="p-4 space-y-4">
+           <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
              <div className="grid grid-cols-2 gap-3">
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Cliente</label>
@@ -1598,7 +1603,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`w-full ${inputClass}`} 
                    value={editRecibo.cid} 
                    onChange={e => setEditRecibo({...editRecibo, cid: +e.target.value})}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                  >
                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
                  </select>
@@ -1609,7 +1614,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`w-full ${inputClass}`} 
                    value={editRecibo.pais || 'PT'} 
                    onChange={e => setEditRecibo({...editRecibo, pais: e.target.value, taxaIva: e.target.value === 'PT' ? 23 : 0, iva: e.target.value === 'PT' ? (editRecibo.valIliq || 0) * 0.23 : 0})}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                  >
                    {paisOptions.map(p => <option key={p} value={p}>{p === 'PT' ? '🇵🇹 Portugal' : p === 'UE' ? '🇪🇺 UE' : '🌍 Fora UE'}</option>)}
                  </select>
@@ -1622,7 +1627,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  className={`w-full ${inputClass}`} 
                  value={editRecibo.desc || ''} 
                  onChange={e => setEditRecibo({...editRecibo, desc: e.target.value})}
-                 onKeyDown={e => e.stopPropagation()}
+                 
                  placeholder="Descrição do serviço..."
                />
              </div>
@@ -1639,7 +1644,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const taxaIva = editRecibo.pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
                      setEditRecibo({...editRecibo, valIliq: val, iva: val * taxaIva / 100, val: val});
                    }}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                    placeholder="0.00"
                  />
                </div>
@@ -1652,7 +1657,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const taxa = parseFloat(e.target.value);
                      setEditRecibo({...editRecibo, taxaIva: taxa, iva: (editRecibo.valIliq || 0) * taxa / 100});
                    }}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                    disabled={editRecibo.pais !== 'PT'}
                  >
                    <option value={0}>0% (Isento)</option>
@@ -1671,7 +1676,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
                    value={editRecibo.iva || ''} 
                    onChange={e => setEditRecibo({...editRecibo, iva: parseFloat(e.target.value) || 0})}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                    placeholder="0.00"
                    disabled={editRecibo.pais !== 'PT'}
                  />
@@ -1683,7 +1688,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
                    value={editRecibo.retIRS || ''} 
                    onChange={e => setEditRecibo({...editRecibo, retIRS: parseFloat(e.target.value) || 0})}
-                   onKeyDown={e => e.stopPropagation()}
+                   
                    placeholder="0.00"
                    disabled={editRecibo.pais !== 'PT'}
                  />
@@ -1712,7 +1717,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    return (
    <>
-   <ReciboModal />
+   {renderReciboModal()}
    <div className="space-y-6">
  <Card>
  <h3 className="text-lg font-semibold mb-4">👥 Clientes</h3>
@@ -3249,7 +3254,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
              </div>
              
-             <div className="p-4 space-y-4">
+             <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
                {/* Tipo de operação */}
                <div>
                  <label className="text-xs text-slate-400 mb-2 block">Tipo de Operação</label>
@@ -3883,7 +3888,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button onClick={() => setShowAddProjeto(false)} className="text-slate-400 hover:text-white">✕</button>
                </div>
              </div>
-             <div className="p-4 space-y-4">
+             <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Nome do Projeto</label>
                  <input type="text" value={novoProjeto.nome} onChange={e => setNovoProjeto({ ...novoProjeto, nome: e.target.value })} className={inputClass + ' w-full'} placeholder="Ex: Website redesign" />
@@ -4072,35 +4077,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const pendentes = tarefasMesAtual.filter(t => !t.concluida);
    const atrasadas = pendentes.filter(t => t.atrasada);
    
-   // Modal para adicionar/editar tarefa
-   const TarefaModal = () => {
+   // Modal para adicionar/editar tarefa - render direto sem componente interno
+   const renderTarefaModal = () => {
      if (!showAddModal) return null;
      return (
        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
              <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
            </div>
-           <div className="p-4 space-y-4">
+           <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
              <div>
                <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
                <input 
                  className={`w-full ${inputClass}`} 
                  value={novaTarefa.desc} 
-                 onChange={e => setNovaTarefa(prev => ({...prev, desc: e.target.value}))} 
-                 onKeyDown={e => e.stopPropagation()}
+                 onChange={e => {
+                   const val = e.target.value;
+                   setNovaTarefa(prev => ({...prev, desc: val}));
+                 }} 
                  placeholder="Ex: Pagar IVA trimestral"
                />
              </div>
              <div className="grid grid-cols-2 gap-3">
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
-                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value}))} onKeyDown={e => e.stopPropagation()}/>
+                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value || 1}))} />
                </div>
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
-                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))} onKeyDown={e => e.stopPropagation()}>
+                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))}>
                    {categorias.map(c => <option key={c} value={c}>{c}</option>)}
                  </select>
                </div>
@@ -4109,7 +4116,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
                <div className="flex gap-2">
                  {['mensal', 'anual'].map(f => (
-                   <button key={f} onClick={() => setNovaTarefa({...novaTarefa, freq: f, meses: f === 'mensal' ? [] : novaTarefa.meses})} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                   <button key={f} onClick={() => setNovaTarefa(prev => ({...prev, freq: f, meses: f === 'mensal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
                      {f === 'mensal' ? 'Todos os meses' : 'Meses específicos'}
                    </button>
                  ))}
@@ -4139,7 +4146,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    return (
      <div className="space-y-6">
-       <TarefaModal />
+       {renderTarefaModal()}
        
        {/* RESUMO */}
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -5549,7 +5556,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            <h3 className="text-lg font-semibold">🔔 Alertas e Notificações</h3>
            <button onClick={() => setShowAlerts(false)} className="text-slate-400 hover:text-white">✕</button>
          </div>
-         <div className="p-4 space-y-4">
+         <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
            {alerts.length === 0 ? (
              <p className="text-center py-4 text-emerald-400">✅ Tudo em ordem! Sem alertas ativos.</p>
            ) : (
@@ -5638,7 +5645,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            <h3 className="text-lg font-semibold">📥 Importar CSV</h3>
            <button onClick={() => setShowImportCSV(false)} className="text-slate-400 hover:text-white">✕</button>
          </div>
-         <div className="p-4 space-y-4">
+         <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
            <p className="text-sm text-slate-400">Cola o conteúdo do CSV. Deve ter colunas: data, descricao, valor</p>
            <textarea
              className="w-full h-48 bg-slate-900 border border-slate-600 rounded-xl p-3 text-sm font-mono text-slate-300 outline-none"
