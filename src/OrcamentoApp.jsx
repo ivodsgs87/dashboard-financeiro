@@ -1029,6 +1029,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Calcular previsão de impostos inline
  const calcPrevisaoImpostos = () => {
    let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0;
+   const mesAtualNum = meses.indexOf(mesAtualSistema) + 1; // Converter para número (1-12)
    
    Object.entries(M).forEach(([key, mesData]) => {
      if (!key.startsWith(anoAtualSistema.toString())) return;
@@ -1059,7 +1060,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // SS próximo mês (média 3 meses)
    const ultimos3Meses = [];
    for (let i = 0; i < 3; i++) {
-     const m = mesAtualSistema - i;
+     const m = mesAtualNum - i;
      const a = m <= 0 ? anoAtualSistema - 1 : anoAtualSistema;
      const mKey = `${a}-${m <= 0 ? 12 + m : m}`;
      const mesData = M[mKey] || {};
@@ -1069,8 +1070,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
    const ssProximoMes = (ultimos3Meses.reduce((a, b) => a + b, 0) / 3) * 0.70 * 0.214;
    
-   // IVA trimestre
-   const trimestreAtual = Math.ceil(mesAtualSistema / 3);
+   // IVA trimestre atual
+   const trimestreAtual = Math.ceil(mesAtualNum / 3);
    const mesesDoTrimestre = [trimestreAtual * 3 - 2, trimestreAtual * 3 - 1, trimestreAtual * 3];
    let ivaTrimestreAtual = 0;
    mesesDoTrimestre.forEach(m => {
@@ -1085,7 +1086,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
    const totalImpostos = ssAnual + totalIVA + Math.max(0, -irsAPagarReceber);
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, proximoTrimestre, anoProximoTrimestre, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
  };
  const previsaoImpostos = calcPrevisaoImpostos();
  
@@ -1165,92 +1166,67 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </div>
      </div>
    </Card>
+ </div>
+ 
+ {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
+ <Card>
+   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+     <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
+     <div className="flex items-center gap-4">
+       <span className="text-xs text-slate-500">Total anual:</span>
+       <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos)}</span>
+     </div>
+   </div>
    
-   <Card>
-     <div className="flex justify-between items-center mb-3">
-       <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
-       <span className="text-lg font-bold text-orange-400">
-         {fmt(previsaoImpostos.totalImpostos)}/ano
-       </span>
+   {/* Grid horizontal com todos os impostos */}
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     {/* Próximo SS */}
+     <div className="p-3 bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl">
+       <div className="flex items-center gap-2 mb-1">
+         <span className="text-blue-400">🏛️</span>
+         <span className="text-xs text-slate-400">SS (dia 10-20)</span>
+       </div>
+       <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssProximoMes)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Anual: {fmt(previsaoImpostos.ssAnual)}</p>
      </div>
      
-     {/* PRÓXIMOS PAGAMENTOS - Destaque */}
-     <div className="p-3 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-xl mb-4">
-       <p className="text-xs text-amber-400 font-semibold mb-2">💰 PRÓXIMOS PAGAMENTOS</p>
-       <div className="grid grid-cols-2 gap-3">
-         <div className="text-center">
-           <p className="text-[10px] text-slate-400">SS (até dia 20)</p>
-           <p className="text-lg font-bold text-blue-400">{fmt(previsaoImpostos.ssProximoMes)}</p>
-         </div>
-         <div className="text-center">
-           <p className="text-[10px] text-slate-400">IVA T{previsaoImpostos.proximoTrimestre}/{previsaoImpostos.anoProximoTrimestre}</p>
-           <p className="text-lg font-bold text-purple-400">{fmt(previsaoImpostos.ivaTrimestreAtual)}</p>
-         </div>
+     {/* Próximo IVA */}
+     <div className="p-3 bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl">
+       <div className="flex items-center gap-2 mb-1">
+         <span className="text-purple-400">💶</span>
+         <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAtual}</span>
        </div>
+       <p className="text-xl font-bold text-purple-400">{fmt(previsaoImpostos.ivaTrimestreAtual)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Anual: {fmt(previsaoImpostos.ivaAPagar)}</p>
      </div>
      
-     {/* Segurança Social */}
-     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl mb-3">
-       <div className="flex justify-between items-center mb-2">
-         <span className="text-sm font-medium">🏛️ Segurança Social</span>
-         <span className="font-bold text-blue-400">{fmt(previsaoImpostos.ssAnual)}/ano</span>
+     {/* IRS Anual */}
+     <div className={`p-3 rounded-xl ${previsaoImpostos.irsAPagarReceber >= 0 ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30' : 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30'}`}>
+       <div className="flex items-center gap-2 mb-1">
+         <span className={previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}>📋</span>
+         <span className="text-xs text-slate-400">IRS Anual</span>
        </div>
-       <div className="flex justify-between text-xs text-slate-400">
-         <span>Próximo: <span className="text-blue-300 font-medium">{fmt(previsaoImpostos.ssProximoMes)}</span></span>
-         <span>Base: {fmt(previsaoImpostos.rendimentoRelevanteSS)} (70%)</span>
-       </div>
-       <p className="text-[10px] text-slate-600 mt-1">21.4% × 70% do rendimento (média 3 meses)</p>
+       <p className={`text-xl font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+         {previsaoImpostos.irsAPagarReceber >= 0 ? '+' : ''}{fmt(previsaoImpostos.irsAPagarReceber)}
+       </p>
+       <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
      </div>
      
-     {/* IVA */}
-     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl mb-3">
-       <div className="flex justify-between items-center mb-2">
-         <span className="text-sm font-medium">💶 IVA a Entregar</span>
-         <span className="font-bold text-purple-400">{fmt(previsaoImpostos.ivaAPagar)}/ano</span>
+     {/* Receitas por país */}
+     <div className="p-3 bg-gradient-to-br from-slate-500/20 to-slate-600/10 border border-slate-500/30 rounded-xl">
+       <div className="flex items-center gap-2 mb-1">
+         <span>🌍</span>
+         <span className="text-xs text-slate-400">Receitas {anoAtualSistema}</span>
        </div>
-       <div className="flex justify-between text-xs text-slate-400">
-         <span>T{previsaoImpostos.proximoTrimestre}: <span className="text-purple-300 font-medium">{fmt(previsaoImpostos.ivaTrimestreAtual)}</span></span>
-         <span>Só PT: {fmt(previsaoImpostos.totalPT)}</span>
-       </div>
-       <p className="text-[10px] text-slate-600 mt-1">Soma IVA cobrado nos recibos (só clientes PT)</p>
-     </div>
-     
-     {/* IRS */}
-     <div className={`p-3 rounded-xl ${previsaoImpostos.irsAPagarReceber >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-       <div className="flex justify-between items-center mb-2">
-         <span className="text-sm font-medium">📋 IRS (Anual)</span>
-         <span className={`font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-           {previsaoImpostos.irsAPagarReceber >= 0 ? 'Receber ' : 'Pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber))}
-         </span>
-       </div>
-       <div className="grid grid-cols-3 gap-2 text-xs">
-         <div className="text-center">
-           <p className="text-slate-500">Estimado</p>
-           <p className="font-semibold text-orange-400">{fmt(previsaoImpostos.irsEstimado)}</p>
-         </div>
-         <div className="text-center">
-           <p className="text-slate-500">Retido</p>
-           <p className="font-semibold text-blue-400">{fmt(previsaoImpostos.irsRetencoes)}</p>
-         </div>
-         <div className="text-center">
-           <p className="text-slate-500">Taxa</p>
-           <p className="font-semibold">{previsaoImpostos.irsTaxaEfetiva.toFixed(1)}%</p>
-         </div>
-       </div>
-       <p className="text-[10px] text-slate-600 mt-2">75% rendimento × escalões - deduções</p>
-     </div>
-     
-     {/* Resumo por país */}
-     {(previsaoImpostos.totalUE > 0 || previsaoImpostos.totalForaUE > 0) && (
-       <div className="mt-3 pt-3 border-t border-slate-700 flex gap-3 text-xs">
-         <span className="text-slate-400">Receitas:</span>
+       <p className="text-xl font-bold text-white">{fmt(previsaoImpostos.totalIliquido)}</p>
+       <div className="flex gap-2 text-[10px] text-slate-500 mt-1">
          <span>🇵🇹 {fmt(previsaoImpostos.totalPT)}</span>
          {previsaoImpostos.totalUE > 0 && <span>🇪🇺 {fmt(previsaoImpostos.totalUE)}</span>}
          {previsaoImpostos.totalForaUE > 0 && <span>🌍 {fmt(previsaoImpostos.totalForaUE)}</span>}
        </div>
-     )}
-   </Card>
- </div>
+     </div>
+   </div>
+ </Card>
 
  {/* METAS ANUAIS */}
  <Card>
