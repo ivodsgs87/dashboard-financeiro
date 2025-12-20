@@ -1038,12 +1038,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="font-semibold">📅 Próximas Datas Fiscais</h3>
      <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
    </div>
-   {tarefasPend.atrasadas.length > 0 && (
-     <div className="p-2 mb-3 bg-red-500/10 border border-red-500/30 rounded-lg cursor-pointer hover:bg-red-500/20" onClick={() => setTab('agenda')}>
-       <p className="text-sm text-red-400 font-medium">⚠️ {tarefasPend.atrasadas.length} tarefa(s) atrasada(s)!</p>
-     </div>
-   )}
    <div className="space-y-2">
+     {/* Tarefas atrasadas primeiro - em laranja */}
+     {(tarefasPend.atrasadas || []).map((t, i) => {
+       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
+       const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
+       return (
+         <div key={`atrasada-${i}`} onClick={() => setTab('agenda')} className="flex items-center gap-2 p-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-sm cursor-pointer hover:bg-orange-500/30 transition-colors">
+           <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">
+             {t.dia} {t.mesNome?.slice(0,3)}
+           </span>
+           <span className="flex-1 truncate text-orange-300">{descComMes}</span>
+           <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+           <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️ Atrasada</span>
+         </div>
+       );
+     })}
+     {/* Próximas tarefas */}
      {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
        const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
        const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
@@ -1059,7 +1070,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        );
      })}
-     {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (
+     {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (tarefasPend.atrasadas || []).length === 0 && (
        <p className="text-center text-slate-500 text-sm py-2">Sem tarefas próximas</p>
      )}
    </div>
@@ -1096,8 +1107,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <div className="flex justify-between items-center mb-3">
        <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
        <span className="text-lg font-bold text-orange-400">
-         {fmt(previsaoImpostos.totalImpostos)}
+         {fmt(previsaoImpostos.totalImpostos)}/ano
        </span>
+     </div>
+     
+     {/* PRÓXIMOS PAGAMENTOS - Destaque */}
+     <div className="p-3 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-xl mb-4">
+       <p className="text-xs text-amber-400 font-semibold mb-2">💰 PRÓXIMOS PAGAMENTOS</p>
+       <div className="grid grid-cols-2 gap-3">
+         <div className="text-center">
+           <p className="text-[10px] text-slate-400">SS (até dia 20)</p>
+           <p className="text-lg font-bold text-blue-400">{fmt(previsaoImpostos.ssProximoMes)}</p>
+         </div>
+         <div className="text-center">
+           <p className="text-[10px] text-slate-400">IVA T{previsaoImpostos.proximoTrimestre}/{previsaoImpostos.anoProximoTrimestre}</p>
+           <p className="text-lg font-bold text-purple-400">{fmt(previsaoImpostos.ivaTrimestreAtual)}</p>
+         </div>
+       </div>
      </div>
      
      {/* Segurança Social */}
@@ -1107,10 +1133,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <span className="font-bold text-blue-400">{fmt(previsaoImpostos.ssAnual)}/ano</span>
        </div>
        <div className="flex justify-between text-xs text-slate-400">
-         <span>Mensal: {fmt(previsaoImpostos.ssMensal)}</span>
+         <span>Próximo: <span className="text-blue-300 font-medium">{fmt(previsaoImpostos.ssProximoMes)}</span></span>
          <span>Base: {fmt(previsaoImpostos.rendimentoRelevanteSS)} (70%)</span>
        </div>
-       <p className="text-[10px] text-slate-600 mt-1">21.4% × 70% do rendimento</p>
+       <p className="text-[10px] text-slate-600 mt-1">21.4% × 70% do rendimento (média 3 meses)</p>
      </div>
      
      {/* IVA */}
@@ -1120,16 +1146,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <span className="font-bold text-purple-400">{fmt(previsaoImpostos.ivaAPagar)}/ano</span>
        </div>
        <div className="flex justify-between text-xs text-slate-400">
-         <span>Trimestral: ~{fmt(previsaoImpostos.ivaTrimestral)}</span>
+         <span>T{previsaoImpostos.proximoTrimestre}: <span className="text-purple-300 font-medium">{fmt(previsaoImpostos.ivaTrimestreAtual)}</span></span>
          <span>Só PT: {fmt(previsaoImpostos.totalPT)}</span>
        </div>
-       <p className="text-[10px] text-slate-600 mt-1">Soma IVA cobrado (só clientes PT)</p>
+       <p className="text-[10px] text-slate-600 mt-1">Soma IVA cobrado nos recibos (só clientes PT)</p>
      </div>
      
      {/* IRS */}
      <div className={`p-3 rounded-xl ${previsaoImpostos.irsAPagarReceber >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
        <div className="flex justify-between items-center mb-2">
-         <span className="text-sm font-medium">📋 IRS</span>
+         <span className="text-sm font-medium">📋 IRS (Anual)</span>
          <span className={`font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
            {previsaoImpostos.irsAPagarReceber >= 0 ? 'Receber ' : 'Pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber))}
          </span>
@@ -1644,7 +1670,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const pais = editRecibo.pais || 'PT';
                      const taxaIva = pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
                      const iva = val * taxaIva / 100;
-                     const retIRS = pais === 'PT' ? val * 0.25 : 0; // 25% retenção padrão
+                     const retIRS = pais === 'PT' ? val * 0.23 : 0; // 23% retenção IRS (art. 101.º CIRS)
                      setEditRecibo({...editRecibo, valIliq: val, iva, retIRS, val: val});
                    }}
                    
@@ -1696,7 +1722,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
                  {(editRecibo.pais || 'PT') === 'PT' && editRecibo.valIliq > 0 && (
-                   <p className="text-[10px] text-slate-500 mt-1">Sugestão 25%: {fmt((editRecibo.valIliq || 0) * 0.25)}</p>
+                   <p className="text-[10px] text-slate-500 mt-1">Sugestão 23%: {fmt((editRecibo.valIliq || 0) * 0.23)}</p>
                  )}
                </div>
              </div>
@@ -4949,10 +4975,20 @@ ${transacoesOrdenadas.map(t => `<tr>
      const concluida = tarefasConcluidas[key];
      
      if (!concluida) {
+       // Calcular valor a pagar para SS e IVA
+       let valorPagar = '';
+       if (t.cat === 'SS') {
+         const previsao = getPrevisaoImpostos();
+         valorPagar = ` - ${fmt(previsao.ssProximoMes)}`;
+       } else if (t.cat === 'IVA') {
+         const previsao = getPrevisaoImpostos();
+         valorPagar = ` - ${fmt(previsao.ivaTrimestreAtual)}`;
+       }
+       
        if (t.dia < diaHoje) {
-         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc} (dia ${t.dia})`});
+         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc}${valorPagar} (dia ${t.dia})`});
        } else if (t.dia <= diaHoje + 3) {
-         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc} (dia ${t.dia})`});
+         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc}${valorPagar} (dia ${t.dia})`});
        }
      }
    });
@@ -4968,7 +5004,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    
    return alerts;
- }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias]);
+ }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias, getPrevisaoImpostos]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -5091,9 +5127,38 @@ ${transacoesOrdenadas.map(t => `<tr>
    const ssAnual = rendimentoRelevanteSS * 0.214;
    const ssMensal = ssAnual / 12;
    
+   // Calcular SS do próximo mês (baseado na média dos últimos 3 meses)
+   const ultimos3Meses = [];
+   for (let i = 0; i < 3; i++) {
+     const m = mesAtualSistema - i;
+     const a = m <= 0 ? anoAtualSistema - 1 : anoAtualSistema;
+     const mKey = `${a}-${m <= 0 ? 12 + m : m}`;
+     const mesData = M[mKey] || {};
+     const recMes = (mesData.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
+                    (mesData.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+     ultimos3Meses.push(recMes);
+   }
+   const mediaReceitasMensal = ultimos3Meses.reduce((a, b) => a + b, 0) / 3;
+   const ssProximoMes = mediaReceitasMensal * 0.70 * 0.214;
+   
    // IVA: soma do IVA cobrado (só PT, trimestral)
    const ivaAPagar = totalIVA;
    const ivaTrimestral = ivaAPagar / 4;
+   
+   // Calcular IVA do próximo trimestre (baseado nos últimos 3 meses do trimestre)
+   const mesAtual = mesAtualSistema;
+   const trimestreAtual = Math.ceil(mesAtual / 3);
+   const mesesDoTrimestre = [trimestreAtual * 3 - 2, trimestreAtual * 3 - 1, trimestreAtual * 3];
+   let ivaTrimestreAtual = 0;
+   mesesDoTrimestre.forEach(m => {
+     const mKey = `${anoAtualSistema}-${m}`;
+     const mesData = M[mKey] || {};
+     (mesData.regCom || []).forEach(r => {
+       ivaTrimestreAtual += r.iva || 0;
+     });
+   });
+   const proximoTrimestre = trimestreAtual < 4 ? trimestreAtual + 1 : 1;
+   const anoProximoTrimestre = trimestreAtual < 4 ? anoAtualSistema : anoAtualSistema + 1;
    
    // IRS: usar a função existente mas com retenções reais se disponíveis
    const previsaoIRS = getPrevisaoIRS();
@@ -5113,11 +5178,15 @@ ${transacoesOrdenadas.map(t => `<tr>
      // Segurança Social
      ssAnual,
      ssMensal,
+     ssProximoMes,
      rendimentoRelevanteSS,
      
      // IVA
      ivaAPagar,
      ivaTrimestral,
+     ivaTrimestreAtual,
+     proximoTrimestre,
+     anoProximoTrimestre,
      
      // IRS
      irsEstimado: previsaoIRS.impostoEstimado,
@@ -5128,7 +5197,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      // Total
      totalImpostos
    };
- }, [M, anoAtualSistema, getPrevisaoIRS]);
+ }, [M, anoAtualSistema, mesAtualSistema, getPrevisaoIRS]);
 
  // Comparação de despesas mês a mês
  const getComparacaoDespesas = useCallback(() => {
