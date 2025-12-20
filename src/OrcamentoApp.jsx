@@ -1025,7 +1025,70 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  const projecao = getProjecaoAnual();
  const previsaoIRS = getPrevisaoIRS();
- const previsaoImpostos = getPrevisaoImpostos();
+ 
+ // Calcular previsão de impostos inline
+ const calcPrevisaoImpostos = () => {
+   let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0;
+   
+   Object.entries(M).forEach(([key, mesData]) => {
+     if (!key.startsWith(anoAtualSistema.toString())) return;
+     (mesData.regCom || []).forEach(r => {
+       const valIliq = r.valIliq || r.val || 0;
+       totalIliquido += valIliq;
+       totalIVA += r.iva || 0;
+       totalRetIRS += r.retIRS || 0;
+       const pais = r.pais || 'PT';
+       if (pais === 'PT') totalPT += valIliq;
+       else if (pais === 'UE') totalUE += valIliq;
+       else totalForaUE += valIliq;
+     });
+     (mesData.regSem || []).forEach(r => {
+       const valIliq = r.valIliq || r.val || 0;
+       totalIliquido += valIliq;
+       const pais = r.pais || 'PT';
+       if (pais === 'PT') totalPT += valIliq;
+       else if (pais === 'UE') totalUE += valIliq;
+       else totalForaUE += valIliq;
+     });
+   });
+   
+   const rendimentoRelevanteSS = totalIliquido * 0.70;
+   const ssAnual = rendimentoRelevanteSS * 0.214;
+   const ssMensal = ssAnual / 12;
+   
+   // SS próximo mês (média 3 meses)
+   const ultimos3Meses = [];
+   for (let i = 0; i < 3; i++) {
+     const m = mesAtualSistema - i;
+     const a = m <= 0 ? anoAtualSistema - 1 : anoAtualSistema;
+     const mKey = `${a}-${m <= 0 ? 12 + m : m}`;
+     const mesData = M[mKey] || {};
+     const recMes = (mesData.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
+                    (mesData.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+     ultimos3Meses.push(recMes);
+   }
+   const ssProximoMes = (ultimos3Meses.reduce((a, b) => a + b, 0) / 3) * 0.70 * 0.214;
+   
+   // IVA trimestre
+   const trimestreAtual = Math.ceil(mesAtualSistema / 3);
+   const mesesDoTrimestre = [trimestreAtual * 3 - 2, trimestreAtual * 3 - 1, trimestreAtual * 3];
+   let ivaTrimestreAtual = 0;
+   mesesDoTrimestre.forEach(m => {
+     const mKey = `${anoAtualSistema}-${m}`;
+     const mesData = M[mKey] || {};
+     (mesData.regCom || []).forEach(r => { ivaTrimestreAtual += r.iva || 0; });
+   });
+   const proximoTrimestre = trimestreAtual < 4 ? trimestreAtual + 1 : 1;
+   const anoProximoTrimestre = trimestreAtual < 4 ? anoAtualSistema : anoAtualSistema + 1;
+   
+   const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
+   const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
+   const totalImpostos = ssAnual + totalIVA + Math.max(0, -irsAPagarReceber);
+   
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, proximoTrimestre, anoProximoTrimestre, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
+ };
+ const previsaoImpostos = calcPrevisaoImpostos();
+ 
  const compDespesas = getComparacaoDespesas();
  const patrimonio = getPatrimonioLiquido();
  const tarefasPend = getTarefasPendentes();
@@ -4975,20 +5038,10 @@ ${transacoesOrdenadas.map(t => `<tr>
      const concluida = tarefasConcluidas[key];
      
      if (!concluida) {
-       // Calcular valor a pagar para SS e IVA
-       let valorPagar = '';
-       if (t.cat === 'SS') {
-         const previsao = getPrevisaoImpostos();
-         valorPagar = ` - ${fmt(previsao.ssProximoMes)}`;
-       } else if (t.cat === 'IVA') {
-         const previsao = getPrevisaoImpostos();
-         valorPagar = ` - ${fmt(previsao.ivaTrimestreAtual)}`;
-       }
-       
        if (t.dia < diaHoje) {
-         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc}${valorPagar} (dia ${t.dia})`});
+         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc} (dia ${t.dia})`, cat: t.cat});
        } else if (t.dia <= diaHoje + 3) {
-         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc}${valorPagar} (dia ${t.dia})`});
+         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc} (dia ${t.dia})`, cat: t.cat});
        }
      }
    });
@@ -5004,7 +5057,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    
    return alerts;
- }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias, getPrevisaoImpostos]);
+ }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -5083,121 +5136,6 @@ ${transacoesOrdenadas.map(t => `<tr>
      taxaEfetiva: receitasAnuais > 0 ? (impostoFinal / receitasAnuais * 100) : 0
    };
  }, [getHist, taxa]);
-
- // Previsão completa de impostos (SS, IVA, IRS) baseada em recibos verdes
- const getPrevisaoImpostos = useCallback(() => {
-   // Buscar todos os recibos do ano
-   let totalIliquido = 0;
-   let totalIVA = 0;
-   let totalRetIRS = 0;
-   let totalPT = 0;
-   let totalUE = 0;
-   let totalForaUE = 0;
-   
-   Object.entries(M).forEach(([key, mesData]) => {
-     if (!key.startsWith(anoAtualSistema.toString())) return;
-     
-     // Receitas com taxas
-     (mesData.regCom || []).forEach(r => {
-       const valIliq = r.valIliq || r.val || 0;
-       totalIliquido += valIliq;
-       totalIVA += r.iva || 0;
-       totalRetIRS += r.retIRS || 0;
-       
-       const pais = r.pais || 'PT';
-       if (pais === 'PT') totalPT += valIliq;
-       else if (pais === 'UE') totalUE += valIliq;
-       else totalForaUE += valIliq;
-     });
-     
-     // Receitas sem taxas também contam para SS
-     (mesData.regSem || []).forEach(r => {
-       const valIliq = r.valIliq || r.val || 0;
-       totalIliquido += valIliq;
-       
-       const pais = r.pais || 'PT';
-       if (pais === 'PT') totalPT += valIliq;
-       else if (pais === 'UE') totalUE += valIliq;
-       else totalForaUE += valIliq;
-     });
-   });
-   
-   // Segurança Social: 21.4% sobre 70% do rendimento relevante
-   const rendimentoRelevanteSS = totalIliquido * 0.70;
-   const ssAnual = rendimentoRelevanteSS * 0.214;
-   const ssMensal = ssAnual / 12;
-   
-   // Calcular SS do próximo mês (baseado na média dos últimos 3 meses)
-   const ultimos3Meses = [];
-   for (let i = 0; i < 3; i++) {
-     const m = mesAtualSistema - i;
-     const a = m <= 0 ? anoAtualSistema - 1 : anoAtualSistema;
-     const mKey = `${a}-${m <= 0 ? 12 + m : m}`;
-     const mesData = M[mKey] || {};
-     const recMes = (mesData.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
-                    (mesData.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
-     ultimos3Meses.push(recMes);
-   }
-   const mediaReceitasMensal = ultimos3Meses.reduce((a, b) => a + b, 0) / 3;
-   const ssProximoMes = mediaReceitasMensal * 0.70 * 0.214;
-   
-   // IVA: soma do IVA cobrado (só PT, trimestral)
-   const ivaAPagar = totalIVA;
-   const ivaTrimestral = ivaAPagar / 4;
-   
-   // Calcular IVA do próximo trimestre (baseado nos últimos 3 meses do trimestre)
-   const mesAtual = mesAtualSistema;
-   const trimestreAtual = Math.ceil(mesAtual / 3);
-   const mesesDoTrimestre = [trimestreAtual * 3 - 2, trimestreAtual * 3 - 1, trimestreAtual * 3];
-   let ivaTrimestreAtual = 0;
-   mesesDoTrimestre.forEach(m => {
-     const mKey = `${anoAtualSistema}-${m}`;
-     const mesData = M[mKey] || {};
-     (mesData.regCom || []).forEach(r => {
-       ivaTrimestreAtual += r.iva || 0;
-     });
-   });
-   const proximoTrimestre = trimestreAtual < 4 ? trimestreAtual + 1 : 1;
-   const anoProximoTrimestre = trimestreAtual < 4 ? anoAtualSistema : anoAtualSistema + 1;
-   
-   // IRS: usar a função existente mas com retenções reais se disponíveis
-   const previsaoIRS = getPrevisaoIRS();
-   const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
-   const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
-   
-   // Total de impostos
-   const totalImpostos = ssAnual + ivaAPagar + Math.max(0, -irsAPagarReceber);
-   
-   return {
-     // Totais
-     totalIliquido,
-     totalPT,
-     totalUE,
-     totalForaUE,
-     
-     // Segurança Social
-     ssAnual,
-     ssMensal,
-     ssProximoMes,
-     rendimentoRelevanteSS,
-     
-     // IVA
-     ivaAPagar,
-     ivaTrimestral,
-     ivaTrimestreAtual,
-     proximoTrimestre,
-     anoProximoTrimestre,
-     
-     // IRS
-     irsEstimado: previsaoIRS.impostoEstimado,
-     irsRetencoes: retencoesReais,
-     irsAPagarReceber,
-     irsTaxaEfetiva: previsaoIRS.taxaEfetiva,
-     
-     // Total
-     totalImpostos
-   };
- }, [M, anoAtualSistema, mesAtualSistema, getPrevisaoIRS]);
 
  // Comparação de despesas mês a mês
  const getComparacaoDespesas = useCallback(() => {
