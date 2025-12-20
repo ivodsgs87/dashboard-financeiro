@@ -1097,10 +1097,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
    </div>
    <div className="space-y-2">
-     {/* DEBUG - remover depois */}
-     {false && <div className="text-xs text-red-400 p-2 bg-red-500/20 rounded">
-       Debug: {JSON.stringify({atrasadas: tarefasPend.atrasadas?.length, proximas: tarefasPend.proximasTarefas?.length})}
-     </div>}
+     {/* DEBUG - mostra info das tarefas */}
+     {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
+       <div className="text-xs text-amber-400 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+         <p>⚠️ Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
+         <button 
+           onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }}
+           className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+         >
+           🔄 Resetar tarefas para valores default
+         </button>
+       </div>
+     )}
      {/* Tarefas atrasadas primeiro - em laranja */}
      {(tarefasPend.atrasadas || []).map((t, i) => {
        const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
