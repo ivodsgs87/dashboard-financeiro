@@ -1020,6 +1020,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  const projecao = getProjecaoAnual();
  const previsaoIRS = getPrevisaoIRS();
+ const previsaoImpostos = getPrevisaoImpostos();
  const compDespesas = getComparacaoDespesas();
  const patrimonio = getPatrimonioLiquido();
  const tarefasPend = getTarefasPendentes();
@@ -1088,25 +1089,72 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    <Card>
      <div className="flex justify-between items-center mb-3">
-       <h3 className="font-semibold">📊 Previsão IRS {anoAtualSistema}</h3>
-       <span className={`text-xl font-bold ${previsaoIRS.aPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-         {previsaoIRS.aPagarReceber >= 0 ? 'Receber ' : 'Pagar '}{fmt(Math.abs(previsaoIRS.aPagarReceber))}
+       <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
+       <span className="text-lg font-bold text-orange-400">
+         {fmt(previsaoImpostos.totalImpostos)}
        </span>
      </div>
-     <div className="grid grid-cols-3 gap-2 text-sm">
-       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
-         <p className="text-xs text-slate-500">IRS Est.</p>
-         <p className="font-semibold text-orange-400">{fmt(previsaoIRS.impostoEstimado)}</p>
+     
+     {/* Segurança Social */}
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl mb-3">
+       <div className="flex justify-between items-center mb-2">
+         <span className="text-sm font-medium">🏛️ Segurança Social</span>
+         <span className="font-bold text-blue-400">{fmt(previsaoImpostos.ssAnual)}/ano</span>
        </div>
-       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
-         <p className="text-xs text-slate-500">Retido</p>
-         <p className="font-semibold text-blue-400">{fmt(previsaoIRS.retencoes)}</p>
+       <div className="flex justify-between text-xs text-slate-400">
+         <span>Mensal: {fmt(previsaoImpostos.ssMensal)}</span>
+         <span>Base: {fmt(previsaoImpostos.rendimentoRelevanteSS)} (70%)</span>
        </div>
-       <div className="p-2 bg-slate-700/30 rounded-lg text-center">
-         <p className="text-xs text-slate-500">Taxa</p>
-         <p className="font-semibold">{previsaoIRS.taxaEfetiva.toFixed(1)}%</p>
-       </div>
+       <p className="text-[10px] text-slate-600 mt-1">21.4% × 70% do rendimento</p>
      </div>
+     
+     {/* IVA */}
+     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl mb-3">
+       <div className="flex justify-between items-center mb-2">
+         <span className="text-sm font-medium">💶 IVA a Entregar</span>
+         <span className="font-bold text-purple-400">{fmt(previsaoImpostos.ivaAPagar)}/ano</span>
+       </div>
+       <div className="flex justify-between text-xs text-slate-400">
+         <span>Trimestral: ~{fmt(previsaoImpostos.ivaTrimestral)}</span>
+         <span>Só PT: {fmt(previsaoImpostos.totalPT)}</span>
+       </div>
+       <p className="text-[10px] text-slate-600 mt-1">Soma IVA cobrado (só clientes PT)</p>
+     </div>
+     
+     {/* IRS */}
+     <div className={`p-3 rounded-xl ${previsaoImpostos.irsAPagarReceber >= 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+       <div className="flex justify-between items-center mb-2">
+         <span className="text-sm font-medium">📋 IRS</span>
+         <span className={`font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+           {previsaoImpostos.irsAPagarReceber >= 0 ? 'Receber ' : 'Pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber))}
+         </span>
+       </div>
+       <div className="grid grid-cols-3 gap-2 text-xs">
+         <div className="text-center">
+           <p className="text-slate-500">Estimado</p>
+           <p className="font-semibold text-orange-400">{fmt(previsaoImpostos.irsEstimado)}</p>
+         </div>
+         <div className="text-center">
+           <p className="text-slate-500">Retido</p>
+           <p className="font-semibold text-blue-400">{fmt(previsaoImpostos.irsRetencoes)}</p>
+         </div>
+         <div className="text-center">
+           <p className="text-slate-500">Taxa</p>
+           <p className="font-semibold">{previsaoImpostos.irsTaxaEfetiva.toFixed(1)}%</p>
+         </div>
+       </div>
+       <p className="text-[10px] text-slate-600 mt-2">75% rendimento × escalões - deduções</p>
+     </div>
+     
+     {/* Resumo por país */}
+     {(previsaoImpostos.totalUE > 0 || previsaoImpostos.totalForaUE > 0) && (
+       <div className="mt-3 pt-3 border-t border-slate-700 flex gap-3 text-xs">
+         <span className="text-slate-400">Receitas:</span>
+         <span>🇵🇹 {fmt(previsaoImpostos.totalPT)}</span>
+         {previsaoImpostos.totalUE > 0 && <span>🇪🇺 {fmt(previsaoImpostos.totalUE)}</span>}
+         {previsaoImpostos.totalForaUE > 0 && <span>🌍 {fmt(previsaoImpostos.totalForaUE)}</span>}
+       </div>
+     )}
    </Card>
  </div>
 
@@ -1494,8 +1542,178 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // RECEITAS
- const Receitas = () => (
- <div className="space-y-6">
+ const Receitas = () => {
+   const [editRecibo, setEditRecibo] = useState(null);
+   const [showReciboModal, setShowReciboModal] = useState(false);
+   
+   const paisOptions = ['PT', 'UE', 'Fora UE'];
+   
+   const openReciboModal = (r, tipo) => {
+     setEditRecibo({...r, tipo});
+     setShowReciboModal(true);
+   };
+   
+   const saveRecibo = () => {
+     if (!editRecibo) return;
+     const field = editRecibo.tipo === 'com' ? 'regCom' : 'regSem';
+     const list = editRecibo.tipo === 'com' ? regCom : regSem;
+     uM(field, list.map(x => x.id === editRecibo.id ? {
+       ...x,
+       desc: editRecibo.desc,
+       val: editRecibo.val,
+       cid: editRecibo.cid,
+       // Campos do recibo verde
+       valIliq: editRecibo.valIliq || 0,
+       iva: editRecibo.iva || 0,
+       taxaIva: editRecibo.taxaIva || 23,
+       retIRS: editRecibo.retIRS || 0,
+       pais: editRecibo.pais || 'PT'
+     } : x));
+     setShowReciboModal(false);
+     setEditRecibo(null);
+   };
+   
+   const ReciboModal = () => {
+     if (!showReciboModal || !editRecibo) return null;
+     
+     // Calcular total do documento e total a pagar
+     const valIliq = parseFloat(editRecibo.valIliq) || 0;
+     const iva = parseFloat(editRecibo.iva) || 0;
+     const retIRS = parseFloat(editRecibo.retIRS) || 0;
+     const totalDoc = valIliq + iva;
+     const totalPagar = totalDoc - retIRS;
+     
+     return (
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowReciboModal(false); setEditRecibo(null); }}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-semibold">📄 Detalhes do Recibo Verde</h3>
+             <button onClick={() => {setShowReciboModal(false); setEditRecibo(null);}} className="text-slate-400 hover:text-white">✕</button>
+           </div>
+           <div className="p-4 space-y-4">
+             <div className="grid grid-cols-2 gap-3">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Cliente</label>
+                 <select 
+                   className={`w-full ${inputClass}`} 
+                   value={editRecibo.cid} 
+                   onChange={e => setEditRecibo({...editRecibo, cid: +e.target.value})}
+                   onKeyDown={e => e.stopPropagation()}
+                 >
+                   {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                 </select>
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">País</label>
+                 <select 
+                   className={`w-full ${inputClass}`} 
+                   value={editRecibo.pais || 'PT'} 
+                   onChange={e => setEditRecibo({...editRecibo, pais: e.target.value, taxaIva: e.target.value === 'PT' ? 23 : 0, iva: e.target.value === 'PT' ? (editRecibo.valIliq || 0) * 0.23 : 0})}
+                   onKeyDown={e => e.stopPropagation()}
+                 >
+                   {paisOptions.map(p => <option key={p} value={p}>{p === 'PT' ? '🇵🇹 Portugal' : p === 'UE' ? '🇪🇺 UE' : '🌍 Fora UE'}</option>)}
+                 </select>
+               </div>
+             </div>
+             
+             <div>
+               <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
+               <input 
+                 className={`w-full ${inputClass}`} 
+                 value={editRecibo.desc || ''} 
+                 onChange={e => setEditRecibo({...editRecibo, desc: e.target.value})}
+                 onKeyDown={e => e.stopPropagation()}
+                 placeholder="Descrição do serviço..."
+               />
+             </div>
+             
+             <div className="grid grid-cols-2 gap-3">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Valor Ilíquido (Base)</label>
+                 <input 
+                   type="number" 
+                   className={`w-full ${inputClass}`} 
+                   value={editRecibo.valIliq || ''} 
+                   onChange={e => {
+                     const val = parseFloat(e.target.value) || 0;
+                     const taxaIva = editRecibo.pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
+                     setEditRecibo({...editRecibo, valIliq: val, iva: val * taxaIva / 100, val: val});
+                   }}
+                   onKeyDown={e => e.stopPropagation()}
+                   placeholder="0.00"
+                 />
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Taxa IVA (%)</label>
+                 <select 
+                   className={`w-full ${inputClass}`} 
+                   value={editRecibo.taxaIva || 23} 
+                   onChange={e => {
+                     const taxa = parseFloat(e.target.value);
+                     setEditRecibo({...editRecibo, taxaIva: taxa, iva: (editRecibo.valIliq || 0) * taxa / 100});
+                   }}
+                   onKeyDown={e => e.stopPropagation()}
+                   disabled={editRecibo.pais !== 'PT'}
+                 >
+                   <option value={0}>0% (Isento)</option>
+                   <option value={6}>6% (Reduzida)</option>
+                   <option value={13}>13% (Intermédia)</option>
+                   <option value={23}>23% (Normal)</option>
+                 </select>
+               </div>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-3">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">IVA (€)</label>
+                 <input 
+                   type="number" 
+                   className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
+                   value={editRecibo.iva || ''} 
+                   onChange={e => setEditRecibo({...editRecibo, iva: parseFloat(e.target.value) || 0})}
+                   onKeyDown={e => e.stopPropagation()}
+                   placeholder="0.00"
+                   disabled={editRecibo.pais !== 'PT'}
+                 />
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Retenção IRS (€)</label>
+                 <input 
+                   type="number" 
+                   className={`w-full ${inputClass} ${editRecibo.pais !== 'PT' ? 'opacity-50' : ''}`} 
+                   value={editRecibo.retIRS || ''} 
+                   onChange={e => setEditRecibo({...editRecibo, retIRS: parseFloat(e.target.value) || 0})}
+                   onKeyDown={e => e.stopPropagation()}
+                   placeholder="0.00"
+                   disabled={editRecibo.pais !== 'PT'}
+                 />
+               </div>
+             </div>
+             
+             <div className="p-3 bg-slate-700/50 rounded-xl space-y-2">
+               <div className="flex justify-between text-sm">
+                 <span className="text-slate-400">Total do Documento:</span>
+                 <span className="font-semibold">{fmt(totalDoc)}</span>
+               </div>
+               <div className="flex justify-between text-sm">
+                 <span className="text-slate-400">Total a Pagar:</span>
+                 <span className="font-bold text-green-400">{fmt(totalPagar)}</span>
+               </div>
+             </div>
+           </div>
+           <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+             <Button variant="secondary" onClick={() => {setShowReciboModal(false); setEditRecibo(null);}}>Cancelar</Button>
+             <Button onClick={saveRecibo}>Guardar</Button>
+           </div>
+         </div>
+       </div>
+     );
+   };
+   
+   return (
+   <>
+   <ReciboModal />
+   <div className="space-y-6">
  <Card>
  <h3 className="text-lg font-semibold mb-4">👥 Clientes</h3>
  <AddClienteInput 
@@ -1537,6 +1755,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
+       <button onClick={() => openReciboModal(r, 'com')} className="text-blue-400 hover:text-blue-300 p-0.5 sm:p-1 flex-shrink-0" title="Detalhes do recibo">📄</button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
@@ -1566,7 +1786,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  </Card>
  </div>
+ </>
  );
+ };
 
  // ABANCA
  const ABanca = () => {
@@ -3644,8 +3866,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const diasNomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
          
          return (
-         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddProjeto(false)}>
-           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddProjeto(false); }}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editProjeto ? '✏️ Editar Projeto' : '➕ Novo Projeto'}</h3>
                <div className="flex items-center gap-2">
@@ -3854,8 +4076,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const TarefaModal = () => {
      if (!showAddModal) return null;
      return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
              <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
@@ -3869,7 +4091,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  onChange={e => setNovaTarefa(prev => ({...prev, desc: e.target.value}))} 
                  onKeyDown={e => e.stopPropagation()}
                  placeholder="Ex: Pagar IVA trimestral"
-                 autoFocus
                />
              </div>
              <div className="grid grid-cols-2 gap-3">
@@ -4202,8 +4423,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: 'Esc', desc: 'Fechar modais' },
    ];
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowShortcuts(false)}>
-       <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl`} onClick={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
+       <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
          <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
            <h3 className="text-lg font-semibold">⌨️ Atalhos de Teclado</h3>
            <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-slate-300">✕</button>
@@ -4814,6 +5035,88 @@ ${transacoesOrdenadas.map(t => `<tr>
    };
  }, [getHist, taxa]);
 
+ // Previsão completa de impostos (SS, IVA, IRS) baseada em recibos verdes
+ const getPrevisaoImpostos = useCallback(() => {
+   // Buscar todos os recibos do ano
+   let totalIliquido = 0;
+   let totalIVA = 0;
+   let totalRetIRS = 0;
+   let totalPT = 0;
+   let totalUE = 0;
+   let totalForaUE = 0;
+   
+   Object.entries(M).forEach(([key, mesData]) => {
+     if (!key.startsWith(anoAtualSistema.toString())) return;
+     
+     // Receitas com taxas
+     (mesData.regCom || []).forEach(r => {
+       const valIliq = r.valIliq || r.val || 0;
+       totalIliquido += valIliq;
+       totalIVA += r.iva || 0;
+       totalRetIRS += r.retIRS || 0;
+       
+       const pais = r.pais || 'PT';
+       if (pais === 'PT') totalPT += valIliq;
+       else if (pais === 'UE') totalUE += valIliq;
+       else totalForaUE += valIliq;
+     });
+     
+     // Receitas sem taxas também contam para SS
+     (mesData.regSem || []).forEach(r => {
+       const valIliq = r.valIliq || r.val || 0;
+       totalIliquido += valIliq;
+       
+       const pais = r.pais || 'PT';
+       if (pais === 'PT') totalPT += valIliq;
+       else if (pais === 'UE') totalUE += valIliq;
+       else totalForaUE += valIliq;
+     });
+   });
+   
+   // Segurança Social: 21.4% sobre 70% do rendimento relevante
+   const rendimentoRelevanteSS = totalIliquido * 0.70;
+   const ssAnual = rendimentoRelevanteSS * 0.214;
+   const ssMensal = ssAnual / 12;
+   
+   // IVA: soma do IVA cobrado (só PT, trimestral)
+   const ivaAPagar = totalIVA;
+   const ivaTrimestral = ivaAPagar / 4;
+   
+   // IRS: usar a função existente mas com retenções reais se disponíveis
+   const previsaoIRS = getPrevisaoIRS();
+   const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
+   const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
+   
+   // Total de impostos
+   const totalImpostos = ssAnual + ivaAPagar + Math.max(0, -irsAPagarReceber);
+   
+   return {
+     // Totais
+     totalIliquido,
+     totalPT,
+     totalUE,
+     totalForaUE,
+     
+     // Segurança Social
+     ssAnual,
+     ssMensal,
+     rendimentoRelevanteSS,
+     
+     // IVA
+     ivaAPagar,
+     ivaTrimestral,
+     
+     // IRS
+     irsEstimado: previsaoIRS.impostoEstimado,
+     irsRetencoes: retencoesReais,
+     irsAPagarReceber,
+     irsTaxaEfetiva: previsaoIRS.taxaEfetiva,
+     
+     // Total
+     totalImpostos
+   };
+ }, [M, anoAtualSistema, getPrevisaoIRS]);
+
  // Comparação de despesas mês a mês
  const getComparacaoDespesas = useCallback(() => {
    const mesAnteriorIdx = meses.indexOf(mes) === 0 ? 11 : meses.indexOf(mes) - 1;
@@ -5085,8 +5388,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    if (!showRelatorio) return null;
    
    return (
-     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-8" onClick={() => setShowRelatorio(false)}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-8" onMouseDown={e => { if (e.target === e.currentTarget) setShowRelatorio(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center no-print">
            <div className="flex items-center gap-4">
              <h3 className="text-xl font-bold">📊 Relatório Anual</h3>
@@ -5201,8 +5504,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    const results = searchResults();
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-20" onClick={() => setShowSearch(false)}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-20" onMouseDown={e => { if (e.target === e.currentTarget) setShowSearch(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700">
            <div className="flex items-center gap-3">
              <span className="text-2xl">🔍</span>
@@ -5240,8 +5543,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    const alertas = G.alertas || [];
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowAlerts(false)}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAlerts(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
            <h3 className="text-lg font-semibold">🔔 Alertas e Notificações</h3>
            <button onClick={() => setShowAlerts(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -5329,8 +5632,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    if (!showImportCSV) return null;
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowImportCSV(false)}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportCSV(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
            <h3 className="text-lg font-semibold">📥 Importar CSV</h3>
            <button onClick={() => setShowImportCSV(false)} className="text-slate-400 hover:text-white">✕</button>
