@@ -1057,18 +1057,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const ssAnual = rendimentoRelevanteSS * 0.214;
    const ssMensal = ssAnual / 12;
    
-   // SS próximo mês (média 3 meses)
-   const ultimos3Meses = [];
-   for (let i = 0; i < 3; i++) {
-     const m = mesAtualNum - i;
-     const a = m <= 0 ? anoAtualSistema - 1 : anoAtualSistema;
-     const mKey = `${a}-${m <= 0 ? 12 + m : m}`;
-     const mesData = M[mKey] || {};
-     const recMes = (mesData.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
-                    (mesData.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
-     ultimos3Meses.push(recMes);
-   }
-   const ssProximoMes = (ultimos3Meses.reduce((a, b) => a + b, 0) / 3) * 0.70 * 0.214;
+   // SS próximo mês - baseado nas receitas do MÊS ATUAL (que serão pagas no mês seguinte)
+   const mesAtualKey = `${anoAtualSistema}-${mesAtualNum}`;
+   const dadosMesAtual = M[mesAtualKey] || {};
+   const receitasMesAtual = (dadosMesAtual.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
+                            (dadosMesAtual.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+   const ssProximoMes = receitasMesAtual * 0.70 * 0.214;
    
    // IVA trimestre atual
    const trimestreAtual = Math.ceil(mesAtualNum / 3);
@@ -5173,10 +5167,14 @@ ${transacoesOrdenadas.map(t => `<tr>
    }));
    
    const pendentes = tarefasMes.filter(t => !t.concluida);
-   const atrasadas = pendentes.filter(t => t.atrasada);
+   const atrasadas = pendentes.filter(t => t.atrasada).map(t => ({
+     ...t,
+     data: new Date(anoAtual, mesAtual - 1, t.dia),
+     mesNome: meses[mesAtual - 1]
+   }));
    const proximas = pendentes.filter(t => t.proxima);
    
-   // Próximas 5 tarefas importantes (incluindo meses futuros)
+   // Próximas 5 tarefas importantes (incluindo meses futuros, mas NÃO atrasadas - essas vão separadas)
    const proximasTarefas = [];
    for (let i = 0; i < 3 && proximasTarefas.length < 5; i++) {
      const mesCheck = ((mesAtual - 1 + i) % 12) + 1;
