@@ -1621,12 +1621,263 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const Receitas = () => {
    const [editRecibo, setEditRecibo] = useState(null);
    const [showReciboModal, setShowReciboModal] = useState(false);
+   const [showImportModal, setShowImportModal] = useState(false);
+   const [importLoading, setImportLoading] = useState(false);
+   const [importError, setImportError] = useState('');
+   const [importedData, setImportedData] = useState(null);
    
    const paisOptions = ['PT', 'UE', 'Fora UE'];
    
    const openReciboModal = (r, tipo) => {
      setEditRecibo({...r, tipo});
      setShowReciboModal(true);
+   };
+   
+   // Função para processar fatura com Claude API
+   const processarFatura = async (file) => {
+     setImportLoading(true);
+     setImportError('');
+     setImportedData(null);
+     
+     try {
+       // Converter ficheiro para base64
+       const base64 = await new Promise((resolve, reject) => {
+         const reader = new FileReader();
+         reader.onload = () => resolve(reader.result.split(',')[1]);
+         reader.onerror = reject;
+         reader.readAsDataURL(file);
+       });
+       
+       const mediaType = file.type || 'application/pdf';
+       const isPDF = mediaType.includes('pdf');
+       
+       // Chamar Claude API
+       const response = await fetch('https://api.anthropic.com/v1/messages', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           model: 'claude-sonnet-4-20250514',
+           max_tokens: 1000,
+           messages: [{
+             role: 'user',
+             content: [
+               {
+                 type: isPDF ? 'document' : 'image',
+                 source: { type: 'base64', media_type: mediaType, data: base64 }
+               },
+               {
+                 type: 'text',
+                 text: `Analisa esta fatura/recibo verde português e extrai os seguintes campos em JSON:
+{
+  "valorIliquido": número (valor base antes de IVA),
+  "taxaIva": número (0, 6, 13 ou 23),
+  "valorIva": número,
+  "retencaoIRS": número (retenção na fonte, 0 se não houver),
+  "totalDocumento": número,
+  "totalPagar": número (após retenção),
+  "pais": "PT" ou "UE" ou "Fora UE" (baseado no cliente),
+  "nomeCliente": string,
+  "descricao": string (descrição do serviço),
+  "data": string (formato YYYY-MM-DD),
+  "nif": string (NIF do cliente, se visível)
+}
+
+IMPORTANTE: 
+- Responde APENAS com o JSON, sem markdown nem explicações
+- Se um campo não estiver visível, usa null
+- Para país: se NIF começar com PT ou for 9 dígitos assume "PT", se tiver prefixo UE assume "UE", senão "Fora UE"
+- Valores em euros, sem símbolo`
+               }
+             ]
+           }]
+         })
+       });
+       
+       const data = await response.json();
+       
+       if (data.error) {
+         throw new Error(data.error.message || 'Erro na API');
+       }
+       
+       // Extrair texto da resposta
+       const text = data.content?.map(c => c.text || '').join('') || '';
+       
+       // Limpar e parsear JSON
+       const cleanJson = text.replace(/```json|```/g, '').trim();
+       const parsed = JSON.parse(cleanJson);
+       
+       setImportedData(parsed);
+       
+     } catch (err) {
+       console.error('Erro ao processar fatura:', err);
+       setImportError(err.message || 'Erro ao processar fatura');
+     } finally {
+       setImportLoading(false);
+     }
+   };
+   
+   // Função para aplicar dados importados
+   const aplicarDadosImportados = (tipo) => {
+     if (!importedData) return;
+     
+     // Encontrar ou criar cliente
+     let clienteId = clientes[0]?.id || 0;
+     if (importedData.nomeCliente) {
+       const clienteExistente = clientes.find(c => 
+         c.nome.toLowerCase().includes(importedData.nomeCliente.toLowerCase()) ||
+         importedData.nomeCliente.toLowerCase().includes(c.nome.toLowerCase())
+       );
+       if (clienteExistente) {
+         clienteId = clienteExistente.id;
+       }
+     }
+     
+     const novoRecibo = {
+       id: Date.now(),
+       cid: clienteId,
+       desc: importedData.descricao || 'Serviços',
+       val: importedData.valorIliquido || 0,
+       data: importedData.data || new Date().toISOString().split('T')[0],
+       valIliq: importedData.valorIliquido || 0,
+       iva: importedData.valorIva || 0,
+       taxaIva: importedData.taxaIva || 23,
+       retIRS: importedData.retencaoIRS || 0,
+       pais: importedData.pais || 'PT'
+     };
+     
+     // Adicionar à lista apropriada
+     if (tipo === 'com') {
+       uM('regCom', [...regCom, novoRecibo]);
+     } else {
+       uM('regSem', [...regSem, novoRecibo]);
+     }
+     
+     setShowImportModal(false);
+     setImportedData(null);
+   };
+   
+   // Modal de importação
+   const renderImportModal = () => {
+     if (!showImportModal) return null;
+     
+     return (
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportModal(false); }}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-semibold">📤 Importar Fatura</h3>
+             <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-white">✕</button>
+           </div>
+           <div className="p-4 space-y-4">
+             {!importedData ? (
+               <>
+                 <p className="text-sm text-slate-400">Faz upload de uma fatura (PDF ou imagem) e o Claude irá extrair automaticamente os dados.</p>
+                 
+                 <div className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center hover:border-blue-500 transition-colors">
+                   <input
+                     type="file"
+                     accept=".pdf,image/*"
+                     onChange={(e) => {
+                       const file = e.target.files?.[0];
+                       if (file) processarFatura(file);
+                     }}
+                     className="hidden"
+                     id="fatura-upload"
+                   />
+                   <label htmlFor="fatura-upload" className="cursor-pointer">
+                     {importLoading ? (
+                       <div className="flex flex-col items-center gap-3">
+                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                         <p className="text-blue-400">A analisar fatura com IA...</p>
+                       </div>
+                     ) : (
+                       <div className="flex flex-col items-center gap-3">
+                         <span className="text-4xl">📄</span>
+                         <p className="text-slate-300">Clica para selecionar ficheiro</p>
+                         <p className="text-xs text-slate-500">PDF ou imagem (PNG, JPG)</p>
+                       </div>
+                     )}
+                   </label>
+                 </div>
+                 
+                 {importError && (
+                   <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 text-sm">
+                     ⚠️ {importError}
+                   </div>
+                 )}
+               </>
+             ) : (
+               <>
+                 <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-lg">
+                   <p className="text-emerald-400 font-medium mb-2">✓ Dados extraídos com sucesso!</p>
+                 </div>
+                 
+                 <div className="space-y-3 text-sm">
+                   <div className="grid grid-cols-2 gap-3">
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">Cliente</p>
+                       <p className="font-medium">{importedData.nomeCliente || '-'}</p>
+                     </div>
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">País</p>
+                       <p className="font-medium">{importedData.pais || 'PT'}</p>
+                     </div>
+                   </div>
+                   
+                   <div className="p-2 bg-slate-700/50 rounded-lg">
+                     <p className="text-slate-400 text-xs">Descrição</p>
+                     <p className="font-medium">{importedData.descricao || '-'}</p>
+                   </div>
+                   
+                   <div className="grid grid-cols-3 gap-3">
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">Valor Ilíquido</p>
+                       <p className="font-medium text-blue-400">{fmt(importedData.valorIliquido || 0)}</p>
+                     </div>
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">IVA ({importedData.taxaIva || 0}%)</p>
+                       <p className="font-medium text-purple-400">{fmt(importedData.valorIva || 0)}</p>
+                     </div>
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">Retenção IRS</p>
+                       <p className="font-medium text-orange-400">{fmt(importedData.retencaoIRS || 0)}</p>
+                     </div>
+                   </div>
+                   
+                   <div className="grid grid-cols-2 gap-3">
+                     <div className="p-2 bg-slate-700/50 rounded-lg">
+                       <p className="text-slate-400 text-xs">Total Documento</p>
+                       <p className="font-medium">{fmt(importedData.totalDocumento || 0)}</p>
+                     </div>
+                     <div className="p-2 bg-emerald-500/20 rounded-lg">
+                       <p className="text-slate-400 text-xs">Total a Receber</p>
+                       <p className="font-bold text-emerald-400">{fmt(importedData.totalPagar || 0)}</p>
+                     </div>
+                   </div>
+                 </div>
+                 
+                 <div className="pt-4 border-t border-slate-700">
+                   <p className="text-xs text-slate-400 mb-3">Adicionar como:</p>
+                   <div className="flex gap-3">
+                     <button
+                       onClick={() => aplicarDadosImportados('com')}
+                       className="flex-1 py-2 px-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                     >
+                       💼 Com Retenção
+                     </button>
+                     <button
+                       onClick={() => aplicarDadosImportados('sem')}
+                       className="flex-1 py-2 px-4 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                     >
+                       💵 Sem Retenção
+                     </button>
+                   </div>
+                 </div>
+               </>
+             )}
+           </div>
+         </div>
+       </div>
+     );
    };
    
    const saveRecibo = () => {
@@ -1795,7 +2046,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    return (
    <>
    {renderReciboModal()}
+   {renderImportModal()}
    <div className="space-y-6">
+ 
+ {/* Botão de importar fatura */}
+ <div className="flex justify-end">
+   <button
+     onClick={() => setShowImportModal(true)}
+     className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium text-sm hover:opacity-90 transition-opacity"
+   >
+     📤 Importar Fatura (IA)
+   </button>
+ </div>
+
  <Card>
  <h3 className="text-lg font-semibold mb-4">👥 Clientes</h3>
  <AddClienteInput 
