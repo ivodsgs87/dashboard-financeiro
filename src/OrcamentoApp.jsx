@@ -1650,30 +1650,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        const mediaType = file.type || 'application/pdf';
        
-       // Chamar Firebase Function
-       const { getFunctions, httpsCallable } = await import('firebase/functions');
-       const functions = getFunctions();
-       const processInvoice = httpsCallable(functions, 'processInvoice');
+       // Chamar Firebase Function via fetch (HTTPS)
+       const response = await fetch('https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ data: { base64, mediaType } })
+       });
        
-       const result = await processInvoice({ base64, mediaType });
+       const result = await response.json();
        
-       if (result.data?.success && result.data?.data) {
-         setImportedData(result.data.data);
+       if (result.error) {
+         throw new Error(result.error.message || 'Erro ao processar fatura');
+       }
+       
+       if (result.result?.success && result.result?.data) {
+         setImportedData(result.result.data);
        } else {
          throw new Error('Resposta inválida da função');
        }
        
      } catch (err) {
        console.error('Erro ao processar fatura:', err);
-       let errorMsg = 'Erro ao processar fatura.';
-       if (err.code === 'functions/failed-precondition') {
-         errorMsg = 'API key do Gemini não configurada. Contacta o administrador.';
-       } else if (err.code === 'functions/internal') {
-         errorMsg = err.message || 'Erro interno ao processar fatura.';
-       } else if (err.message) {
-         errorMsg = err.message;
-       }
-       setImportError(errorMsg);
+       setImportError(err.message || 'Erro ao processar fatura.');
      } finally {
        setImportLoading(false);
      }
