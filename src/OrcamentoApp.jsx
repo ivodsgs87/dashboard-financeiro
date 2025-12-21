@@ -1633,7 +1633,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      setShowReciboModal(true);
    };
    
-   // Função para processar fatura com Claude API
+   // Função para processar fatura com Gemini via Firebase Function
    const processarFatura = async (file) => {
      setImportLoading(true);
      setImportError('');
@@ -1649,75 +1649,38 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        });
        
        const mediaType = file.type || 'application/pdf';
-       const isPDF = mediaType.includes('pdf');
        
-       // Chamar Claude API
-       const response = await fetch('https://api.anthropic.com/v1/messages', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({
-           model: 'claude-sonnet-4-20250514',
-           max_tokens: 1000,
-           messages: [{
-             role: 'user',
-             content: [
-               {
-                 type: isPDF ? 'document' : 'image',
-                 source: { type: 'base64', media_type: mediaType, data: base64 }
-               },
-               {
-                 type: 'text',
-                 text: `Analisa esta fatura/recibo verde português e extrai os seguintes campos em JSON:
-{
-  "valorIliquido": número (valor base antes de IVA),
-  "taxaIva": número (0, 6, 13 ou 23),
-  "valorIva": número,
-  "retencaoIRS": número (retenção na fonte, 0 se não houver),
-  "totalDocumento": número,
-  "totalPagar": número (após retenção),
-  "pais": "PT" ou "UE" ou "Fora UE" (baseado no cliente),
-  "nomeCliente": string,
-  "descricao": string (descrição do serviço),
-  "data": string (formato YYYY-MM-DD),
-  "nif": string (NIF do cliente, se visível)
-}
-
-IMPORTANTE: 
-- Responde APENAS com o JSON, sem markdown nem explicações
-- Se um campo não estiver visível, usa null
-- Para país: se NIF começar com PT ou for 9 dígitos assume "PT", se tiver prefixo UE assume "UE", senão "Fora UE"
-- Valores em euros, sem símbolo`
-               }
-             ]
-           }]
-         })
-       });
+       // Chamar Firebase Function
+       const { getFunctions, httpsCallable } = await import('firebase/functions');
+       const functions = getFunctions();
+       const processInvoice = httpsCallable(functions, 'processInvoice');
        
-       const data = await response.json();
+       const result = await processInvoice({ base64, mediaType });
        
-       if (data.error) {
-         throw new Error(data.error.message || 'Erro na API');
+       if (result.data?.success && result.data?.data) {
+         setImportedData(result.data.data);
+       } else {
+         throw new Error('Resposta inválida da função');
        }
-       
-       // Extrair texto da resposta
-       const text = data.content?.map(c => c.text || '').join('') || '';
-       
-       // Limpar e parsear JSON
-       const cleanJson = text.replace(/```json|```/g, '').trim();
-       const parsed = JSON.parse(cleanJson);
-       
-       setImportedData(parsed);
        
      } catch (err) {
        console.error('Erro ao processar fatura:', err);
-       setImportError(err.message || 'Erro ao processar fatura');
+       let errorMsg = 'Erro ao processar fatura.';
+       if (err.code === 'functions/failed-precondition') {
+         errorMsg = 'API key do Gemini não configurada. Contacta o administrador.';
+       } else if (err.code === 'functions/internal') {
+         errorMsg = err.message || 'Erro interno ao processar fatura.';
+       } else if (err.message) {
+         errorMsg = err.message;
+       }
+       setImportError(errorMsg);
      } finally {
        setImportLoading(false);
      }
    };
    
-   // Função para aplicar dados importados
-   const aplicarDadosImportados = (tipo) => {
+   // Função para aplicar dados importados (auto-detecta tipo)
+   const aplicarDadosImportados = () => {
      if (!importedData) return;
      
      // Encontrar ou criar cliente
@@ -1745,8 +1708,10 @@ IMPORTANTE:
        pais: importedData.pais || 'PT'
      };
      
-     // Adicionar à lista apropriada
-     if (tipo === 'com') {
+     // Auto-detectar: se tem retenção IRS, vai para "Com Taxas"
+     const temRetencao = importedData.temRetencao === true || (importedData.retencaoIRS && importedData.retencaoIRS > 0);
+     
+     if (temRetencao) {
        uM('regCom', [...regCom, novoRecibo]);
      } else {
        uM('regSem', [...regSem, novoRecibo]);
@@ -1856,21 +1821,17 @@ IMPORTANTE:
                  </div>
                  
                  <div className="pt-4 border-t border-slate-700">
-                   <p className="text-xs text-slate-400 mb-3">Adicionar como:</p>
-                   <div className="flex gap-3">
-                     <button
-                       onClick={() => aplicarDadosImportados('com')}
-                       className="flex-1 py-2 px-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                     >
-                       💼 Com Retenção
-                     </button>
-                     <button
-                       onClick={() => aplicarDadosImportados('sem')}
-                       className="flex-1 py-2 px-4 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                     >
-                       💵 Sem Retenção
-                     </button>
-                   </div>
+                   <p className="text-xs text-slate-400 mb-3">
+                     {importedData.temRetencao || importedData.retencaoIRS > 0 
+                       ? '💼 Será adicionado como "Com Retenção IRS"' 
+                       : '💵 Será adicionado como "Sem Retenção IRS"'}
+                   </p>
+                   <button
+                     onClick={aplicarDadosImportados}
+                     className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium hover:opacity-90 transition-opacity"
+                   >
+                     ✓ Adicionar Receita
+                   </button>
                  </div>
                </>
              )}
