@@ -4868,7 +4868,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const cy = size / 2;
      const r = size / 2 - 10;
      
-     const paths = data.map((item, i) => {
+     const paths = data.map((item) => {
        const angle = (item.value / total) * 360;
        const startAngle = cumulativeAngle;
        const endAngle = cumulativeAngle + angle;
@@ -4884,28 +4884,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        const largeArc = angle > 180 ? 1 : 0;
        
-       return \`<path d="M \${cx} \${cy} L \${x1} \${y1} A \${r} \${r} 0 \${largeArc} 1 \${x2} \${y2} Z" fill="\${item.color}" opacity="0.85"/>\`;
+       return '<path d="M ' + cx + ' ' + cy + ' L ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' Z" fill="' + item.color + '" opacity="0.85"/>';
      }).join('');
      
-     return \`<svg width="\${size}" height="\${size}" viewBox="0 0 \${size} \${size}">\${paths}</svg>\`;
-   };
-   
-   // Gerar SVG de barras horizontais
-   const generateBarChart = (data, maxVal, width = 300, height = 150) => {
-     if (data.length === 0) return '';
-     const barHeight = Math.min(25, (height - 20) / data.length);
-     const gap = 5;
-     
-     const bars = data.map((item, i) => {
-       const barWidth = maxVal > 0 ? (item.value / maxVal) * (width - 100) : 0;
-       const y = i * (barHeight + gap);
-       return \`
-         <rect x="0" y="\${y}" width="\${barWidth}" height="\${barHeight}" fill="\${item.color}" rx="3"/>
-         <text x="\${barWidth + 5}" y="\${y + barHeight/2 + 4}" font-size="11" fill="#64748b">\${((item.value/totalDist)*100).toFixed(0)}%</text>
-       \`;
-     }).join('');
-     
-     return \`<svg width="\${width}" height="\${data.length * (barHeight + gap)}">\${bars}</svg>\`;
+     return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '">' + paths + '</svg>';
    };
    
    // Dados para gráfico de receitas por cliente
@@ -4917,152 +4899,110 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const maxCliente = Math.max(...clientesData.map(d => d.value), 1);
    
-   const html = \`
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Relatório Financeiro - \${mes} \${ano}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
-    h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }
-    h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #334155; }
-    .subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    .card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }
-    .card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
-    .card-value { font-size: 20px; font-weight: 700; }
-    .card-value.green { color: #10b981; }
-    .card-value.orange { color: #f59e0b; }
-    .card-value.blue { color: #3b82f6; }
-    .card-value.purple { color: #8b5cf6; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
-    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-    th { background: #f1f5f9; font-weight: 600; color: #475569; }
-    td.right { text-align: right; }
-    .total-row { background: #f8fafc; font-weight: 600; }
-    .section { margin-bottom: 32px; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    .chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
-    .chart-legend { font-size: 12px; }
-    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .legend-color { width: 12px; height: 12px; border-radius: 2px; }
-    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
-    @media print { body { padding: 20px; } .page-break { page-break-before: always; } }
-  </style>
-</head>
-<body>
-  <h1>📊 Relatório Financeiro</h1>
-  <p class="subtitle">\${mes} \${ano} • Gerado em \${new Date().toLocaleDateString('pt-PT')}</p>
-  
-  <div class="grid">
-    <div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">\${fmt(totRec)}</div></div>
-    <div class="card"><div class="card-label">Reserva Taxas (\${taxa}%)</div><div class="card-value orange">\${fmt(valTaxPDF)}</div></div>
-    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">\${fmt(recLiqPDF)}</div></div>
-    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">\${fmt(dispPDF)}</div></div>
-  </div>
-  
-  <!-- GRÁFICOS -->
-  <div class="grid-2" style="margin-bottom: 32px;">
-    <div>
-      <h2>📊 Distribuição do Rendimento</h2>
-      <div class="chart-container">
-        \${generatePieChart(distribuicaoData, totalDist, 160)}
-        <div class="chart-legend">
-          \${distribuicaoData.map(d => \`
-            <div class="legend-item">
-              <div class="legend-color" style="background: \${d.color}"></div>
-              <span>\${d.label}: \${fmt(d.value)} (\${((d.value/totalDist)*100).toFixed(0)}%)</span>
-            </div>
-          \`).join('')}
-        </div>
-      </div>
-    </div>
-    <div>
-      <h2>👥 Receitas por Cliente</h2>
-      <div class="chart-container" style="flex-direction: column; align-items: flex-start;">
-        \${clientesData.map(c => \`
-          <div style="display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px;">
-            <span style="width: 80px; font-size: 12px; color: \${c.color}; font-weight: 600;">\${c.label}</span>
-            <div style="flex: 1; height: 20px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
-              <div style="width: \${(c.value/maxCliente)*100}%; height: 100%; background: \${c.color};"></div>
-            </div>
-            <span style="font-size: 12px; font-weight: 600; min-width: 80px; text-align: right;">\${fmt(c.value)}</span>
-          </div>
-        \`).join('')}
-      </div>
-    </div>
-  </div>
-  
-  <div class="two-col">
-    <div class="section">
-      <h2>💼 Receitas COM Taxas</h2>
-      <table>
-        <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        \${regCom.length > 0 ? regCom.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(inCom)}</td></tr>
-      </table>
-    </div>
-    <div class="section">
-      <h2>💵 Receitas SEM Taxas</h2>
-      <table>
-        <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        \${regSem.length > 0 ? regSem.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(inSem)}</td></tr>
-      </table>
-    </div>
-  </div>
-  
-  <div class="two-col">
-    <div class="section">
-      <h2>🏠 Despesas do Casal</h2>
-      <table>
-        <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        \${despABanca.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
-        <tr class="total-row"><td colspan="2">Total (minha parte: \${contrib}%)</td><td class="right">\${fmt(minhaABPDF)}</td></tr>
-      </table>
-    </div>
-    <div class="section">
-      <h2>👤 Despesas Pessoais</h2>
-      <table>
-        <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        \${despPess.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(totPessPDF)}</td></tr>
-      </table>
-    </div>
-  </div>
-  
-  <div class="section">
-    <h2>📈 Investimentos do Mês</h2>
-    <table>
-      <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>
-      \${inv.length > 0 ? inv.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td><td class="right">'+(totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0')+'%</td></tr>').join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>'}
-      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">\${fmt(totInvPDF)}</td><td></td></tr>
-    </table>
-  </div>
-  
-  <h2>💎 Resumo da Alocação</h2>
-  <div class="grid">
-    <div class="card"><div class="card-label">🏠 Amortização (\${alocAmort-alocFerias}%)</div><div class="card-value green">\${fmt(amortPDF)}</div></div>
-    <div class="card"><div class="card-label">📈 Investimentos (\${100-alocAmort}%)</div><div class="card-value purple">\${fmt(invExtraPDF)}</div></div>
-    <div class="card"><div class="card-label">🏖️ Férias\${alocFerias > 0 ? ' (fixo+'+alocFerias+'%)' : ''}</div><div class="card-value orange">\${fmt(totalFeriasPDF)}</div></div>
-    <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">\${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
-  </div>
-  
-  <div class="footer">
-    Dashboard Financeiro • Relatório gerado automaticamente • \${new Date().toLocaleString('pt-PT')}
-  </div>
-</body>
-</html>\`;
+   // Gerar legenda da pizza
+   const legendItems = distribuicaoData.map(d => 
+     '<div class="legend-item"><div class="legend-color" style="background: ' + d.color + '"></div><span>' + d.label + ': ' + fmt(d.value) + ' (' + ((d.value/totalDist)*100).toFixed(0) + '%)</span></div>'
+   ).join('');
+   
+   // Gerar barras de clientes
+   const clienteBars = clientesData.map(c => 
+     '<div style="display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px;">' +
+     '<span style="width: 80px; font-size: 12px; color: ' + c.color + '; font-weight: 600;">' + c.label + '</span>' +
+     '<div style="flex: 1; height: 20px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">' +
+     '<div style="width: ' + ((c.value/maxCliente)*100) + '%; height: 100%; background: ' + c.color + ';"></div></div>' +
+     '<span style="font-size: 12px; font-weight: 600; min-width: 80px; text-align: right;">' + fmt(c.value) + '</span></div>'
+   ).join('');
+   
+   // Gerar tabelas
+   const tabelaRegCom = regCom.length > 0 
+     ? regCom.map(r => '<tr><td>' + (r.desc || '-') + '</td><td>' + (clientes.find(c=>c.id===r.cid)?.nome || '-') + '</td><td class="right">' + fmt(r.val) + '</td></tr>').join('') 
+     : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>';
+   
+   const tabelaRegSem = regSem.length > 0 
+     ? regSem.map(r => '<tr><td>' + (r.desc || '-') + '</td><td>' + (clientes.find(c=>c.id===r.cid)?.nome || '-') + '</td><td class="right">' + fmt(r.val) + '</td></tr>').join('') 
+     : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>';
+   
+   const tabelaDespAB = despABanca.map(d => '<tr><td>' + d.desc + '</td><td>' + d.cat + '</td><td class="right">' + fmt(d.val) + '</td></tr>').join('');
+   const tabelaDespPess = despPess.map(d => '<tr><td>' + d.desc + '</td><td>' + d.cat + '</td><td class="right">' + fmt(d.val) + '</td></tr>').join('');
+   
+   const tabelaInv = inv.length > 0 
+     ? inv.map(d => '<tr><td>' + d.desc + '</td><td>' + d.cat + '</td><td class="right">' + fmt(d.val) + '</td><td class="right">' + (totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0') + '%</td></tr>').join('') 
+     : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>';
+   
+   const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Financeiro - ' + mes + ' ' + ano + '</title>' +
+   '<style>' +
+   '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+   'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }' +
+   'h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }' +
+   'h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #334155; }' +
+   '.subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }' +
+   '.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }' +
+   '.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
+   '.card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }' +
+   '.card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }' +
+   '.card-value { font-size: 20px; font-weight: 700; }' +
+   '.card-value.green { color: #10b981; }' +
+   '.card-value.orange { color: #f59e0b; }' +
+   '.card-value.blue { color: #3b82f6; }' +
+   '.card-value.purple { color: #8b5cf6; }' +
+   'table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }' +
+   'th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }' +
+   'th { background: #f1f5f9; font-weight: 600; color: #475569; }' +
+   'td.right { text-align: right; }' +
+   '.total-row { background: #f8fafc; font-weight: 600; }' +
+   '.section { margin-bottom: 32px; }' +
+   '.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
+   '.chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }' +
+   '.chart-legend { font-size: 12px; }' +
+   '.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }' +
+   '.legend-color { width: 12px; height: 12px; border-radius: 2px; }' +
+   '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }' +
+   '@media print { body { padding: 20px; } }' +
+   '</style></head><body>' +
+   '<h1>📊 Relatório Financeiro</h1>' +
+   '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + '</p>' +
+   
+   '<div class="grid">' +
+   '<div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">' + fmt(totRec) + '</div></div>' +
+   '<div class="card"><div class="card-label">Reserva Taxas (' + taxa + '%)</div><div class="card-value orange">' + fmt(valTaxPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">' + fmt(recLiqPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">Disponível</div><div class="card-value blue">' + fmt(dispPDF) + '</div></div>' +
+   '</div>' +
+   
+   '<div class="grid-2" style="margin-bottom: 32px;">' +
+   '<div><h2>📊 Distribuição do Rendimento</h2><div class="chart-container">' + generatePieChart(distribuicaoData, totalDist, 160) + '<div class="chart-legend">' + legendItems + '</div></div></div>' +
+   '<div><h2>👥 Receitas por Cliente</h2><div class="chart-container" style="flex-direction: column; align-items: flex-start;">' + clienteBars + '</div></div>' +
+   '</div>' +
+   
+   '<div class="two-col">' +
+   '<div class="section"><h2>💼 Receitas COM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegCom + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inCom) + '</td></tr></table></div>' +
+   '<div class="section"><h2>💵 Receitas SEM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegSem + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inSem) + '</td></tr></table></div>' +
+   '</div>' +
+   
+   '<div class="two-col">' +
+   '<div class="section"><h2>🏠 Despesas do Casal</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespAB + '<tr class="total-row"><td colspan="2">Total (minha parte: ' + contrib + '%)</td><td class="right">' + fmt(minhaABPDF) + '</td></tr></table></div>' +
+   '<div class="section"><h2>👤 Despesas Pessoais</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespPess + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(totPessPDF) + '</td></tr></table></div>' +
+   '</div>' +
+   
+   '<div class="section"><h2>📈 Investimentos do Mês</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>' + tabelaInv + '<tr class="total-row"><td colspan="2">Total Investido</td><td class="right">' + fmt(totInvPDF) + '</td><td></td></tr></table></div>' +
+   
+   '<h2>💎 Resumo da Alocação</h2>' +
+   '<div class="grid">' +
+   '<div class="card"><div class="card-label">🏠 Amortização (' + (alocAmort-alocFerias) + '%)</div><div class="card-value green">' + fmt(amortPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">📈 Investimentos (' + (100-alocAmort) + '%)</div><div class="card-value purple">' + fmt(invExtraPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">🏖️ Férias' + (alocFerias > 0 ? ' (fixo+' + alocFerias + '%)' : '') + '</div><div class="card-value orange">' + fmt(totalFeriasPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">' + fmt(portfolio.reduce((a,p)=>a+p.val,0)) + '</div></div>' +
+   '</div>' +
+   
+   '<div class="footer">Dashboard Financeiro • Relatório gerado automaticamente • ' + new Date().toLocaleString('pt-PT') + '</div>' +
+   '</body></html>';
    
    // Download como ficheiro HTML (pode abrir e imprimir como PDF)
    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');
    a.href = url;
-   a.download = \`Relatorio-\${mes}-\${ano}.html\`;
+   a.download = 'Relatorio-' + mes + '-' + ano + '.html';
    document.body.appendChild(a);
    a.click();
    document.body.removeChild(a);
