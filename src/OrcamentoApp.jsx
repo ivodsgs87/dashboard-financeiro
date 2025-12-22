@@ -433,8 +433,35 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupData, setBackupData] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
   
-  // Tema fixo escuro
-  const theme = 'dark';
+  // Tema (dark/light) - agora com toggle
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('dashboard-theme') || 'dark';
+    }
+    return 'dark';
+  });
+  
+  // Guardar tema no localStorage
+  useEffect(() => {
+    localStorage.setItem('dashboard-theme', theme);
+  }, [theme]);
+  
+  // Layout do Dashboard (widgets arrastáveis)
+  const defaultDashboardLayout = ['stats', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias'];
+  const [dashboardLayout, setDashboardLayout] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dashboard-layout');
+      return saved ? JSON.parse(saved) : defaultDashboardLayout;
+    }
+    return defaultDashboardLayout;
+  });
+  const [draggedWidget, setDraggedWidget] = useState(null);
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  
+  // Guardar layout no localStorage
+  useEffect(() => {
+    localStorage.setItem('dashboard-layout', JSON.stringify(dashboardLayout));
+  }, [dashboardLayout]);
   
   // Estados para funcionalidades
   const [searchQuery, setSearchQuery] = useState('');
@@ -1044,6 +1071,63 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const projecao = getProjecaoAnual();
  const previsaoIRS = getPrevisaoIRS();
  
+ // Drag and Drop handlers
+ const handleDragStart = (e, widgetId) => {
+   setDraggedWidget(widgetId);
+   e.dataTransfer.effectAllowed = 'move';
+ };
+ 
+ const handleDragOver = (e) => {
+   e.preventDefault();
+   e.dataTransfer.dropEffect = 'move';
+ };
+ 
+ const handleDrop = (e, targetId) => {
+   e.preventDefault();
+   if (!draggedWidget || draggedWidget === targetId) return;
+   
+   const newLayout = [...dashboardLayout];
+   const dragIdx = newLayout.indexOf(draggedWidget);
+   const targetIdx = newLayout.indexOf(targetId);
+   
+   newLayout.splice(dragIdx, 1);
+   newLayout.splice(targetIdx, 0, draggedWidget);
+   
+   setDashboardLayout(newLayout);
+   setDraggedWidget(null);
+ };
+ 
+ const handleDragEnd = () => {
+   setDraggedWidget(null);
+ };
+ 
+ // Widget wrapper com drag-and-drop
+ const DraggableWidget = ({ id, children }) => {
+   if (!showLayoutEditor) return children;
+   
+   return (
+     <div
+       draggable
+       onDragStart={(e) => handleDragStart(e, id)}
+       onDragOver={handleDragOver}
+       onDrop={(e) => handleDrop(e, id)}
+       onDragEnd={handleDragEnd}
+       className={`relative transition-all duration-200 ${draggedWidget === id ? 'opacity-50 scale-95' : ''} ${showLayoutEditor ? 'cursor-move' : ''}`}
+     >
+       {showLayoutEditor && (
+         <div className="absolute -top-2 -left-2 z-10 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full shadow-lg">
+           ⋮⋮ {id}
+         </div>
+       )}
+       <div className={showLayoutEditor ? 'ring-2 ring-purple-500/50 ring-dashed rounded-2xl' : ''}>
+         {children}
+       </div>
+     </div>
+   );
+ };
+ 
+ // Calcular previsão de impostos inline
+ 
  // Calcular previsão de impostos inline
  const calcPrevisaoImpostos = () => {
    let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0;
@@ -1106,71 +1190,135 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const patrimonio = getPatrimonioLiquido();
  const tarefasPend = getTarefasPendentes();
  
+ // Definição dos widgets disponíveis
+ const widgetDefinitions = {
+   tarefas: { name: '📅 Próximas Tarefas', desc: 'Datas fiscais e tarefas pendentes' },
+   stats: { name: '📊 Estatísticas', desc: 'Receitas, taxas e disponível' },
+   patrimonio: { name: '🏠 Património', desc: 'Dívida e património líquido' },
+   impostos: { name: '📋 Impostos', desc: 'Previsão SS, IVA e IRS' },
+   metas: { name: '🎯 Metas', desc: 'Progresso anual' },
+   clientes: { name: '👥 Clientes', desc: 'Receitas por cliente' },
+   distribuicao: { name: '💰 Distribuição', desc: 'Distribuição mensal' },
+   transferencias: { name: '💸 Transferências', desc: 'Transferências pendentes' },
+   registos: { name: '📝 Últimos Registos', desc: 'Movimentos recentes' }
+ };
+ 
+ // Garantir que todos os widgets estão no layout
+ const allWidgetIds = Object.keys(widgetDefinitions);
+ const currentLayout = dashboardLayout.filter(id => allWidgetIds.includes(id));
+ const missingWidgets = allWidgetIds.filter(id => !currentLayout.includes(id));
+ const fullLayout = [...currentLayout, ...missingWidgets];
+ 
+ // Funções de reordenação
+ const moveWidget = (widgetId, direction) => {
+   const idx = fullLayout.indexOf(widgetId);
+   if (direction === 'up' && idx > 0) {
+     const newLayout = [...fullLayout];
+     [newLayout[idx], newLayout[idx - 1]] = [newLayout[idx - 1], newLayout[idx]];
+     setDashboardLayout(newLayout);
+   } else if (direction === 'down' && idx < fullLayout.length - 1) {
+     const newLayout = [...fullLayout];
+     [newLayout[idx], newLayout[idx + 1]] = [newLayout[idx + 1], newLayout[idx]];
+     setDashboardLayout(newLayout);
+   }
+ };
+ 
+ // Painel de configuração de layout
+ const LayoutPanel = () => (
+   <Card className="mb-6 border-purple-500/50 bg-purple-500/5">
+     <div className="flex justify-between items-center mb-4">
+       <h3 className="font-semibold text-purple-300">🎨 Personalizar Dashboard</h3>
+       <div className="flex gap-2">
+         <button onClick={() => setDashboardLayout(defaultDashboardLayout)} className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg">Reset</button>
+         <button onClick={() => setShowLayoutEditor(false)} className="px-3 py-1 text-xs bg-purple-500 hover:bg-purple-600 text-white rounded-lg">✓ Concluir</button>
+       </div>
+     </div>
+     <p className="text-xs text-slate-400 mb-3">Arrasta para reordenar os widgets do dashboard:</p>
+     <div className="space-y-2">
+       {fullLayout.map((widgetId, idx) => (
+         <div key={widgetId} className={`flex items-center gap-3 p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+           <div className="flex flex-col gap-0.5">
+             <button onClick={() => moveWidget(widgetId, 'up')} disabled={idx === 0} className={`px-1.5 py-0.5 text-xs rounded ${idx === 0 ? 'text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▲</button>
+             <button onClick={() => moveWidget(widgetId, 'down')} disabled={idx === fullLayout.length - 1} className={`px-1.5 py-0.5 text-xs rounded ${idx === fullLayout.length - 1 ? 'text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▼</button>
+           </div>
+           <span className="text-sm font-medium flex-1">{widgetDefinitions[widgetId]?.name || widgetId}</span>
+           <span className="text-xs text-slate-500">{widgetDefinitions[widgetId]?.desc}</span>
+         </div>
+       ))}
+     </div>
+   </Card>
+ );
+
+ // Renderizar widget por ID
+ const renderWidget = (widgetId) => {
+   switch(widgetId) {
+     case 'tarefas': return (
+       <Card key={widgetId}>
+         <div className="flex justify-between items-center mb-3">
+           <h3 className="font-semibold">📅 Próximas Datas Fiscais</h3>
+           <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
+         </div>
+         <div className="space-y-2">
+           {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
+             <div className="text-xs text-amber-400 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+               <p>⚠️ Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
+               <button onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }} className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">🔄 Resetar tarefas</button>
+             </div>
+           )}
+           {(tarefasPend.atrasadas || []).map((t, i) => {
+             const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
+             const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
+             return (
+               <div key={`atrasada-${i}`} onClick={() => setTab('agenda')} className={`flex items-center gap-2 p-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-sm cursor-pointer hover:bg-orange-500/30`}>
+                 <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">{t.dia} {t.mesNome?.slice(0,3)}</span>
+                 <span className="flex-1 truncate text-orange-300">{descComMes}</span>
+                 <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+                 <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️ Atrasada</span>
+               </div>
+             );
+           })}
+           {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
+             const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
+             const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
+             const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
+             return (
+               <div key={i} onClick={() => setTab('agenda')} className={`flex items-center gap-2 p-2 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'} rounded-lg text-sm cursor-pointer`}>
+                 <span className={`w-14 text-xs flex-shrink-0 ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>{t.dia} {t.mesNome?.slice(0,3)}</span>
+                 <span className="flex-1 truncate">{descComMes}</span>
+                 <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+                 {diasAte <= 5 && <span className="text-xs text-orange-400 flex-shrink-0">{diasAte}d</span>}
+               </div>
+             );
+           })}
+           {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (tarefasPend.atrasadas || []).length === 0 && (
+             <p className="text-center text-slate-500 text-sm py-2">Sem tarefas próximas</p>
+           )}
+         </div>
+       </Card>
+     );
+     
+     case 'stats': return (
+       <div key={widgetId} className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
+         <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
+         <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
+         <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
+       </div>
+     );
+     
+     default: return null;
+   }
+ };
+ 
  return (<div key={mesKey} className="space-y-6">
  
- {/* PRÓXIMAS DATAS FISCAIS - SEMPRE VISÍVEL */}
- <Card>
-   <div className="flex justify-between items-center mb-3">
-     <h3 className="font-semibold">📅 Próximas Datas Fiscais</h3>
-     <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
-   </div>
-   <div className="space-y-2">
-     {/* DEBUG - mostra info das tarefas */}
-     {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
-       <div className="text-xs text-amber-400 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-         <p>⚠️ Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
-         <button 
-           onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }}
-           className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
-         >
-           🔄 Resetar tarefas para valores default
-         </button>
-       </div>
-     )}
-     {/* Tarefas atrasadas primeiro - em laranja */}
-     {(tarefasPend.atrasadas || []).map((t, i) => {
-       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
-       const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
-       return (
-         <div key={`atrasada-${i}`} onClick={() => setTab('agenda')} className="flex items-center gap-2 p-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-sm cursor-pointer hover:bg-orange-500/30 transition-colors">
-           <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">
-             {t.dia} {t.mesNome?.slice(0,3)}
-           </span>
-           <span className="flex-1 truncate text-orange-300">{descComMes}</span>
-           <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-           <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️ Atrasada</span>
-         </div>
-       );
-     })}
-     {/* Próximas tarefas */}
-     {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
-       const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
-       const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
-       const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
-       return (
-         <div key={i} onClick={() => setTab('agenda')} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm cursor-pointer hover:bg-slate-700/50 transition-colors">
-           <span className={`w-14 text-xs flex-shrink-0 ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>
-             {t.dia} {t.mesNome?.slice(0,3)}
-           </span>
-           <span className="flex-1 truncate">{descComMes}</span>
-           <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-           {diasAte <= 5 && <span className="text-xs text-orange-400 flex-shrink-0">{diasAte}d</span>}
-         </div>
-       );
-     })}
-     {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (tarefasPend.atrasadas || []).length === 0 && (
-       <p className="text-center text-slate-500 text-sm py-2">Sem tarefas próximas</p>
-     )}
-   </div>
- </Card>
+ {/* Painel de configuração de layout */}
+ {showLayoutEditor && <LayoutPanel />}
  
- {/* ESTATÍSTICAS DO MÊS */}
- <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-   <StatCard label="Receita Bruta" value={fmt(totRec)} color="text-white" sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
-   <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
-   <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
-   <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
- </div>
+ {/* Renderizar widgets na ordem configurada - tarefas e stats */}
+ {fullLayout.filter(id => ['tarefas', 'stats'].includes(id)).map(id => renderWidget(id))}
+ 
+ {/* Os restantes widgets mantêm a estrutura original por agora */}
 
  {/* PATRIMÓNIO + IRS */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -4701,12 +4849,80 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const amortPDF = dispPDF > 0 ? dispPDF * ((alocAmort-alocFerias)/100) : 0;
    const invExtraPDF = dispPDF > 0 ? dispPDF * (1 - alocAmort/100) : 0;
    
-   const html = `
+   // Dados para gráfico de pizza (distribuição)
+   const distribuicaoData = [
+     { label: 'Despesas Casal', value: minhaABPDF, color: '#ec4899' },
+     { label: 'Despesas Pessoais', value: totPessPDF, color: '#f59e0b' },
+     { label: 'Férias', value: totalFeriasPDF, color: '#06b6d4' },
+     { label: 'Amortização', value: amortPDF, color: '#10b981' },
+     { label: 'Investimentos', value: invExtraPDF, color: '#8b5cf6' },
+   ].filter(d => d.value > 0);
+   
+   const totalDist = distribuicaoData.reduce((a, d) => a + d.value, 0);
+   
+   // Gerar SVG de pizza
+   const generatePieChart = (data, total, size = 200) => {
+     if (total === 0) return '';
+     let cumulativeAngle = 0;
+     const cx = size / 2;
+     const cy = size / 2;
+     const r = size / 2 - 10;
+     
+     const paths = data.map((item, i) => {
+       const angle = (item.value / total) * 360;
+       const startAngle = cumulativeAngle;
+       const endAngle = cumulativeAngle + angle;
+       cumulativeAngle = endAngle;
+       
+       const startRad = (startAngle - 90) * Math.PI / 180;
+       const endRad = (endAngle - 90) * Math.PI / 180;
+       
+       const x1 = cx + r * Math.cos(startRad);
+       const y1 = cy + r * Math.sin(startRad);
+       const x2 = cx + r * Math.cos(endRad);
+       const y2 = cy + r * Math.sin(endRad);
+       
+       const largeArc = angle > 180 ? 1 : 0;
+       
+       return \`<path d="M \${cx} \${cy} L \${x1} \${y1} A \${r} \${r} 0 \${largeArc} 1 \${x2} \${y2} Z" fill="\${item.color}" opacity="0.85"/>\`;
+     }).join('');
+     
+     return \`<svg width="\${size}" height="\${size}" viewBox="0 0 \${size} \${size}">\${paths}</svg>\`;
+   };
+   
+   // Gerar SVG de barras horizontais
+   const generateBarChart = (data, maxVal, width = 300, height = 150) => {
+     if (data.length === 0) return '';
+     const barHeight = Math.min(25, (height - 20) / data.length);
+     const gap = 5;
+     
+     const bars = data.map((item, i) => {
+       const barWidth = maxVal > 0 ? (item.value / maxVal) * (width - 100) : 0;
+       const y = i * (barHeight + gap);
+       return \`
+         <rect x="0" y="\${y}" width="\${barWidth}" height="\${barHeight}" fill="\${item.color}" rx="3"/>
+         <text x="\${barWidth + 5}" y="\${y + barHeight/2 + 4}" font-size="11" fill="#64748b">\${((item.value/totalDist)*100).toFixed(0)}%</text>
+       \`;
+     }).join('');
+     
+     return \`<svg width="\${width}" height="\${data.length * (barHeight + gap)}">\${bars}</svg>\`;
+   };
+   
+   // Dados para gráfico de receitas por cliente
+   const clientesData = clientes.map(c => ({
+     label: c.nome,
+     value: regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0) + regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0),
+     color: c.cor
+   })).filter(d => d.value > 0);
+   
+   const maxCliente = Math.max(...clientesData.map(d => d.value), 1);
+   
+   const html = \`
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Relatório Financeiro - ${mes} ${ano}</title>
+  <title>Relatório Financeiro - \${mes} \${ano}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
@@ -4714,6 +4930,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #334155; }
     .subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }
     .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }
     .card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
     .card-value { font-size: 20px; font-weight: 700; }
@@ -4728,19 +4945,55 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     .total-row { background: #f8fafc; font-weight: 600; }
     .section { margin-bottom: 32px; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .chart-legend { font-size: 12px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .legend-color { width: 12px; height: 12px; border-radius: 2px; }
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
-    @media print { body { padding: 20px; } }
+    @media print { body { padding: 20px; } .page-break { page-break-before: always; } }
   </style>
 </head>
 <body>
   <h1>📊 Relatório Financeiro</h1>
-  <p class="subtitle">${mes} ${ano} • Gerado em ${new Date().toLocaleDateString('pt-PT')}</p>
+  <p class="subtitle">\${mes} \${ano} • Gerado em \${new Date().toLocaleDateString('pt-PT')}</p>
   
   <div class="grid">
-    <div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">${fmt(totRec)}</div></div>
-    <div class="card"><div class="card-label">Reserva Taxas</div><div class="card-value orange">${fmt(valTaxPDF)}</div></div>
-    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">${fmt(recLiqPDF)}</div></div>
-    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">${fmt(dispPDF)}</div></div>
+    <div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">\${fmt(totRec)}</div></div>
+    <div class="card"><div class="card-label">Reserva Taxas (\${taxa}%)</div><div class="card-value orange">\${fmt(valTaxPDF)}</div></div>
+    <div class="card"><div class="card-label">Receita Líquida</div><div class="card-value green">\${fmt(recLiqPDF)}</div></div>
+    <div class="card"><div class="card-label">Disponível</div><div class="card-value blue">\${fmt(dispPDF)}</div></div>
+  </div>
+  
+  <!-- GRÁFICOS -->
+  <div class="grid-2" style="margin-bottom: 32px;">
+    <div>
+      <h2>📊 Distribuição do Rendimento</h2>
+      <div class="chart-container">
+        \${generatePieChart(distribuicaoData, totalDist, 160)}
+        <div class="chart-legend">
+          \${distribuicaoData.map(d => \`
+            <div class="legend-item">
+              <div class="legend-color" style="background: \${d.color}"></div>
+              <span>\${d.label}: \${fmt(d.value)} (\${((d.value/totalDist)*100).toFixed(0)}%)</span>
+            </div>
+          \`).join('')}
+        </div>
+      </div>
+    </div>
+    <div>
+      <h2>👥 Receitas por Cliente</h2>
+      <div class="chart-container" style="flex-direction: column; align-items: flex-start;">
+        \${clientesData.map(c => \`
+          <div style="display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px;">
+            <span style="width: 80px; font-size: 12px; color: \${c.color}; font-weight: 600;">\${c.label}</span>
+            <div style="flex: 1; height: 20px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+              <div style="width: \${(c.value/maxCliente)*100}%; height: 100%; background: \${c.color};"></div>
+            </div>
+            <span style="font-size: 12px; font-weight: 600; min-width: 80px; text-align: right;">\${fmt(c.value)}</span>
+          </div>
+        \`).join('')}
+      </div>
+    </div>
   </div>
   
   <div class="two-col">
@@ -4748,16 +5001,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       <h2>💼 Receitas COM Taxas</h2>
       <table>
         <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        ${regCom.length > 0 ? regCom.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(inCom)}</td></tr>
+        \${regCom.length > 0 ? regCom.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(inCom)}</td></tr>
       </table>
     </div>
     <div class="section">
       <h2>💵 Receitas SEM Taxas</h2>
       <table>
         <tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>
-        ${regSem.length > 0 ? regSem.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(inSem)}</td></tr>
+        \${regSem.length > 0 ? regSem.map(r => '<tr><td>'+(r.desc || '-')+'</td><td>'+(clientes.find(c=>c.id===r.cid)?.nome || '-')+'</td><td class="right">'+fmt(r.val)+'</td></tr>').join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8">Sem registos</td></tr>'}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(inSem)}</td></tr>
       </table>
     </div>
   </div>
@@ -4767,16 +5020,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       <h2>🏠 Despesas do Casal</h2>
       <table>
         <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        ${despABanca.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
-        <tr class="total-row"><td colspan="2">Total (minha parte: ${contrib}%)</td><td class="right">${fmt(minhaABPDF)}</td></tr>
+        \${despABanca.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
+        <tr class="total-row"><td colspan="2">Total (minha parte: \${contrib}%)</td><td class="right">\${fmt(minhaABPDF)}</td></tr>
       </table>
     </div>
     <div class="section">
       <h2>👤 Despesas Pessoais</h2>
       <table>
         <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>
-        ${despPess.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
-        <tr class="total-row"><td colspan="2">Total</td><td class="right">${fmt(totPessPDF)}</td></tr>
+        \${despPess.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td></tr>').join('')}
+        <tr class="total-row"><td colspan="2">Total</td><td class="right">\${fmt(totPessPDF)}</td></tr>
       </table>
     </div>
   </div>
@@ -4785,30 +5038,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     <h2>📈 Investimentos do Mês</h2>
     <table>
       <tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>
-      ${inv.length > 0 ? inv.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td><td class="right">'+(totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0')+'%</td></tr>').join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>'}
-      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">${fmt(totInvPDF)}</td><td></td></tr>
+      \${inv.length > 0 ? inv.map(d => '<tr><td>'+d.desc+'</td><td>'+d.cat+'</td><td class="right">'+fmt(d.val)+'</td><td class="right">'+(totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0')+'%</td></tr>').join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>'}
+      <tr class="total-row"><td colspan="2">Total Investido</td><td class="right">\${fmt(totInvPDF)}</td><td></td></tr>
     </table>
   </div>
   
+  <h2>💎 Resumo da Alocação</h2>
   <div class="grid">
-    <div class="card"><div class="card-label">🏠 Amortização</div><div class="card-value green">${fmt(amortPDF)}</div></div>
-    <div class="card"><div class="card-label">📈 Investimentos</div><div class="card-value purple">${fmt(invExtraPDF)}</div></div>
-    <div class="card"><div class="card-label">🏖️ Férias${alocFerias > 0 ? ' (fixo+extra)' : ''}</div><div class="card-value orange">${fmt(totalFeriasPDF)}</div></div>
-    <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
+    <div class="card"><div class="card-label">🏠 Amortização (\${alocAmort-alocFerias}%)</div><div class="card-value green">\${fmt(amortPDF)}</div></div>
+    <div class="card"><div class="card-label">📈 Investimentos (\${100-alocAmort}%)</div><div class="card-value purple">\${fmt(invExtraPDF)}</div></div>
+    <div class="card"><div class="card-label">🏖️ Férias\${alocFerias > 0 ? ' (fixo+'+alocFerias+'%)' : ''}</div><div class="card-value orange">\${fmt(totalFeriasPDF)}</div></div>
+    <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">\${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
   </div>
   
   <div class="footer">
-    Dashboard Financeiro • Relatório gerado automaticamente
+    Dashboard Financeiro • Relatório gerado automaticamente • \${new Date().toLocaleString('pt-PT')}
   </div>
 </body>
-</html>`;
+</html>\`;
    
    // Download como ficheiro HTML (pode abrir e imprimir como PDF)
    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');
    a.href = url;
-   a.download = `Relatorio-${mes}-${ano}.html`;
+   a.download = \`Relatorio-\${mes}-\${ano}.html\`;
    document.body.appendChild(a);
    a.click();
    document.body.removeChild(a);
@@ -6343,10 +6597,18 @@ ${transacoesOrdenadas.map(t => `<tr>
                 </div>
                 
                 {/* Atalhos - escondido em mobile */}
-                <button onClick={() => setShowShortcuts(true)} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Atalhos (?)">⌨️</button>
+                <button onClick={() => setShowShortcuts(true)} className={`hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Atalhos (?)">⌨️</button>
+                
+                {/* Toggle Tema */}
+                <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Mudar tema">{theme === 'dark' ? '☀️' : '🌙'}</button>
+                
+                {/* Layout Editor - só no Dashboard */}
+                {tab === 'resumo' && (
+                  <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${showLayoutEditor ? 'bg-purple-500/20 text-purple-400' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Personalizar layout">🎨</button>
+                )}
                 
                 {/* Reset - escondido em mobile */}
-                <button onClick={handleResetAll} className="hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400" title="Apagar dados">🗑️</button>
+                <button onClick={handleResetAll} className={`hidden sm:block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400`} title="Apagar dados">🗑️</button>
               </div>
               
               {/* Status offline */}
