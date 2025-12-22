@@ -514,7 +514,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, []);
   
   // Atalhos de teclado
-  const tabOrder = ['resumo','receitas','abanca','pessoais','invest','sara','historico','portfolio','credito','agenda'];
+  // Ordem das tabs para atalhos de teclado (1-9, 0)
+  // Corresponde à ordem visual na barra de navegação
+  const tabOrder = ['resumo','performance','receitas','abanca','pessoais','credito','sara','historico','invest','portfolio'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -5186,7 +5188,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const ShortcutsModal = () => {
    if (!showShortcuts) return null;
    const shortcuts = [
-     { key: '1-9, 0', desc: 'Navegar entre tabs' },
+     { key: '1', desc: '📊 Dashboard' },
+     { key: '2', desc: '🚀 Performance' },
+     { key: '3', desc: '💰 Receitas' },
+     { key: '4', desc: '🏠 Despesas Casal' },
+     { key: '5', desc: '👤 Despesas Pessoais' },
+     { key: '6', desc: '🏦 Crédito' },
+     { key: '7', desc: '👩 Sara' },
+     { key: '8', desc: '📅 Histórico' },
+     { key: '9', desc: '📈 Alocação' },
+     { key: '0', desc: '💎 Portfolio' },
      { key: '← →', desc: 'Mês anterior/seguinte' },
      { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
      { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
@@ -5197,13 +5208,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    ];
    return (
      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
-       <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
+       <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl animate-modalIn`} onMouseDown={e => e.stopPropagation()}>
          <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
            <h3 className="text-lg font-semibold">⌨️ Atalhos de Teclado</h3>
            <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-slate-300">✕</button>
          </div>
-         <div className="p-4 space-y-2">
-           {shortcuts.map((s, i) => (
+         <div className="p-4 space-y-1 max-h-[60vh] overflow-y-auto">
+           <p className="text-xs text-slate-500 mb-2 font-medium">Navegação por Tabs:</p>
+           {shortcuts.slice(0, 10).map((s, i) => (
+             <div key={i} className={`flex justify-between items-center p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+               <span className="text-sm">{s.desc}</span>
+               <kbd className={`px-2 py-1 rounded text-xs font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-600 text-slate-200'}`}>{s.key}</kbd>
+             </div>
+           ))}
+           <p className="text-xs text-slate-500 mb-2 mt-4 font-medium">Outras ações:</p>
+           {shortcuts.slice(10).map((s, i) => (
              <div key={i} className={`flex justify-between items-center p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
                <span className="text-sm">{s.desc}</span>
                <kbd className={`px-2 py-1 rounded text-xs font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-600 text-slate-200'}`}>{s.key}</kbd>
