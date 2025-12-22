@@ -172,7 +172,8 @@ const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', 
  blue: 'accent-blue-500',
  pink: 'accent-pink-500',
  emerald: 'accent-emerald-500',
- purple: 'accent-purple-500'
+ purple: 'accent-purple-500',
+ cyan: 'accent-cyan-500'
  };
  
  return (
@@ -554,7 +555,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
   const defG = {
     clientes: [{id:1,nome:'Marius',cor:'#3b82f6'},{id:2,nome:'Sophie',cor:'#ec4899'}],
-    taxa: 38, contrib: 50, alocAmort: 75, ferias: 130,
+    taxa: 38, contrib: 50, alocAmort: 75, alocFerias: 0, ferias: 130,
     despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Utilidades',val:200},{id:5,desc:'Mercado',cat:'Alimentação',val:714},{id:6,desc:'Internet',cat:'Utilidades',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Bancário',val:5},{id:9,desc:'Bar/Café',cat:'Lazer',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Outros',val:120},{id:12,desc:'Ginástica',cat:'Outros',val:45},{id:13,desc:'Seguro filhos',cat:'Seguros',val:60}],
     despPess: [{id:1,desc:'Telemóvel',cat:'Utilidades',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Vários',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Alimentação',val:100}],
     catsInv: ['ETF','PPR','P2P','CRIPTO','FE','CREDITO'],
@@ -872,7 +873,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
  }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
- const {clientes,taxa,contrib,alocAmort,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
+ const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
  const {regCom,regSem,inv,transf} = mesD;
 
  const inCom = regCom.reduce((a,r)=>a+r.val,0);
@@ -887,6 +888,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const totPess = despPess.reduce((a,d)=>a+d.val,0);
  const totInv = inv.reduce((a,d)=>a+d.val,0);
  const restante = recLiq - minhaAB - totPess - ferias;
+ const feriasExtra = restante > 0 ? restante * (alocFerias/100) : 0;
+ const totalFerias = ferias + feriasExtra;
  const transfTR = minhaAB + totPess + valTax;
  const totSaraR = sara.rend.reduce((a,r)=>a+r.val,0);
  const cartaoRef = sara.rend.find(r=>r.isCR)?.val || 0;
@@ -1318,12 +1321,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="font-semibold mb-3">📊 Distribuição Mensal</h3>
      <div className="flex items-center gap-3 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-3">
        <span>🏖️</span>
-       <span className="flex-1 text-sm">Férias</span>
+       <span className="flex-1 text-sm">Férias (fixo)</span>
        <StableInput type="number" className={`w-20 ${inputClass} text-amber-400 font-bold text-right`} initialValue={ferias} onSave={v=>uG('ferias',v)}/>
        <span className="text-slate-400 text-sm">€</span>
      </div>
+     {alocFerias > 0 && feriasExtra > 0 && (
+       <div className="flex items-center gap-3 p-2 bg-cyan-500/10 border border-cyan-500/30 rounded-lg mb-3">
+         <span>✨</span>
+         <span className="flex-1 text-sm">Férias extra ({fmtP(alocFerias)})</span>
+         <span className="text-cyan-400 font-bold">{fmt(feriasExtra)}</span>
+       </div>
+     )}
      <div className="space-y-2">
-       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`Amortização (${fmtP(alocAmort)})`,v:restante*(alocAmort/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
+       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏖️ Total Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,c:'#f59e0b'},{l:`Amortização (${fmtP(alocAmort-alocFerias)})`,v:restante*((alocAmort-alocFerias)/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
          <div key={k}>
            <div className="flex justify-between mb-1 text-sm"><span className="text-slate-400">{i.l}</span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
            <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c} height="h-1"/>
@@ -1335,7 +1345,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <Card>
      <h3 className="font-semibold mb-3">💸 Transferências</h3>
      <div className="space-y-2">
-       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:'Férias',s:'Dia 31',v:ferias,k:'revolut'}].map(t => (
+       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:`Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,s:'Dia 31',v:totalFerias,k:'revolut'}].map(t => (
          <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
            <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
            <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
@@ -1565,8 +1575,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {[
                { label: 'Despesas Fixas (Casal)', valor: minhaAB, cor: '#ec4899', pct: recLiq > 0 ? (minhaAB/recLiq*100) : 0 },
                { label: 'Despesas Pessoais', valor: totPess, cor: '#f59e0b', pct: recLiq > 0 ? (totPess/recLiq*100) : 0 },
-               { label: 'Férias', valor: ferias, cor: '#06b6d4', pct: recLiq > 0 ? (ferias/recLiq*100) : 0 },
-               { label: 'Amortização', valor: restante*(alocAmort/100), cor: '#10b981', pct: recLiq > 0 ? (restante*(alocAmort/100)/recLiq*100) : 0 },
+               { label: `Férias${alocFerias > 0 ? ' (fixo + extra)' : ''}`, valor: totalFerias, cor: '#06b6d4', pct: recLiq > 0 ? (totalFerias/recLiq*100) : 0 },
+               { label: 'Amortização', valor: restante*((alocAmort-alocFerias)/100), cor: '#10b981', pct: recLiq > 0 ? (restante*((alocAmort-alocFerias)/100)/recLiq*100) : 0 },
                { label: 'Investimentos', valor: restante*((100-alocAmort)/100), cor: '#8b5cf6', pct: recLiq > 0 ? (restante*((100-alocAmort)/100)/recLiq*100) : 0 },
              ].map(d => (
                <div key={d.label} className="flex items-center gap-3">
@@ -2230,6 +2240,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // INVESTIMENTOS
  const Invest = () => {
  const disp = restante>0?restante:0;
+ const pAmort = disp*((alocAmort-alocFerias)/100);
+ const pFerias = disp*(alocFerias/100);
  const pInv = disp*((100-alocAmort)/100);
  const totInvSemCredito = inv.filter(i => i.cat !== 'CREDITO').reduce((a,i) => a + i.val, 0);
  const rest = pInv - totInvSemCredito;
@@ -2240,16 +2252,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div key={mesKey} className="space-y-6 max-w-4xl mx-auto">
  <Card>
  <h3 className="text-base sm:text-lg font-semibold mb-4 text-center">💰 Disponível: {fmt(disp)}</h3>
- <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-slate-700/30 rounded-xl mb-4">
- <span className="text-emerald-400 text-xs font-medium">🏠</span>
- <SliderWithInput value={alocAmort} onChange={v=>uG('alocAmort',v)} min={0} max={100} unit="%" className="flex-1 min-w-0" color="emerald"/>
- <span className="text-purple-400 text-xs font-medium">📈</span>
+ 
+ {/* Slider Amortização vs Investimentos */}
+ <div className="mb-4">
+   <p className="text-xs text-slate-400 mb-2">🏠 Amortização + 🏖️ Férias vs 📈 Investimentos</p>
+   <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-slate-700/30 rounded-xl">
+     <span className="text-emerald-400 text-xs font-medium">🏠</span>
+     <SliderWithInput value={alocAmort} onChange={v=>uG('alocAmort',Math.max(v, alocFerias))} min={0} max={100} unit="%" className="flex-1 min-w-0" color="emerald"/>
+     <span className="text-purple-400 text-xs font-medium">📈</span>
+   </div>
  </div>
- <div className="grid grid-cols-2 gap-2 sm:gap-4">
+
+ {/* Slider Férias (dentro da Amortização) */}
+ <div className="mb-4">
+   <p className="text-xs text-slate-400 mb-2">🏖️ Férias extra (retirado da amortização): {fmtP(alocFerias)} = {fmt(pFerias)}</p>
+   <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
+     <span className="text-cyan-400 text-xs font-medium">🏖️</span>
+     <SliderWithInput value={alocFerias} onChange={v=>uG('alocFerias',Math.min(v, alocAmort))} min={0} max={Math.min(alocAmort, 20)} unit="%" className="flex-1 min-w-0" color="cyan"/>
+     <span className="text-slate-400 text-xs">máx {Math.min(alocAmort, 20)}%</span>
+   </div>
+ </div>
+
+ <div className="grid grid-cols-3 gap-2 sm:gap-4">
  <div className="p-2 sm:p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
  <p className="text-xs text-slate-400 mb-1">🏠 Amortização</p>
- <p className="text-lg sm:text-xl font-bold text-emerald-400">{fmt(disp*(alocAmort/100))}</p>
- <p className="text-xs sm:text-sm text-emerald-400/70">{fmtP(alocAmort)}</p>
+ <p className="text-lg sm:text-xl font-bold text-emerald-400">{fmt(pAmort)}</p>
+ <p className="text-xs sm:text-sm text-emerald-400/70">{fmtP(alocAmort-alocFerias)}</p>
+ </div>
+ <div className="p-2 sm:p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
+ <p className="text-xs text-slate-400 mb-1">🏖️ Férias extra</p>
+ <p className="text-lg sm:text-xl font-bold text-cyan-400">{fmt(pFerias)}</p>
+ <p className="text-xs sm:text-sm text-cyan-400/70">{fmtP(alocFerias)}</p>
  </div>
  <div className="p-2 sm:p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl">
  <p className="text-xs text-slate-400 mb-1">📈 Invest.</p>
@@ -2257,6 +2290,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="text-xs sm:text-sm text-purple-400/70">{fmtP(100-alocAmort)}</p>
  </div>
  </div>
+
+ {/* Resumo total férias */}
+ {alocFerias > 0 && (
+   <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+     <div className="flex justify-between items-center">
+       <span className="text-sm text-slate-300">🏖️ Total Férias este mês</span>
+       <span className="text-lg font-bold text-amber-400">{fmt(ferias + pFerias)}</span>
+     </div>
+     <p className="text-xs text-slate-500 mt-1">{fmt(ferias)} (fixo) + {fmt(pFerias)} ({fmtP(alocFerias)} do disponível)</p>
+   </div>
+ )}
  </Card>
 
  <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
@@ -4578,6 +4622,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'credito',icon:'🏦',label:'Crédito'},
    {id:'sara',icon:'👩',label:'Sara'},
+   {id:'historico',icon:'📅',label:'Histórico'},
    // Separador
    {id:'sep1',separator:true},
    // 📈 Investimentos
@@ -4588,8 +4633,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sep2',separator:true},
    // 📋 Gestão
    {id:'calendario',icon:'📆',label:'Projetos'},
-   {id:'agenda',icon:'📋',label:'Tarefas'},
-   {id:'historico',icon:'📅',label:'Histórico'}
+   {id:'agenda',icon:'📋',label:'Tarefas'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
@@ -4605,7 +4649,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const totPessPDF = despPess.reduce((a,d)=>a+d.val,0);
    const totInvPDF = inv.reduce((a,d)=>a+d.val,0);
    const dispPDF = recLiqPDF - minhaABPDF - totPessPDF - ferias;
-   const amortPDF = dispPDF > 0 ? dispPDF * (alocAmort/100) : 0;
+   const feriasExtraPDF = dispPDF > 0 ? dispPDF * (alocFerias/100) : 0;
+   const totalFeriasPDF = ferias + feriasExtraPDF;
+   const amortPDF = dispPDF > 0 ? dispPDF * ((alocAmort-alocFerias)/100) : 0;
    const invExtraPDF = dispPDF > 0 ? dispPDF * (1 - alocAmort/100) : 0;
    
    const html = `
@@ -4700,7 +4746,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   <div class="grid">
     <div class="card"><div class="card-label">🏠 Amortização</div><div class="card-value green">${fmt(amortPDF)}</div></div>
     <div class="card"><div class="card-label">📈 Investimentos</div><div class="card-value purple">${fmt(invExtraPDF)}</div></div>
-    <div class="card"><div class="card-label">🏖️ Férias</div><div class="card-value orange">${fmt(ferias)}</div></div>
+    <div class="card"><div class="card-label">🏖️ Férias${alocFerias > 0 ? ' (fixo+extra)' : ''}</div><div class="card-value orange">${fmt(totalFeriasPDF)}</div></div>
     <div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">${fmt(portfolio.reduce((a,p)=>a+p.val,0))}</div></div>
   </div>
   
@@ -5008,8 +5054,11 @@ ${transacoesOrdenadas.map(t => `<tr>
        const minhaABanca = totABanca * (G.contrib / 100);
        const totPess = G.despPess.reduce((a, d) => a + d.val, 0);
        const restante = recLiq - minhaABanca - totPess - G.ferias;
-       const amort = restante * (G.alocAmort / 100);
-       const investExtra = restante * (1 - G.alocAmort / 100);
+       const alocFeriasVal = G.alocFerias || 0;
+       const feriasExtraExcel = restante > 0 ? restante * (alocFeriasVal / 100) : 0;
+       const totalFeriasExcel = G.ferias + feriasExtraExcel;
+       const amort = restante > 0 ? restante * ((G.alocAmort - alocFeriasVal) / 100) : 0;
+       const investExtra = restante > 0 ? restante * (1 - G.alocAmort / 100) : 0;
        
        const data = [
          [`${mesNome.toUpperCase()} ${ano}`],
@@ -5023,10 +5072,11 @@ ${transacoesOrdenadas.map(t => `<tr>
          [],
          ['Despesas Fixas (ABanca)', minhaABanca],
          ['Despesas Pessoais', totPess],
-         ['Reserva Férias', G.ferias],
+         ['Reserva Férias (fixo)', G.ferias],
+         ...(alocFeriasVal > 0 ? [[`Férias Extra (${alocFeriasVal}%)`, feriasExtraExcel], ['Total Férias', totalFeriasExcel]] : []),
          [],
          ['DISPONÍVEL PARA ALOCAR', restante],
-         [`  • Amortização (${G.alocAmort}%)`, amort],
+         [`  • Amortização (${G.alocAmort - alocFeriasVal}%)`, amort],
          [`  • Investimentos (${100 - G.alocAmort}%)`, investExtra],
          [],
        ];
@@ -5085,7 +5135,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        data.push(['ABanca (Despesas Fixas)', minhaABanca, transf.abanca ? '✓' : '']);
        data.push(['Activo Bank (Pessoais)', totPess, transf.activo ? '✓' : '']);
        data.push(['Trade Republic (Repor)', minhaABanca + totPess + valTax, transf.trade ? '✓' : '']);
-       data.push(['Revolut (Férias)', G.ferias, transf.revolut ? '✓' : '']);
+       data.push([`Revolut (Férias${alocFeriasVal > 0 ? ' fixo+extra' : ''})`, totalFeriasExcel, transf.revolut ? '✓' : '']);
        data.push([]);
        
        // Crédito Habitação
@@ -5264,11 +5314,11 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    if (diaHoje >= 30 || diaHoje <= 2) {
      if (!transf.trade) alerts.push({tipo: 'transf', msg: `💳 Transferir para Trade Republic: ${fmt(transfTR)}`});
-     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 Transferir para Revolut (férias): ${fmt(ferias)}`});
+     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 Transferir para Revolut (férias): ${fmt(totalFerias)}`});
    }
    
    return alerts;
- }, [G, recLiq, totInv, restante, alocAmort, totPess, metas, transf, minhaAB, transfTR, ferias]);
+ }, [G, recLiq, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, transfTR, ferias, totalFerias]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
