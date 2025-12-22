@@ -446,22 +446,50 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     localStorage.setItem('dashboard-theme', theme);
   }, [theme]);
   
-  // Layout do Dashboard (widgets arrastáveis)
-  const defaultDashboardLayout = ['stats', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias'];
-  const [dashboardLayout, setDashboardLayout] = useState(() => {
+  // Layouts por tab (widgets arrastáveis)
+  const defaultLayouts = {
+    resumo: ['tarefas', 'stats', 'patrimonio', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias', 'registos'],
+    receitas: ['resumoReceitas', 'formReceita', 'tabelaCom', 'tabelaSem'],
+    abanca: ['resumoDespesas', 'formDespesa', 'tabelaDespesas'],
+    pessoais: ['resumoPessoais', 'formPessoal', 'tabelaPessoais'],
+    invest: ['alocacao', 'graficoDistribuicao', 'metasProgresso'],
+    portfolio: ['resumoPortfolio', 'graficoEvolucao', 'tabelaAtivos'],
+  };
+  
+  const [tabLayouts, setTabLayouts] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('dashboard-layout');
-      return saved ? JSON.parse(saved) : defaultDashboardLayout;
+      const saved = localStorage.getItem('tab-layouts');
+      return saved ? JSON.parse(saved) : defaultLayouts;
     }
-    return defaultDashboardLayout;
+    return defaultLayouts;
   });
+  
+  // Compatibilidade com código existente
+  const dashboardLayout = tabLayouts.resumo || defaultLayouts.resumo;
+  const setDashboardLayout = (newLayout) => {
+    setTabLayouts(prev => ({ ...prev, resumo: newLayout }));
+  };
+  
   const [draggedWidget, setDraggedWidget] = useState(null);
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   
-  // Guardar layout no localStorage
+  // Guardar layouts no localStorage
   useEffect(() => {
-    localStorage.setItem('dashboard-layout', JSON.stringify(dashboardLayout));
-  }, [dashboardLayout]);
+    localStorage.setItem('tab-layouts', JSON.stringify(tabLayouts));
+  }, [tabLayouts]);
+  
+  // Função para obter layout de uma tab
+  const getTabLayout = (tabName) => tabLayouts[tabName] || defaultLayouts[tabName] || [];
+  
+  // Função para atualizar layout de uma tab
+  const updateTabLayout = (tabName, newLayout) => {
+    setTabLayouts(prev => ({ ...prev, [tabName]: newLayout }));
+  };
+  
+  // Função para resetar layout de uma tab
+  const resetTabLayout = (tabName) => {
+    setTabLayouts(prev => ({ ...prev, [tabName]: defaultLayouts[tabName] }));
+  };
   
   // Estados para funcionalidades
   const [searchQuery, setSearchQuery] = useState('');
@@ -963,6 +991,61 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const cardBgHover = theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50';
   const textMuted = theme === 'light' ? 'text-slate-600' : 'text-slate-400';
 
+  // Componente genérico de Layout Editor para qualquer tab
+  const LayoutEditor = ({ tabName, widgetDefs, currentLayout, onUpdateLayout, onReset }) => {
+    const allWidgetIds = Object.keys(widgetDefs);
+    const validLayout = currentLayout.filter(id => allWidgetIds.includes(id));
+    const missingWidgets = allWidgetIds.filter(id => !validLayout.includes(id));
+    const fullLayout = [...validLayout, ...missingWidgets];
+    
+    const moveWidget = (widgetId, direction) => {
+      const idx = fullLayout.indexOf(widgetId);
+      if (direction === 'up' && idx > 0) {
+        const newLayout = [...fullLayout];
+        [newLayout[idx], newLayout[idx - 1]] = [newLayout[idx - 1], newLayout[idx]];
+        onUpdateLayout(newLayout);
+      } else if (direction === 'down' && idx < fullLayout.length - 1) {
+        const newLayout = [...fullLayout];
+        [newLayout[idx], newLayout[idx + 1]] = [newLayout[idx + 1], newLayout[idx]];
+        onUpdateLayout(newLayout);
+      }
+    };
+    
+    const tabNames = {
+      resumo: 'Dashboard',
+      receitas: 'Receitas',
+      abanca: 'Despesas Casal',
+      pessoais: 'Despesas Pessoais',
+      invest: 'Alocação',
+      portfolio: 'Portfolio'
+    };
+    
+    return (
+      <Card className="mb-6 border-purple-500/50 bg-purple-500/5">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className={`font-semibold ${theme === 'light' ? 'text-purple-600' : 'text-purple-300'}`}>🎨 Personalizar {tabNames[tabName] || tabName}</h3>
+          <div className="flex gap-2">
+            <button onClick={onReset} className={`px-3 py-1 text-xs rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`}>Reset</button>
+            <button onClick={() => setShowLayoutEditor(false)} className="px-3 py-1 text-xs bg-purple-500 hover:bg-purple-600 text-white rounded-lg">✓ Concluir</button>
+          </div>
+        </div>
+        <p className={`text-xs mb-3 ${textMuted}`}>Use as setas para reordenar os widgets:</p>
+        <div className="space-y-2">
+          {fullLayout.map((widgetId, idx) => (
+            <div key={widgetId} className={`flex items-center gap-3 p-2 rounded-lg ${cardBg}`}>
+              <div className="flex flex-col gap-0.5">
+                <button onClick={() => moveWidget(widgetId, 'up')} disabled={idx === 0} className={`px-1.5 py-0.5 text-xs rounded ${idx === 0 ? 'text-slate-500 cursor-not-allowed' : theme === 'light' ? 'hover:bg-slate-300 text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▲</button>
+                <button onClick={() => moveWidget(widgetId, 'down')} disabled={idx === fullLayout.length - 1} className={`px-1.5 py-0.5 text-xs rounded ${idx === fullLayout.length - 1 ? 'text-slate-500 cursor-not-allowed' : theme === 'light' ? 'hover:bg-slate-300 text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▼</button>
+              </div>
+              <span className="text-sm font-medium flex-1">{widgetDefs[widgetId]?.name || widgetId}</span>
+              <span className={`text-xs ${textMuted}`}>{widgetDefs[widgetId]?.desc}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    );
+  };
+
  // Mês atual do sistema (para cálculos)
  const mesAtualSistemaNum = meses.indexOf(mesAtualSistema) + 1;
  
@@ -1222,32 +1305,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      setDashboardLayout(newLayout);
    }
  };
- 
- // Painel de configuração de layout
- const LayoutPanel = () => (
-   <Card className="mb-6 border-purple-500/50 bg-purple-500/5">
-     <div className="flex justify-between items-center mb-4">
-       <h3 className="font-semibold text-purple-300">🎨 Personalizar Dashboard</h3>
-       <div className="flex gap-2">
-         <button onClick={() => setDashboardLayout(defaultDashboardLayout)} className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg">Reset</button>
-         <button onClick={() => setShowLayoutEditor(false)} className="px-3 py-1 text-xs bg-purple-500 hover:bg-purple-600 text-white rounded-lg">✓ Concluir</button>
-       </div>
-     </div>
-     <p className="text-xs text-slate-400 mb-3">Arrasta para reordenar os widgets do dashboard:</p>
-     <div className="space-y-2">
-       {fullLayout.map((widgetId, idx) => (
-         <div key={widgetId} className={`flex items-center gap-3 p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
-           <div className="flex flex-col gap-0.5">
-             <button onClick={() => moveWidget(widgetId, 'up')} disabled={idx === 0} className={`px-1.5 py-0.5 text-xs rounded ${idx === 0 ? 'text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▲</button>
-             <button onClick={() => moveWidget(widgetId, 'down')} disabled={idx === fullLayout.length - 1} className={`px-1.5 py-0.5 text-xs rounded ${idx === fullLayout.length - 1 ? 'text-slate-600' : 'hover:bg-slate-600 text-slate-300'}`}>▼</button>
-           </div>
-           <span className="text-sm font-medium flex-1">{widgetDefinitions[widgetId]?.name || widgetId}</span>
-           <span className="text-xs text-slate-500">{widgetDefinitions[widgetId]?.desc}</span>
-         </div>
-       ))}
-     </div>
-   </Card>
- );
 
  // Renderizar widget por ID
  const renderWidget = (widgetId) => {
@@ -1313,7 +1370,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  return (<div key={mesKey} className="space-y-6">
  
  {/* Painel de configuração de layout */}
- {showLayoutEditor && <LayoutPanel />}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="resumo"
+     widgetDefs={widgetDefinitions}
+     currentLayout={fullLayout}
+     onUpdateLayout={setDashboardLayout}
+     onReset={() => resetTabLayout('resumo')}
+   />
+ )}
  
  {/* Renderizar widgets na ordem configurada - tarefas e stats */}
  {fullLayout.filter(id => ['tarefas', 'stats'].includes(id)).map(id => renderWidget(id))}
@@ -4929,38 +4994,64 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      ? inv.map(d => '<tr><td>' + d.desc + '</td><td>' + d.cat + '</td><td class="right">' + fmt(d.val) + '</td><td class="right">' + (totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0') + '%</td></tr>').join('') 
      : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>';
    
+   // Cores baseadas no tema atual
+   const isDark = theme === 'dark';
+   const colors = isDark ? {
+     bg: '#0f172a',
+     bgCard: '#1e293b',
+     border: '#334155',
+     text: '#e2e8f0',
+     textMuted: '#94a3b8',
+     textHeading: '#f8fafc',
+     tableBg: '#1e293b',
+     tableHeader: '#334155',
+     tableHeaderText: '#e2e8f0',
+     chartBg: '#1e293b'
+   } : {
+     bg: '#ffffff',
+     bgCard: '#f8fafc',
+     border: '#e2e8f0',
+     text: '#1e293b',
+     textMuted: '#64748b',
+     textHeading: '#0f172a',
+     tableBg: '#ffffff',
+     tableHeader: '#f1f5f9',
+     tableHeaderText: '#475569',
+     chartBg: '#f8fafc'
+   };
+   
    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Financeiro - ' + mes + ' ' + ano + '</title>' +
    '<style>' +
    '* { margin: 0; padding: 0; box-sizing: border-box; }' +
-   'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }' +
-   'h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }' +
-   'h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #334155; }' +
-   '.subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }' +
+   'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; background: ' + colors.bg + '; color: ' + colors.text + '; line-height: 1.5; }' +
+   'h1 { font-size: 24px; margin-bottom: 8px; color: ' + colors.textHeading + '; }' +
+   'h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid ' + colors.border + '; color: ' + colors.textHeading + '; }' +
+   '.subtitle { color: ' + colors.textMuted + '; font-size: 14px; margin-bottom: 24px; }' +
    '.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }' +
    '.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
-   '.card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }' +
-   '.card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }' +
-   '.card-value { font-size: 20px; font-weight: 700; }' +
+   '.card { background: ' + colors.bgCard + '; border-radius: 8px; padding: 16px; border: 1px solid ' + colors.border + '; }' +
+   '.card-label { font-size: 12px; color: ' + colors.textMuted + '; margin-bottom: 4px; }' +
+   '.card-value { font-size: 20px; font-weight: 700; color: ' + colors.text + '; }' +
    '.card-value.green { color: #10b981; }' +
    '.card-value.orange { color: #f59e0b; }' +
    '.card-value.blue { color: #3b82f6; }' +
    '.card-value.purple { color: #8b5cf6; }' +
-   'table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }' +
-   'th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }' +
-   'th { background: #f1f5f9; font-weight: 600; color: #475569; }' +
+   'table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; background: ' + colors.tableBg + '; }' +
+   'th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid ' + colors.border + '; }' +
+   'th { background: ' + colors.tableHeader + '; font-weight: 600; color: ' + colors.tableHeaderText + '; }' +
    'td.right { text-align: right; }' +
-   '.total-row { background: #f8fafc; font-weight: 600; }' +
+   '.total-row { background: ' + colors.bgCard + '; font-weight: 600; }' +
    '.section { margin-bottom: 32px; }' +
    '.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
-   '.chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }' +
-   '.chart-legend { font-size: 12px; }' +
+   '.chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: ' + colors.chartBg + '; border-radius: 8px; border: 1px solid ' + colors.border + '; }' +
+   '.chart-legend { font-size: 12px; color: ' + colors.text + '; }' +
    '.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }' +
    '.legend-color { width: 12px; height: 12px; border-radius: 2px; }' +
-   '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }' +
-   '@media print { body { padding: 20px; } }' +
+   '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid ' + colors.border + '; font-size: 11px; color: ' + colors.textMuted + '; text-align: center; }' +
+   '@media print { body { padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }' +
    '</style></head><body>' +
    '<h1>📊 Relatório Financeiro</h1>' +
-   '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + '</p>' +
+   '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + ' • Tema ' + (isDark ? 'Escuro' : 'Claro') + '</p>' +
    
    '<div class="grid">' +
    '<div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">' + fmt(totRec) + '</div></div>' +
@@ -6542,8 +6633,8 @@ ${transacoesOrdenadas.map(t => `<tr>
                 {/* Toggle Tema */}
                 <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Mudar tema">{theme === 'dark' ? '☀️' : '🌙'}</button>
                 
-                {/* Layout Editor - só no Dashboard */}
-                {tab === 'resumo' && (
+                {/* Layout Editor - disponível em tabs com personalização */}
+                {['resumo', 'receitas', 'abanca', 'pessoais', 'invest', 'portfolio'].includes(tab) && (
                   <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${showLayoutEditor ? 'bg-purple-500/20 text-purple-400' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Personalizar layout">🎨</button>
                 )}
                 
