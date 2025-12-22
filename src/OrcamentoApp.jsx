@@ -4571,18 +4571,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // 6. Análise: Histórico
  // 7. Sara (separado)
  const tabs = [
-   {id:'resumo',icon:'📊',label:'Resumo'},
+   // 💵 Dinheiro
+   {id:'resumo',icon:'📊',label:'Dashboard'},
    {id:'performance',icon:'🚀',label:'Performance'},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
-   {id:'invest',icon:'📈',label:'Investimentos'},
+   {id:'credito',icon:'🏦',label:'Crédito'},
+   {id:'sara',icon:'👩',label:'Sara'},
+   // Separador
+   {id:'sep1',separator:true},
+   // 📈 Investimentos
+   {id:'invest',icon:'📈',label:'Alocação'},
    {id:'portfolio',icon:'💎',label:'Portfolio'},
    {id:'transacoes',icon:'📝',label:'Transações'},
-   {id:'credito',icon:'🏦',label:'Crédito'},
+   // Separador
+   {id:'sep2',separator:true},
+   // 📋 Gestão
    {id:'calendario',icon:'📆',label:'Projetos'},
-   {id:'historico',icon:'📅',label:'Histórico'},
-   {id:'agenda',icon:'📋',label:'Agenda'},
-   {id:'sara',icon:'👩',label:'Sara'}
+   {id:'agenda',icon:'📋',label:'Tarefas'},
+   {id:'historico',icon:'📅',label:'Histórico'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
@@ -6264,7 +6271,9 @@ ${transacoesOrdenadas.map(t => `<tr>
 
       <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
         {tabs.map(t => (
-          t.submenu ? (
+          t.separator ? (
+            <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
+          ) : t.submenu ? (
             <div key={t.id} className="relative flex-shrink-0">
               <button 
                 onClick={(e) => {
