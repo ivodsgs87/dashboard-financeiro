@@ -1387,25 +1387,35 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  {/* Os restantes widgets mantêm a estrutura original por agora */}
 
- {/* PATRIMÓNIO + IRS */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-   <Card>
-     <div className="flex justify-between items-center mb-3">
-       <h3 className="font-semibold">💎 Património Líquido</h3>
-       <span className="text-xl font-bold text-emerald-400">{fmt(patrimonio.total)}</span>
+ {/* PATRIMÓNIO LÍQUIDO - Card completo */}
+ <Card>
+   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+     <h3 className="font-semibold">💎 Património Líquido</h3>
+     <span className="text-2xl font-bold text-emerald-400">{fmt(patrimonio.total)}</span>
+   </div>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">📊 Portfolio</p>
+       <p className="text-lg font-bold text-blue-400">{fmt(patrimonio.portfolio)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.portfolio / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>
      </div>
-     <div className="grid grid-cols-2 gap-2 text-sm">
-       <div className="p-2 bg-blue-500/10 rounded-lg flex justify-between">
-         <span className="text-slate-400">Portfolio</span>
-         <span className="font-semibold text-blue-400">{fmt(patrimonio.portfolio)}</span>
-       </div>
-       <div className="p-2 bg-purple-500/10 rounded-lg flex justify-between">
-         <span className="text-slate-400">Casa líq.</span>
-         <span className="font-semibold text-purple-400">{fmt(patrimonio.casaLiquida)}</span>
-       </div>
+     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">🏠 Casa (líquido)</p>
+       <p className="text-lg font-bold text-purple-400">{fmt(patrimonio.casaLiquida)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.casaLiquida / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>
      </div>
-   </Card>
- </div>
+     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">🏦 Valor Casa</p>
+       <p className="text-lg font-bold text-emerald-400">{fmt(G.valorCasa || 250000)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Avaliação atual</p>
+     </div>
+     <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">📉 Dívida</p>
+       <p className="text-lg font-bold text-red-400">{fmt((G.valorCasa || 250000) - patrimonio.casaLiquida)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Crédito restante</p>
+     </div>
+   </div>
+ </Card>
  
  {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
  <Card>
