@@ -1406,12 +1406,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
      <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
        <p className="text-xs text-slate-400 mb-1">🏦 Valor Casa</p>
-       <p className="text-lg font-bold text-emerald-400">{fmt(G.valorCasa || 250000)}</p>
+       <p className="text-lg font-bold text-emerald-400">{fmt(patrimonio.valorCasa)}</p>
        <p className="text-[10px] text-slate-500 mt-1">Avaliação atual</p>
      </div>
      <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
        <p className="text-xs text-slate-400 mb-1">📉 Dívida</p>
-       <p className="text-lg font-bold text-red-400">{fmt((G.valorCasa || 250000) - patrimonio.casaLiquida)}</p>
+       <p className="text-lg font-bold text-red-400">{fmt(patrimonio.dividaAtual)}</p>
        <p className="text-[10px] text-slate-500 mt-1">Crédito restante</p>
      </div>
    </div>
