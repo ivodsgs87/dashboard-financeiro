@@ -971,17 +971,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCoresInv = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
 
  // UI Components
-  const Card = ({children, className = ''}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-sm rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${className}`}>{children}</div>;
-  const StatCard = ({label, value, color = '', sub, icon}) => <Card className="p-3 sm:p-4"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1`}>{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')}`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>;
+  const Card = ({children, className = '', animate = true}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-sm rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn hover-lift' : ''} smooth-colors ${className}`}>{children}</div>;
+  const StatCard = ({label, value, color = '', sub, icon}) => <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1`}>{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>;
  const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
- const base = 'font-semibold rounded-xl transition-all duration-200 ';
- const variants = {primary: 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
+ const base = 'font-semibold rounded-xl transition-all duration-200 hover-scale ';
+ const variants = {primary: 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
     const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
-  const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer ${className}`} {...props}>{children}</select>;
- const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-500" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
- const Row = ({children, highlight}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
+  const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
+ const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
+ const Row = ({children, highlight, index = 0}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 animate-listItemIn ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`} style={{animationDelay: `${index * 0.03}s`}}>{children}</div>;
   const inputClass = theme === 'light' 
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
@@ -1994,8 +1994,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (!showImportModal) return null;
      
      return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportModal(false); }}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportModal(false); }}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl" onMouseDown={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">📤 Importar Fatura</h3>
              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -2140,8 +2140,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const totalPagar = totalDoc - retIRS;
      
      return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowReciboModal(false); setEditRecibo(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowReciboModal(false); setEditRecibo(null); }}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">📄 Detalhes do Recibo Verde</h3>
              <button onClick={() => {setShowReciboModal(false); setEditRecibo(null);}} className="text-slate-400 hover:text-white">✕</button>
@@ -3927,8 +3927,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        {/* Modal Adicionar/Editar Transação */}
        {showAddTransacao && (
-         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4">
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editTransacao ? '✏️ Editar Transação' : '➕ Nova Transação'}</h3>
                <div className="flex items-center gap-2">
@@ -4556,8 +4556,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const diasNomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
          
          return (
-         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddProjeto(false); }}>
-           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddProjeto(false); }}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editProjeto ? '✏️ Editar Projeto' : '➕ Novo Projeto'}</h3>
                <div className="flex items-center gap-2">
@@ -4766,8 +4766,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const renderTarefaModal = () => {
      if (!showAddModal) return null;
      return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
            <div className="p-4 border-b border-slate-700 flex justify-between items-center">
              <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
              <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
@@ -5196,7 +5196,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: 'Esc', desc: 'Fechar modais' },
    ];
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
        <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
          <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
            <h3 className="text-lg font-semibold">⌨️ Atalhos de Teclado</h3>
@@ -6110,7 +6110,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    return (
      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-8" onMouseDown={e => { if (e.target === e.currentTarget) setShowRelatorio(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-4xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center no-print">
            <div className="flex items-center gap-4">
              <h3 className="text-xl font-bold">📊 Relatório Anual</h3>
@@ -6225,8 +6225,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    const results = searchResults();
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-20" onMouseDown={e => { if (e.target === e.currentTarget) setShowSearch(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-start justify-center pt-20" onMouseDown={e => { if (e.target === e.currentTarget) setShowSearch(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700">
            <div className="flex items-center gap-3">
              <span className="text-2xl">🔍</span>
@@ -6264,8 +6264,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    const alertas = G.alertas || [];
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAlerts(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAlerts(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
            <h3 className="text-lg font-semibold">🔔 Alertas e Notificações</h3>
            <button onClick={() => setShowAlerts(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -6353,8 +6353,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    if (!showImportCSV) return null;
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportCSV(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowImportCSV(false); }}>
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-2xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
            <h3 className="text-lg font-semibold">📥 Importar CSV</h3>
            <button onClick={() => setShowImportCSV(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -6631,6 +6631,132 @@ ${transacoesOrdenadas.map(t => `<tr>
    </div>
  )}
  <style>{`
+   /* Animações globais */
+   @keyframes fadeIn {
+     from { opacity: 0; transform: translateY(10px); }
+     to { opacity: 1; transform: translateY(0); }
+   }
+   @keyframes fadeInUp {
+     from { opacity: 0; transform: translateY(20px); }
+     to { opacity: 1; transform: translateY(0); }
+   }
+   @keyframes fadeInDown {
+     from { opacity: 0; transform: translateY(-20px); }
+     to { opacity: 1; transform: translateY(0); }
+   }
+   @keyframes fadeInScale {
+     from { opacity: 0; transform: scale(0.95); }
+     to { opacity: 1; transform: scale(1); }
+   }
+   @keyframes slideInRight {
+     from { opacity: 0; transform: translateX(20px); }
+     to { opacity: 1; transform: translateX(0); }
+   }
+   @keyframes slideInLeft {
+     from { opacity: 0; transform: translateX(-20px); }
+     to { opacity: 1; transform: translateX(0); }
+   }
+   @keyframes pulse {
+     0%, 100% { opacity: 1; }
+     50% { opacity: 0.7; }
+   }
+   @keyframes shimmer {
+     0% { background-position: -200% 0; }
+     100% { background-position: 200% 0; }
+   }
+   @keyframes bounce {
+     0%, 100% { transform: translateY(0); }
+     50% { transform: translateY(-5px); }
+   }
+   @keyframes modalIn {
+     from { opacity: 0; transform: scale(0.9) translateY(20px); }
+     to { opacity: 1; transform: scale(1) translateY(0); }
+   }
+   @keyframes backdropIn {
+     from { opacity: 0; }
+     to { opacity: 1; }
+   }
+   @keyframes listItemIn {
+     from { opacity: 0; transform: translateX(-10px); }
+     to { opacity: 1; transform: translateX(0); }
+   }
+   @keyframes cardIn {
+     from { opacity: 0; transform: translateY(15px); }
+     to { opacity: 1; transform: translateY(0); }
+   }
+   @keyframes numberChange {
+     0% { transform: scale(1); }
+     50% { transform: scale(1.1); color: #3b82f6; }
+     100% { transform: scale(1); }
+   }
+   
+   /* Classes de animação */
+   .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
+   .animate-fadeInUp { animation: fadeInUp 0.4s ease-out forwards; }
+   .animate-fadeInDown { animation: fadeInDown 0.3s ease-out forwards; }
+   .animate-fadeInScale { animation: fadeInScale 0.3s ease-out forwards; }
+   .animate-slideInRight { animation: slideInRight 0.3s ease-out forwards; }
+   .animate-slideInLeft { animation: slideInLeft 0.3s ease-out forwards; }
+   .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+   .animate-bounce { animation: bounce 0.5s ease-in-out; }
+   .animate-modalIn { animation: modalIn 0.25s ease-out forwards; }
+   .animate-backdropIn { animation: backdropIn 0.2s ease-out forwards; }
+   .animate-listItemIn { animation: listItemIn 0.2s ease-out forwards; }
+   .animate-cardIn { animation: cardIn 0.4s ease-out forwards; }
+   .animate-numberChange { animation: numberChange 0.3s ease-out; }
+   
+   /* Staggered animations para listas */
+   .stagger-1 { animation-delay: 0.05s; }
+   .stagger-2 { animation-delay: 0.1s; }
+   .stagger-3 { animation-delay: 0.15s; }
+   .stagger-4 { animation-delay: 0.2s; }
+   .stagger-5 { animation-delay: 0.25s; }
+   .stagger-6 { animation-delay: 0.3s; }
+   .stagger-7 { animation-delay: 0.35s; }
+   .stagger-8 { animation-delay: 0.4s; }
+   
+   /* Transições suaves globais */
+   .smooth-transition { transition: all 0.2s ease-out; }
+   .smooth-colors { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
+   
+   /* Hover effects melhorados */
+   .hover-lift { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; }
+   .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+   
+   .hover-glow { transition: box-shadow 0.2s ease-out; }
+   .hover-glow:hover { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+   
+   .hover-scale { transition: transform 0.15s ease-out; }
+   .hover-scale:hover { transform: scale(1.02); }
+   .hover-scale:active { transform: scale(0.98); }
+   
+   /* Tab transition */
+   .tab-content { animation: fadeIn 0.3s ease-out; }
+   
+   /* Card entrance - cada card com delay diferente */
+   .card-animated { opacity: 0; animation: cardIn 0.4s ease-out forwards; }
+   
+   /* Button press effect */
+   button { transition: transform 0.1s ease-out, opacity 0.15s ease-out; }
+   button:active:not(:disabled) { transform: scale(0.97); }
+   
+   /* Input focus animation */
+   input:focus, select:focus, textarea:focus {
+     transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out;
+   }
+   
+   /* Progress bar animation */
+   .progress-animated {
+     transition: width 0.5s ease-out;
+   }
+   
+   /* Skeleton loading */
+   .skeleton {
+     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+     background-size: 200% 100%;
+     animation: shimmer 1.5s infinite;
+   }
+   
    ${theme === 'light' 
      ? `
        select option{background:#f8fafc;color:#1e293b}
@@ -6650,6 +6776,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        .border-slate-600{border-color:#cbd5e1!important}
        .bg-slate-700{background:rgb(241 245 249)!important}
        .bg-slate-800{background:rgb(255 255 255)!important}
+       .hover-lift:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
        ` 
      : `select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}`}
    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
@@ -6771,7 +6898,7 @@ ${transacoesOrdenadas.map(t => `<tr>
               </button>
             </div>
           ) : (
-            <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+            <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           )
         ))}
       </nav>
@@ -6799,6 +6926,7 @@ ${transacoesOrdenadas.map(t => `<tr>
       )}
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
+        <div key={tab} className="animate-fadeIn">
         {tab==='resumo' && <Resumo/>}
  {tab==='performance' && <Performance/>}
  {tab==='receitas' && <Receitas/>}
@@ -6812,6 +6940,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <Credito/>}
  {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
+        </div>
  </main>
  </div>
  );
