@@ -449,11 +449,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Layouts por tab (widgets arrastáveis)
   const defaultLayouts = {
     resumo: ['tarefas', 'stats', 'patrimonio', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias', 'registos'],
-    receitas: ['resumoReceitas', 'formReceita', 'tabelaCom', 'tabelaSem'],
-    abanca: ['resumoDespesas', 'formDespesa', 'tabelaDespesas'],
-    pessoais: ['resumoPessoais', 'formPessoal', 'tabelaPessoais'],
-    invest: ['alocacao', 'graficoDistribuicao', 'metasProgresso'],
-    portfolio: ['resumoPortfolio', 'graficoEvolucao', 'tabelaAtivos'],
+    receitas: ['importar', 'clientes', 'comTaxas', 'semTaxas'],
+    abanca: ['contribuicao', 'listaDespesas', 'resumo', 'grafico'],
+    pessoais: ['listaDespesas', 'resumo', 'grafico'],
+    invest: ['disponivel', 'sliders', 'cartoes', 'investimentos', 'metas'],
+    portfolio: ['evolucao', 'distribuicao', 'ativos'],
   };
   
   const [tabLayouts, setTabLayouts] = useState(() => {
@@ -2278,6 +2278,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {renderImportModal()}
    <div className="space-y-6">
  
+ {/* Layout Editor para Receitas */}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="receitas"
+     widgetDefs={{
+       importar: { name: '📤 Importar Fatura', desc: 'Botão de importação com IA' },
+       clientes: { name: '👥 Clientes', desc: 'Lista de clientes' },
+       comTaxas: { name: '💼 COM Taxas', desc: 'Receitas com retenção' },
+       semTaxas: { name: '💵 SEM Taxas', desc: 'Receitas sem retenção' }
+     }}
+     currentLayout={getTabLayout('receitas')}
+     onUpdateLayout={(layout) => updateTabLayout('receitas', layout)}
+     onReset={() => resetTabLayout('receitas')}
+   />
+ )}
+
  {/* Botão de importar fatura */}
  <div className="flex justify-end">
    <button
@@ -2377,6 +2393,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6 max-w-4xl mx-auto">
+ 
+ {/* Layout Editor para Despesas Casal */}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="abanca"
+     widgetDefs={{
+       contribuicao: { name: '💑 Contribuição', desc: 'Slider de partilha' },
+       listaDespesas: { name: '📋 Lista Despesas', desc: 'Despesas fixas partilhadas' },
+       resumo: { name: '💰 Resumo', desc: 'Totais e partes' },
+       grafico: { name: '📊 Gráfico', desc: 'Distribuição por categoria' }
+     }}
+     currentLayout={getTabLayout('abanca')}
+     onUpdateLayout={(layout) => updateTabLayout('abanca', layout)}
+     onReset={() => resetTabLayout('abanca')}
+   />
+ )}
+ 
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -2447,6 +2480,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6 max-w-4xl mx-auto">
+ 
+ {/* Layout Editor para Despesas Pessoais */}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="pessoais"
+     widgetDefs={{
+       listaDespesas: { name: '📋 Lista Despesas', desc: 'Despesas pessoais mensais' },
+       resumo: { name: '💰 Resumo', desc: 'Total despesas' },
+       grafico: { name: '📊 Gráfico', desc: 'Distribuição por categoria' }
+     }}
+     currentLayout={getTabLayout('pessoais')}
+     onUpdateLayout={(layout) => updateTabLayout('pessoais', layout)}
+     onReset={() => resetTabLayout('pessoais')}
+   />
+ )}
+ 
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -2510,6 +2559,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div key={mesKey} className="space-y-6 max-w-4xl mx-auto">
+ 
+ {/* Layout Editor para Alocação */}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="invest"
+     widgetDefs={{
+       disponivel: { name: '💰 Disponível', desc: 'Valor disponível para investir' },
+       sliders: { name: '⚙️ Alocação', desc: 'Sliders de amortização/investimentos' },
+       cartoes: { name: '📊 Cartões', desc: 'Resumo da alocação' },
+       investimentos: { name: '📈 Investimentos', desc: 'Lista de investimentos mensais' },
+       metas: { name: '🎯 Metas', desc: 'Progresso das metas anuais' }
+     }}
+     currentLayout={getTabLayout('invest')}
+     onUpdateLayout={(layout) => updateTabLayout('invest', layout)}
+     onReset={() => resetTabLayout('invest')}
+   />
+ )}
+ 
  <Card>
  <h3 className="text-base sm:text-lg font-semibold mb-4 text-center">💰 Disponível: {fmt(disp)}</h3>
  
@@ -2907,6 +2974,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6 max-w-4xl mx-auto">
+
+ {/* Layout Editor para Portfolio */}
+ {showLayoutEditor && (
+   <LayoutEditor 
+     tabName="portfolio"
+     widgetDefs={{
+       evolucao: { name: '📈 Evolução', desc: 'Gráfico de evolução do portfolio' },
+       distribuicao: { name: '🥧 Distribuição', desc: 'Gráfico pizza por categoria' },
+       ativos: { name: '📊 Ativos', desc: 'Lista de ativos por categoria' }
+     }}
+     currentLayout={getTabLayout('portfolio')}
+     onUpdateLayout={(layout) => updateTabLayout('portfolio', layout)}
+     onReset={() => resetTabLayout('portfolio')}
+   />
+ )}
 
  {lineData.length > 1 && (
  <Card>
