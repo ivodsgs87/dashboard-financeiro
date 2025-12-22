@@ -1345,13 +1345,43 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <Card>
      <h3 className="font-semibold mb-3">💸 Transferências</h3>
      <div className="space-y-2">
-       {[{l:'Despesas Casal',s:'Dia 25',v:minhaAB,k:'abanca'},{l:'Pessoais',s:'Dia 25',v:totPess,k:'activo'},{l:'Trade Republic',s:'Dia 31',v:transfTR,k:'trade'},{l:`Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,s:'Dia 31',v:totalFerias,k:'revolut'}].map(t => (
+       {/* Entrada: Activo → Trade Republic */}
+       <div className={`flex items-center gap-2 p-2 rounded-lg border-2 ${transf.toTR ? 'bg-blue-500/10 border-blue-500/30' : 'bg-slate-700/30 border-slate-600/30'}`}>
+         <input type="checkbox" className="w-4 h-4 accent-blue-500" checked={transf.toTR || false} onChange={e=>uM('transf',{...transf,toTR:e.target.checked})}/>
+         <div className="flex-1">
+           <p className="text-sm font-medium">📥 Activo → Trade Republic</p>
+           <p className="text-xs text-slate-500">Transferir receitas do mês</p>
+         </div>
+         <span className="font-bold text-blue-400">{fmt(totRec)}</span>
+       </div>
+       
+       <div className="border-t border-slate-700/50 my-2 pt-2">
+         <p className="text-xs text-slate-500 mb-2">📤 Da Trade Republic para:</p>
+       </div>
+       
+       {/* Saídas: TR → outras contas */}
+       {[
+         {l:'ABanca',s:'Despesas Casal',v:minhaAB,k:'abanca'},
+         {l:'Activo Bank',s:'Despesas Pessoais',v:totPess,k:'activo'},
+         {l:'Revolut',s:`Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,k:'revolut'}
+       ].map(t => (
          <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
            <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
            <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
            <span className="font-bold">{fmt(t.v)}</span>
          </div>
        ))}
+       
+       {/* Resumo: fica na TR */}
+       <div className="border-t border-slate-700/50 mt-3 pt-3">
+         <div className="flex items-center justify-between p-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+           <div>
+             <p className="text-sm font-medium text-purple-300">💎 Fica na Trade Republic</p>
+             <p className="text-xs text-slate-500">Amortização + Investimentos</p>
+           </div>
+           <span className="font-bold text-purple-400">{fmt(totRec - minhaAB - totPess - totalFerias)}</span>
+         </div>
+       </div>
      </div>
    </Card>
  </div>
@@ -5130,12 +5160,17 @@ ${transacoesOrdenadas.map(t => `<tr>
        }
        
        // Transferências
+       const ficaNaTR = totRec - minhaABanca - totPess - totalFeriasExcel;
        data.push(['═══ TRANSFERÊNCIAS ═══', '', '']);
-       data.push(['Destino', 'Valor', 'Feito?']);
-       data.push(['ABanca (Despesas Fixas)', minhaABanca, transf.abanca ? '✓' : '']);
-       data.push(['Activo Bank (Pessoais)', totPess, transf.activo ? '✓' : '']);
-       data.push(['Trade Republic (Repor)', minhaABanca + totPess + valTax, transf.trade ? '✓' : '']);
-       data.push([`Revolut (Férias${alocFeriasVal > 0 ? ' fixo+extra' : ''})`, totalFeriasExcel, transf.revolut ? '✓' : '']);
+       data.push(['Movimento', 'Valor', 'Feito?']);
+       data.push(['📥 Activo → Trade Republic', totRec, transf.toTR ? '✓' : '']);
+       data.push(['']);
+       data.push(['📤 Da Trade Republic para:', '', '']);
+       data.push(['  → ABanca (Casal)', minhaABanca, transf.abanca ? '✓' : '']);
+       data.push(['  → Activo Bank (Pessoais)', totPess, transf.activo ? '✓' : '']);
+       data.push([`  → Revolut (Férias${alocFeriasVal > 0 ? ' fixo+extra' : ''})`, totalFeriasExcel, transf.revolut ? '✓' : '']);
+       data.push(['']);
+       data.push(['💎 Fica na TR (Invest+Amort)', ficaNaTR, '']);
        data.push([]);
        
        // Crédito Habitação
@@ -5307,18 +5342,23 @@ ${transacoesOrdenadas.map(t => `<tr>
      }
    });
    
-   // Verificar transferências do mês (dias 25 e 31)
+   // Verificar transferências do mês
+   // Primeiro: transferir receitas para TR (quando recebe)
+   if (!transf.toTR && totRec > 0) {
+     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(totRec)}`});
+   }
+   
+   // Depois: distribuir da TR (dias 25-26)
    if (diaHoje >= 24 && diaHoje <= 26) {
-     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 Transferir para conta conjunta: ${fmt(minhaAB)}`});
-     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 Transferir para Activo Bank: ${fmt(totPess)}`});
+     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 TR → ABanca (Casal): ${fmt(minhaAB)}`});
+     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 TR → Activo Bank (Pessoais): ${fmt(totPess)}`});
    }
    if (diaHoje >= 30 || diaHoje <= 2) {
-     if (!transf.trade) alerts.push({tipo: 'transf', msg: `💳 Transferir para Trade Republic: ${fmt(transfTR)}`});
-     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 Transferir para Revolut (férias): ${fmt(totalFerias)}`});
+     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 TR → Revolut (Férias): ${fmt(totalFerias)}`});
    }
    
    return alerts;
- }, [G, recLiq, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, transfTR, ferias, totalFerias]);
+ }, [G, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
