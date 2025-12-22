@@ -937,8 +937,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const textMuted = theme === 'light' ? 'text-slate-600' : 'text-slate-400';
 
  // Mês atual do sistema (para cálculos)
- const mesAtualNum = meses.indexOf(mesAtualSistema) + 1;
- const progressoEsperado = mesAtualNum / 12;
+ const mesAtualSistemaNum = meses.indexOf(mesAtualSistema) + 1;
+ 
+ // Mês relevante para o ano selecionado
+ // - Ano passado: 12 (ano completo)
+ // - Ano atual: mês atual do sistema
+ // - Ano futuro: mês selecionado (ou 0 se for Janeiro)
+ const mesAtualNum = ano < anoAtualSistema 
+   ? 12 
+   : ano > anoAtualSistema 
+     ? meses.indexOf(mes) + 1
+     : mesAtualSistemaNum;
+ 
+ const progressoEsperado = ano < anoAtualSistema 
+   ? 1 // 100% - ano completo
+   : ano > anoAtualSistema 
+     ? (meses.indexOf(mes) + 1) / 12 // progresso até ao mês selecionado
+     : mesAtualSistemaNum / 12; // progresso real do ano atual
 
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
@@ -1240,8 +1255,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* METAS ANUAIS */}
  <Card>
    <div className="flex justify-between items-center mb-4">
-     <h3 className="font-semibold">🎯 Progresso {ano}</h3>
-     <span className="text-xs text-slate-500">{mesAtualNum}/12 meses</span>
+     <h3 className="font-semibold">🎯 {ano < anoAtualSistema ? `Resultado ${ano}` : ano > anoAtualSistema ? `Projeção ${ano}` : `Progresso ${ano}`}</h3>
+     <span className="text-xs text-slate-500">
+       {ano < anoAtualSistema ? '✓ Ano completo' : ano > anoAtualSistema ? `${mes} (${mesAtualNum}/12)` : `${mesAtualNum}/12 meses`}
+     </span>
    </div>
    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
      {[
