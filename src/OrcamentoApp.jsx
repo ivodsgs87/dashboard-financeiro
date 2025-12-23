@@ -4053,7 +4053,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  const Calendario = () => {
    const projetos = G.projetos || [];
-   const ferias = G.ferias || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
+   const feriasLista = G.ferias || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
    const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
    const [calMes, setCalMes] = useState(meses.indexOf(mes));
    const [calAno, setCalAno] = useState(ano);
@@ -4066,7 +4066,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Filtros de visualização
    const [showProjetos, setShowProjetos] = useState(true);
-   const [showFerias, setShowFerias] = useState(true);
+   const [showFeriasFilter, setShowFeriasFilter] = useState(true);
    
    // Google Calendar state
    const [gcalConnected, setGcalConnected] = useState(false);
@@ -4324,11 +4324,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Verificar férias num dia
    const feriasNoDia = (dia, mesD, anoD) => {
-     if (!showFerias) return [];
+     if (!showFeriasFilter) return [];
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
      
-     return ferias.filter(f => {
+     return feriasLista.filter(f => {
        const inicio = new Date(f.dataInicio);
        const fim = new Date(f.dataFim);
        return dataCheck >= inicio && dataCheck <= fim;
@@ -4340,9 +4340,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (!novasFerias.dataInicio || !novasFerias.dataFim) return;
      
      if (editFerias) {
-       uG('ferias', ferias.map(f => f.id === editFerias.id ? { ...novasFerias, id: editFerias.id } : f));
+       uG('ferias', feriasLista.map(f => f.id === editFerias.id ? { ...novasFerias, id: editFerias.id } : f));
      } else {
-       uG('ferias', [...ferias, { ...novasFerias, id: Date.now() }]);
+       uG('ferias', [...feriasLista, { ...novasFerias, id: Date.now() }]);
      }
      setShowAddFerias(false);
      setEditFerias(null);
@@ -4351,7 +4351,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const deleteFerias = (id) => {
      if (confirm('Apagar este período de férias?')) {
-       uG('ferias', ferias.filter(f => f.id !== id));
+       uG('ferias', feriasLista.filter(f => f.id !== id));
      }
    };
    
@@ -4450,8 +4450,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    📋 Projetos
                  </button>
                  <button 
-                   onClick={() => setShowFerias(!showFerias)} 
-                   className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showFerias ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-slate-500 hover:text-slate-300'}`}
+                   onClick={() => setShowFeriasFilter(!showFeriasFilter)} 
+                   className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showFeriasFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-slate-500 hover:text-slate-300'}`}
                    title="Mostrar/ocultar férias"
                  >
                    🏖️ Férias
@@ -4641,14 +4641,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">🏖️ Férias</h3>
-           <span className="text-sm text-slate-400">{ferias.length} período(s)</span>
+           <span className="text-sm text-slate-400">{feriasLista.length} período(s)</span>
          </div>
          
-         {ferias.length === 0 ? (
+         {feriasLista.length === 0 ? (
            <p className="text-slate-500 text-center py-6">Nenhum período de férias registado.</p>
          ) : (
            <div className="space-y-2">
-             {ferias.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
+             {feriasLista.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
                const isMinhas = f.quem === 'eu';
                const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
                const inicio = new Date(f.dataInicio);
