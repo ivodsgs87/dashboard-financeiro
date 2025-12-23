@@ -4053,7 +4053,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  const Calendario = () => {
    const projetos = G.projetos || [];
-   const feriasLista = G.ferias || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
+   const feriasLista = G.feriasCalendario || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
    const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
    const [calMes, setCalMes] = useState(meses.indexOf(mes));
    const [calAno, setCalAno] = useState(ano);
@@ -4340,9 +4340,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (!novasFerias.dataInicio || !novasFerias.dataFim) return;
      
      if (editFerias) {
-       uG('ferias', feriasLista.map(f => f.id === editFerias.id ? { ...novasFerias, id: editFerias.id } : f));
+       uG('feriasCalendario', feriasLista.map(f => f.id === editFerias.id ? { ...novasFerias, id: editFerias.id } : f));
      } else {
-       uG('ferias', [...feriasLista, { ...novasFerias, id: Date.now() }]);
+       uG('feriasCalendario', [...feriasLista, { ...novasFerias, id: Date.now() }]);
      }
      setShowAddFerias(false);
      setEditFerias(null);
@@ -4351,7 +4351,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const deleteFerias = (id) => {
      if (confirm('Apagar este período de férias?')) {
-       uG('ferias', feriasLista.filter(f => f.id !== id));
+       uG('feriasCalendario', feriasLista.filter(f => f.id !== id));
      }
    };
    
@@ -4648,7 +4648,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <p className="text-slate-500 text-center py-6">Nenhum período de férias registado.</p>
          ) : (
            <div className="space-y-2">
-             {feriasLista.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
+             {[...feriasLista].sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
                const isMinhas = f.quem === 'eu';
                const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
                const inicio = new Date(f.dataInicio);
