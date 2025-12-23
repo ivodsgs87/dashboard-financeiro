@@ -4139,7 +4139,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      localStorage.removeItem('gcal_expiry');
    };
    
-   // Criar evento no Google Calendar
+   // Criar evento no Google Calendar (projeto)
    const createGoogleEvent = async (projeto) => {
      if (!gcalToken) return null;
      
@@ -4236,19 +4236,96 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return colorMap[cor] || '9';
    };
    
-   // Sync todos os projetos para Google Calendar
+   // Criar evento de férias no Google Calendar
+   const createGoogleFeriasEvent = async (feriasItem) => {
+     if (!gcalToken) return null;
+     
+     const isMinhas = feriasItem.quem === 'eu';
+     const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(feriasItem.quem)) : null;
+     const summary = isMinhas ? '🏖️ Férias' : `✈️ Férias ${cliente?.nome || 'Cliente'}`;
+     const colorId = isMinhas ? '7' : '5'; // Ciano para minhas, Amarelo para cliente
+     
+     const event = {
+       summary,
+       description: `${isMinhas ? 'Minhas férias' : `Férias de ${cliente?.nome || 'Cliente'}`}${feriasItem.notas ? `\n${feriasItem.notas}` : ''}\nCriado via Dashboard Financeiro`,
+       start: { date: feriasItem.dataInicio },
+       end: { 
+         date: new Date(new Date(feriasItem.dataFim).getTime() + 86400000).toISOString().split('T')[0]
+       },
+       colorId,
+     };
+     
+     try {
+       const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+         method: 'POST',
+         headers: {
+           'Authorization': `Bearer ${gcalToken}`,
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify(event),
+       });
+       
+       if (response.ok) {
+         const data = await response.json();
+         return data.id;
+       } else if (response.status === 401) {
+         disconnectGoogleCalendar();
+         setGcalError('Sessão expirada. Reconecta ao Google Calendar.');
+       }
+       return null;
+     } catch (error) {
+       console.error('Erro ao criar evento de férias:', error);
+       return null;
+     }
+   };
+   
+   // Sync todos os projetos e férias para Google Calendar
    const syncAllToGoogle = async () => {
      if (!gcalToken) return;
      setSyncing(true);
      
-     for (const projeto of projetos) {
+     // Copiar arrays para evitar problemas de estado
+     const projetosToSync = [...projetos];
+     const feriasToSync = [...feriasLista];
+     
+     // Sync projetos (só os que não têm gcalEventId)
+     const updatedProjetos = [];
+     for (const projeto of projetosToSync) {
        if (!projeto.gcalEventId) {
          const eventId = await createGoogleEvent(projeto);
          if (eventId) {
-           // Atualizar projeto com o ID do evento
-           uG('projetos', projetos.map(p => p.id === projeto.id ? { ...p, gcalEventId: eventId } : p));
+           updatedProjetos.push({ ...projeto, gcalEventId: eventId });
+         } else {
+           updatedProjetos.push(projeto);
          }
+       } else {
+         updatedProjetos.push(projeto);
        }
+     }
+     
+     // Atualizar projetos de uma vez só (evita múltiplos re-renders)
+     if (updatedProjetos.some((p, i) => p.gcalEventId !== projetosToSync[i]?.gcalEventId)) {
+       uG('projetos', updatedProjetos);
+     }
+     
+     // Sync férias (só as que não têm gcalEventId)
+     const updatedFerias = [];
+     for (const f of feriasToSync) {
+       if (!f.gcalEventId) {
+         const eventId = await createGoogleFeriasEvent(f);
+         if (eventId) {
+           updatedFerias.push({ ...f, gcalEventId: eventId });
+         } else {
+           updatedFerias.push(f);
+         }
+       } else {
+         updatedFerias.push(f);
+       }
+     }
+     
+     // Atualizar férias de uma vez só
+     if (updatedFerias.some((f, i) => f.gcalEventId !== feriasToSync[i]?.gcalEventId)) {
+       uG('feriasCalendario', updatedFerias);
      }
      
      setSyncing(false);
@@ -4420,9 +4497,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      uG('projetos', projetos.map(p => p.id === id ? { ...p, concluido: !p.concluido } : p));
    };
    
-   const dias = vista === 'mes' ? getDiasDoMes(calMes, calAno) : getDiasDaSemana();
+   // Usar useMemo para evitar recálculos desnecessários
+   const dias = useMemo(() => vista === 'mes' ? getDiasDoMes(calMes, calAno) : getDiasDaSemana(), [vista, calMes, calAno]);
    const diasSemana = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-   const hoje = new Date();
+   const hoje = useMemo(() => new Date(), []);
    const hojeStr = `${hoje.getFullYear()}-${hoje.getMonth()}-${hoje.getDate()}`;
    
    return (
@@ -4487,7 +4565,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  {syncing ? (
                    <span className="text-xs text-amber-400">A sincronizar...</span>
                  ) : (
-                   <button onClick={syncAllToGoogle} className="px-2 py-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg" title="Sincronizar projetos existentes">🔄 Sync</button>
+                   <button onClick={syncAllToGoogle} className="px-2 py-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg" title="Sincronizar projetos e férias">🔄 Sync</button>
                  )}
                  <button onClick={disconnectGoogleCalendar} className="px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg">Desconectar</button>
                </div>
@@ -4665,6 +4743,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <div className="flex-1 min-w-0">
                      <div className="flex items-center gap-2">
                        <span className="font-medium">{isMinhas ? 'Minhas Férias' : `Férias ${cliente?.nome || 'Cliente'}`}</span>
+                       {f.gcalEventId && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full" title="Sincronizado com Google Calendar">📅</span>}
                        {status === 'ativo' && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">A decorrer</span>}
                        {status === 'futuro' && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">Agendado</span>}
                      </div>
