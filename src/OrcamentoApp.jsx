@@ -499,19 +499,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [compareYear, setCompareYear] = useState(null);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  
-  // Detectar offline
-  useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  // Nota: estado offline gerido por isOnline acima
   
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
@@ -4085,14 +4073,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
    }, []);
    
-   // Inicializar Google Identity Services
+   // Inicializar Google Identity Services (só uma vez, verifica se já existe)
    useEffect(() => {
+     // Verificar se o script já foi carregado
+     if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+       return;
+     }
      const script = document.createElement('script');
      script.src = 'https://accounts.google.com/gsi/client';
      script.async = true;
      script.defer = true;
      document.body.appendChild(script);
-     return () => document.body.removeChild(script);
+     // Não remover o script no cleanup para evitar re-carregar
    }, []);
    
    // Conectar ao Google Calendar
@@ -6936,7 +6928,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  <ImportCSVModal />
  <RelatorioAnualModal />
  <ShortcutsModal />
- {isOffline && (
+ {!isOnline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
      ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
    </div>
