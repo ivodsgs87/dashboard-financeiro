@@ -4333,8 +4333,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const cores = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#06b6d4', '#84cc16'];
    
-   // Gerar dias do mês
-   const getDiasDoMes = (m, a) => {
+   // Gerar dias do mês - useCallback para evitar recriação
+   const getDiasDoMes = useCallback((m, a) => {
      const primeiroDia = new Date(a, m, 1);
      const ultimoDia = new Date(a, m + 1, 0);
      const diasNoMes = ultimoDia.getDate();
@@ -4360,10 +4360,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        dias.push({ dia: i, mes: mesProxNum, ano: anoProx, fora: true });
      }
      return dias;
-   };
+   }, []);
    
-   // Gerar dias da semana atual
-   const getDiasDaSemana = () => {
+   // Gerar dias da semana atual - useCallback
+   const getDiasDaSemana = useCallback(() => {
      const hoje = new Date();
      const diaSemana = hoje.getDay();
      const inicio = new Date(hoje);
@@ -4376,31 +4376,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        dias.push({ dia: d.getDate(), mes: d.getMonth(), ano: d.getFullYear(), data: d });
      }
      return dias;
-   };
+   }, []);
    
-   // Verificar se projeto está num dia
-   const projetosNoDia = (dia, mesD, anoD) => {
+   // Verificar se projeto está num dia - useCallback
+   const projetosNoDia = useCallback((dia, mesD, anoD) => {
      if (!showProjetos) return [];
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
-     const diaSemana = dataCheck.getDay(); // 0 = Domingo, 6 = Sábado
+     const diaSemana = dataCheck.getDay();
      
      return projetos.filter(p => {
        const inicio = new Date(p.dataInicio);
        const fim = new Date(p.dataFim);
        if (dataCheck < inicio || dataCheck > fim) return false;
-       
-       // Verificar se este dia está excluído
        if (p.excluirSab && diaSemana === 6) return false;
        if (p.excluirDom && diaSemana === 0) return false;
        if (p.diasExcluidos && p.diasExcluidos.includes(dataStr)) return false;
-       
        return true;
      });
-   };
+   }, [projetos, showProjetos]);
    
-   // Verificar férias num dia
-   const feriasNoDia = (dia, mesD, anoD) => {
+   // Verificar férias num dia - useCallback
+   const feriasNoDia = useCallback((dia, mesD, anoD) => {
      if (!showFeriasFilter) return [];
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
@@ -4410,7 +4407,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const fim = new Date(f.dataFim);
        return dataCheck >= inicio && dataCheck <= fim;
      });
-   };
+   }, [feriasLista, showFeriasFilter]);
    
    // Funções para guardar/apagar férias
    const saveFerias = () => {
@@ -4645,7 +4642,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          style={{ background: `${p.cor}30`, borderLeft: `2px solid ${p.cor}` }}
                          title={`${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
                        >
-                         {p.nome}
+                         {cliente ? `${cliente.nome}: ` : ''}{p.nome}
                        </div>
                      );
                    })}
