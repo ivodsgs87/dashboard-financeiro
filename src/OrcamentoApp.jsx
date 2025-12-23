@@ -4053,12 +4053,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  const Calendario = () => {
    const projetos = G.projetos || [];
+   const ferias = G.ferias || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
    const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
    const [calMes, setCalMes] = useState(meses.indexOf(mes));
    const [calAno, setCalAno] = useState(ano);
    const [showAddProjeto, setShowAddProjeto] = useState(false);
+   const [showAddFerias, setShowAddFerias] = useState(false);
    const [editProjeto, setEditProjeto] = useState(null);
+   const [editFerias, setEditFerias] = useState(null);
    const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
+   const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
+   
+   // Filtros de visualização
+   const [showProjetos, setShowProjetos] = useState(true);
+   const [showFerias, setShowFerias] = useState(true);
    
    // Google Calendar state
    const [gcalConnected, setGcalConnected] = useState(false);
@@ -4295,6 +4303,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Verificar se projeto está num dia
    const projetosNoDia = (dia, mesD, anoD) => {
+     if (!showProjetos) return [];
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
      const diaSemana = dataCheck.getDay(); // 0 = Domingo, 6 = Sábado
@@ -4311,6 +4320,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        return true;
      });
+   };
+   
+   // Verificar férias num dia
+   const feriasNoDia = (dia, mesD, anoD) => {
+     if (!showFerias) return [];
+     const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+     const dataCheck = new Date(dataStr);
+     
+     return ferias.filter(f => {
+       const inicio = new Date(f.dataInicio);
+       const fim = new Date(f.dataFim);
+       return dataCheck >= inicio && dataCheck <= fim;
+     });
+   };
+   
+   // Funções para guardar/apagar férias
+   const saveFerias = () => {
+     if (!novasFerias.dataInicio || !novasFerias.dataFim) return;
+     
+     if (editFerias) {
+       uG('ferias', ferias.map(f => f.id === editFerias.id ? { ...novasFerias, id: editFerias.id } : f));
+     } else {
+       uG('ferias', [...ferias, { ...novasFerias, id: Date.now() }]);
+     }
+     setShowAddFerias(false);
+     setEditFerias(null);
+     setNovasFerias({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
+   };
+   
+   const deleteFerias = (id) => {
+     if (confirm('Apagar este período de férias?')) {
+       uG('ferias', ferias.filter(f => f.id !== id));
+     }
    };
    
    // Função para clicar num dia e criar projeto
@@ -4387,17 +4429,55 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <div className="space-y-4">
        {/* Header */}
        <Card>
-         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-           <div className="flex items-center gap-3">
-             <h3 className="text-lg font-semibold">📆 Calendário de Projetos</h3>
-             <div className="flex gap-1 bg-slate-700/50 rounded-lg p-0.5">
-               <button onClick={() => setVista('mes')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'mes' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Mês</button>
-               <button onClick={() => setVista('semana')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'semana' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Semana</button>
+         <div className="flex flex-col gap-3">
+           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+             <div className="flex items-center gap-3">
+               <h3 className="text-lg font-semibold">📆 Calendário</h3>
+               <div className="flex gap-1 bg-slate-700/50 rounded-lg p-0.5">
+                 <button onClick={() => setVista('mes')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'mes' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Mês</button>
+                 <button onClick={() => setVista('semana')} className={`px-3 py-1 text-xs rounded-md transition-all ${vista === 'semana' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-white'}`}>Semana</button>
+               </div>
+             </div>
+             
+             <div className="flex items-center gap-2 flex-wrap">
+               {/* Filtros */}
+               <div className="flex gap-1 bg-slate-700/30 rounded-lg p-1">
+                 <button 
+                   onClick={() => setShowProjetos(!showProjetos)} 
+                   className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showProjetos ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' : 'text-slate-500 hover:text-slate-300'}`}
+                   title="Mostrar/ocultar projetos"
+                 >
+                   📋 Projetos
+                 </button>
+                 <button 
+                   onClick={() => setShowFerias(!showFerias)} 
+                   className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showFerias ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-slate-500 hover:text-slate-300'}`}
+                   title="Mostrar/ocultar férias"
+                 >
+                   🏖️ Férias
+                 </button>
+               </div>
+               
+               {vista === 'mes' && (
+                 <>
+                   <button onClick={() => { if (calMes === 0) { setCalMes(11); setCalAno(a => a - 1); } else setCalMes(m => m - 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">←</button>
+                   <span className="font-medium min-w-[120px] text-center text-sm">{meses[calMes]} {calAno}</span>
+                   <button onClick={() => { if (calMes === 11) { setCalMes(0); setCalAno(a => a + 1); } else setCalMes(m => m + 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">→</button>
+                 </>
+               )}
+               
+               <Button size="sm" onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] }); }}>+ Projeto</Button>
+               <button 
+                 onClick={() => { setShowAddFerias(true); setEditFerias(null); setNovasFerias({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' }); }} 
+                 className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white shadow-lg shadow-cyan-500/25"
+               >
+                 + Férias
+               </button>
              </div>
            </div>
            
-           <div className="flex items-center gap-2">
-             {/* Google Calendar Integration */}
+           {/* Google Calendar - linha separada */}
+           <div className="flex items-center gap-2 pt-2 border-t border-slate-700/50">
              {gcalConnected ? (
                <div className="flex items-center gap-2">
                  <span className="text-xs text-green-400 flex items-center gap-1">
@@ -4421,15 +4501,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </button>
              )}
              {gcalError && <span className="text-xs text-red-400">{gcalError}</span>}
-             
-             {vista === 'mes' && (
-               <>
-                 <button onClick={() => { if (calMes === 0) { setCalMes(11); setCalAno(a => a - 1); } else setCalMes(m => m - 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">←</button>
-                 <span className="font-medium min-w-[140px] text-center">{meses[calMes]} {calAno}</span>
-                 <button onClick={() => { if (calMes === 11) { setCalMes(0); setCalAno(a => a + 1); } else setCalMes(m => m + 1); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg">→</button>
-               </>
-             )}
-             <Button onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] }); }}>+ Projeto</Button>
            </div>
          </div>
        </Card>
@@ -4447,7 +4518,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="grid grid-cols-7 gap-px bg-slate-700">
            {dias.map((d, i) => {
              const projetosHoje = projetosNoDia(d.dia, d.mes, d.ano);
+             const feriasHoje = feriasNoDia(d.dia, d.mes, d.ano);
              const isHoje = d.dia === hoje.getDate() && d.mes === hoje.getMonth() && d.ano === hoje.getFullYear();
+             const totalItems = projetosHoje.length + feriasHoje.length;
+             const maxItems = vista === 'mes' ? 3 : 10;
              
              return (
                <div 
@@ -4464,7 +4538,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    {d.dia}
                  </div>
                  <div className="space-y-0.5" onClick={e => e.stopPropagation()}>
-                   {projetosHoje.slice(0, vista === 'mes' ? 3 : 10).map(p => {
+                   {/* Férias primeiro */}
+                   {feriasHoje.slice(0, maxItems).map(f => {
+                     const isMinhas = f.quem === 'eu';
+                     const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
+                     const label = isMinhas ? '🏖️ Minhas férias' : `✈️ ${cliente?.nome || 'Cliente'}`;
+                     const cor = isMinhas ? '#06b6d4' : '#f59e0b';
+                     return (
+                       <div 
+                         key={`f-${f.id}`} 
+                         onClick={(e) => { e.stopPropagation(); setEditFerias(f); setNovasFerias({...f}); setShowAddFerias(true); }}
+                         className="text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80"
+                         style={{ background: `${cor}30`, borderLeft: `2px solid ${cor}` }}
+                         title={`${label}${f.notas ? ` - ${f.notas}` : ''}`}
+                       >
+                         {isMinhas ? '🏖️' : '✈️'} {isMinhas ? 'Férias' : cliente?.nome}
+                       </div>
+                     );
+                   })}
+                   {/* Projetos */}
+                   {projetosHoje.slice(0, Math.max(0, maxItems - feriasHoje.length)).map(p => {
                      const cliente = clientes.find(c => c.id === p.clienteId);
                      return (
                        <div 
@@ -4478,8 +4571,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        </div>
                      );
                    })}
-                   {projetosHoje.length > (vista === 'mes' ? 3 : 10) && (
-                     <div className="text-xs text-slate-500 px-1">+{projetosHoje.length - (vista === 'mes' ? 3 : 10)}</div>
+                   {totalItems > maxItems && (
+                     <div className="text-xs text-slate-500 px-1">+{totalItems - maxItems}</div>
                    )}
                  </div>
                </div>
@@ -4543,6 +4636,119 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          )}
        </Card>
+       
+       {/* Lista de Férias */}
+       <Card>
+         <div className="flex justify-between items-center mb-4">
+           <h3 className="text-lg font-semibold">🏖️ Férias</h3>
+           <span className="text-sm text-slate-400">{ferias.length} período(s)</span>
+         </div>
+         
+         {ferias.length === 0 ? (
+           <p className="text-slate-500 text-center py-6">Nenhum período de férias registado.</p>
+         ) : (
+           <div className="space-y-2">
+             {ferias.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
+               const isMinhas = f.quem === 'eu';
+               const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
+               const inicio = new Date(f.dataInicio);
+               const fim = new Date(f.dataFim);
+               const diasTotal = Math.ceil((fim - inicio) / (1000 * 60 * 60 * 24)) + 1;
+               const cor = isMinhas ? '#06b6d4' : '#f59e0b';
+               const hojeDate = new Date();
+               const status = hojeDate > fim ? 'passado' : hojeDate >= inicio ? 'ativo' : 'futuro';
+               
+               return (
+                 <div key={f.id} className={`flex items-center gap-3 p-3 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 ${status === 'passado' ? 'opacity-60' : ''}`}>
+                   <div className="text-2xl">{isMinhas ? '🏖️' : '✈️'}</div>
+                   <div className="w-1 h-10 rounded-full" style={{ background: cor }} />
+                   <div className="flex-1 min-w-0">
+                     <div className="flex items-center gap-2">
+                       <span className="font-medium">{isMinhas ? 'Minhas Férias' : `Férias ${cliente?.nome || 'Cliente'}`}</span>
+                       {status === 'ativo' && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">A decorrer</span>}
+                       {status === 'futuro' && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">Agendado</span>}
+                     </div>
+                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                       <span>{inicio.toLocaleDateString('pt-PT')} → {fim.toLocaleDateString('pt-PT')}</span>
+                       <span>({diasTotal} dias)</span>
+                       {f.notas && <span className="text-slate-500 truncate max-w-[150px]">• {f.notas}</span>}
+                     </div>
+                   </div>
+                   <div className="flex gap-1">
+                     <button onClick={() => { setEditFerias(f); setNovasFerias(f); setShowAddFerias(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg" title="Editar">✏️</button>
+                     <button onClick={() => deleteFerias(f.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg" title="Apagar">🗑️</button>
+                   </div>
+                 </div>
+               );
+             })}
+           </div>
+         )}
+       </Card>
+       
+       {/* Modal Adicionar/Editar Férias */}
+       {showAddFerias && (
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddFerias(false); }}>
+           <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+             <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+               <h3 className="text-lg font-semibold">{editFerias ? '✏️ Editar Férias' : '🏖️ Adicionar Férias'}</h3>
+               <div className="flex items-center gap-2">
+                 {editFerias && (
+                   <button 
+                     onClick={() => { deleteFerias(editFerias.id); setShowAddFerias(false); }} 
+                     className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
+                     title="Eliminar férias"
+                   >
+                     🗑️
+                   </button>
+                 )}
+                 <button onClick={() => setShowAddFerias(false)} className="text-slate-400 hover:text-white">✕</button>
+               </div>
+             </div>
+             <div className="p-4 space-y-4">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Quem está de férias?</label>
+                 <Select value={novasFerias.quem} onChange={e => setNovasFerias({ ...novasFerias, quem: e.target.value })} className="w-full">
+                   <option value="eu">🏖️ Eu (minhas férias)</option>
+                   {clientes.map(c => <option key={c.id} value={c.id}>✈️ {c.nome}</option>)}
+                 </Select>
+               </div>
+               <div className="grid grid-cols-2 gap-3">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Data Início</label>
+                   <input type="date" value={novasFerias.dataInicio} onChange={e => setNovasFerias({ ...novasFerias, dataInicio: e.target.value })} className={inputClass + ' w-full'} />
+                 </div>
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1 block">Data Fim</label>
+                   <input type="date" value={novasFerias.dataFim} onChange={e => setNovasFerias({ ...novasFerias, dataFim: e.target.value })} className={inputClass + ' w-full'} />
+                 </div>
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Notas (opcional)</label>
+                 <input type="text" value={novasFerias.notas || ''} onChange={e => setNovasFerias({ ...novasFerias, notas: e.target.value })} className={inputClass + ' w-full'} placeholder="Ex: Viagem a Espanha..." />
+               </div>
+               
+               {/* Preview */}
+               {novasFerias.dataInicio && novasFerias.dataFim && (
+                 <div className={`p-3 rounded-xl ${novasFerias.quem === 'eu' ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-amber-500/10 border border-amber-500/30'}`}>
+                   <p className="text-sm">
+                     {novasFerias.quem === 'eu' ? '🏖️' : '✈️'} 
+                     <span className="font-medium ml-1">
+                       {novasFerias.quem === 'eu' ? 'Minhas férias' : `Férias de ${clientes.find(c => c.id === parseInt(novasFerias.quem))?.nome || 'Cliente'}`}
+                     </span>
+                   </p>
+                   <p className="text-xs text-slate-400 mt-1">
+                     {Math.ceil((new Date(novasFerias.dataFim) - new Date(novasFerias.dataInicio)) / (1000 * 60 * 60 * 24)) + 1} dias
+                   </p>
+                 </div>
+               )}
+             </div>
+             <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+               <Button variant="secondary" onClick={() => setShowAddFerias(false)}>Cancelar</Button>
+               <Button onClick={saveFerias}>Guardar</Button>
+             </div>
+           </div>
+         </div>
+       )}
        
        {/* Modal Adicionar/Editar Projeto */}
        {showAddProjeto && (() => {
