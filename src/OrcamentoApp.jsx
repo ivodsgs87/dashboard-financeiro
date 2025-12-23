@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { createGoogleSheet, getAccessToken } from './firebase';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
