@@ -3125,9 +3125,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
  <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
- <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
+ <div className="flex items-center gap-3">
+   <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
+   {G.portfolioLastUpdate && (
+     <p className="text-xs text-slate-400">
+       📅 Última atualização: {new Date(G.portfolioLastUpdate).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+     </p>
+   )}
+ </div>
  </div>
  <div className="flex gap-2 justify-end">
+   <Button variant="secondary" size="sm" onClick={() => { uG('portfolioLastUpdate', new Date().toISOString()); }}>🔄 Marcar Atualizado</Button>
    <Button variant="secondary" size="sm" onClick={guardarSnapshot}>📸 Snapshot</Button>
    <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+</Button>
  </div>
