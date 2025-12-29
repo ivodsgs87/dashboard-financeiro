@@ -711,28 +711,47 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [redoHistory, G, M]);
 
   // Carregar dados do Firebase UMA VEZ quando initialData chegar
+  const initialDataRef = useRef(initialData);
+  const hasProcessedInitialData = useRef(false);
+  
   useEffect(() => {
-    if (dataLoaded) return; // Já carregou, não fazer mais nada
+    // Só processar uma vez
+    if (hasProcessedInitialData.current) return;
+    if (dataLoaded) return;
+    
+    // Atualizar ref
+    initialDataRef.current = initialData;
     
     if (initialData) {
       console.log('Carregando dados do Firebase...');
       if (initialData.g) setG(initialData.g);
       if (initialData.m) setM(initialData.m);
       setDataLoaded(true);
+      hasProcessedInitialData.current = true;
     } else if (initialData === null) {
       // Utilizador novo, sem dados - usar defaults
       console.log('Utilizador novo, usando defaults');
       setDataLoaded(true);
+      hasProcessedInitialData.current = true;
     }
     // Se initialData === undefined, ainda está a carregar
   }, [initialData, dataLoaded]);
 
-  // Auto-save para Firebase (com debounce de 3 segundos)
+  // Auto-save para Firebase (com debounce maior para reduzir re-renders)
+  const saveTimeoutRef2 = useRef(null);
+  
   useEffect(() => {
     if (!dataLoaded) return;
     if (isSavingRef.current) return;
     
-    setHasChanges(true);
+    // Não marcar hasChanges imediatamente para evitar re-render
+    if (saveTimeoutRef2.current) {
+      clearTimeout(saveTimeoutRef2.current);
+    }
+    
+    saveTimeoutRef2.current = setTimeout(() => {
+      setHasChanges(true);
+    }, 1000);
     
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -754,6 +773,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (saveTimeoutRef2.current) {
+        clearTimeout(saveTimeoutRef2.current);
       }
     };
   }, [G, M, dataLoaded]);
@@ -792,29 +814,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [mesKey]);
 
  // Atualiza automaticamente o portfolioHist quando o portfolio do mês muda
+ // Usar ref para evitar loops de re-render
+ const lastPortfolioUpdate = useRef({ mesKey: '', total: 0 });
+ 
  useEffect(() => {
- if (mesD.portfolio) {
- const totPort = mesD.portfolio.reduce((a,p) => a + p.val, 0);
- const hist = G.portfolioHist || [];
- const existingIdx = hist.findIndex(h => h.date === mesKey);
- 
- let newHist;
- if (existingIdx >= 0) {
- if (hist[existingIdx].total !== totPort) {
- newHist = hist.map((h, i) => i === existingIdx ? {...h, total: totPort} : h);
- }
- } else if (totPort > 0) {
- newHist = [...hist, {date: mesKey, total: totPort}].sort((a,b) => {
- const [aY,aM] = a.date.split('-').map(Number);
- const [bY,bM] = b.date.split('-').map(Number);
- return aY === bY ? aM - bM : aY - bY;
- });
- }
- 
- if (newHist) {
- setG(p => ({...p, portfolioHist: newHist}));
- }
- }
+   if (!mesD.portfolio || !Array.isArray(mesD.portfolio)) return;
+   
+   const totPort = mesD.portfolio.reduce((a,p) => a + (p.val || 0), 0);
+   
+   // Evitar updates desnecessários - só atualizar se realmente mudou
+   if (lastPortfolioUpdate.current.mesKey === mesKey && 
+       lastPortfolioUpdate.current.total === totPort) {
+     return;
+   }
+   
+   const hist = G.portfolioHist || [];
+   const existingIdx = hist.findIndex(h => h.date === mesKey);
+   
+   let needsUpdate = false;
+   let newHist = hist;
+   
+   if (existingIdx >= 0) {
+     if (hist[existingIdx].total !== totPort) {
+       newHist = hist.map((h, i) => i === existingIdx ? {...h, total: totPort} : h);
+       needsUpdate = true;
+     }
+   } else if (totPort > 0) {
+     newHist = [...hist, {date: mesKey, total: totPort}].sort((a,b) => {
+       const [aY,aM] = a.date.split('-').map(Number);
+       const [bY,bM] = b.date.split('-').map(Number);
+       return aY === bY ? aM - bM : aY - bY;
+     });
+     needsUpdate = true;
+   }
+   
+   if (needsUpdate) {
+     lastPortfolioUpdate.current = { mesKey, total: totPort };
+     setG(p => ({...p, portfolioHist: newHist}));
+   }
  }, [mesD.portfolio, mesKey]);
 
  // Funções de update que guardam estado para undo ANTES de alterar
