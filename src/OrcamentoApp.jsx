@@ -408,13 +408,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showOfflineNotice, setShowOfflineNotice] = useState(false);
   
-  // Registar Service Worker para PWA/Offline
+  // Listeners de conectividade (Service Worker desativado - causa erros 404)
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('Service Worker registado:', reg.scope))
-        .catch(err => console.log('Erro no Service Worker:', err));
-    }
+    // Service Worker comentado - descomentar quando sw.js existir no servidor
+    // if ('serviceWorker' in navigator) {
+    //   navigator.serviceWorker.register('/sw.js')
+    //     .then(reg => console.log('Service Worker registado:', reg.scope))
+    //     .catch(err => console.log('Erro no Service Worker:', err));
+    // }
     
     // Listeners de conectividade
     const handleOnline = () => { setIsOnline(true); setShowOfflineNotice(false); };
@@ -742,46 +743,60 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     // Se initialData === undefined, ainda está a carregar
   }, [initialData, dataLoaded]);
 
-  // Auto-save para Firebase (com debounce maior para reduzir re-renders)
+  // Auto-save para Firebase - só guarda quando há alterações REAIS do utilizador
   const saveTimeoutRef2 = useRef(null);
+  const isFirstLoadRef = useRef(true); // Flag para ignorar o primeiro "change" após carregar
+  const lastSavedDataRef = useRef(null); // Guardar último estado salvo para comparar
   
   useEffect(() => {
     if (!dataLoaded) return;
+    
+    // Ignorar o primeiro render após carregar dados (não é uma alteração do utilizador)
+    if (isFirstLoadRef.current) {
+      isFirstLoadRef.current = false;
+      lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
+      return;
+    }
+    
+    // Verificar se os dados realmente mudaram
+    const currentData = JSON.stringify({ g: G, m: M });
+    if (currentData === lastSavedDataRef.current) {
+      return; // Nada mudou, não guardar
+    }
+    
     if (isSavingRef.current) return;
     
-    // Não marcar hasChanges imediatamente para evitar re-render
+    // Limpar timeouts anteriores
     if (saveTimeoutRef2.current) {
       clearTimeout(saveTimeoutRef2.current);
     }
-    
-    saveTimeoutRef2.current = setTimeout(() => {
-      setHasChanges(true);
-    }, 1000);
-    
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
+    // Marcar que há alterações (com delay para evitar re-render imediato)
+    saveTimeoutRef2.current = setTimeout(() => {
+      setHasChanges(true);
+    }, 2000);
+    
+    // Guardar após 5 segundos
     saveTimeoutRef.current = setTimeout(async () => {
       console.log('Guardando dados...');
       isSavingRef.current = true;
       try {
         await onSaveData({ g: G, m: M });
+        lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
         setHasChanges(false);
         console.log('Dados guardados!');
       } catch (e) {
         console.error('Erro ao guardar:', e);
       }
       isSavingRef.current = false;
-    }, 5000); // 5 segundos de debounce
+    }, 5000);
     
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-      if (saveTimeoutRef2.current) {
-        clearTimeout(saveTimeoutRef2.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (saveTimeoutRef2.current) clearTimeout(saveTimeoutRef2.current);
     };
   }, [G, M, dataLoaded]);
 
