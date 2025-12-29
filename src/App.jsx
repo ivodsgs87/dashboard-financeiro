@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData } from './firebase';
 import OrcamentoApp from './OrcamentoApp';
 
@@ -9,6 +9,12 @@ const App = () => {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const dataLoadedRef = useRef(false);
+  const userRef = useRef(null);
+
+  // Manter ref do user atualizada
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // Listen to auth state
   useEffect(() => {
@@ -45,19 +51,24 @@ const App = () => {
     loadData();
   }, [user]);
 
-  // Save data to Firebase
-  const handleSaveData = async (data) => {
-    if (!user) return;
+  // Save data to Firebase - useCallback para evitar re-renders
+  const handleSaveData = useCallback(async (data) => {
+    const currentUser = userRef.current;
+    if (!currentUser) return;
+    
     setSyncing(true);
     try {
-      await saveUserData(user.uid, data);
+      await saveUserData(currentUser.uid, data);
       setLastSync(new Date().toISOString());
       console.log('Dados salvos no Firebase');
     } catch (error) {
       console.error('Error saving data:', error);
     }
     setSyncing(false);
-  };
+  }, []); // Sem dependências - usa ref para user
+
+  // Memorizar props para evitar re-renders desnecessários
+  const memoizedInitialData = useMemo(() => userData, [userData]);
 
   if (loading) {
     return (
@@ -114,7 +125,7 @@ const App = () => {
   return (
     <OrcamentoApp 
       user={user}
-      initialData={userData}
+      initialData={memoizedInitialData}
       onSaveData={handleSaveData}
       onLogout={logOut}
       syncing={syncing}
