@@ -1018,7 +1018,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCoresInv = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
 
  // UI Components
-  const Card = ({children, className = '', animate = true}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-sm rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn hover-lift' : ''} smooth-colors ${className}`}>{children}</div>;
+  const Card = ({children, className = '', animate = false}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-sm rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>;
   const StatCard = ({label, value, color = '', sub, icon}) => <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1`}>{icon} {label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>;
  const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
  const base = 'font-semibold rounded-xl transition-all duration-200 hover-scale ';
@@ -1028,7 +1028,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
  const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
- const Row = ({children, highlight, index = 0}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 animate-listItemIn ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`} style={{animationDelay: `${index * 0.03}s`}}>{children}</div>;
+ const Row = ({children, highlight, index = 0}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
   const inputClass = theme === 'light' 
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
