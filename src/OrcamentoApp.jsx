@@ -391,6 +391,11 @@ const DraggableList = memo(({items, onReorder, renderItem, className}) => {
 });
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
+  // DEBUG - contador de renders
+  const renderCount = useRef(0);
+  renderCount.current += 1;
+  console.log(`🔄 OrcamentoApp render #${renderCount.current}`);
+  
   const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
   
