@@ -1185,28 +1185,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      dividaInicio = registosAteInicioAno[registosAteInicioAno.length - 1].divida;
    }
    
-   // Dívida atual - usar o valor guardado em G.credito.dividaAtual (que é sempre o mais recente)
-   const dividaAtualCalc = G.credito?.dividaAtual || dividaInicio;
-   
    // Para anos futuros, não há amortização ainda
    let amortizacaoAnual = 0;
    
    if (ano < anoAtualReal) {
-     // Ano passado - calcular diferença real
-     amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
+     // Ano passado - usar dívida atual como referência final
+     const dividaFimAno = G.credito?.dividaAtual || dividaInicio;
+     amortizacaoAnual = Math.max(0, dividaInicio - dividaFimAno);
    } else if (ano === anoAtualReal) {
-     // Ano atual - calcular diferença real
-     amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
+     // Ano atual - calcular apenas com base em registos do histórico DESTE ano
+     // Não usar dividaAtual diretamente porque pode estar desatualizada ou incluir dados futuros
      
-     // Se não há diferença mas temos prestação, estimar amortização
-     if (amortizacaoAnual === 0 && G.credito?.prestacao && dividaInicio === dividaAtualCalc) {
-       const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
-       const jurosMensais = dividaAtualCalc * taxaMensal;
-       const amortMensal = G.credito.prestacao - jurosMensais;
-       amortizacaoAnual = Math.max(0, amortMensal * mesesAContar);
+     if (registosDoAno.length > 0) {
+       // Usar o último registo do ano atual
+       const ultimoRegistoAno = registosDoAno[registosDoAno.length - 1];
+       amortizacaoAnual = Math.max(0, dividaInicio - ultimoRegistoAno.divida);
+     } else {
+       // Não há registos este ano ainda - verificar se há meses passados
+       if (mesesAContar > 0 && G.credito?.prestacao) {
+         // Estimar amortização baseada na prestação
+         const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
+         const jurosMensais = dividaInicio * taxaMensal;
+         const amortMensal = Math.max(0, G.credito.prestacao - jurosMensais);
+         amortizacaoAnual = amortMensal * mesesAContar;
+       }
+       // Se mesesAContar = 0 (ainda em Janeiro e não passou nenhum mês completo), fica 0
      }
    }
    // Para ano > anoAtualReal, amortizacaoAnual fica 0
+   
+   // Dívida atual para mostrar no UI
+   const dividaAtualCalc = registosDoAno.length > 0 
+     ? registosDoAno[registosDoAno.length - 1].divida 
+     : (G.credito?.dividaAtual || dividaInicio);
    
    // Investimentos em portfolio com categoria CREDITO (amortizações extra manuais)
    // Só contar se for ano atual ou passado
@@ -7333,6 +7344,19 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <select value={ano} onChange={e=>setAno(+e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                 </select>
+                {/* Botão Mês Anterior */}
+                <button onClick={() => {
+                  const mesIdx = meses.indexOf(mesAtualSistema);
+                  if (mesIdx === 0) {
+                    setMes(meses[11]);
+                    setAno(anoAtualSistema - 1);
+                  } else {
+                    setMes(meses[mesIdx - 1]);
+                    setAno(anoAtualSistema);
+                  }
+                }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400" title="Ir para mês anterior">
+                  Mês Ant.
+                </button>
                 {!isMesAtual(mes, ano) && (
                   <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400" title="Ir para mês atual">Hoje</button>
                 )}
