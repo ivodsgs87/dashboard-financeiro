@@ -809,23 +809,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // Obter portfolio do mês atual, ou copiar do mês anterior se não existir
  const getPortfolioParaMes = useCallback((key) => {
- if (M[key]?.portfolio) return M[key].portfolio;
- 
- // Procurar no mês anterior
- let checkKey = getMesAnteriorKey(key);
- let tentativas = 12; // máximo 12 meses para trás
- while (tentativas > 0) {
- if (M[checkKey]?.portfolio) return M[checkKey].portfolio;
- checkKey = getMesAnteriorKey(checkKey);
- tentativas--;
- }
- 
- // Se não encontrar, usar default
- return defM.portfolio;
+   // Se já tem portfolio para este mês, retornar
+   if (M[key]?.portfolio && M[key].portfolio.length > 0) {
+     return M[key].portfolio;
+   }
+   
+   // Procurar no mês anterior para copiar estrutura E valores
+   let checkKey = getMesAnteriorKey(key);
+   let tentativas = 12; // máximo 12 meses para trás
+   while (tentativas > 0) {
+     if (M[checkKey]?.portfolio && M[checkKey].portfolio.length > 0) {
+       // Copiar portfolio do mês anterior com novos IDs
+       return M[checkKey].portfolio.map(p => ({
+         ...p,
+         id: Date.now() + Math.random() * 1000 // Novo ID único
+       }));
+     }
+     checkKey = getMesAnteriorKey(checkKey);
+     tentativas--;
+   }
+   
+   // Se não encontrar, usar default
+   return defM.portfolio;
  }, [M]);
 
  const mesD = M[mesKey] || defM;
-  const portfolio = mesD.portfolio || getPortfolioParaMes(mesKey);
+ const portfolio = mesD.portfolio && mesD.portfolio.length > 0 
+   ? mesD.portfolio 
+   : getPortfolioParaMes(mesKey);
   
   const mesKeyRef = useRef(mesKey);
   
@@ -1121,7 +1132,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Inicializar clientes
    clientes.forEach(c => { receitasPorCliente[c.id] = { nome: c.nome, cor: c.cor, total: 0 }; });
    
-   for (let i = 1; i <= 12; i++) {
+   // Determinar até que mês contar
+   // - Ano passado: todos os 12 meses
+   // - Ano atual: até ao mês atual do sistema
+   // - Ano futuro: até ao mês selecionado (ou 0 se ainda não começou)
+   const hoje = new Date();
+   const mesAtualReal = hoje.getMonth() + 1; // 1-12
+   const anoAtualReal = hoje.getFullYear();
+   
+   let mesesAContar;
+   if (ano < anoAtualReal) {
+     mesesAContar = 12; // Ano passado - contar tudo
+   } else if (ano === anoAtualReal) {
+     mesesAContar = mesAtualReal; // Ano atual - só até ao mês atual
+   } else {
+     mesesAContar = 0; // Ano futuro - ainda não há dados reais
+   }
+   
+   for (let i = 1; i <= mesesAContar; i++) {
      const k = `${ano}-${i}`;
      const mesData = M[k] || {};
      const mCom = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
@@ -1133,7 +1161,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      mesData.regSem?.forEach(r => { if (receitasPorCliente[r.cid]) receitasPorCliente[r.cid].total += r.val; });
      
      // Investimentos do mês (exceto CREDITO)
-     const invMes = mesData.inv?.filter(i => i.cat !== 'CREDITO').reduce((a, i) => a + i.val, 0) || 0;
+     const invMes = mesData.inv?.filter(inv => inv.cat !== 'CREDITO').reduce((a, inv) => a + inv.val, 0) || 0;
      investimentosAnuais += invMes;
    }
    
@@ -1160,20 +1188,36 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Dívida atual - usar o valor guardado em G.credito.dividaAtual (que é sempre o mais recente)
    const dividaAtualCalc = G.credito?.dividaAtual || dividaInicio;
    
-   // Amortização real = diferença entre início do ano e valor atual
-   let amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
+   // Para anos futuros, não há amortização ainda
+   let amortizacaoAnual = 0;
    
-   // Se não há diferença mas temos prestação, estimar amortização
-   if (amortizacaoAnual === 0 && G.credito?.prestacao && dividaInicio === dividaAtualCalc) {
-     const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
-     const jurosMensais = dividaAtualCalc * taxaMensal;
-     const amortMensal = G.credito.prestacao - jurosMensais;
-     amortizacaoAnual = Math.max(0, amortMensal * mesAtualNum);
+   if (ano < anoAtualReal) {
+     // Ano passado - calcular diferença real
+     amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
+   } else if (ano === anoAtualReal) {
+     // Ano atual - calcular diferença real
+     amortizacaoAnual = Math.max(0, dividaInicio - dividaAtualCalc);
+     
+     // Se não há diferença mas temos prestação, estimar amortização
+     if (amortizacaoAnual === 0 && G.credito?.prestacao && dividaInicio === dividaAtualCalc) {
+       const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
+       const jurosMensais = dividaAtualCalc * taxaMensal;
+       const amortMensal = G.credito.prestacao - jurosMensais;
+       amortizacaoAnual = Math.max(0, amortMensal * mesesAContar);
+     }
    }
+   // Para ano > anoAtualReal, amortizacaoAnual fica 0
    
    // Investimentos em portfolio com categoria CREDITO (amortizações extra manuais)
-   const portfolioAtual = M[mesKey]?.portfolio || [];
-   const amortizacaoExtra = portfolioAtual.filter(p => p.cat === 'CREDITO').reduce((a, p) => a + p.val, 0);
+   // Só contar se for ano atual ou passado
+   let amortizacaoExtra = 0;
+   if (ano <= anoAtualReal) {
+     for (let i = 1; i <= mesesAContar; i++) {
+       const k = `${ano}-${i}`;
+       const portfolioMes = M[k]?.portfolio || [];
+       amortizacaoExtra += portfolioMes.filter(p => p.cat === 'CREDITO').reduce((a, p) => a + p.val, 0);
+     }
+   }
    
    // Total = amortização calculada + extras manuais
    const amortizacaoTotal = amortizacaoAnual + amortizacaoExtra;
@@ -3125,16 +3169,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
  <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
- <div className="flex items-center gap-3">
+ <div className="flex flex-wrap items-center gap-3">
    <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
    {G.portfolioLastUpdate && (
      <p className="text-xs text-slate-400">
        📅 Última atualização: {new Date(G.portfolioLastUpdate).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
      </p>
    )}
+   {(!mesD.portfolio || mesD.portfolio.length === 0) && (
+     <span className="text-xs text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
+       📋 Estrutura herdada do mês anterior
+     </span>
+   )}
  </div>
  </div>
- <div className="flex gap-2 justify-end">
+ <div className="flex flex-wrap gap-2 justify-end">
+   {/* Botão para copiar estrutura do mês anterior */}
+   <Button variant="secondary" size="sm" onClick={() => {
+     const mesAnteriorKey = getMesAnteriorKey(mesKey);
+     const portfolioAnterior = M[mesAnteriorKey]?.portfolio;
+     if (portfolioAnterior && portfolioAnterior.length > 0) {
+       const novoPortfolio = portfolioAnterior.map(p => ({
+         ...p,
+         id: Date.now() + Math.random() * 1000
+       }));
+       uM('portfolio', novoPortfolio);
+     } else {
+       alert('Não há dados no mês anterior para copiar.');
+     }
+   }} title="Copiar estrutura e valores do mês anterior">
+     📥 Copiar Mês Anterior
+   </Button>
    <Button variant="secondary" size="sm" onClick={() => { uG('portfolioLastUpdate', new Date().toISOString()); }}>🔄 Marcar Atualizado</Button>
    <Button variant="secondary" size="sm" onClick={guardarSnapshot}>📸 Snapshot</Button>
    <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+</Button>
@@ -5065,8 +5130,49 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }));
    };
    
+   // Obter tarefas atrasadas de meses anteriores (últimos 3 meses)
+   const getTarefasAtrasadasAnteriores = () => {
+     const atrasadas = [];
+     for (let i = 1; i <= 3; i++) {
+       let mesCheck = mesAtual - i;
+       let anoCheck = anoAtual;
+       if (mesCheck <= 0) {
+         mesCheck += 12;
+         anoCheck -= 1;
+       }
+       
+       tarefas.filter(t => {
+         if (!t.ativo) return false;
+         if (t.freq === 'mensal') return true;
+         if (t.freq === 'trimestral') return t.meses?.includes(mesCheck);
+         if (t.freq === 'anual') return t.meses?.includes(mesCheck);
+         return false;
+       }).forEach(t => {
+         const key = `${anoCheck}-${mesCheck}-${t.id}`;
+         if (!tarefasConcluidas[key]) {
+           atrasadas.push({
+             ...t,
+             key,
+             concluida: false,
+             atrasada: true,
+             mesAnterior: true,
+             mesNome: meses[mesCheck - 1],
+             anoRef: anoCheck,
+             mesRef: mesCheck
+           });
+         }
+       });
+     }
+     return atrasadas.sort((a, b) => {
+       const dataA = new Date(a.anoRef, a.mesRef - 1, a.dia);
+       const dataB = new Date(b.anoRef, b.mesRef - 1, b.dia);
+       return dataA - dataB;
+     });
+   };
+   
    const tarefasMesAtual = getTarefasMes(mesAtual, anoAtual);
    const tarefasProxMes = getTarefasMes(mesAtual === 12 ? 1 : mesAtual + 1, mesAtual === 12 ? anoAtual + 1 : anoAtual);
+   const tarefasAtrasadasAnteriores = getTarefasAtrasadasAnteriores();
    
    const toggleTarefa = (key) => {
      saveUndo();
@@ -5180,6 +5286,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      );
    };
    
+   const totalAtrasadas = atrasadas.length + tarefasAtrasadasAnteriores.length;
+   
    return (
      <div className="space-y-6">
        {renderTarefaModal()}
@@ -5188,7 +5296,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
          <StatCard label="Este Mês" value={tarefasMesAtual.length} color="text-blue-400" sub={`${tarefasMesAtual.filter(t=>t.concluida).length} concluídas`} icon="📋"/>
          <StatCard label="Pendentes" value={pendentes.length} color={pendentes.length > 0 ? "text-orange-400" : "text-emerald-400"} icon="⏳"/>
-         <StatCard label="Atrasadas" value={atrasadas.length} color={atrasadas.length > 0 ? "text-red-400" : "text-emerald-400"} icon="⚠️"/>
+         <StatCard label="Atrasadas" value={totalAtrasadas} color={totalAtrasadas > 0 ? "text-red-400" : "text-emerald-400"} sub={tarefasAtrasadasAnteriores.length > 0 ? `${tarefasAtrasadasAnteriores.length} de meses anteriores` : ''} icon="⚠️"/>
          <StatCard label="Próximo Mês" value={tarefasProxMes.length} color="text-slate-400" icon="📅"/>
        </div>
        
@@ -5210,6 +5318,33 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
              ))}
            </div>
+         </Card>
+       )}
+       
+       {/* TAREFAS ATRASADAS DE MESES ANTERIORES */}
+       {tarefasAtrasadasAnteriores.length > 0 && (
+         <Card className="border-red-500/50 bg-red-500/5">
+           <div className="flex justify-between items-center mb-4">
+             <h3 className="text-lg font-semibold text-red-400">⚠️ Tarefas Atrasadas de Meses Anteriores</h3>
+             <span className="text-xs text-red-400 bg-red-500/20 px-2 py-1 rounded-full">{tarefasAtrasadasAnteriores.length} pendentes</span>
+           </div>
+           <div className="space-y-2">
+             {tarefasAtrasadasAnteriores.map(t => (
+               <div key={t.key} className="flex items-center justify-between p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+                 <div className="flex items-center gap-3">
+                   <input type="checkbox" checked={false} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-emerald-500"/>
+                   <div>
+                     <p className="font-medium">{t.desc}</p>
+                     <p className="text-xs text-red-400">
+                       📅 {t.mesNome} {t.anoRef} · Dia {t.dia} · {t.cat}
+                     </p>
+                   </div>
+                 </div>
+                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+               </div>
+             ))}
+           </div>
+           <p className="text-xs text-slate-500 mt-3">💡 Marca como concluídas ou ajusta as datas das tarefas recorrentes em "Gerir Tarefas".</p>
          </Card>
        )}
        
@@ -6265,6 +6400,43 @@ ${transacoesOrdenadas.map(t => `<tr>
      data: new Date(anoAtual, mesAtual - 1, t.dia),
      mesNome: meses[mesAtual - 1]
    }));
+   
+   // NOVO: Verificar tarefas atrasadas de meses anteriores (últimos 3 meses)
+   const tarefasAtrasadasAnteriores = [];
+   for (let i = 1; i <= 3; i++) {
+     let mesCheck = mesAtual - i;
+     let anoCheck = anoAtual;
+     if (mesCheck <= 0) {
+       mesCheck += 12;
+       anoCheck -= 1;
+     }
+     
+     tarefas.filter(t => {
+       if (t.ativo === false) return false;
+       if (t.freq === 'mensal') return true;
+       if (t.freq === 'trimestral' || t.freq === 'anual') {
+         return Array.isArray(t.meses) && t.meses.includes(mesCheck);
+       }
+       return false;
+     }).forEach(t => {
+       const key = `${anoCheck}-${mesCheck}-${t.id}`;
+       if (tarefasConcluidas[key] !== true) {
+         tarefasAtrasadasAnteriores.push({
+           ...t,
+           key,
+           concluida: false,
+           atrasada: true,
+           data: new Date(anoCheck, mesCheck - 1, t.dia),
+           mesNome: meses[mesCheck - 1],
+           mesAnterior: true // Flag para identificar que é de mês anterior
+         });
+       }
+     });
+   }
+   
+   // Combinar atrasadas do mês atual com atrasadas de meses anteriores
+   const todasAtrasadas = [...tarefasAtrasadasAnteriores, ...atrasadas].sort((a, b) => a.data - b.data);
+   
    const proximas = pendentes.filter(t => t.proxima);
    
    // Próximas tarefas (futuras, não atrasadas)
@@ -6291,7 +6463,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    proximasTarefas.sort((a, b) => a.data - b.data);
    
-   return { pendentes, atrasadas, proximas, proximasTarefas: proximasTarefas.slice(0, 3) };
+   return { pendentes, atrasadas: todasAtrasadas, proximas, proximasTarefas: proximasTarefas.slice(0, 3) };
  }, [G.tarefas, G.tarefasConcluidas]);
 
  // Comparação ano a ano
