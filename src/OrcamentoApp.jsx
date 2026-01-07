@@ -5627,7 +5627,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }' +
    '.legend-color { width: 12px; height: 12px; border-radius: 2px; }' +
    '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid ' + colors.border + '; font-size: 11px; color: ' + colors.textMuted + '; text-align: center; }' +
-   '@media print { body { padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }' +
+   '@media print { body { padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .grid { grid-template-columns: repeat(2, 1fr); } .two-col, .grid-2 { grid-template-columns: 1fr; } @page { margin: 15mm; size: A4; } }' +
    '</style></head><body>' +
    '<h1>📊 Relatório Financeiro</h1>' +
    '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + ' • Tema ' + (isDark ? 'Escuro' : 'Claro') + '</p>' +
@@ -5667,16 +5667,38 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '<div class="footer">Dashboard Financeiro • Relatório gerado automaticamente • ' + new Date().toLocaleString('pt-PT') + '</div>' +
    '</body></html>';
    
-   // Download como ficheiro HTML (pode abrir e imprimir como PDF)
-   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-   const url = URL.createObjectURL(blob);
-   const a = document.createElement('a');
-   a.href = url;
-   a.download = 'Relatorio-' + mes + '-' + ano + '.html';
-   document.body.appendChild(a);
-   a.click();
-   document.body.removeChild(a);
-   URL.revokeObjectURL(url);
+   // Abrir numa nova janela e permitir guardar como PDF via Print
+   const printWindow = window.open('', '_blank', 'width=900,height=700');
+   if (printWindow) {
+     printWindow.document.write(html);
+     printWindow.document.close();
+     
+     // Esperar que a página carregue e depois abrir diálogo de impressão
+     printWindow.onload = () => {
+       setTimeout(() => {
+         printWindow.print();
+       }, 250);
+     };
+     
+     // Fallback se onload não disparar
+     setTimeout(() => {
+       if (!printWindow.closed) {
+         printWindow.print();
+       }
+     }, 500);
+   } else {
+     // Fallback: download como HTML se popups bloqueados
+     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = 'Relatorio-' + mes + '-' + ano + '.html';
+     document.body.appendChild(a);
+     a.click();
+     document.body.removeChild(a);
+     URL.revokeObjectURL(url);
+     alert('Popup bloqueado. Ficheiro HTML descarregado - abre-o e usa Ctrl+P para guardar como PDF.');
+   }
  };
 
  // Modal de atalhos de teclado
