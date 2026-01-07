@@ -5573,64 +5573,38 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      ? inv.map(d => '<tr><td>' + d.desc + '</td><td>' + d.cat + '</td><td class="right">' + fmt(d.val) + '</td><td class="right">' + (totInvPDF>0?((d.val/totInvPDF)*100).toFixed(1):'0') + '%</td></tr>').join('') 
      : '<tr><td colspan="4" style="text-align:center;color:#94a3b8">Sem investimentos</td></tr>';
    
-   // Cores baseadas no tema atual
-   const isDark = theme === 'dark';
-   const colors = isDark ? {
-     bg: '#0f172a',
-     bgCard: '#1e293b',
-     border: '#334155',
-     text: '#e2e8f0',
-     textMuted: '#94a3b8',
-     textHeading: '#f8fafc',
-     tableBg: '#1e293b',
-     tableHeader: '#334155',
-     tableHeaderText: '#e2e8f0',
-     chartBg: '#1e293b'
-   } : {
-     bg: '#ffffff',
-     bgCard: '#f8fafc',
-     border: '#e2e8f0',
-     text: '#1e293b',
-     textMuted: '#64748b',
-     textHeading: '#0f172a',
-     tableBg: '#ffffff',
-     tableHeader: '#f1f5f9',
-     tableHeaderText: '#475569',
-     chartBg: '#f8fafc'
-   };
-   
    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Financeiro - ' + mes + ' ' + ano + '</title>' +
    '<style>' +
    '* { margin: 0; padding: 0; box-sizing: border-box; }' +
-   'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; background: ' + colors.bg + '; color: ' + colors.text + '; line-height: 1.5; }' +
-   'h1 { font-size: 24px; margin-bottom: 8px; color: ' + colors.textHeading + '; }' +
-   'h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid ' + colors.border + '; color: ' + colors.textHeading + '; }' +
-   '.subtitle { color: ' + colors.textMuted + '; font-size: 14px; margin-bottom: 24px; }' +
+   'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; background: #ffffff; color: #1e293b; line-height: 1.5; }' +
+   'h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }' +
+   'h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #0f172a; }' +
+   '.subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; }' +
    '.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }' +
    '.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
-   '.card { background: ' + colors.bgCard + '; border-radius: 8px; padding: 16px; border: 1px solid ' + colors.border + '; }' +
-   '.card-label { font-size: 12px; color: ' + colors.textMuted + '; margin-bottom: 4px; }' +
-   '.card-value { font-size: 20px; font-weight: 700; color: ' + colors.text + '; }' +
+   '.card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }' +
+   '.card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }' +
+   '.card-value { font-size: 20px; font-weight: 700; color: #1e293b; }' +
    '.card-value.green { color: #10b981; }' +
    '.card-value.orange { color: #f59e0b; }' +
    '.card-value.blue { color: #3b82f6; }' +
    '.card-value.purple { color: #8b5cf6; }' +
-   'table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; background: ' + colors.tableBg + '; }' +
-   'th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid ' + colors.border + '; }' +
-   'th { background: ' + colors.tableHeader + '; font-weight: 600; color: ' + colors.tableHeaderText + '; }' +
+   'table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; background: #ffffff; }' +
+   'th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; color: #1e293b; }' +
+   'th { background: #f1f5f9; font-weight: 600; color: #475569; }' +
    'td.right { text-align: right; }' +
-   '.total-row { background: ' + colors.bgCard + '; font-weight: 600; }' +
+   '.total-row { background: #f8fafc; font-weight: 600; }' +
    '.section { margin-bottom: 32px; }' +
    '.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }' +
-   '.chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: ' + colors.chartBg + '; border-radius: 8px; border: 1px solid ' + colors.border + '; }' +
-   '.chart-legend { font-size: 12px; color: ' + colors.text + '; }' +
+   '.chart-container { display: flex; align-items: center; gap: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }' +
+   '.chart-legend { font-size: 12px; color: #1e293b; }' +
    '.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }' +
    '.legend-color { width: 12px; height: 12px; border-radius: 2px; }' +
-   '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid ' + colors.border + '; font-size: 11px; color: ' + colors.textMuted + '; text-align: center; }' +
+   '.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center; }' +
    '@media print { body { padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .grid { grid-template-columns: repeat(2, 1fr); } .two-col, .grid-2 { grid-template-columns: 1fr; } @page { margin: 15mm; size: A4; } }' +
    '</style></head><body>' +
    '<h1>📊 Relatório Financeiro</h1>' +
-   '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + ' • Tema ' + (isDark ? 'Escuro' : 'Claro') + '</p>' +
+   '<p class="subtitle">' + mes + ' ' + ano + ' • Gerado em ' + new Date().toLocaleDateString('pt-PT') + '</p>' +
    
    '<div class="grid">' +
    '<div class="card"><div class="card-label">Receita Bruta</div><div class="card-value">' + fmt(totRec) + '</div></div>' +
