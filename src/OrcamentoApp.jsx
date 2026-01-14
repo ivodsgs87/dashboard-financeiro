@@ -4471,7 +4471,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const primeiroDia = new Date(a, m, 1);
      const ultimoDia = new Date(a, m + 1, 0);
      const diasNoMes = ultimoDia.getDate();
-     const diaSemanaInicio = primeiroDia.getDay(); // 0 = Domingo
+     
+     // getDay() retorna 0=Domingo, 1=Segunda, etc.
+     // Queremos 0=Segunda, 1=Terça, ..., 6=Domingo
+     let diaSemanaInicio = primeiroDia.getDay();
+     // Converter: Domingo(0) -> 6, Segunda(1) -> 0, Terça(2) -> 1, etc.
+     diaSemanaInicio = diaSemanaInicio === 0 ? 6 : diaSemanaInicio - 1;
      
      const dias = [];
      // Dias do mês anterior para preencher
@@ -4498,9 +4503,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Gerar dias da semana atual - useCallback
    const getDiasDaSemana = useCallback(() => {
      const hoje = new Date();
-     const diaSemana = hoje.getDay();
+     let diaSemana = hoje.getDay();
+     // Converter: Domingo(0) -> 6, Segunda(1) -> 0, etc.
+     diaSemana = diaSemana === 0 ? 6 : diaSemana - 1;
      const inicio = new Date(hoje);
-     inicio.setDate(hoje.getDate() - diaSemana + 1); // Segunda
+     inicio.setDate(hoje.getDate() - diaSemana); // Recua até Segunda
      
      const dias = [];
      for (let i = 0; i < 7; i++) {
