@@ -3012,9 +3012,101 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
  const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0),items:portfolio.filter(p=>p.cat===c)})).filter(c=>c.val>0);
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
- const lineData = portfolioHist.slice(-12).map(h => { const [y,m]=h.date.split('-').map(Number); return {label: `${meses[m-1]?.slice(0,3)||m}`, value: h.total}; });
  const [novaCatPort, setNovaCatPort] = useState('');
  const [expandedCat, setExpandedCat] = useState(null);
+ const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
+ 
+ // Filtrar dados do histórico por período
+ const getLineData = () => {
+   const hist = portfolioHist || [];
+   if (hist.length === 0) return [];
+   
+   let filteredHist = [...hist];
+   const hoje = new Date();
+   
+   if (periodoGrafico === '6m') {
+     const limite = new Date(hoje.getFullYear(), hoje.getMonth() - 6, 1);
+     filteredHist = hist.filter(h => {
+       const [y, m] = h.date.split('-').map(Number);
+       return new Date(y, m - 1, 1) >= limite;
+     });
+   } else if (periodoGrafico === '1a') {
+     const limite = new Date(hoje.getFullYear() - 1, hoje.getMonth(), 1);
+     filteredHist = hist.filter(h => {
+       const [y, m] = h.date.split('-').map(Number);
+       return new Date(y, m - 1, 1) >= limite;
+     });
+   } else if (periodoGrafico === '2a') {
+     const limite = new Date(hoje.getFullYear() - 2, hoje.getMonth(), 1);
+     filteredHist = hist.filter(h => {
+       const [y, m] = h.date.split('-').map(Number);
+       return new Date(y, m - 1, 1) >= limite;
+     });
+   }
+   
+   return filteredHist.map(h => {
+     const [y, m] = h.date.split('-').map(Number);
+     return { 
+       label: `${meses[m-1]?.slice(0,3) || m}/${String(y).slice(2)}`, 
+       value: h.total,
+       date: h.date
+     };
+   });
+ };
+ 
+ const lineData = getLineData();
+ 
+ // Calcular estatísticas de evolução
+ const calcularEstatisticas = () => {
+   if (lineData.length < 2) return null;
+   
+   const primeiro = lineData[0].value;
+   const ultimo = lineData[lineData.length - 1].value;
+   const variacaoTotal = ultimo - primeiro;
+   const variacaoPct = primeiro > 0 ? ((ultimo - primeiro) / primeiro) * 100 : 0;
+   
+   // Crescimento médio mensal
+   const mesesDecorridos = lineData.length - 1;
+   const crescimentoMedioMensal = mesesDecorridos > 0 ? variacaoTotal / mesesDecorridos : 0;
+   const crescimentoMedioPct = mesesDecorridos > 0 ? variacaoPct / mesesDecorridos : 0;
+   
+   // Máximo e mínimo
+   const maximo = Math.max(...lineData.map(d => d.value));
+   const minimo = Math.min(...lineData.map(d => d.value));
+   const mesMaximo = lineData.find(d => d.value === maximo)?.label || '';
+   const mesMinimo = lineData.find(d => d.value === minimo)?.label || '';
+   
+   // Melhor e pior mês (variação)
+   let melhorMes = { variacao: 0, label: '' };
+   let piorMes = { variacao: 0, label: '' };
+   for (let i = 1; i < lineData.length; i++) {
+     const variacao = lineData[i].value - lineData[i-1].value;
+     if (variacao > melhorMes.variacao) {
+       melhorMes = { variacao, label: lineData[i].label };
+     }
+     if (variacao < piorMes.variacao) {
+       piorMes = { variacao, label: lineData[i].label };
+     }
+   }
+   
+   return {
+     primeiro,
+     ultimo,
+     variacaoTotal,
+     variacaoPct,
+     crescimentoMedioMensal,
+     crescimentoMedioPct,
+     maximo,
+     minimo,
+     mesMaximo,
+     mesMinimo,
+     melhorMes,
+     piorMes,
+     mesesDecorridos
+   };
+ };
+ 
+ const stats = calcularEstatisticas();
  
  // Calcular mês anterior
  const mesAtualIdx = meses.indexOf(mes);
@@ -3093,14 +3185,116 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
 
+ {/* Gráfico de Evolução Melhorado */}
  {lineData.length > 1 && (
  <Card>
- <div className="flex justify-between items-center mb-6">
- <h3 className="text-lg font-semibold">📈 Evolução do Portfolio</h3>
- <span className="text-xs text-slate-500">{lineData.length} meses registados</span>
- </div>
- <LineChart data={lineData} height={200} color="#3b82f6" showValues={true} formatValue={(v) => v >= 1000 ? `€${(v/1000).toFixed(0)}k` : `€${v}`}/>
+   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+     <div>
+       <h3 className="text-lg font-semibold">📈 Evolução do Património</h3>
+       <p className="text-xs text-slate-500">{lineData.length} meses registados</p>
+     </div>
+     <div className="flex gap-1">
+       {['6m', '1a', '2a', 'tudo'].map(p => (
+         <button
+           key={p}
+           onClick={() => setPeriodoGrafico(p)}
+           className={`px-3 py-1 text-xs rounded-lg transition-all ${
+             periodoGrafico === p 
+               ? 'bg-blue-500 text-white' 
+               : theme === 'light' 
+                 ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                 : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+           }`}
+         >
+           {p === 'tudo' ? 'Tudo' : p.toUpperCase()}
+         </button>
+       ))}
+     </div>
+   </div>
+   
+   {/* Estatísticas resumidas */}
+   {stats && (
+     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+       <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+         <p className="text-xs text-slate-500 mb-1">Início</p>
+         <p className="font-semibold text-slate-400">{fmt(stats.primeiro)}</p>
+       </div>
+       <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+         <p className="text-xs text-slate-500 mb-1">Atual</p>
+         <p className="font-semibold text-blue-400">{fmt(stats.ultimo)}</p>
+       </div>
+       <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+         <p className="text-xs text-slate-500 mb-1">Variação</p>
+         <p className={`font-semibold ${stats.variacaoTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+           {stats.variacaoTotal >= 0 ? '+' : ''}{fmt(stats.variacaoTotal)}
+         </p>
+       </div>
+       <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+         <p className="text-xs text-slate-500 mb-1">Variação %</p>
+         <p className={`font-semibold ${stats.variacaoPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+           {stats.variacaoPct >= 0 ? '▲' : '▼'} {Math.abs(stats.variacaoPct).toFixed(1)}%
+         </p>
+       </div>
+     </div>
+   )}
+   
+   {/* Gráfico */}
+   <LineChart 
+     data={lineData} 
+     height={220} 
+     color="#3b82f6" 
+     showValues={lineData.length <= 12}
+     formatValue={(v) => v >= 1000 ? `€${(v/1000).toFixed(0)}k` : `€${v}`}
+   />
+   
+   {/* Estatísticas adicionais */}
+   {stats && (
+     <div className="mt-6 pt-4 border-t border-slate-700/50">
+       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+         <div>
+           <p className="text-slate-500">📈 Cresc. médio/mês</p>
+           <p className={`font-semibold ${stats.crescimentoMedioMensal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+             {stats.crescimentoMedioMensal >= 0 ? '+' : ''}{fmt(stats.crescimentoMedioMensal)}
+           </p>
+         </div>
+         <div>
+           <p className="text-slate-500">🏆 Máximo</p>
+           <p className="font-semibold text-blue-400">{fmt(stats.maximo)} <span className="text-slate-500">({stats.mesMaximo})</span></p>
+         </div>
+         <div>
+           <p className="text-slate-500">✅ Melhor mês</p>
+           <p className="font-semibold text-emerald-400">
+             {stats.melhorMes.variacao > 0 ? `+${fmt(stats.melhorMes.variacao)}` : '-'} 
+             {stats.melhorMes.label && <span className="text-slate-500"> ({stats.melhorMes.label})</span>}
+           </p>
+         </div>
+         <div>
+           <p className="text-slate-500">⚠️ Pior mês</p>
+           <p className="font-semibold text-red-400">
+             {stats.piorMes.variacao < 0 ? fmt(stats.piorMes.variacao) : '-'} 
+             {stats.piorMes.label && <span className="text-slate-500"> ({stats.piorMes.label})</span>}
+           </p>
+         </div>
+       </div>
+     </div>
+   )}
  </Card>
+ )}
+ 
+ {/* Mensagem se não houver histórico */}
+ {lineData.length <= 1 && (
+   <Card className="border-amber-500/30 bg-amber-500/5">
+     <div className="text-center py-6">
+       <p className="text-4xl mb-3">📊</p>
+       <h3 className="font-semibold mb-2">Sem dados de evolução</h3>
+       <p className="text-sm text-slate-500 mb-4">
+         Clica em "📸 Snapshot" no final de cada mês para registar o valor do teu portfolio e acompanhar a evolução.
+       </p>
+       <p className="text-xs text-slate-500">
+         {portfolioHist.length === 0 ? 'Nenhum snapshot guardado ainda.' : `${portfolioHist.length} snapshot(s) guardado(s).`}
+       </p>
+     </div>
+   </Card>
  )}
 
  {porCat.length > 0 && (
