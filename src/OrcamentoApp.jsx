@@ -389,19 +389,38 @@ const AreaChartAllTime = memo(({data, height = 280}) => {
          </linearGradient>
        </defs>
        
-       {/* Pontos nos dados */}
-       {data.map((d, i) => (
-         <g key={i}>
-           <circle 
-             cx={getX(i)} 
-             cy={getY(d.value)} 
-             r={data.length > 24 ? 3 : 5} 
-             fill="#1e293b" 
-             stroke="#3b82f6" 
-             strokeWidth="2"
-           />
-         </g>
-       ))}
+       {/* Pontos nos dados com valores */}
+       {data.map((d, i) => {
+         // Mostrar valores: sempre se <= 12 pontos, ou a cada N pontos se mais
+         const showValue = data.length <= 12 || i % Math.ceil(data.length / 12) === 0 || i === data.length - 1;
+         const valueY = getY(d.value) - 12;
+         const shortVal = d.value >= 1000 ? `${(d.value/1000).toFixed(1)}k` : d.value;
+         
+         return (
+           <g key={i}>
+             <circle 
+               cx={getX(i)} 
+               cy={getY(d.value)} 
+               r={data.length > 24 ? 3 : 5} 
+               fill="#1e293b" 
+               stroke="#3b82f6" 
+               strokeWidth="2"
+             />
+             {showValue && (
+               <text
+                 x={getX(i)}
+                 y={valueY}
+                 fill="#94a3b8"
+                 fontSize="9"
+                 textAnchor="middle"
+                 fontWeight="500"
+               >
+                 {shortVal}
+               </text>
+             )}
+           </g>
+         );
+       })}
        
        {/* Labels do eixo X */}
        {xLabels.map((d, i) => {
