@@ -1917,8 +1917,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Calcular métricas de performance
    const receitasMensais = meses.map((m, i) => {
-     const mesKey = `${ano}-${String(i+1).padStart(2,'0')}`;
-     const dadosMes = Object.entries(M).find(([k]) => k === mesKey)?.[1] || {};
+     const mesKeyChart = `${ano}-${i+1}`;
+     const dadosMes = M[mesKeyChart] || {};
      const regCom = dadosMes.regCom || [];
      const regSem = dadosMes.regSem || [];
      return {
