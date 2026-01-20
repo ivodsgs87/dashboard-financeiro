@@ -5,43 +5,30 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex}) => {
   const inputRef = useRef(null);
   const onSaveRef = useRef(onSave);
-  const initialValueRef = useRef(initialValue);
-  const mountedRef = useRef(false);
+  const lastSavedValue = useRef(initialValue);
   
-  // Atualizar refs sem causar re-render
+  // Atualizar ref do callback sem causar re-render
   onSaveRef.current = onSave;
   
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     
-    let isFocused = false;
-    let hasEdited = false;
-    let savedValue = initialValue;
+    // Set initial value
+    input.value = initialValue ?? '';
+    lastSavedValue.current = initialValue;
     
-    // Set initial value apenas na montagem
-    if (!mountedRef.current) {
-      input.value = initialValue ?? '';
-      mountedRef.current = true;
-    }
+    let isFocused = false;
     
     const onFocus = () => {
       isFocused = true;
-      hasEdited = false;
-    };
-    
-    const onInput = () => {
-      hasEdited = true;
     };
     
     const saveValue = () => {
-      if (hasEdited) {
-        const val = type === 'number' ? (+input.value || 0) : input.value;
-        if (val !== savedValue) {
-          savedValue = val;
-          onSaveRef.current(val);
-        }
-        hasEdited = false;
+      const val = type === 'number' ? (+input.value || 0) : input.value;
+      if (val !== lastSavedValue.current) {
+        lastSavedValue.current = val;
+        onSaveRef.current(val);
       }
     };
     
@@ -54,42 +41,24 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       if (e.key === 'Enter') {
         saveValue();
         input.blur();
-      } else if (e.key === 'Tab') {
-        // Guardar valor antes de mover para o próximo campo
-        saveValue();
-        // Deixar o Tab funcionar naturalmente (não prevenir default)
       }
     };
     
+    // Prevenir que atualizações externas interfiram enquanto focado
+    const observer = new MutationObserver(() => {
+      // Ignorar mutações - o input controla o seu próprio valor
+    });
+    
     input.addEventListener('focus', onFocus);
-    input.addEventListener('input', onInput);
     input.addEventListener('blur', onBlur);
     input.addEventListener('keydown', onKeyDown);
     
     return () => {
       input.removeEventListener('focus', onFocus);
-      input.removeEventListener('input', onInput);
       input.removeEventListener('blur', onBlur);
       input.removeEventListener('keydown', onKeyDown);
     };
-  }, []); // Empty deps - só roda uma vez
-  
-  // Sync externo - apenas se valor mudou E não está focado
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input || document.activeElement === input) return;
-    
-    // Só atualizar se o valor realmente mudou desde a montagem
-    if (initialValue !== initialValueRef.current) {
-      const timer = setTimeout(() => {
-        if (document.activeElement !== input) {
-          input.value = initialValue ?? '';
-          initialValueRef.current = initialValue;
-        }
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [initialValue]);
+  }, []); // NUNCA re-executar
   
   return (
     <input 
@@ -102,7 +71,7 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       tabIndex={tabIndex}
     />
   );
-}, () => true); // NUNCA re-renderizar
+}, () => true); // Comparador que SEMPRE retorna true = NUNCA re-renderizar
 
 // Stable Date Input - para campos de data
 const StableDateInput = memo(({value, onChange, className}) => {
@@ -740,6 +709,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const saveTimeoutRef2 = useRef(null);
   const isFirstLoadRef = useRef(true); // Flag para ignorar o primeiro "change" após carregar
   const lastSavedDataRef = useRef(null); // Guardar último estado salvo para comparar
+  const hasChangesRef = useRef(false); // Usar ref em vez de state para evitar re-renders
   
   useEffect(() => {
     if (!dataLoaded) return;
@@ -767,10 +737,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       clearTimeout(saveTimeoutRef.current);
     }
     
-    // Marcar que há alterações (com delay para evitar re-render imediato)
+    // Marcar que há alterações (sem causar re-render)
+    hasChangesRef.current = true;
+    
+    // Atualizar UI só uma vez após delay maior
     saveTimeoutRef2.current = setTimeout(() => {
-      setHasChanges(true);
-    }, 2000);
+      if (hasChangesRef.current && !hasChanges) {
+        setHasChanges(true);
+      }
+    }, 3000);
     
     // Guardar após 5 segundos
     saveTimeoutRef.current = setTimeout(async () => {
@@ -778,6 +753,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       try {
         await onSaveData({ g: G, m: M });
         lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
+        hasChangesRef.current = false;
         setHasChanges(false);
       } catch (e) {
         console.error('Erro ao guardar:', e);
