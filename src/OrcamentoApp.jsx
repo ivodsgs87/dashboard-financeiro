@@ -2893,7 +2893,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // HISTÓRICO
  const Historico = () => {
  const h = getHist();
- const hAno = h.filter(x => x.ano === histAno);
+ 
+ // Anos disponíveis: todos os anos com dados + ano atual
+ const anosComDados = [...new Set(h.map(x => x.ano))];
+ if (!anosComDados.includes(anoAtualSistema)) anosComDados.push(anoAtualSistema);
+ const anosDisponiveis = anosComDados.sort((a, b) => b - a); // Mais recente primeiro
+ 
+ // Se histAno não tem dados e não é o ano atual, mudar para o ano mais recente com dados
+ const anoParaMostrar = anosDisponiveis.includes(histAno) ? histAno : anosDisponiveis[0] || anoAtualSistema;
+ if (anoParaMostrar !== histAno) {
+   setTimeout(() => setHistAno(anoParaMostrar), 0);
+ }
+ 
+ const hAno = h.filter(x => x.ano === anoParaMostrar);
  const totH = hAno.reduce((a,x)=>a+x.tot,0);
  const chartData = hAno.map(x => ({label: x.nome.slice(0,3), com: x.com, sem: x.sem, total: x.tot}));
  
@@ -2906,7 +2918,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  });
  
  const mediaAnual = hAno.length > 0 ? totH / hAno.length : 0;
- const anosComDados = [...new Set(h.map(x => x.ano))].sort();
  
  // Mês com maior e menor receita
  const maxMes = hAno.length > 0 ? hAno.reduce((a, x) => x.tot > a.tot ? x : a, hAno[0]) : null;
@@ -2916,13 +2927,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div key={mesKey} className="space-y-6">
  <div className="flex items-center gap-4 mb-2">
  <h2 className="text-xl font-bold">📅 Histórico de Receitas</h2>
- <Select value={histAno} onChange={e=>setHistAno(+e.target.value)} className="text-sm">
- {anosComDados.length > 0 ? anosComDados.map(a=><option key={a} value={a}>{a}</option>) : anos.map(a=><option key={a} value={a}>{a}</option>)}
+ <Select value={anoParaMostrar} onChange={e=>setHistAno(+e.target.value)} className="text-sm">
+ {anosDisponiveis.map(a=><option key={a} value={a}>{a} {h.filter(x=>x.ano===a).length > 0 ? `(${h.filter(x=>x.ano===a).length} meses)` : '(sem dados)'}</option>)}
  </Select>
  </div>
 
+ {hAno.length === 0 ? (
+   <Card className="text-center py-8">
+     <p className="text-4xl mb-3">📊</p>
+     <h3 className="font-semibold mb-2">Sem receitas em {anoParaMostrar}</h3>
+     <p className="text-sm text-slate-500">Adiciona receitas na tab "Receitas" para veres o histórico aqui.</p>
+   </Card>
+ ) : (
+ <>
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
- <StatCard label={`Total ${histAno}`} value={fmt(totH)} color="text-blue-400" icon="📊"/>
+ <StatCard label={`Total ${anoParaMostrar}`} value={fmt(totH)} color="text-blue-400" icon="📊"/>
  <StatCard label="Média Mensal" value={fmt(mediaAnual)} color="text-emerald-400" sub={`${hAno.length} meses com dados`} icon="📈"/>
  <StatCard label="Com Taxas" value={fmt(hAno.reduce((a,x)=>a+x.com,0))} color="text-orange-400" icon="📋"/>
  <StatCard label="Sem Taxas" value={fmt(hAno.reduce((a,x)=>a+x.sem,0))} color="text-emerald-400" icon="✅"/>
@@ -2932,7 +2951,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold mb-4">📊 Médias por Trimestre</h3>
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {mediaTrim.map(t => (
- <div key={t.q} className={`p-3 rounded-xl ${t.meses > 0 ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
+ <div key={t.q} className={`p-3 rounded-xl ${t.meses > 0 ? 'bg-blue-500/10 border border-blue-500/30' : theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/30'}`}>
  <p className="text-sm font-semibold text-slate-300 mb-1">{t.q} ({t.meses} meses)</p>
  <p className="text-lg font-bold text-blue-400">{fmt(t.media)}</p>
  <p className="text-xs text-slate-500">Total: {fmt(t.total)}</p>
@@ -2941,10 +2960,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
 
- {hAno.length > 0 && (
  <Card>
  <div className="flex justify-between items-center mb-6">
-   <h3 className="text-lg font-semibold">📈 Evolução das Receitas - {histAno}</h3>
+   <h3 className="text-lg font-semibold">📈 Evolução das Receitas - {anoParaMostrar}</h3>
    <div className="flex gap-4 text-sm">
      {maxMes && <span className="text-emerald-400">📈 Melhor: {maxMes.nome} ({fmt(maxMes.tot)})</span>}
      {minMes && <span className="text-orange-400">📉 Menor: {minMes.nome} ({fmt(minMes.tot)})</span>}
@@ -2973,6 +2991,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  </div>
  </Card>
+ </>
  )}
  </div>
  );
