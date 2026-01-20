@@ -2993,6 +2993,132 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
  </>
  )}
+
+ {/* Secção All-Time */}
+ {h.length > 0 && (
+ <Card>
+   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+     <div>
+       <h3 className="text-lg font-semibold">🌟 Evolução Total (All-Time)</h3>
+       <p className="text-xs text-slate-500">
+         {h.length} meses desde {meses[h[0]?.mes - 1]} {h[0]?.ano}
+       </p>
+     </div>
+   </div>
+   
+   {/* Estatísticas All-Time */}
+   {(() => {
+     const totalAllTime = h.reduce((a, x) => a + x.tot, 0);
+     const mediaAllTime = h.length > 0 ? totalAllTime / h.length : 0;
+     const totalComTaxas = h.reduce((a, x) => a + x.com, 0);
+     const totalSemTaxas = h.reduce((a, x) => a + x.sem, 0);
+     
+     // Melhor e pior mês de sempre
+     const melhorMes = h.reduce((a, x) => x.tot > a.tot ? x : a, h[0]);
+     const piorMes = h.filter(x => x.tot > 0).length > 0 
+       ? h.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, h.filter(x => x.tot > 0)[0]) 
+       : null;
+     
+     // Por ano
+     const porAno = anosDisponiveis.map(a => {
+       const mesesAno = h.filter(x => x.ano === a);
+       return {
+         ano: a,
+         total: mesesAno.reduce((acc, x) => acc + x.tot, 0),
+         meses: mesesAno.length
+       };
+     }).filter(a => a.total > 0).sort((a, b) => a.ano - b.ano);
+     
+     const melhorAno = porAno.length > 0 ? porAno.reduce((a, x) => x.total > a.total ? x : a, porAno[0]) : null;
+     
+     // Dados para gráfico all-time
+     const allTimeChartData = h.map(x => ({
+       label: `${x.nome.slice(0,3)}/${String(x.ano).slice(2)}`,
+       value: x.tot,
+       com: x.com,
+       sem: x.sem
+     }));
+     
+     return (
+       <>
+         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-6">
+           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/10 border-blue-500/30'} border`}>
+             <p className="text-xs text-slate-500 mb-1">💰 Total Faturado</p>
+             <p className="text-lg font-bold text-blue-400">{fmt(totalAllTime)}</p>
+           </div>
+           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-emerald-50 border-emerald-200' : 'bg-emerald-500/10 border-emerald-500/30'} border`}>
+             <p className="text-xs text-slate-500 mb-1">📊 Média Mensal</p>
+             <p className="text-lg font-bold text-emerald-400">{fmt(mediaAllTime)}</p>
+           </div>
+           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-purple-50 border-purple-200' : 'bg-purple-500/10 border-purple-500/30'} border`}>
+             <p className="text-xs text-slate-500 mb-1">🏆 Melhor Mês</p>
+             <p className="text-lg font-bold text-purple-400">{fmt(melhorMes?.tot || 0)}</p>
+             <p className="text-xs text-slate-500">{melhorMes?.nome} {melhorMes?.ano}</p>
+           </div>
+           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-amber-50 border-amber-200' : 'bg-amber-500/10 border-amber-500/30'} border`}>
+             <p className="text-xs text-slate-500 mb-1">🥇 Melhor Ano</p>
+             <p className="text-lg font-bold text-amber-400">{melhorAno ? fmt(melhorAno.total) : '-'}</p>
+             <p className="text-xs text-slate-500">{melhorAno?.ano || '-'}</p>
+           </div>
+         </div>
+         
+         {/* Gráfico All-Time */}
+         <div className="mb-6">
+           <LineChart 
+             data={allTimeChartData} 
+             height={200} 
+             color="#3b82f6"
+             showValues={allTimeChartData.length <= 24}
+             formatValue={(v) => v >= 1000 ? `€${(v/1000).toFixed(0)}k` : `€${v}`}
+           />
+         </div>
+         
+         {/* Totais por ano */}
+         {porAno.length > 1 && (
+           <div className="pt-4 border-t border-slate-700/50">
+             <p className="text-sm font-semibold text-slate-400 mb-3">📅 Totais por Ano</p>
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+               {porAno.map(a => (
+                 <div 
+                   key={a.ano} 
+                   className={`p-2 rounded-lg cursor-pointer transition-all ${
+                     a.ano === anoParaMostrar 
+                       ? 'bg-blue-500/20 border border-blue-500/50' 
+                       : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'
+                   }`}
+                   onClick={() => setHistAno(a.ano)}
+                 >
+                   <p className="text-xs text-slate-500">{a.ano}</p>
+                   <p className={`font-bold ${a.ano === melhorAno?.ano ? 'text-amber-400' : 'text-white'}`}>
+                     {fmt(a.total)}
+                   </p>
+                   <p className="text-xs text-slate-500">{a.meses} meses</p>
+                 </div>
+               ))}
+             </div>
+           </div>
+         )}
+         
+         {/* Divisão Com/Sem Taxas */}
+         <div className="pt-4 mt-4 border-t border-slate-700/50">
+           <div className="flex justify-center gap-8 text-sm">
+             <div className="text-center">
+               <p className="text-xs text-slate-500 mb-1">Com Taxas</p>
+               <p className="font-bold text-orange-400">{fmt(totalComTaxas)}</p>
+               <p className="text-xs text-slate-500">{totalAllTime > 0 ? ((totalComTaxas/totalAllTime)*100).toFixed(0) : 0}%</p>
+             </div>
+             <div className="text-center">
+               <p className="text-xs text-slate-500 mb-1">Sem Taxas</p>
+               <p className="font-bold text-emerald-400">{fmt(totalSemTaxas)}</p>
+               <p className="text-xs text-slate-500">{totalAllTime > 0 ? ((totalSemTaxas/totalAllTime)*100).toFixed(0) : 0}%</p>
+             </div>
+           </div>
+         </div>
+       </>
+     );
+   })()}
+ </Card>
+ )}
  </div>
  );
  };
