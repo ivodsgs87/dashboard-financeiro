@@ -647,7 +647,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
   const saveTimeoutRef = useRef(null);
   const isSavingRef = useRef(false);
   
@@ -705,16 +704,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     // Se initialData === undefined, ainda está a carregar
   }, [initialData, dataLoaded]);
 
-  // Auto-save para Firebase - só guarda quando há alterações REAIS do utilizador
-  const saveTimeoutRef2 = useRef(null);
-  const isFirstLoadRef = useRef(true); // Flag para ignorar o primeiro "change" após carregar
-  const lastSavedDataRef = useRef(null); // Guardar último estado salvo para comparar
-  const hasChangesRef = useRef(false); // Usar ref em vez de state para evitar re-renders
+  // Auto-save para Firebase - só guarda após 5 segundos de INATIVIDADE
+  const saveTimeoutRef = useRef(null);
+  const isFirstLoadRef = useRef(true);
+  const lastSavedDataRef = useRef(null);
+  const pendingChangesRef = useRef(false);
   
+  // Atualizar indicador visual de "não guardado" com menos frequência
   useEffect(() => {
     if (!dataLoaded) return;
     
-    // Ignorar o primeiro render após carregar dados (não é uma alteração do utilizador)
+    // Ignorar o primeiro render após carregar dados
     if (isFirstLoadRef.current) {
       isFirstLoadRef.current = false;
       lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
@@ -724,48 +724,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     // Verificar se os dados realmente mudaram
     const currentData = JSON.stringify({ g: G, m: M });
     if (currentData === lastSavedDataRef.current) {
-      return; // Nada mudou, não guardar
+      return; // Nada mudou
     }
     
-    if (isSavingRef.current) return;
+    // Marcar que há alterações pendentes (sem re-render)
+    pendingChangesRef.current = true;
     
-    // Limpar timeouts anteriores
-    if (saveTimeoutRef2.current) {
-      clearTimeout(saveTimeoutRef2.current);
-    }
+    // SEMPRE limpar o timeout anterior - isto faz o debounce real
+    // Cada nova alteração "reinicia" o contador de 5 segundos
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
-    // Marcar que há alterações (sem causar re-render)
-    hasChangesRef.current = true;
-    
-    // Atualizar UI só uma vez após delay maior
-    saveTimeoutRef2.current = setTimeout(() => {
-      if (hasChangesRef.current && !hasChanges) {
-        setHasChanges(true);
-      }
-    }, 3000);
-    
-    // Guardar após 5 segundos
+    // Só guardar após 5 segundos SEM nenhuma alteração
     saveTimeoutRef.current = setTimeout(async () => {
+      // Verificar novamente se os dados mudaram
+      const dataToSave = JSON.stringify({ g: G, m: M });
+      if (dataToSave === lastSavedDataRef.current) {
+        pendingChangesRef.current = false;
+        return;
+      }
+      
+      if (isSavingRef.current) return;
       isSavingRef.current = true;
+      
       try {
         await onSaveData({ g: G, m: M });
-        lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
-        hasChangesRef.current = false;
-        setHasChanges(false);
+        lastSavedDataRef.current = dataToSave;
+        pendingChangesRef.current = false;
       } catch (e) {
         console.error('Erro ao guardar:', e);
       }
       isSavingRef.current = false;
-    }, 5000);
+    }, 5000); // 5 segundos de inatividade
     
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      if (saveTimeoutRef2.current) clearTimeout(saveTimeoutRef2.current);
     };
-  }, [G, M, dataLoaded]);
+  }, [G, M, dataLoaded, onSaveData]);
 
  // Função para obter o mês anterior
  const getMesAnteriorKey = (currentKey) => {
@@ -7590,8 +7586,6 @@ ${transacoesOrdenadas.map(t => `<tr>
               {/* Status de sync */}
               {syncing ? (
                 <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
-              ) : hasChanges ? (
-                <div className="flex items-center gap-1 text-xs text-orange-400"><div className="w-2 h-2 rounded-full bg-orange-400"/><span className="hidden sm:inline">Não guardado</span></div>
               ) : (
                 <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">Guardado</span></div>
               )}
