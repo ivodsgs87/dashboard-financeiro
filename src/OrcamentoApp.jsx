@@ -647,7 +647,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
-  const saveTimeoutRef = useRef(null);
   const isSavingRef = useRef(false);
   
   // Sistema de Undo - guarda últimos 20 estados
