@@ -258,6 +258,185 @@ const LineChart = memo(({data, height = 200, color = '#3b82f6', showValues = fal
  );
 });
 
+// Area Chart mais bonito para All-Time
+const AreaChartAllTime = memo(({data, height = 280}) => {
+ if (data.length === 0) return null;
+ 
+ const values = data.map(d => d.value);
+ const max = Math.max(...values, 1);
+ const min = 0; // Sempre começar do 0 para melhor visualização
+ const range = max - min || 1;
+ 
+ const paddingLeft = 50;
+ const paddingRight = 20;
+ const paddingTop = 20;
+ const paddingBottom = 50;
+ const chartWidth = 800;
+ const chartHeight = height - paddingTop - paddingBottom;
+ 
+ const getX = (i) => paddingLeft + (i / (data.length - 1 || 1)) * (chartWidth - paddingLeft - paddingRight);
+ const getY = (v) => paddingTop + chartHeight - ((v - min) / range) * chartHeight;
+ 
+ // Criar path suave com curvas
+ const createSmoothPath = () => {
+   if (data.length < 2) return '';
+   let path = `M ${getX(0)} ${getY(data[0].value)}`;
+   for (let i = 1; i < data.length; i++) {
+     const x0 = getX(i - 1);
+     const y0 = getY(data[i - 1].value);
+     const x1 = getX(i);
+     const y1 = getY(data[i].value);
+     const cpx = (x0 + x1) / 2;
+     path += ` C ${cpx} ${y0}, ${cpx} ${y1}, ${x1} ${y1}`;
+   }
+   return path;
+ };
+ 
+ const smoothPath = createSmoothPath();
+ const areaPath = smoothPath + ` L ${getX(data.length - 1)} ${paddingTop + chartHeight} L ${getX(0)} ${paddingTop + chartHeight} Z`;
+ 
+ // Valores do eixo Y
+ const yAxisValues = [0, 1, 2, 3, 4].map(i => min + (range * (4 - i) / 4));
+ 
+ // Calcular média móvel (3 meses)
+ const movingAvg = data.map((d, i) => {
+   if (i < 2) return null;
+   const avg = (data[i].value + data[i-1].value + data[i-2].value) / 3;
+   return { x: getX(i), y: getY(avg) };
+ }).filter(Boolean);
+ 
+ const movingAvgPath = movingAvg.length > 1 
+   ? `M ${movingAvg[0].x} ${movingAvg[0].y} ` + movingAvg.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
+   : '';
+ 
+ // Labels do eixo X (mostrar apenas alguns para não sobrecarregar)
+ const step = Math.ceil(data.length / 12);
+ const xLabels = data.filter((_, i) => i % step === 0 || i === data.length - 1);
+ 
+ const formatVal = (v) => v >= 1000 ? `${(v/1000).toFixed(0)}k€` : `${v}€`;
+ 
+ return (
+   <div className="relative w-full overflow-hidden" style={{height}}>
+     <svg viewBox={`0 0 ${chartWidth} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+       <defs>
+         <linearGradient id="areaGradientAllTime" x1="0%" y1="0%" x2="0%" y2="100%">
+           <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
+           <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.2"/>
+           <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0"/>
+         </linearGradient>
+         <filter id="glow">
+           <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+           <feMerge>
+             <feMergeNode in="coloredBlur"/>
+             <feMergeNode in="SourceGraphic"/>
+           </feMerge>
+         </filter>
+       </defs>
+       
+       {/* Linhas de grelha horizontais */}
+       {[0,1,2,3,4].map(i => (
+         <g key={i}>
+           <line 
+             x1={paddingLeft} 
+             x2={chartWidth - paddingRight} 
+             y1={paddingTop + (i * chartHeight / 4)} 
+             y2={paddingTop + (i * chartHeight / 4)} 
+             stroke="#334155" 
+             strokeWidth="1" 
+             strokeDasharray="4 4"
+             opacity="0.5"
+           />
+           <text 
+             x={paddingLeft - 8} 
+             y={paddingTop + (i * chartHeight / 4) + 4} 
+             fill="#64748b" 
+             fontSize="11" 
+             textAnchor="end"
+           >
+             {formatVal(yAxisValues[i])}
+           </text>
+         </g>
+       ))}
+       
+       {/* Área preenchida */}
+       <path d={areaPath} fill="url(#areaGradientAllTime)"/>
+       
+       {/* Linha de média móvel */}
+       {movingAvgPath && (
+         <path 
+           d={movingAvgPath} 
+           fill="none" 
+           stroke="#f59e0b" 
+           strokeWidth="2" 
+           strokeDasharray="6 3"
+           opacity="0.7"
+         />
+       )}
+       
+       {/* Linha principal */}
+       <path 
+         d={smoothPath} 
+         fill="none" 
+         stroke="url(#lineGradient)" 
+         strokeWidth="3" 
+         strokeLinecap="round"
+         filter="url(#glow)"
+       />
+       <defs>
+         <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+           <stop offset="0%" stopColor="#3b82f6"/>
+           <stop offset="100%" stopColor="#8b5cf6"/>
+         </linearGradient>
+       </defs>
+       
+       {/* Pontos nos dados */}
+       {data.map((d, i) => (
+         <g key={i}>
+           <circle 
+             cx={getX(i)} 
+             cy={getY(d.value)} 
+             r={data.length > 24 ? 3 : 5} 
+             fill="#1e293b" 
+             stroke="#3b82f6" 
+             strokeWidth="2"
+           />
+         </g>
+       ))}
+       
+       {/* Labels do eixo X */}
+       {xLabels.map((d, i) => {
+         const originalIndex = data.findIndex(x => x === d);
+         return (
+           <text 
+             key={i}
+             x={getX(originalIndex)} 
+             y={height - 15} 
+             fill="#64748b" 
+             fontSize="11" 
+             textAnchor="middle"
+           >
+             {d.label}
+           </text>
+         );
+       })}
+     </svg>
+     
+     {/* Legenda */}
+     <div className="absolute top-2 right-4 flex gap-4 text-xs">
+       <div className="flex items-center gap-1">
+         <div className="w-4 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded"/>
+         <span className="text-slate-400">Receita</span>
+       </div>
+       <div className="flex items-center gap-1">
+         <div className="w-4 h-0.5 bg-amber-500 rounded" style={{backgroundImage: 'repeating-linear-gradient(90deg, #f59e0b 0, #f59e0b 4px, transparent 4px, transparent 8px)'}}/>
+         <span className="text-slate-400">Média 3m</span>
+       </div>
+     </div>
+   </div>
+ );
+});
+
+
 const BarChart = memo(({data, height = 220}) => {
  if (data.length === 0) return null;
  const max = Math.max(...data.map(d => (d.com||0) + (d.sem||0)), 1);
@@ -3064,13 +3243,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Gráfico All-Time */}
          <div className="mb-6">
-           <LineChart 
-             data={allTimeChartData} 
-             height={200} 
-             color="#3b82f6"
-             showValues={allTimeChartData.length <= 24}
-             formatValue={(v) => v >= 1000 ? `€${(v/1000).toFixed(0)}k` : `€${v}`}
-           />
+           <AreaChartAllTime data={allTimeChartData} height={280} />
          </div>
          
          {/* Totais por ano */}
