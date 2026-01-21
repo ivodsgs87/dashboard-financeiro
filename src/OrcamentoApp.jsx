@@ -2123,36 +2123,106 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          <Card>
            <h3 className="font-semibold mb-4">📈 Métricas Chave</h3>
+           
+           {/* Input para horas trabalhadas */}
+           <div className={`p-3 mb-4 rounded-xl border ${theme === 'light' ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/10 border-blue-500/30'}`}>
+             <div className="flex items-center justify-between gap-3">
+               <div className="flex-1">
+                 <p className="text-xs text-slate-400 mb-1">⏱️ Horas trabalhadas este mês</p>
+                 <div className="flex items-center gap-2">
+                   <StableInput 
+                     type="number" 
+                     className={`w-20 ${inputClass} text-center font-bold`}
+                     initialValue={M[mesKey]?.horasTrabalhadas || 0}
+                     onSave={v => uM('horasTrabalhadas', Math.max(0, v))}
+                     placeholder="0"
+                   />
+                   <span className="text-sm text-slate-400">horas</span>
+                 </div>
+               </div>
+               {M[mesKey]?.horasTrabalhadas > 0 && totRec > 0 && (
+                 <div className="text-right">
+                   <p className="text-xs text-slate-400">Valor/Hora Real</p>
+                   <p className="text-xl font-bold text-emerald-400">{fmt(totRec / M[mesKey].horasTrabalhadas)}</p>
+                 </div>
+               )}
+             </div>
+           </div>
+           
            <div className="grid grid-cols-2 gap-3">
              <div className="p-3 bg-slate-700/30 rounded-lg">
                <p className="text-xs text-slate-400">Receita Média/Mês</p>
-               <p className="text-lg font-bold">{fmt(totaisAnuais.receitasAnuais / mesAtualNum)}</p>
+               <p className="text-lg font-bold">{fmt(totaisAnuais.receitasAnuais / Math.max(mesAtualNum, 1))}</p>
              </div>
              <div className="p-3 bg-slate-700/30 rounded-lg">
-               <p className="text-xs text-slate-400">Dias Úteis/Mês</p>
-               <p className="text-lg font-bold">~22 dias</p>
-             </div>
-             <div className="p-3 bg-slate-700/30 rounded-lg">
-               <p className="text-xs text-slate-400">Valor/Dia Útil</p>
-               <p className="text-lg font-bold">{fmt((totaisAnuais.receitasAnuais / mesAtualNum) / 22)}</p>
-             </div>
-             <div className="p-3 bg-slate-700/30 rounded-lg">
-               <p className="text-xs text-slate-400">Valor/Hora (8h)</p>
-               <p className="text-lg font-bold">{fmt((totaisAnuais.receitasAnuais / mesAtualNum) / 22 / 8)}</p>
-             </div>
-             <div className="p-3 bg-slate-700/30 rounded-lg">
-               <p className="text-xs text-slate-400">Meses p/ Meta</p>
+               <p className="text-xs text-slate-400">Horas Totais ({ano})</p>
                <p className="text-lg font-bold">
-                 {metas.receitas > totaisAnuais.receitasAnuais 
-                   ? Math.ceil((metas.receitas - totaisAnuais.receitasAnuais) / receitaMedia)
-                   : '✅ Atingida'}
+                 {(() => {
+                   const horasAno = Object.entries(M)
+                     .filter(([k]) => k.startsWith(`${ano}-`))
+                     .reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
+                   return horasAno > 0 ? `${horasAno}h` : '-';
+                 })()}
+               </p>
+             </div>
+             <div className={`p-3 rounded-lg ${M[mesKey]?.horasTrabalhadas > 0 ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
+               <p className="text-xs text-slate-400">Valor/Hora (real)</p>
+               <p className={`text-lg font-bold ${M[mesKey]?.horasTrabalhadas > 0 ? 'text-emerald-400' : ''}`}>
+                 {M[mesKey]?.horasTrabalhadas > 0 && totRec > 0
+                   ? fmt(totRec / M[mesKey].horasTrabalhadas)
+                   : '-'}
                </p>
              </div>
              <div className="p-3 bg-slate-700/30 rounded-lg">
-               <p className="text-xs text-slate-400">Horas/Mês (est.)</p>
-               <p className="text-lg font-bold">~176h</p>
+               <p className="text-xs text-slate-400">Valor/Hora (est. 8h/dia)</p>
+               <p className="text-lg font-bold text-slate-400">{fmt((totaisAnuais.receitasAnuais / Math.max(mesAtualNum, 1)) / 22 / 8)}</p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Média Horas/Mês</p>
+               <p className="text-lg font-bold">
+                 {(() => {
+                   const mesesComHoras = Object.entries(M)
+                     .filter(([k, v]) => k.startsWith(`${ano}-`) && v.horasTrabalhadas > 0);
+                   if (mesesComHoras.length === 0) return '-';
+                   const total = mesesComHoras.reduce((acc, [, v]) => acc + v.horasTrabalhadas, 0);
+                   return `${Math.round(total / mesesComHoras.length)}h`;
+                 })()}
+               </p>
+             </div>
+             <div className="p-3 bg-slate-700/30 rounded-lg">
+               <p className="text-xs text-slate-400">Valor/Hora Médio ({ano})</p>
+               <p className="text-lg font-bold">
+                 {(() => {
+                   const horasAno = Object.entries(M)
+                     .filter(([k]) => k.startsWith(`${ano}-`))
+                     .reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
+                   return horasAno > 0 && totaisAnuais.receitasAnuais > 0
+                     ? fmt(totaisAnuais.receitasAnuais / horasAno)
+                     : '-';
+                 })()}
+               </p>
              </div>
            </div>
+           
+           {/* Comparação este mês vs média */}
+           {M[mesKey]?.horasTrabalhadas > 0 && totRec > 0 && (() => {
+             const valorHoraAtual = totRec / M[mesKey].horasTrabalhadas;
+             const horasAno = Object.entries(M)
+               .filter(([k]) => k.startsWith(`${ano}-`))
+               .reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
+             const valorHoraMedio = horasAno > 0 ? totaisAnuais.receitasAnuais / horasAno : 0;
+             const diferenca = valorHoraMedio > 0 ? ((valorHoraAtual - valorHoraMedio) / valorHoraMedio * 100) : 0;
+             
+             if (Math.abs(diferenca) < 5) return null;
+             
+             return (
+               <div className={`mt-4 p-3 rounded-lg text-sm ${diferenca > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-orange-500/10 text-orange-400'}`}>
+                 {diferenca > 0 
+                   ? `📈 Este mês estás ${diferenca.toFixed(0)}% acima da tua média anual!`
+                   : `📉 Este mês estás ${Math.abs(diferenca).toFixed(0)}% abaixo da tua média anual.`}
+               </div>
+             );
+           })()}
          </Card>
        </div>
      </div>
