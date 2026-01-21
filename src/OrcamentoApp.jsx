@@ -2138,12 +2138,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      placeholder="0"
                    />
                    <span className="text-sm text-slate-400">horas</span>
+                   {M[mesKey]?.horasTrabalhadas > 0 && (
+                     <span className="text-sm text-slate-500">
+                       = {(M[mesKey].horasTrabalhadas / 8).toFixed(1)} dias
+                     </span>
+                   )}
                  </div>
                </div>
                {M[mesKey]?.horasTrabalhadas > 0 && totRec > 0 && (
                  <div className="text-right">
                    <p className="text-xs text-slate-400">Valor/Hora Real</p>
                    <p className="text-xl font-bold text-emerald-400">{fmt(totRec / M[mesKey].horasTrabalhadas)}</p>
+                   <p className="text-xs text-slate-500">{fmt(totRec / (M[mesKey].horasTrabalhadas / 8))}/dia</p>
                  </div>
                )}
              </div>
@@ -2231,14 +2237,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const horasPorMes = meses.map((m, i) => {
            const mesKeyChart = `${ano}-${i + 1}`;
            const horas = M[mesKeyChart]?.horasTrabalhadas || 0;
+           const dias = horas / 8;
            const receita = (M[mesKeyChart]?.regCom || []).reduce((a, r) => a + r.val, 0) + 
                           (M[mesKeyChart]?.regSem || []).reduce((a, r) => a + r.val, 0);
            const valorHora = horas > 0 ? receita / horas : 0;
+           const valorDia = horas > 0 ? receita / dias : 0;
            return {
              mes: m.substring(0, 3),
              horas,
+             dias,
              receita,
-             valorHora
+             valorHora,
+             valorDia
            };
          });
          
@@ -2249,13 +2259,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const mediaHoras = horasPorMes.filter(m => m.horas > 0).reduce((a, m) => a + m.horas, 0) / 
                            Math.max(horasPorMes.filter(m => m.horas > 0).length, 1);
          const totalHoras = horasPorMes.reduce((a, m) => a + m.horas, 0);
+         const totalDias = totalHoras / 8;
+         const mediaDias = mediaHoras / 8;
          
          return (
            <Card className="mt-6">
              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
                <div>
                  <h3 className="font-semibold">⏱️ Horas Trabalhadas ({ano})</h3>
-                 <p className="text-xs text-slate-500">Total: {totalHoras}h • Média: {Math.round(mediaHoras)}h/mês</p>
+                 <p className="text-xs text-slate-500">
+                   Total: {totalHoras}h ({totalDias.toFixed(1)} dias) • Média: {Math.round(mediaHoras)}h ({mediaDias.toFixed(1)} dias)/mês
+                 </p>
                </div>
              </div>
              
@@ -2331,11 +2345,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {/* Tabela detalhada */}
              <div className="mt-6 pt-4 border-t border-slate-700/50">
                <p className="text-sm font-semibold text-slate-400 mb-3">📊 Detalhe por Mês</p>
-               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-xs">
+               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 text-xs">
                  {horasPorMes.filter(m => m.horas > 0).map((m, i) => (
                    <div key={i} className={`p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
                      <p className="font-semibold text-slate-300">{m.mes}</p>
-                     <p className="text-slate-500">{m.horas}h</p>
+                     <p className="text-slate-500">{m.horas}h <span className="text-slate-600">({m.dias.toFixed(1)}d)</span></p>
                      <p className={`font-bold ${m.valorHora > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
                        {m.valorHora > 0 ? `${fmt(m.valorHora)}/h` : '-'}
                      </p>
