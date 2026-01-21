@@ -2225,6 +2225,127 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            })()}
          </Card>
        </div>
+       
+       {/* Gráfico de Horas Trabalhadas */}
+       {(() => {
+         const horasPorMes = meses.map((m, i) => {
+           const mesKeyChart = `${ano}-${i + 1}`;
+           const horas = M[mesKeyChart]?.horasTrabalhadas || 0;
+           const receita = (M[mesKeyChart]?.regCom || []).reduce((a, r) => a + r.val, 0) + 
+                          (M[mesKeyChart]?.regSem || []).reduce((a, r) => a + r.val, 0);
+           const valorHora = horas > 0 ? receita / horas : 0;
+           return {
+             mes: m.substring(0, 3),
+             horas,
+             receita,
+             valorHora
+           };
+         });
+         
+         const temDados = horasPorMes.some(m => m.horas > 0);
+         if (!temDados) return null;
+         
+         const maxHoras = Math.max(...horasPorMes.map(m => m.horas), 1);
+         const mediaHoras = horasPorMes.filter(m => m.horas > 0).reduce((a, m) => a + m.horas, 0) / 
+                           Math.max(horasPorMes.filter(m => m.horas > 0).length, 1);
+         const totalHoras = horasPorMes.reduce((a, m) => a + m.horas, 0);
+         
+         return (
+           <Card className="mt-6">
+             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+               <div>
+                 <h3 className="font-semibold">⏱️ Horas Trabalhadas ({ano})</h3>
+                 <p className="text-xs text-slate-500">Total: {totalHoras}h • Média: {Math.round(mediaHoras)}h/mês</p>
+               </div>
+             </div>
+             
+             {/* Gráfico de barras */}
+             <div className="relative h-48 mb-4">
+               <div className="absolute inset-0 flex items-end justify-between gap-1 px-1">
+                 {horasPorMes.map((m, i) => {
+                   const height = maxHoras > 0 ? (m.horas / maxHoras) * 100 : 0;
+                   const isCurrentMonth = i === meses.indexOf(mes);
+                   const aboveAvg = m.horas > mediaHoras;
+                   
+                   return (
+                     <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                       {m.horas > 0 && (
+                         <div className="text-xs text-slate-400 mb-1 font-medium">
+                           {m.horas}h
+                         </div>
+                       )}
+                       <div 
+                         className={`w-full rounded-t-lg transition-all duration-500 ${
+                           m.horas === 0 
+                             ? 'bg-slate-700/30' 
+                             : isCurrentMonth
+                               ? 'bg-gradient-to-t from-blue-600 to-blue-400'
+                               : aboveAvg
+                                 ? 'bg-gradient-to-t from-emerald-600 to-emerald-400'
+                                 : 'bg-gradient-to-t from-slate-600 to-slate-400'
+                         }`}
+                         style={{ height: `${Math.max(height, m.horas > 0 ? 5 : 2)}%` }}
+                         title={m.horas > 0 ? `${m.mes}: ${m.horas}h\nReceita: ${fmt(m.receita)}\nValor/hora: ${fmt(m.valorHora)}` : `${m.mes}: sem dados`}
+                       />
+                     </div>
+                   );
+                 })}
+               </div>
+               
+               {/* Linha de média */}
+               <div 
+                 className="absolute left-0 right-0 border-t-2 border-dashed border-amber-500/50"
+                 style={{ bottom: `${(mediaHoras / maxHoras) * 100}%` }}
+               >
+                 <span className="absolute right-0 -top-5 text-xs text-amber-400 bg-slate-800 px-1 rounded">
+                   Média: {Math.round(mediaHoras)}h
+                 </span>
+               </div>
+             </div>
+             
+             {/* Labels dos meses */}
+             <div className="flex justify-between px-1 text-xs text-slate-500">
+               {horasPorMes.map((m, i) => (
+                 <div key={i} className={`flex-1 text-center ${i === meses.indexOf(mes) ? 'text-blue-400 font-semibold' : ''}`}>
+                   {m.mes}
+                 </div>
+               ))}
+             </div>
+             
+             {/* Legenda */}
+             <div className="flex justify-center gap-4 mt-4 pt-4 border-t border-slate-700/50 text-xs">
+               <div className="flex items-center gap-1">
+                 <div className="w-3 h-3 rounded bg-gradient-to-t from-blue-600 to-blue-400"/>
+                 <span className="text-slate-400">Mês atual</span>
+               </div>
+               <div className="flex items-center gap-1">
+                 <div className="w-3 h-3 rounded bg-gradient-to-t from-emerald-600 to-emerald-400"/>
+                 <span className="text-slate-400">Acima da média</span>
+               </div>
+               <div className="flex items-center gap-1">
+                 <div className="w-3 h-3 rounded bg-gradient-to-t from-slate-600 to-slate-400"/>
+                 <span className="text-slate-400">Abaixo da média</span>
+               </div>
+             </div>
+             
+             {/* Tabela detalhada */}
+             <div className="mt-6 pt-4 border-t border-slate-700/50">
+               <p className="text-sm font-semibold text-slate-400 mb-3">📊 Detalhe por Mês</p>
+               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-xs">
+                 {horasPorMes.filter(m => m.horas > 0).map((m, i) => (
+                   <div key={i} className={`p-2 rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+                     <p className="font-semibold text-slate-300">{m.mes}</p>
+                     <p className="text-slate-500">{m.horas}h</p>
+                     <p className={`font-bold ${m.valorHora > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                       {m.valorHora > 0 ? `${fmt(m.valorHora)}/h` : '-'}
+                     </p>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           </Card>
+         );
+       })()}
      </div>
    );
  };
