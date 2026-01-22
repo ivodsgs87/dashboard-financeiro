@@ -6198,6 +6198,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const amortPDF = dispPDF > 0 ? dispPDF * ((alocAmort-alocFerias)/100) : 0;
    const invExtraPDF = dispPDF > 0 ? dispPDF * (1 - alocAmort/100) : 0;
    
+   // Dados de horas trabalhadas
+   const horasTrabalhadas = M[mesKey]?.horasTrabalhadas || 0;
+   const diasTrabalhados = horasTrabalhadas / 8;
+   const valorHora = horasTrabalhadas > 0 ? totRec / horasTrabalhadas : 0;
+   const valorDia = diasTrabalhados > 0 ? totRec / diasTrabalhados : 0;
+   
    // Dados para gráfico de pizza (distribuição)
    const distribuicaoData = [
      { label: 'Despesas Casal', value: minhaABPDF, color: '#ec4899' },
@@ -6342,6 +6348,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '<div class="card"><div class="card-label">🏖️ Férias' + (alocFerias > 0 ? ' (fixo+' + alocFerias + '%)' : '') + '</div><div class="card-value orange">' + fmt(totalFeriasPDF) + '</div></div>' +
    '<div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">' + fmt(portfolio.reduce((a,p)=>a+p.val,0)) + '</div></div>' +
    '</div>' +
+   
+   (horasTrabalhadas > 0 ? 
+   '<h2>⏱️ Horas Trabalhadas</h2>' +
+   '<div class="grid">' +
+   '<div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">' + horasTrabalhadas + 'h</div></div>' +
+   '<div class="card"><div class="card-label">Dias Trabalhados</div><div class="card-value">' + diasTrabalhados.toFixed(1) + ' dias</div></div>' +
+   '<div class="card"><div class="card-label">Valor/Hora</div><div class="card-value green">' + fmt(valorHora) + '</div></div>' +
+   '<div class="card"><div class="card-label">Valor/Dia</div><div class="card-value green">' + fmt(valorDia) + '</div></div>' +
+   '</div>' : '') +
    
    '<div class="footer">Dashboard Financeiro • Relatório gerado automaticamente • ' + new Date().toLocaleString('pt-PT') + '</div>' +
    '</body></html>';
@@ -7314,6 +7329,28 @@ ${transacoesOrdenadas.map(t => `<tr>
    const totalSemTaxas = h.reduce((a, x) => a + x.sem, 0);
    const mediaMensal = h.length > 0 ? totalReceitas / h.length : 0;
    
+   // Horas trabalhadas no ano
+   let totalHoras = 0;
+   const horasPorMes = [];
+   Object.entries(M).forEach(([key, data]) => {
+     const [a, m] = key.split('-').map(Number);
+     if (a === anoRel && data.horasTrabalhadas > 0) {
+       totalHoras += data.horasTrabalhadas;
+       const receitaMes = (data.regCom || []).reduce((acc, r) => acc + r.val, 0) + 
+                         (data.regSem || []).reduce((acc, r) => acc + r.val, 0);
+       horasPorMes.push({
+         mes: meses[m - 1],
+         horas: data.horasTrabalhadas,
+         receita: receitaMes,
+         valorHora: receitaMes / data.horasTrabalhadas
+       });
+     }
+   });
+   const totalDias = totalHoras / 8;
+   const valorHoraMedio = totalHoras > 0 ? totalReceitas / totalHoras : 0;
+   const valorDiaMedio = totalDias > 0 ? totalReceitas / totalDias : 0;
+   const mediaHorasMes = horasPorMes.length > 0 ? totalHoras / horasPorMes.length : 0;
+   
    // Por cliente
    const porCliente = clientes.map(c => {
      let total = 0;
@@ -7350,7 +7387,15 @@ ${transacoesOrdenadas.map(t => `<tr>
      impostoEstimado,
      mesesComDados: h.length,
      melhorMes: h.length > 0 ? h.reduce((a, x) => x.tot > a.tot ? x : a, h[0]) : null,
-     piorMes: h.filter(x => x.tot > 0).length > 0 ? h.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, h[0]) : null
+     piorMes: h.filter(x => x.tot > 0).length > 0 ? h.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, h[0]) : null,
+     // Dados de horas
+     totalHoras,
+     totalDias,
+     valorHoraMedio,
+     valorDiaMedio,
+     mediaHorasMes,
+     horasPorMes,
+     mesesComHoras: horasPorMes.length
    };
  };
  
@@ -7440,6 +7485,49 @@ ${transacoesOrdenadas.map(t => `<tr>
                </div>
              </div>
            </div>
+           
+           {/* HORAS TRABALHADAS */}
+           {relatorio.totalHoras > 0 && (
+             <div className="bg-slate-700/30 rounded-xl p-4">
+               <h4 className="font-semibold mb-3">⏱️ Horas Trabalhadas</h4>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                 <div className="text-center p-3 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Total Horas</p>
+                   <p className="text-xl font-bold text-blue-400">{relatorio.totalHoras}h</p>
+                   <p className="text-xs text-slate-500">{relatorio.totalDias.toFixed(1)} dias</p>
+                 </div>
+                 <div className="text-center p-3 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Média/Mês</p>
+                   <p className="text-xl font-bold text-slate-300">{Math.round(relatorio.mediaHorasMes)}h</p>
+                   <p className="text-xs text-slate-500">{(relatorio.mediaHorasMes / 8).toFixed(1)} dias</p>
+                 </div>
+                 <div className="text-center p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Valor/Hora</p>
+                   <p className="text-xl font-bold text-emerald-400">{fmt(relatorio.valorHoraMedio)}</p>
+                 </div>
+                 <div className="text-center p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Valor/Dia</p>
+                   <p className="text-xl font-bold text-emerald-400">{fmt(relatorio.valorDiaMedio)}</p>
+                 </div>
+               </div>
+               
+               {/* Detalhe por mês */}
+               {relatorio.horasPorMes.length > 0 && (
+                 <div className="pt-3 border-t border-slate-600">
+                   <p className="text-xs text-slate-400 mb-2">Detalhe por mês ({relatorio.mesesComHoras} meses com registo)</p>
+                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
+                     {relatorio.horasPorMes.map((m, i) => (
+                       <div key={i} className="p-2 bg-slate-700/30 rounded-lg text-center">
+                         <p className="font-semibold text-slate-300">{m.mes.substring(0, 3)}</p>
+                         <p className="text-slate-500">{m.horas}h</p>
+                         <p className="text-emerald-400 font-medium">{fmt(m.valorHora)}/h</p>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+               )}
+             </div>
+           )}
            
            {/* POR CLIENTE */}
            {relatorio.porCliente.length > 0 && (
