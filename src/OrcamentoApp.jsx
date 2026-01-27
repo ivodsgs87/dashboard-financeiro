@@ -614,9 +614,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     localStorage.setItem('dashboard-theme', theme);
   }, [theme]);
   
-  // Layouts por tab (widgets arrastáveis) - ordenados por prioridade de uso
+  // Layouts por tab (widgets arrastáveis)
   const defaultLayouts = {
-    resumo: ['stats', 'metas', 'tarefas', 'transferencias', 'distribuicao', 'clientes', 'patrimonio', 'impostos', 'registos'],
+    resumo: ['tarefas', 'stats', 'patrimonio', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias', 'registos'],
     receitas: ['importar', 'clientes', 'comTaxas', 'semTaxas'],
     abanca: ['contribuicao', 'listaDespesas', 'resumo', 'grafico'],
     pessoais: ['listaDespesas', 'resumo', 'grafico'],
@@ -672,7 +672,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','receitas','abanca','pessoais','invest','portfolio','transacoes','agenda','calendario','performance'];
+  const tabOrder = ['resumo','performance','receitas','abanca','pessoais','credito','sara','historico','invest','portfolio'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -3049,7 +3049,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6">
  <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm text-slate-300">Minha contrib.</p></div>
  <SliderWithInput value={contrib} onChange={v=>uG('contrib',v)} min={0} max={100} unit="%" className="w-20 sm:w-32" color="pink"/>
- <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Parceiro/a</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
+ <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Sara</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
  </div>
  <DraggableList
  items={despABanca}
@@ -3067,7 +3067,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between gap-4 mt-6 p-4 bg-slate-700/30 rounded-xl">
  <div className="text-center"><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
  <div className="text-center"><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
- <div className="text-center"><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
+ <div className="text-center"><p className="text-xs text-slate-500">Parte Sara ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
  </div>
  </Card>
  
@@ -6310,28 +6310,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // 6. Análise: Histórico
  // 7. Sara (separado)
  const tabs = [
-   // Uso frequente
+   // 💵 Dinheiro
    {id:'resumo',icon:'📊',label:'Dashboard'},
+   {id:'performance',icon:'🚀',label:'Performance'},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
-   // Investimentos (consolidado)
-   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[
-     {id:'invest',icon:'🎯',label:'Alocação'},
-     {id:'portfolio',icon:'💎',label:'Portfolio'},
-     {id:'transacoes',icon:'📝',label:'Transações'}
-   ]},
-   // Agenda (consolidado)
-   {id:'agenda-menu',icon:'📅',label:'Agenda',submenu:[
-     {id:'agenda',icon:'📋',label:'Tarefas'},
-     {id:'calendario',icon:'📆',label:'Projetos'}
-   ]},
-   // Mais (menos frequente)
-   {id:'mais',icon:'⚙️',label:'Mais',submenu:[
-     {id:'performance',icon:'🚀',label:'Performance'},
-     {id:'historico',icon:'📊',label:'Histórico'},
-     {id:'credito',icon:'🏦',label:'Crédito'},
-     {id:'sara',icon:'👩',label:'Parceiro/a'}
-   ]}
+   {id:'credito',icon:'🏦',label:'Crédito'},
+   {id:'sara',icon:'👩',label:'Sara'},
+   {id:'historico',icon:'📅',label:'Histórico'},
+   // Separador
+   {id:'sep1',separator:true},
+   // 📈 Investimentos
+   {id:'invest',icon:'📈',label:'Alocação'},
+   {id:'portfolio',icon:'💎',label:'Portfolio'},
+   {id:'transacoes',icon:'📝',label:'Transações'},
+   // Separador
+   {id:'sep2',separator:true},
+   // 📋 Gestão
+   {id:'calendario',icon:'📆',label:'Projetos'},
+   {id:'agenda',icon:'📋',label:'Tarefas'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
@@ -6558,7 +6555,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '4', desc: '🏠 Despesas Casal' },
      { key: '5', desc: '👤 Despesas Pessoais' },
      { key: '6', desc: '🏦 Crédito' },
-     { key: '7', desc: '👩 Parceiro/a' },
+     { key: '7', desc: '👩 Sara' },
      { key: '8', desc: '📅 Histórico' },
      { key: '9', desc: '📈 Alocação' },
      { key: '0', desc: '💎 Portfolio' },
@@ -6988,7 +6985,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      saraData.push([]);
      saraData.push(['═══ ALOCAÇÕES ═══', '']);
      G.sara.aloc.forEach(a => saraData.push([a.desc, a.val]));
-     sheetsData.push({ title: '👩 Parceiro', data: saraData, headerRows: [3, 8] });
+     sheetsData.push({ title: '👩 Sara', data: saraData, headerRows: [3, 8] });
      
      const url = await createGoogleSheet(`Dashboard Financeiro ${ano}`, sheetsData);
      window.open(url, '_blank');
@@ -8488,27 +8485,18 @@ ${transacoesOrdenadas.map(t => `<tr>
         </header>
 
       <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
-        {tabs.map(t => {
-          // Verificar se alguma sub-tab está ativa
-          const isSubActive = t.submenu?.some(sub => tab === sub.id);
-          
-          return t.separator ? (
+        {tabs.map(t => (
+          t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
             <div key={t.id} className="relative flex-shrink-0">
               <button 
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  setDespesasPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
+                  setDespesasPos({ left: rect.left, top: rect.bottom + 4 });
                   setHoveredTab(hoveredTab === t.id ? null : t.id);
                 }}
-                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
-                  isSubActive 
-                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25'
-                    : theme === 'light' 
-                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' 
-                      : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                }`}
+                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${(tab==='abanca'||tab==='pessoais')?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
               >
                 <span className="sm:mr-1">{t.icon}</span>
                 <span className="hidden sm:inline">{t.label}</span>
@@ -8517,29 +8505,23 @@ ${transacoesOrdenadas.map(t => `<tr>
             </div>
           ) : (
             <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
-          );
-        })}
+          )
+        ))}
       </nav>
       
-      {/* Dropdown genérico para qualquer submenu */}
-      {hoveredTab && tabs.find(t => t.id === hoveredTab)?.submenu && (
+      {/* Dropdown de Despesas - posição fixa baseada no botão */}
+      {hoveredTab === 'despesas' && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setHoveredTab(null)} />
           <div 
-            className={`fixed ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 shadow-xl z-50 min-w-[160px]`}
+            className="fixed bg-slate-800 border border-slate-700 rounded-xl py-1 shadow-xl z-50 min-w-[140px]"
             style={{ left: despesasPos.left, top: despesasPos.top }}
           >
-            {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
+            {tabs.find(t => t.id === 'despesas')?.submenu?.map(sub => (
               <button 
                 key={sub.id} 
                 onClick={() => { setTab(sub.id); setHoveredTab(null); }}
-                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
-                  tab === sub.id 
-                    ? 'bg-blue-500/20 text-blue-400' 
-                    : theme === 'light'
-                      ? 'text-slate-700 hover:bg-slate-100'
-                      : 'text-slate-300 hover:bg-slate-700'
-                }`}
+                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${tab===sub.id ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-slate-700'}`}
               >
                 <span>{sub.icon}</span>
                 <span>{sub.label}</span>
