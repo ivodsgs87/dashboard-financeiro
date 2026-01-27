@@ -779,7 +779,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     },
     portfolioHist: [],
     patrimonioHist: [],
-    metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000 },
+    metas: { receitas: 80000, amortizacao: 15000, investimentos: 12000, horasMensais: 120 },
     // Projetos para o calendário
     projetos: [], // {id, nome, clienteId, dataInicio, dataFim, cor, concluido}
     // Transações de investimento
@@ -1745,25 +1745,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {ano < anoAtualSistema ? '✓ Ano completo' : ano > anoAtualSistema ? `${mes} (${mesAtualNum}/12)` : `${mesAtualNum}/12 meses`}
      </span>
    </div>
-   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
      {[
        { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6', proj: projecao?.projecao },
        { label: '🏠 Amortização', atual: totaisAnuais.amortAnual, meta: metas.amortizacao, key: 'amortizacao', color: '#10b981', sub: totaisAnuais.dividaInicio && totaisAnuais.dividaAtual ? `${fmt(totaisAnuais.dividaInicio)} → ${fmt(totaisAnuais.dividaAtual)}` : null },
-       { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' }
+       { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' },
+       { label: '⏱️ Horas/Mês', atual: (() => {
+         const horasAno = Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
+         const mesesComHoras = Object.entries(M).filter(([k, v]) => k.startsWith(`${ano}-`) && v.horasTrabalhadas > 0).length;
+         return mesesComHoras > 0 ? horasAno / mesesComHoras : 0;
+       })(), meta: metas.horasMensais || 120, key: 'horasMensais', color: '#f59e0b', isHoras: true }
      ].map(m => {
        const pct = m.meta > 0 ? (m.atual / m.meta) * 100 : 0;
-       const onTrack = m.atual >= m.meta * progressoEsperado;
+       const onTrack = m.isHoras ? (pct <= 110) : (m.atual >= m.meta * progressoEsperado);
        return (
          <div key={m.key} className="p-3 bg-slate-700/30 rounded-xl">
            <div className="flex justify-between items-center mb-2">
              <span className="text-sm font-medium">{m.label}</span>
              <span className={`text-xs px-2 py-0.5 rounded-full ${onTrack ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-               {onTrack ? '✓' : '⚠'} {pct.toFixed(0)}%
+               {m.isHoras ? (pct <= 100 ? '✓' : '⚠') : (onTrack ? '✓' : '⚠')} {pct.toFixed(0)}%
              </span>
            </div>
            <div className="flex items-baseline gap-2 mb-1">
-             <span className="text-lg font-bold" style={{color: m.color}}>{fmt(m.atual)}</span>
-             <span className="text-sm text-slate-500">/ {fmt(m.meta)}</span>
+             <span className="text-lg font-bold" style={{color: m.color}}>{m.isHoras ? `${Math.round(m.atual)}h` : fmt(m.atual)}</span>
+             <span className="text-sm text-slate-500">/ {m.isHoras ? `${m.meta}h` : fmt(m.meta)}</span>
            </div>
            {m.sub && <p className="text-xs text-slate-500 mb-1">{m.sub}</p>}
            {m.proj && <p className="text-xs text-slate-400 mb-1">→ Projeção: {fmt(m.proj)}</p>}
@@ -1771,6 +1776,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="mt-2 flex items-center gap-2">
              <span className="text-xs text-slate-500">Meta:</span>
              <StableInput type="number" className="w-20 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-0.5 text-xs text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
+             {m.isHoras && <span className="text-xs text-slate-500">h/mês</span>}
            </div>
          </div>
        );
@@ -2099,6 +2105,116 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        </Card>
        
+       {/* Previsão de Fim de Ano */}
+       {mesAtualNum > 0 && (
+         <Card>
+           <h3 className="font-semibold mb-4">🔮 Previsão de Fim de Ano ({ano})</h3>
+           {(() => {
+             const mesesRestantes = 12 - mesAtualNum;
+             const receitaMedia = totaisAnuais.receitasAnuais / mesAtualNum;
+             const projecaoReceitas = totaisAnuais.receitasAnuais + (receitaMedia * mesesRestantes);
+             
+             // Horas
+             const horasAno = Object.entries(M)
+               .filter(([k]) => k.startsWith(`${ano}-`))
+               .reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
+             const mesesComHoras = Object.entries(M)
+               .filter(([k, v]) => k.startsWith(`${ano}-`) && v.horasTrabalhadas > 0).length;
+             const horasMedia = mesesComHoras > 0 ? horasAno / mesesComHoras : (metas.horasMensais || 120);
+             const projecaoHoras = horasAno + (horasMedia * mesesRestantes);
+             const projecaoDias = projecaoHoras / 8;
+             
+             // Investimentos
+             const investAno = Object.entries(M)
+               .filter(([k]) => k.startsWith(`${ano}-`))
+               .reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0);
+             const investMedia = mesAtualNum > 0 ? investAno / mesAtualNum : 0;
+             const projecaoInvest = investAno + (investMedia * mesesRestantes);
+             
+             // Valor/hora projetado
+             const valorHoraProj = projecaoHoras > 0 ? projecaoReceitas / projecaoHoras : 0;
+             
+             // Portfolio projetado (crescimento médio)
+             const portfolioAtual = portfolio.reduce((a, p) => a + p.val, 0);
+             const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0]?.total || portfolioAtual : portfolioAtual;
+             const crescimentoMensal = mesAtualNum > 0 && portfolioInicio > 0 
+               ? (portfolioAtual - portfolioInicio) / mesAtualNum 
+               : investMedia;
+             const projecaoPortfolio = portfolioAtual + (crescimentoMensal * mesesRestantes);
+             
+             return (
+               <div className="space-y-4">
+                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                   <div className={`p-3 rounded-lg ${projecaoReceitas >= metas.receitas ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-orange-500/10 border border-orange-500/30'}`}>
+                     <p className="text-xs text-slate-400">💰 Receitas</p>
+                     <p className={`text-xl font-bold ${projecaoReceitas >= metas.receitas ? 'text-emerald-400' : 'text-orange-400'}`}>
+                       {fmt(projecaoReceitas)}
+                     </p>
+                     <p className="text-xs text-slate-500">
+                       Meta: {fmt(metas.receitas)} ({((projecaoReceitas/metas.receitas)*100).toFixed(0)}%)
+                     </p>
+                   </div>
+                   
+                   <div className={`p-3 rounded-lg ${projecaoInvest >= metas.investimentos ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
+                     <p className="text-xs text-slate-400">📈 Investimentos</p>
+                     <p className={`text-xl font-bold ${projecaoInvest >= metas.investimentos ? 'text-emerald-400' : ''}`}>
+                       {fmt(projecaoInvest)}
+                     </p>
+                     <p className="text-xs text-slate-500">
+                       Meta: {fmt(metas.investimentos)} ({((projecaoInvest/metas.investimentos)*100).toFixed(0)}%)
+                     </p>
+                   </div>
+                   
+                   <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                     <p className="text-xs text-slate-400">⏱️ Horas Totais</p>
+                     <p className="text-xl font-bold text-blue-400">{Math.round(projecaoHoras)}h</p>
+                     <p className="text-xs text-slate-500">{projecaoDias.toFixed(0)} dias de trabalho</p>
+                   </div>
+                   
+                   <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                     <p className="text-xs text-slate-400">💎 Portfolio</p>
+                     <p className="text-xl font-bold text-purple-400">{fmt(projecaoPortfolio)}</p>
+                     <p className="text-xs text-slate-500">+{fmt(projecaoPortfolio - portfolioAtual)} até Dez</p>
+                   </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-3">
+                   <div className="p-3 bg-slate-700/30 rounded-lg">
+                     <p className="text-xs text-slate-400">💵 Valor/Hora Médio Projetado</p>
+                     <p className="text-lg font-bold text-emerald-400">{fmt(valorHoraProj)}</p>
+                   </div>
+                   <div className="p-3 bg-slate-700/30 rounded-lg">
+                     <p className="text-xs text-slate-400">📊 Meses Restantes</p>
+                     <p className="text-lg font-bold">{mesesRestantes} meses</p>
+                   </div>
+                 </div>
+                 
+                 <div className={`p-3 rounded-lg text-sm ${
+                   projecaoReceitas >= metas.receitas && projecaoInvest >= metas.investimentos
+                     ? 'bg-emerald-500/10 text-emerald-400'
+                     : 'bg-amber-500/10 text-amber-400'
+                 }`}>
+                   {projecaoReceitas >= metas.receitas && projecaoInvest >= metas.investimentos ? (
+                     <span>🎉 Ao ritmo atual, vais atingir todas as metas até ao fim do ano!</span>
+                   ) : (
+                     <span>
+                       💪 Para atingir as metas, precisas de média de{' '}
+                       {projecaoReceitas < metas.receitas && (
+                         <strong>{fmt((metas.receitas - totaisAnuais.receitasAnuais) / Math.max(mesesRestantes, 1))}/mês em receitas</strong>
+                       )}
+                       {projecaoReceitas < metas.receitas && projecaoInvest < metas.investimentos && ' e '}
+                       {projecaoInvest < metas.investimentos && (
+                         <strong>{fmt((metas.investimentos - investAno) / Math.max(mesesRestantes, 1))}/mês em investimentos</strong>
+                       )}
+                     </span>
+                   )}
+                 </div>
+               </div>
+             );
+           })()}
+         </Card>
+       )}
+       
        {/* Distribuição de Despesas */}
        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
          <Card>
@@ -2124,10 +2240,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <Card>
            <h3 className="font-semibold mb-4">📈 Métricas Chave</h3>
            
-           {/* Input para horas trabalhadas */}
+           {/* Input para horas trabalhadas com meta */}
            <div className={`p-3 mb-4 rounded-xl border ${theme === 'light' ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/10 border-blue-500/30'}`}>
-             <div className="flex items-center justify-between gap-3">
-               <div className="flex-1">
+             <div className="flex items-center justify-between gap-3 flex-wrap">
+               <div className="flex-1 min-w-[200px]">
                  <p className="text-xs text-slate-400 mb-1">⏱️ Horas trabalhadas este mês</p>
                  <div className="flex items-center gap-2">
                    <StableInput 
@@ -2137,13 +2253,36 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      onSave={v => uM('horasTrabalhadas', Math.max(0, v))}
                      placeholder="0"
                    />
-                   <span className="text-sm text-slate-400">horas</span>
+                   <span className="text-sm text-slate-400">/ {metas.horasMensais || 120}h</span>
                    {M[mesKey]?.horasTrabalhadas > 0 && (
                      <span className="text-sm text-slate-500">
-                       = {(M[mesKey].horasTrabalhadas / 8).toFixed(1)} dias
+                       ({(M[mesKey].horasTrabalhadas / 8).toFixed(1)}d)
                      </span>
                    )}
                  </div>
+                 {/* Barra de progresso da meta */}
+                 {metas.horasMensais > 0 && (
+                   <div className="mt-2">
+                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                       <div 
+                         className={`h-full rounded-full transition-all ${
+                           (M[mesKey]?.horasTrabalhadas || 0) > metas.horasMensais 
+                             ? 'bg-orange-500' 
+                             : 'bg-blue-500'
+                         }`}
+                         style={{width: `${Math.min(((M[mesKey]?.horasTrabalhadas || 0) / metas.horasMensais) * 100, 100)}%`}}
+                       />
+                     </div>
+                     <p className="text-xs mt-1 text-slate-500">
+                       {((M[mesKey]?.horasTrabalhadas || 0) / metas.horasMensais * 100).toFixed(0)}% da meta
+                       {(M[mesKey]?.horasTrabalhadas || 0) > metas.horasMensais && 
+                         <span className="text-orange-400 ml-1">
+                           (+{(M[mesKey]?.horasTrabalhadas - metas.horasMensais)}h extra)
+                         </span>
+                       }
+                     </p>
+                   </div>
+                 )}
                </div>
                {M[mesKey]?.horasTrabalhadas > 0 && totRec > 0 && (
                  <div className="text-right">
@@ -2153,6 +2292,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                )}
              </div>
+           </div>
+           
+           {/* Notas do mês */}
+           <div className={`p-3 mb-4 rounded-xl border ${theme === 'light' ? 'bg-amber-50 border-amber-200' : 'bg-amber-500/10 border-amber-500/30'}`}>
+             <p className="text-xs text-slate-400 mb-2">📝 Notas de {mes}</p>
+             <textarea
+               className={`w-full ${inputClass} text-sm resize-none`}
+               rows={2}
+               placeholder="Ex: Férias 2 semanas, cliente X pagou adiantado..."
+               defaultValue={M[mesKey]?.notas || ''}
+               onBlur={e => uM('notas', e.target.value)}
+             />
            </div>
            
            <div className="grid grid-cols-2 gap-3">
@@ -6349,14 +6500,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '<div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">' + fmt(portfolio.reduce((a,p)=>a+p.val,0)) + '</div></div>' +
    '</div>' +
    
-   (horasTrabalhadas > 0 ? 
    '<h2>⏱️ Horas Trabalhadas</h2>' +
    '<div class="grid">' +
-   '<div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">' + horasTrabalhadas + 'h</div></div>' +
-   '<div class="card"><div class="card-label">Dias Trabalhados</div><div class="card-value">' + diasTrabalhados.toFixed(1) + ' dias</div></div>' +
-   '<div class="card"><div class="card-label">Valor/Hora</div><div class="card-value green">' + fmt(valorHora) + '</div></div>' +
-   '<div class="card"><div class="card-label">Valor/Dia</div><div class="card-value green">' + fmt(valorDia) + '</div></div>' +
-   '</div>' : '') +
+   '<div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">' + (horasTrabalhadas > 0 ? horasTrabalhadas + 'h' : 'Não registado') + '</div></div>' +
+   '<div class="card"><div class="card-label">Dias Trabalhados</div><div class="card-value">' + (horasTrabalhadas > 0 ? diasTrabalhados.toFixed(1) + ' dias' : '-') + '</div></div>' +
+   '<div class="card"><div class="card-label">Valor/Hora</div><div class="card-value green">' + (horasTrabalhadas > 0 ? fmt(valorHora) : '-') + '</div></div>' +
+   '<div class="card"><div class="card-label">Valor/Dia</div><div class="card-value green">' + (horasTrabalhadas > 0 ? fmt(valorDia) : '-') + '</div></div>' +
+   '</div>' +
    
    '<div class="footer">Dashboard Financeiro • Relatório gerado automaticamente • ' + new Date().toLocaleString('pt-PT') + '</div>' +
    '</body></html>';
@@ -7443,13 +7593,12 @@ ${transacoesOrdenadas.map(t => `<tr>
        <div class="card"><div class="card-label">Impostos (est.)</div><div class="card-value orange">${fmt(relatorio.impostoEstimado)}</div></div>
      </div>
      
-     ${relatorio.totalHoras > 0 ? `
      <h2>⏱️ Produtividade</h2>
      <div class="grid">
-       <div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">${relatorio.totalHoras}h</div><div class="card-sub">${relatorio.totalDias.toFixed(1)} dias</div></div>
-       <div class="card"><div class="card-label">Média por Mês</div><div class="card-value">${Math.round(relatorio.mediaHorasMes)}h</div><div class="card-sub">${(relatorio.mediaHorasMes / 8).toFixed(1)} dias</div></div>
-       <div class="card"><div class="card-label">Valor Médio/Hora</div><div class="card-value green">${fmt(relatorio.valorHoraMedio)}</div></div>
-       <div class="card"><div class="card-label">Valor Médio/Dia</div><div class="card-value green">${fmt(relatorio.valorDiaMedio)}</div></div>
+       <div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">${relatorio.totalHoras > 0 ? relatorio.totalHoras + 'h' : 'Não registado'}</div>${relatorio.totalHoras > 0 ? `<div class="card-sub">${relatorio.totalDias.toFixed(1)} dias</div>` : ''}</div>
+       <div class="card"><div class="card-label">Média por Mês</div><div class="card-value">${relatorio.totalHoras > 0 ? Math.round(relatorio.mediaHorasMes) + 'h' : '-'}</div>${relatorio.totalHoras > 0 ? `<div class="card-sub">${(relatorio.mediaHorasMes / 8).toFixed(1)} dias</div>` : ''}</div>
+       <div class="card"><div class="card-label">Valor Médio/Hora</div><div class="card-value green">${relatorio.totalHoras > 0 ? fmt(relatorio.valorHoraMedio) : '-'}</div></div>
+       <div class="card"><div class="card-label">Valor Médio/Dia</div><div class="card-value green">${relatorio.totalHoras > 0 ? fmt(relatorio.valorDiaMedio) : '-'}</div></div>
      </div>
      ${relatorio.horasPorMes.length > 0 ? `
      <div class="section">
@@ -7464,7 +7613,6 @@ ${transacoesOrdenadas.map(t => `<tr>
          `).join('')}
        </div>
      </div>
-     ` : ''}
      ` : ''}
      
      <div class="grid-2">
