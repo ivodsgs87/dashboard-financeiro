@@ -7407,8 +7407,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    return (
      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-8" onMouseDown={e => { if (e.target === e.currentTarget) setShowRelatorio(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-4xl mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
-         <div className="p-4 border-b border-slate-700 flex justify-between items-center no-print">
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-4xl mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700 flex justify-between items-center sticky top-0 bg-slate-800 z-10">
            <div className="flex items-center gap-4">
              <h3 className="text-xl font-bold">📊 Relatório Anual</h3>
              <select value={anoRelatorio} onChange={e => setAnoRelatorio(+e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-sm">
@@ -7421,13 +7421,14 @@ ${transacoesOrdenadas.map(t => `<tr>
            </div>
          </div>
          
-         <div className="p-6 space-y-6" id="relatorio-anual">
+         <div className="p-6 space-y-6">
+           {/* Cabeçalho */}
            <div className="text-center pb-4 border-b border-slate-700">
              <h1 className="text-3xl font-bold mb-2">Relatório Financeiro {relatorio.ano}</h1>
              <p className="text-slate-400">Dashboard Freelance</p>
            </div>
            
-           {/* RESUMO */}
+           {/* RESUMO PRINCIPAL - 4 cards */}
            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
              <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
                <p className="text-sm text-slate-400">Total Receitas</p>
@@ -7447,8 +7448,53 @@ ${transacoesOrdenadas.map(t => `<tr>
              </div>
            </div>
            
-           {/* DETALHES */}
-           <div className="grid grid-cols-2 gap-6">
+           {/* HORAS TRABALHADAS - Destaque */}
+           {relatorio.totalHoras > 0 && (
+             <div className="bg-gradient-to-r from-blue-500/10 to-emerald-500/10 border border-blue-500/30 rounded-xl p-4">
+               <h4 className="font-semibold mb-4 flex items-center gap-2">
+                 <span>⏱️ Produtividade</span>
+                 <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">{relatorio.mesesComHoras} meses com registo</span>
+               </h4>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                 <div className="text-center">
+                   <p className="text-xs text-slate-400 mb-1">Total Horas</p>
+                   <p className="text-2xl font-bold text-blue-400">{relatorio.totalHoras}h</p>
+                   <p className="text-sm text-slate-500">{relatorio.totalDias.toFixed(1)} dias</p>
+                 </div>
+                 <div className="text-center">
+                   <p className="text-xs text-slate-400 mb-1">Média por Mês</p>
+                   <p className="text-2xl font-bold text-slate-300">{Math.round(relatorio.mediaHorasMes)}h</p>
+                   <p className="text-sm text-slate-500">{(relatorio.mediaHorasMes / 8).toFixed(1)} dias</p>
+                 </div>
+                 <div className="text-center">
+                   <p className="text-xs text-slate-400 mb-1">Valor Médio/Hora</p>
+                   <p className="text-2xl font-bold text-emerald-400">{fmt(relatorio.valorHoraMedio)}</p>
+                 </div>
+                 <div className="text-center">
+                   <p className="text-xs text-slate-400 mb-1">Valor Médio/Dia</p>
+                   <p className="text-2xl font-bold text-emerald-400">{fmt(relatorio.valorDiaMedio)}</p>
+                 </div>
+               </div>
+               
+               {/* Mini gráfico de horas por mês */}
+               {relatorio.horasPorMes.length > 1 && (
+                 <div className="mt-4 pt-4 border-t border-slate-600/50">
+                   <div className="grid grid-cols-6 sm:grid-cols-12 gap-1 text-xs">
+                     {relatorio.horasPorMes.map((m, i) => (
+                       <div key={i} className="text-center p-1 bg-slate-700/30 rounded">
+                         <p className="text-slate-500">{m.mes.substring(0, 3)}</p>
+                         <p className="font-semibold text-slate-300">{m.horas}h</p>
+                         <p className="text-emerald-400">{fmt(m.valorHora)}</p>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+               )}
+             </div>
+           )}
+           
+           {/* DETALHES - 2 colunas */}
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
              <div className="bg-slate-700/30 rounded-xl p-4">
                <h4 className="font-semibold mb-3">📊 Receitas por Tipo</h4>
                <div className="space-y-2">
@@ -7486,49 +7532,6 @@ ${transacoesOrdenadas.map(t => `<tr>
              </div>
            </div>
            
-           {/* HORAS TRABALHADAS */}
-           {relatorio.totalHoras > 0 && (
-             <div className="bg-slate-700/30 rounded-xl p-4">
-               <h4 className="font-semibold mb-3">⏱️ Horas Trabalhadas</h4>
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                 <div className="text-center p-3 bg-slate-700/30 rounded-lg">
-                   <p className="text-xs text-slate-400">Total Horas</p>
-                   <p className="text-xl font-bold text-blue-400">{relatorio.totalHoras}h</p>
-                   <p className="text-xs text-slate-500">{relatorio.totalDias.toFixed(1)} dias</p>
-                 </div>
-                 <div className="text-center p-3 bg-slate-700/30 rounded-lg">
-                   <p className="text-xs text-slate-400">Média/Mês</p>
-                   <p className="text-xl font-bold text-slate-300">{Math.round(relatorio.mediaHorasMes)}h</p>
-                   <p className="text-xs text-slate-500">{(relatorio.mediaHorasMes / 8).toFixed(1)} dias</p>
-                 </div>
-                 <div className="text-center p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                   <p className="text-xs text-slate-400">Valor/Hora</p>
-                   <p className="text-xl font-bold text-emerald-400">{fmt(relatorio.valorHoraMedio)}</p>
-                 </div>
-                 <div className="text-center p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                   <p className="text-xs text-slate-400">Valor/Dia</p>
-                   <p className="text-xl font-bold text-emerald-400">{fmt(relatorio.valorDiaMedio)}</p>
-                 </div>
-               </div>
-               
-               {/* Detalhe por mês */}
-               {relatorio.horasPorMes.length > 0 && (
-                 <div className="pt-3 border-t border-slate-600">
-                   <p className="text-xs text-slate-400 mb-2">Detalhe por mês ({relatorio.mesesComHoras} meses com registo)</p>
-                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
-                     {relatorio.horasPorMes.map((m, i) => (
-                       <div key={i} className="p-2 bg-slate-700/30 rounded-lg text-center">
-                         <p className="font-semibold text-slate-300">{m.mes.substring(0, 3)}</p>
-                         <p className="text-slate-500">{m.horas}h</p>
-                         <p className="text-emerald-400 font-medium">{fmt(m.valorHora)}/h</p>
-                       </div>
-                     ))}
-                   </div>
-                 </div>
-               )}
-             </div>
-           )}
-           
            {/* POR CLIENTE */}
            {relatorio.porCliente.length > 0 && (
              <div className="bg-slate-700/30 rounded-xl p-4">
@@ -7550,6 +7553,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              </div>
            )}
            
+           {/* Footer */}
            <p className="text-center text-xs text-slate-500 pt-4 border-t border-slate-700">
              Gerado em {new Date().toLocaleDateString('pt-PT')} · Dashboard Financeiro Freelance
            </p>
