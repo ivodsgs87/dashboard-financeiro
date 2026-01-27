@@ -7403,6 +7403,109 @@ ${transacoesOrdenadas.map(t => `<tr>
    const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
    const relatorio = gerarRelatorioAnual(anoRelatorio);
    
+   // Função para imprimir/exportar PDF
+   const printRelatorioAnual = () => {
+     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Anual ${relatorio.ano}</title>
+     <style>
+       * { margin: 0; padding: 0; box-sizing: border-box; }
+       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; background: #ffffff; color: #1e293b; line-height: 1.5; }
+       h1 { font-size: 28px; margin-bottom: 8px; color: #0f172a; text-align: center; }
+       h2 { font-size: 16px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; color: #0f172a; }
+       .subtitle { color: #64748b; font-size: 14px; margin-bottom: 24px; text-align: center; }
+       .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+       .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+       .card { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; text-align: center; }
+       .card-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+       .card-value { font-size: 24px; font-weight: 700; }
+       .card-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+       .blue { color: #3b82f6; }
+       .green { color: #10b981; }
+       .purple { color: #8b5cf6; }
+       .orange { color: #f59e0b; }
+       .section { background: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; margin-bottom: 16px; }
+       .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #0f172a; }
+       .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+       .row:last-child { border-bottom: none; }
+       .row-label { color: #64748b; font-size: 13px; }
+       .row-value { font-weight: 600; font-size: 13px; }
+       .client-row { display: flex; align-items: center; justify-content: space-between; padding: 8px; background: #f1f5f9; border-radius: 6px; margin-bottom: 6px; }
+       .client-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; display: inline-block; }
+       .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center; }
+       @media print { body { padding: 20px; } @page { margin: 15mm; size: A4; } }
+     </style></head><body>
+     <h1>📊 Relatório Financeiro ${relatorio.ano}</h1>
+     <p class="subtitle">Dashboard Freelance • Gerado em ${new Date().toLocaleDateString('pt-PT')}</p>
+     
+     <div class="grid">
+       <div class="card"><div class="card-label">Total Receitas</div><div class="card-value blue">${fmt(relatorio.totalReceitas)}</div></div>
+       <div class="card"><div class="card-label">Média Mensal</div><div class="card-value green">${fmt(relatorio.mediaMensal)}</div></div>
+       <div class="card"><div class="card-label">Total Investido</div><div class="card-value purple">${fmt(relatorio.totalInvestido)}</div></div>
+       <div class="card"><div class="card-label">Impostos (est.)</div><div class="card-value orange">${fmt(relatorio.impostoEstimado)}</div></div>
+     </div>
+     
+     ${relatorio.totalHoras > 0 ? `
+     <h2>⏱️ Produtividade</h2>
+     <div class="grid">
+       <div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">${relatorio.totalHoras}h</div><div class="card-sub">${relatorio.totalDias.toFixed(1)} dias</div></div>
+       <div class="card"><div class="card-label">Média por Mês</div><div class="card-value">${Math.round(relatorio.mediaHorasMes)}h</div><div class="card-sub">${(relatorio.mediaHorasMes / 8).toFixed(1)} dias</div></div>
+       <div class="card"><div class="card-label">Valor Médio/Hora</div><div class="card-value green">${fmt(relatorio.valorHoraMedio)}</div></div>
+       <div class="card"><div class="card-label">Valor Médio/Dia</div><div class="card-value green">${fmt(relatorio.valorDiaMedio)}</div></div>
+     </div>
+     ${relatorio.horasPorMes.length > 0 ? `
+     <div class="section">
+       <div class="section-title">Detalhe por Mês (${relatorio.mesesComHoras} meses com registo)</div>
+       <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; text-align: center; font-size: 12px;">
+         ${relatorio.horasPorMes.map(m => `
+           <div style="background: #f1f5f9; padding: 8px; border-radius: 6px;">
+             <div style="font-weight: 600;">${m.mes.substring(0, 3)}</div>
+             <div style="color: #64748b;">${m.horas}h</div>
+             <div style="color: #10b981; font-weight: 600;">${fmt(m.valorHora)}/h</div>
+           </div>
+         `).join('')}
+       </div>
+     </div>
+     ` : ''}
+     ` : ''}
+     
+     <div class="grid-2">
+       <div class="section">
+         <div class="section-title">📊 Receitas por Tipo</div>
+         <div class="row"><span class="row-label">Com retenção</span><span class="row-value orange">${fmt(relatorio.totalComTaxas)}</span></div>
+         <div class="row"><span class="row-label">Sem retenção</span><span class="row-value green">${fmt(relatorio.totalSemTaxas)}</span></div>
+       </div>
+       <div class="section">
+         <div class="section-title">📈 Destaques</div>
+         ${relatorio.melhorMes ? `<div class="row"><span class="row-label">Melhor mês</span><span class="row-value green">${relatorio.melhorMes.nome}: ${fmt(relatorio.melhorMes.tot)}</span></div>` : ''}
+         ${relatorio.piorMes ? `<div class="row"><span class="row-label">Mês mais fraco</span><span class="row-value orange">${relatorio.piorMes.nome}: ${fmt(relatorio.piorMes.tot)}</span></div>` : ''}
+         <div class="row"><span class="row-label">Meses com dados</span><span class="row-value">${relatorio.mesesComDados}/12</span></div>
+       </div>
+     </div>
+     
+     ${relatorio.porCliente.length > 0 ? `
+     <h2>👥 Receitas por Cliente</h2>
+     <div class="section">
+       ${relatorio.porCliente.map(c => `
+         <div class="client-row">
+           <span><span class="client-dot" style="background: ${c.cor}"></span>${c.nome}</span>
+           <span><span style="color: #64748b; margin-right: 12px;">${((c.total / relatorio.totalReceitas) * 100).toFixed(0)}%</span><strong>${fmt(c.total)}</strong></span>
+         </div>
+       `).join('')}
+     </div>
+     ` : ''}
+     
+     <div class="footer">Dashboard Financeiro Freelance • Relatório gerado automaticamente</div>
+     </body></html>`;
+     
+     const printWindow = window.open('', '_blank', 'width=900,height=700');
+     if (printWindow) {
+       printWindow.document.write(html);
+       printWindow.document.close();
+       printWindow.onload = () => {
+         setTimeout(() => printWindow.print(), 250);
+       };
+     }
+   };
+   
    if (!showRelatorio) return null;
    
    return (
@@ -7416,7 +7519,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              </select>
            </div>
            <div className="flex gap-2">
-             <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium">🖨️ Imprimir</button>
+             <button onClick={printRelatorioAnual} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium">🖨️ Exportar PDF</button>
              <button onClick={() => setShowRelatorio(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
            </div>
          </div>
