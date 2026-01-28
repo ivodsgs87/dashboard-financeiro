@@ -614,9 +614,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     localStorage.setItem('dashboard-theme', theme);
   }, [theme]);
   
-  // Layouts por tab (widgets arrastáveis)
+  // Layouts por tab (widgets arrastáveis) - ordenados por prioridade de uso
   const defaultLayouts = {
-    resumo: ['tarefas', 'stats', 'patrimonio', 'impostos', 'metas', 'clientes', 'distribuicao', 'transferencias', 'registos'],
+    resumo: ['stats', 'metas', 'tarefas', 'transferencias', 'distribuicao', 'clientes', 'patrimonio', 'impostos', 'registos'],
     receitas: ['importar', 'clientes', 'comTaxas', 'semTaxas'],
     abanca: ['contribuicao', 'listaDespesas', 'resumo', 'grafico'],
     pessoais: ['listaDespesas', 'resumo', 'grafico'],
@@ -672,7 +672,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','performance','receitas','abanca','pessoais','credito','sara','historico','invest','portfolio'];
+  const tabOrder = ['resumo','receitas','abanca','pessoais','invest','portfolio','transacoes','agenda','calendario','performance'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -836,7 +836,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       euribor: 2.5,
       historico: [{date: '2022-01', divida: 328500}, {date: '2024-12', divida: 272000}, {date: '2025-12', divida: 229693.43}],
       amortizacoesPlaneadas: []
-    }
+    },
+    // Sistema de múltiplos créditos
+    creditos: [
+      {
+        id: 1,
+        nome: 'Crédito Habitação - Casa Atual',
+        tipo: 'habitacao', // habitacao, automovel, pessoal, outro
+        estado: 'ativo', // ativo, liquidado, planeado
+        valorBem: 365000,
+        entradaInicial: 36500,
+        montanteInicial: 328500,
+        dividaAtual: 229693.43,
+        taxaJuro: 2,
+        spread: 1.0,
+        euribor: 2.5,
+        prestacao: 971,
+        seguros: 50,
+        dataInicio: '2022-02-01',
+        dataFim: '2054-02-01',
+        dataLiquidacao: null,
+        valorLiquidacao: null,
+        historico: [{date: '2022-01', divida: 328500}, {date: '2024-12', divida: 272000}, {date: '2025-12', divida: 229693.43}],
+        notas: ''
+      }
+    ]
   };
 
   const defM = {regCom:[],regSem:[],inv:[{id:1,desc:'Trade Republic',cat:'ETF',val:0,done:false},{id:2,desc:'Degiro',cat:'ETF',val:0,done:false},{id:3,desc:'PPR',cat:'PPR',val:0,done:false},{id:4,desc:'Cripto',cat:'CRIPTO',val:0,done:false},{id:5,desc:'P2P',cat:'P2P',val:0,done:false},{id:6,desc:'Amortização Extra',cat:'CREDITO',val:0,done:false}],transf:{abanca:false,activo:false,trade:false,revolut:false},portfolio:[{id:1,desc:'Trade Republic',cat:'ETF',val:0},{id:2,desc:'Degiro',cat:'ETF',val:0},{id:3,desc:'PPR',cat:'PPR',val:0},{id:4,desc:'Cripto',cat:'CRIPTO',val:0},{id:5,desc:'P2P',cat:'P2P',val:0},{id:6,desc:'Fundo Emergência',cat:'FE',val:0},{id:7,desc:'Amortização Acumulada',cat:'CREDITO',val:0}]};
@@ -3049,7 +3073,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6">
  <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm text-slate-300">Minha contrib.</p></div>
  <SliderWithInput value={contrib} onChange={v=>uG('contrib',v)} min={0} max={100} unit="%" className="w-20 sm:w-32" color="pink"/>
- <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Sara</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
+ <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Parceiro/a</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
  </div>
  <DraggableList
  items={despABanca}
@@ -3067,7 +3091,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between gap-4 mt-6 p-4 bg-slate-700/30 rounded-xl">
  <div className="text-center"><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
  <div className="text-center"><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
- <div className="text-center"><p className="text-xs text-slate-500">Parte Sara ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
+ <div className="text-center"><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
  </div>
  </Card>
  
@@ -4112,56 +4136,143 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [simAnos, setSimAnos] = useState(10);
  const [simEuribor, setSimEuribor] = useState(2.5);
  const [simSpread, setSimSpread] = useState(1.0);
- const [simMeses, setSimMeses] = useState(null); // null = usar meses restantes reais
- const [simDivida, setSimDivida] = useState(null); // null = usar dívida atual
+ const [simMeses, setSimMeses] = useState(null);
+ const [simDivida, setSimDivida] = useState(null);
+ const [showAddCredito, setShowAddCredito] = useState(false);
+ const [editCredito, setEditCredito] = useState(null);
+ const [creditoSelecionado, setCreditoSelecionado] = useState(null);
+ const [showLiquidar, setShowLiquidar] = useState(false);
  
- const {valorCasa=365000, entradaInicial=36500, montanteInicial=328500, dividaAtual=229693.43, taxaJuro=2, prestacao=971, seguros=50, historico=[], dataFim='2054-02-01', spread=1.0, euribor=2.5} = credito || {};
+ // Usar sistema de múltiplos créditos ou fallback para estrutura antiga
+ const creditos = G.creditos || [];
+ const creditoAtivo = creditos.find(c => c.estado === 'ativo') || null;
+ 
+ // Se não há créditos no novo sistema, usar estrutura antiga
+ const usarCreditoAntigo = creditos.length === 0 && credito;
+ 
+ // Dados do crédito selecionado ou do crédito ativo
+ const creditoEmUso = creditoSelecionado 
+   ? creditos.find(c => c.id === creditoSelecionado) 
+   : (creditoAtivo || (usarCreditoAntigo ? { ...credito, id: 0, nome: 'Crédito Habitação', tipo: 'habitacao', estado: 'ativo', valorBem: credito.valorCasa } : null));
+ 
+ const {valorBem=365000, valorCasa=365000, entradaInicial=36500, montanteInicial=328500, dividaAtual=229693.43, taxaJuro=2, prestacao=971, seguros=50, historico=[], dataFim='2054-02-01', spread=1.0, euribor=2.5, dataInicio, dataLiquidacao, valorLiquidacao, estado='ativo', nome='Crédito'} = creditoEmUso || {};
+ 
+ const valorCasaFinal = valorBem || valorCasa;
+ 
+ // Funções para gerir créditos
+ const adicionarCredito = (novoCredito) => {
+   const creditoCompleto = {
+     id: Date.now(),
+     nome: novoCredito.nome || 'Novo Crédito',
+     tipo: novoCredito.tipo || 'habitacao',
+     estado: novoCredito.estado || 'ativo',
+     valorBem: parseFloat(novoCredito.valorBem) || 0,
+     entradaInicial: parseFloat(novoCredito.entradaInicial) || 0,
+     montanteInicial: parseFloat(novoCredito.montanteInicial) || 0,
+     dividaAtual: parseFloat(novoCredito.dividaAtual) || parseFloat(novoCredito.montanteInicial) || 0,
+     taxaJuro: parseFloat(novoCredito.taxaJuro) || 0,
+     spread: parseFloat(novoCredito.spread) || 0,
+     euribor: parseFloat(novoCredito.euribor) || 0,
+     prestacao: parseFloat(novoCredito.prestacao) || 0,
+     seguros: parseFloat(novoCredito.seguros) || 0,
+     dataInicio: novoCredito.dataInicio || new Date().toISOString().split('T')[0],
+     dataFim: novoCredito.dataFim || '',
+     dataLiquidacao: null,
+     valorLiquidacao: null,
+     historico: novoCredito.montanteInicial ? [{ date: new Date().toISOString().slice(0, 7), divida: parseFloat(novoCredito.montanteInicial) }] : [],
+     notas: novoCredito.notas || ''
+   };
+   uG('creditos', [...creditos, creditoCompleto]);
+   setShowAddCredito(false);
+ };
+ 
+ const atualizarCredito = (id, campo, valor) => {
+   uG('creditos', creditos.map(c => c.id === id ? { ...c, [campo]: valor } : c));
+ };
+ 
+ const liquidarCredito = (id, dataLiq, valorLiq) => {
+   uG('creditos', creditos.map(c => c.id === id ? { 
+     ...c, 
+     estado: 'liquidado', 
+     dataLiquidacao: dataLiq,
+     valorLiquidacao: parseFloat(valorLiq) || c.dividaAtual,
+     dividaAtual: 0,
+     historico: [...(c.historico || []), { date: dataLiq.slice(0, 7), divida: 0, evento: 'Liquidação' }]
+   } : c));
+   setShowLiquidar(false);
+ };
+ 
+ const removerCredito = (id) => {
+   if (confirm('Tens a certeza que queres remover este crédito? Esta ação não pode ser desfeita.')) {
+     uG('creditos', creditos.filter(c => c.id !== id));
+     if (creditoSelecionado === id) setCreditoSelecionado(null);
+   }
+ };
+ 
+ // Migrar crédito antigo para novo sistema
+ const migrarCreditoAntigo = () => {
+   if (usarCreditoAntigo && credito) {
+     const creditoMigrado = {
+       id: Date.now(),
+       nome: 'Crédito Habitação - Casa Atual',
+       tipo: 'habitacao',
+       estado: 'ativo',
+       valorBem: credito.valorCasa,
+       entradaInicial: credito.entradaInicial,
+       montanteInicial: credito.montanteInicial,
+       dividaAtual: credito.dividaAtual,
+       taxaJuro: credito.taxaJuro,
+       spread: credito.spread,
+       euribor: credito.euribor,
+       prestacao: credito.prestacao,
+       seguros: credito.seguros,
+       dataInicio: '2022-02-01',
+       dataFim: credito.dataFim,
+       dataLiquidacao: null,
+       valorLiquidacao: null,
+       historico: credito.historico || [],
+       notas: ''
+     };
+     uG('creditos', [creditoMigrado]);
+   }
+ };
  
  // Cálculos
  const taxaMensal = (taxaJuro / 100) / 12;
  const custoMensal = prestacao + seguros;
  
- // Prazo restante - cálculo mais preciso
+ // Prazo restante
  const hoje = new Date();
- const fimCredito = new Date(dataFim);
+ const fimCredito = dataFim ? new Date(dataFim) : hoje;
  const diffMs = fimCredito - hoje;
  const diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
- 
- // Calcular meses de forma mais precisa (média de 30.44 dias por mês)
  const totalMesesRestantes = Math.max(1, Math.round(diffDias / 30.44));
  const anosRestantes = Math.floor(totalMesesRestantes / 12);
  const mesesRestantes = totalMesesRestantes % 12;
  
- // Inicializar simulador com valores atuais
  useEffect(() => {
  if (simMeses === null) setSimMeses(totalMesesRestantes);
  if (simDivida === null) setSimDivida(dividaAtual);
  setSimEuribor(euribor);
  setSimSpread(spread);
- }, []);
+ }, [creditoSelecionado]);
  
- // Fórmula da prestação: P = D × [i(1+i)^n] / [(1+i)^n - 1]
+ // Fórmula da prestação
  const calcularPrestacao = (divida, taxaAnual, meses) => {
  if (meses <= 0 || divida <= 0) return 0;
- const i = (taxaAnual / 100) / 12; // taxa mensal
- if (i === 0) return divida / meses; // caso especial: taxa 0%
+ const i = (taxaAnual / 100) / 12;
+ if (i === 0) return divida / meses;
  const fator = Math.pow(1 + i, meses);
  return divida * (i * fator) / (fator - 1);
  };
  
- // Prestação simulada
  const taxaSimulada = simEuribor + simSpread;
  const dividaParaSimular = simDivida || dividaAtual;
  const mesesParaSimular = simMeses || totalMesesRestantes;
  const prestacaoSimulada = calcularPrestacao(dividaParaSimular, taxaSimulada, mesesParaSimular);
- 
- // Prestação teórica atual (com a taxa fixa atual)
  const prestacaoTeorica = calcularPrestacao(dividaAtual, taxaJuro, totalMesesRestantes);
- 
- // Diferença
  const diffPrestacao = prestacaoSimulada - prestacao;
  
- // Simulação: quanto tempo para liquidar com amortização extra
  const calcularMesesParaLiquidar = (amortExtra) => {
  let divida = dividaAtual;
  let meses = 0;
@@ -4256,56 +4367,313 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const poupancaJuros = jurosSemAmort - jurosComAmort;
  
  // Calcular percentagens
- const pctCredito = ((montanteInicial - dividaAtual) / montanteInicial * 100).toFixed(1);
- const pctCasa = ((valorCasa - dividaAtual) / valorCasa * 100).toFixed(1);
+ const pctCredito = montanteInicial > 0 ? ((montanteInicial - dividaAtual) / montanteInicial * 100).toFixed(1) : 0;
+ const pctCasa = valorCasaFinal > 0 ? ((valorCasaFinal - dividaAtual) / valorCasaFinal * 100).toFixed(1) : 0;
+ 
+ // Totais de todos os créditos ativos
+ const creditosAtivos = creditos.filter(c => c.estado === 'ativo');
+ const creditosLiquidados = creditos.filter(c => c.estado === 'liquidado');
+ const totalDividaAtiva = creditosAtivos.reduce((acc, c) => acc + (c.dividaAtual || 0), 0);
+ const totalPrestacoes = creditosAtivos.reduce((acc, c) => acc + (c.prestacao || 0) + (c.seguros || 0), 0);
+ 
+ // Modal de adicionar crédito
+ const [novoCredito, setNovoCredito] = useState({
+   nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
+   taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
+ });
+ 
+ // Modal de liquidação
+ const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
  
  return (
  <div className="space-y-6">
+ 
+ {/* LISTA DE CRÉDITOS */}
+ <Card>
+   <div className="flex justify-between items-center mb-4">
+     <h3 className="text-lg font-semibold">🏦 Os Meus Créditos</h3>
+     <div className="flex gap-2">
+       {usarCreditoAntigo && (
+         <button onClick={migrarCreditoAntigo} className="px-3 py-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-sm hover:bg-amber-500/30">
+           ↑ Migrar dados antigos
+         </button>
+       )}
+       <button onClick={() => setShowAddCredito(true)} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30">
+         + Adicionar Crédito
+       </button>
+     </div>
+   </div>
+   
+   {/* Resumo total */}
+   {creditosAtivos.length > 1 && (
+     <div className="mb-4 p-3 bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 rounded-xl">
+       <div className="flex justify-between items-center">
+         <span className="text-slate-400">Total Dívida Ativa ({creditosAtivos.length} créditos)</span>
+         <span className="text-xl font-bold text-red-400">{fmt(totalDividaAtiva)}</span>
+       </div>
+       <div className="flex justify-between items-center mt-1">
+         <span className="text-slate-500 text-sm">Total Prestações/mês</span>
+         <span className="font-semibold text-orange-400">{fmt(totalPrestacoes)}</span>
+       </div>
+     </div>
+   )}
+   
+   {/* Lista de créditos */}
+   <div className="space-y-2">
+     {creditos.length === 0 && !usarCreditoAntigo && (
+       <p className="text-center text-slate-500 py-8">Nenhum crédito registado. Clica em "+ Adicionar Crédito" para começar.</p>
+     )}
+     
+     {usarCreditoAntigo && creditos.length === 0 && (
+       <div 
+         onClick={() => setCreditoSelecionado(null)}
+         className={`p-4 rounded-xl cursor-pointer transition-all ${!creditoSelecionado ? 'bg-blue-500/20 border-2 border-blue-500/50' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}
+       >
+         <div className="flex items-center justify-between">
+           <div className="flex items-center gap-3">
+             <span className="text-2xl">🏠</span>
+             <div>
+               <p className="font-semibold">Crédito Habitação (dados antigos)</p>
+               <p className="text-sm text-slate-400">Habitação • Ativo</p>
+             </div>
+           </div>
+           <div className="text-right">
+             <p className="text-lg font-bold text-red-400">{fmt(credito.dividaAtual)}</p>
+             <p className="text-sm text-slate-500">{fmt(credito.prestacao + credito.seguros)}/mês</p>
+           </div>
+         </div>
+       </div>
+     )}
+     
+     {creditos.map(c => {
+       const tipoIcons = { habitacao: '🏠', automovel: '🚗', pessoal: '💳', outro: '📄' };
+       const estadoCores = { ativo: 'text-red-400', liquidado: 'text-green-400', planeado: 'text-blue-400' };
+       const isSelected = creditoSelecionado === c.id;
+       
+       return (
+         <div 
+           key={c.id}
+           onClick={() => setCreditoSelecionado(c.id)}
+           className={`p-4 rounded-xl cursor-pointer transition-all ${isSelected ? 'bg-blue-500/20 border-2 border-blue-500/50' : c.estado === 'liquidado' ? 'bg-green-500/5 border border-green-500/20' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}
+         >
+           <div className="flex items-center justify-between">
+             <div className="flex items-center gap-3">
+               <span className="text-2xl">{tipoIcons[c.tipo] || '📄'}</span>
+               <div>
+                 <p className="font-semibold">{c.nome}</p>
+                 <p className="text-sm text-slate-400">
+                   {c.tipo.charAt(0).toUpperCase() + c.tipo.slice(1)} • 
+                   <span className={`ml-1 ${estadoCores[c.estado]}`}>
+                     {c.estado === 'ativo' ? 'Ativo' : c.estado === 'liquidado' ? '✓ Liquidado' : 'Planeado'}
+                   </span>
+                   {c.dataLiquidacao && <span className="text-slate-500 ml-2">em {new Date(c.dataLiquidacao).toLocaleDateString('pt-PT')}</span>}
+                 </p>
+               </div>
+             </div>
+             <div className="text-right flex items-center gap-4">
+               <div>
+                 {c.estado === 'liquidado' ? (
+                   <>
+                     <p className="text-lg font-bold text-green-400">Liquidado</p>
+                     <p className="text-sm text-slate-500">Valor: {fmt(c.valorLiquidacao || c.montanteInicial)}</p>
+                   </>
+                 ) : (
+                   <>
+                     <p className="text-lg font-bold text-red-400">{fmt(c.dividaAtual)}</p>
+                     <p className="text-sm text-slate-500">{fmt((c.prestacao || 0) + (c.seguros || 0))}/mês</p>
+                   </>
+                 )}
+               </div>
+               {c.estado === 'ativo' && (
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setShowLiquidar(c.id); setLiquidacaoData({ data: new Date().toISOString().split('T')[0], valor: c.dividaAtual.toString() }); }}
+                   className="px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg text-xs hover:bg-green-500/30"
+                 >
+                   Liquidar
+                 </button>
+               )}
+               <button 
+                 onClick={(e) => { e.stopPropagation(); removerCredito(c.id); }}
+                 className="text-red-400/50 hover:text-red-400 p-1"
+               >
+                 🗑️
+               </button>
+             </div>
+           </div>
+         </div>
+       );
+     })}
+   </div>
+ </Card>
+ 
+ {/* Modal Adicionar Crédito */}
+ {showAddCredito && (
+   <>
+     <div className="fixed inset-0 bg-black/70 z-40" onClick={() => setShowAddCredito(false)} />
+     <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-2xl bg-slate-800 border border-slate-700 rounded-2xl z-50 overflow-y-auto max-h-[90vh]">
+       <div className="p-4 border-b border-slate-700 flex justify-between items-center sticky top-0 bg-slate-800">
+         <h3 className="text-lg font-bold">➕ Adicionar Novo Crédito</h3>
+         <button onClick={() => setShowAddCredito(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+       </div>
+       <div className="p-4 space-y-4">
+         <div className="grid grid-cols-2 gap-4">
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Nome do Crédito</label>
+             <input className={`w-full ${inputClass}`} placeholder="Ex: Crédito Habitação - Casa Nova" value={novoCredito.nome} onChange={e => setNovoCredito({...novoCredito, nome: e.target.value})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Tipo</label>
+             <select className={`w-full ${inputClass}`} value={novoCredito.tipo} onChange={e => setNovoCredito({...novoCredito, tipo: e.target.value})}>
+               <option value="habitacao">🏠 Habitação</option>
+               <option value="automovel">🚗 Automóvel</option>
+               <option value="pessoal">💳 Pessoal</option>
+               <option value="outro">📄 Outro</option>
+             </select>
+           </div>
+         </div>
+         
+         <div className="grid grid-cols-3 gap-4">
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Valor do Bem (€)</label>
+             <input type="number" className={`w-full ${inputClass}`} placeholder="365000" value={novoCredito.valorBem} onChange={e => setNovoCredito({...novoCredito, valorBem: e.target.value})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Entrada (€)</label>
+             <input type="number" className={`w-full ${inputClass}`} placeholder="36500" value={novoCredito.entradaInicial} onChange={e => setNovoCredito({...novoCredito, entradaInicial: e.target.value})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Montante Financiado (€)</label>
+             <input type="number" className={`w-full ${inputClass}`} placeholder="328500" value={novoCredito.montanteInicial} onChange={e => setNovoCredito({...novoCredito, montanteInicial: e.target.value, dividaAtual: e.target.value})} />
+           </div>
+         </div>
+         
+         <div className="grid grid-cols-3 gap-4">
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Spread (%)</label>
+             <input type="number" step="0.1" className={`w-full ${inputClass}`} placeholder="1.0" value={novoCredito.spread} onChange={e => setNovoCredito({...novoCredito, spread: e.target.value, taxaJuro: (parseFloat(e.target.value) || 0) + (parseFloat(novoCredito.euribor) || 0)})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Euribor (%)</label>
+             <input type="number" step="0.1" className={`w-full ${inputClass}`} placeholder="2.5" value={novoCredito.euribor} onChange={e => setNovoCredito({...novoCredito, euribor: e.target.value, taxaJuro: (parseFloat(novoCredito.spread) || 0) + (parseFloat(e.target.value) || 0)})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Taxa Total (%)</label>
+             <input type="number" step="0.1" className={`w-full ${inputClass} bg-slate-600`} value={novoCredito.taxaJuro || ((parseFloat(novoCredito.spread) || 0) + (parseFloat(novoCredito.euribor) || 0))} readOnly />
+           </div>
+         </div>
+         
+         <div className="grid grid-cols-2 gap-4">
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Prestação Mensal (€)</label>
+             <input type="number" className={`w-full ${inputClass}`} placeholder="971" value={novoCredito.prestacao} onChange={e => setNovoCredito({...novoCredito, prestacao: e.target.value})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Seguros (€/mês)</label>
+             <input type="number" className={`w-full ${inputClass}`} placeholder="50" value={novoCredito.seguros} onChange={e => setNovoCredito({...novoCredito, seguros: e.target.value})} />
+           </div>
+         </div>
+         
+         <div className="grid grid-cols-2 gap-4">
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Data Início</label>
+             <input type="date" className={`w-full ${inputClass}`} value={novoCredito.dataInicio} onChange={e => setNovoCredito({...novoCredito, dataInicio: e.target.value})} />
+           </div>
+           <div>
+             <label className="text-sm text-slate-400 block mb-1">Data Fim Prevista</label>
+             <input type="date" className={`w-full ${inputClass}`} value={novoCredito.dataFim} onChange={e => setNovoCredito({...novoCredito, dataFim: e.target.value})} />
+           </div>
+         </div>
+         
+         <div>
+           <label className="text-sm text-slate-400 block mb-1">Notas</label>
+           <textarea className={`w-full ${inputClass}`} rows={2} placeholder="Notas adicionais..." value={novoCredito.notas} onChange={e => setNovoCredito({...novoCredito, notas: e.target.value})} />
+         </div>
+         
+         <div className="flex gap-3 pt-2">
+           <button onClick={() => setShowAddCredito(false)} className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl">Cancelar</button>
+           <button onClick={() => adicionarCredito(novoCredito)} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-xl font-medium">Adicionar Crédito</button>
+         </div>
+       </div>
+     </div>
+   </>
+ )}
+ 
+ {/* Modal Liquidar Crédito */}
+ {showLiquidar && (
+   <>
+     <div className="fixed inset-0 bg-black/70 z-40" onClick={() => setShowLiquidar(false)} />
+     <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl z-50 p-6">
+       <h3 className="text-lg font-bold mb-4">✅ Liquidar Crédito</h3>
+       <p className="text-slate-400 text-sm mb-4">
+         Esta ação marca o crédito como liquidado. Podes reverter mais tarde se necessário.
+       </p>
+       <div className="space-y-4">
+         <div>
+           <label className="text-sm text-slate-400 block mb-1">Data de Liquidação</label>
+           <input type="date" className={`w-full ${inputClass}`} value={liquidacaoData.data} onChange={e => setLiquidacaoData({...liquidacaoData, data: e.target.value})} />
+         </div>
+         <div>
+           <label className="text-sm text-slate-400 block mb-1">Valor Final Pago (€)</label>
+           <input type="number" className={`w-full ${inputClass}`} value={liquidacaoData.valor} onChange={e => setLiquidacaoData({...liquidacaoData, valor: e.target.value})} />
+           <p className="text-xs text-slate-500 mt-1">Valor total para liquidar o crédito (incluindo comissões)</p>
+         </div>
+       </div>
+       <div className="flex gap-3 mt-6">
+         <button onClick={() => setShowLiquidar(false)} className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl">Cancelar</button>
+         <button onClick={() => liquidarCredito(showLiquidar, liquidacaoData.data, liquidacaoData.valor)} className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 rounded-xl font-medium">Confirmar Liquidação</button>
+       </div>
+     </div>
+   </>
+ )}
+ 
+ {/* Detalhes do crédito selecionado */}
+ {creditoEmUso && creditoEmUso.estado !== 'liquidado' && (
+ <>
  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
  <StatCard label="Dívida Atual" value={fmt(dividaAtual)} color="text-red-400" icon="🏠"/>
  <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
  <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
- <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={`Termina: ${fimCredito.toLocaleDateString('pt-PT')}`} icon="⏱️"/>
+ <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={dataFim ? `Termina: ${fimCredito.toLocaleDateString('pt-PT')}` : ''} icon="⏱️"/>
  <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${pctCredito}% crédito · ${pctCasa}% casa`} icon="✅"/>
  </div>
 
  <Card>
- <h3 className="text-lg font-semibold mb-4">📋 Dados do Crédito</h3>
+ <h3 className="text-lg font-semibold mb-4">📋 Dados do Crédito {creditoEmUso.nome && `- ${creditoEmUso.nome}`}</h3>
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <div className="space-y-2">
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400 text-sm">Valor Casa</span>
- <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={valorCasa} onSave={v=>uC('valorCasa',v)}/>
+ <span className="text-slate-400 text-sm">Valor do Bem</span>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={valorCasaFinal} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'valorBem', v) : uC('valorCasa',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400 text-sm">Entrada</span>
- <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={entradaInicial} onSave={v=>uC('entradaInicial',v)}/>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={entradaInicial} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'entradaInicial', v) : uC('entradaInicial',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400 text-sm">Financiado</span>
- <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v=>uC('montanteInicial',v)}/>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'montanteInicial', v) : uC('montanteInicial',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
  <span className="text-slate-300 text-sm">Data Fim</span>
- <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e=>uC('dataFim',e.target.value)}/>
+ <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dataFim', e.target.value) : uC('dataFim',e.target.value)}/>
  </div>
  </div>
  <div className="space-y-2">
  <div className="flex justify-between items-center p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
  <span className="text-slate-300 font-medium text-sm">Dívida Atual</span>
- <StableInput type="number" className="w-28 sm:w-32 bg-slate-700/50 border border-red-500/30 rounded-xl px-3 py-2 text-red-400 font-bold text-right focus:outline-none" initialValue={dividaAtual} onSave={v=>uC('dividaAtual',v)}/>
+ <StableInput type="number" className="w-28 sm:w-32 bg-slate-700/50 border border-red-500/30 rounded-xl px-3 py-2 text-red-400 font-bold text-right focus:outline-none" initialValue={dividaAtual} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dividaAtual', v) : uC('dividaAtual',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400">Taxa de Juro Atual (%)</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={taxaJuro} onSave={v=>uC('taxaJuro',v)} step="0.1"/>
+ <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={taxaJuro} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'taxaJuro', v) : uC('taxaJuro',v)} step="0.1"/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400">Prestação Mensal Atual</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={prestacao} onSave={v=>uC('prestacao',v)}/>
+ <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={prestacao} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'prestacao', v) : uC('prestacao',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400">Seguros</span>
- <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={seguros} onSave={v=>uC('seguros',v)}/>
+ <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={seguros} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'seguros', v) : uC('seguros',v)}/>
  </div>
  </div>
  </div>
@@ -4562,6 +4930,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  </Card>
+ </>
+ )}
+ 
+ {/* Mensagem para créditos liquidados */}
+ {creditoEmUso && creditoEmUso.estado === 'liquidado' && (
+   <Card>
+     <div className="text-center py-8">
+       <span className="text-5xl mb-4 block">🎉</span>
+       <h3 className="text-xl font-bold text-green-400 mb-2">Crédito Liquidado!</h3>
+       <p className="text-slate-400">Este crédito foi liquidado em {new Date(creditoEmUso.dataLiquidacao).toLocaleDateString('pt-PT')}</p>
+       <p className="text-slate-500 text-sm mt-2">Valor final: {fmt(creditoEmUso.valorLiquidacao)}</p>
+     </div>
+   </Card>
+ )}
  </div>
  );
  };
@@ -6310,25 +6692,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // 6. Análise: Histórico
  // 7. Sara (separado)
  const tabs = [
-   // 💵 Dinheiro
+   // Uso frequente
    {id:'resumo',icon:'📊',label:'Dashboard'},
-   {id:'performance',icon:'🚀',label:'Performance'},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
-   {id:'credito',icon:'🏦',label:'Crédito'},
-   {id:'sara',icon:'👩',label:'Sara'},
-   {id:'historico',icon:'📅',label:'Histórico'},
-   // Separador
-   {id:'sep1',separator:true},
-   // 📈 Investimentos
-   {id:'invest',icon:'📈',label:'Alocação'},
-   {id:'portfolio',icon:'💎',label:'Portfolio'},
-   {id:'transacoes',icon:'📝',label:'Transações'},
-   // Separador
-   {id:'sep2',separator:true},
-   // 📋 Gestão
-   {id:'calendario',icon:'📆',label:'Projetos'},
-   {id:'agenda',icon:'📋',label:'Tarefas'}
+   // Investimentos (consolidado)
+   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[
+     {id:'invest',icon:'🎯',label:'Alocação'},
+     {id:'portfolio',icon:'💎',label:'Portfolio'},
+     {id:'transacoes',icon:'📝',label:'Transações'}
+   ]},
+   // Agenda (consolidado)
+   {id:'agenda-menu',icon:'📅',label:'Agenda',submenu:[
+     {id:'agenda',icon:'📋',label:'Tarefas'},
+     {id:'calendario',icon:'📆',label:'Projetos'}
+   ]},
+   // Mais (menos frequente)
+   {id:'mais',icon:'⚙️',label:'Mais',submenu:[
+     {id:'performance',icon:'🚀',label:'Performance'},
+     {id:'historico',icon:'📊',label:'Histórico'},
+     {id:'credito',icon:'🏦',label:'Crédito'},
+     {id:'sara',icon:'👩',label:'Parceiro/a'}
+   ]}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
@@ -6555,7 +6940,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '4', desc: '🏠 Despesas Casal' },
      { key: '5', desc: '👤 Despesas Pessoais' },
      { key: '6', desc: '🏦 Crédito' },
-     { key: '7', desc: '👩 Sara' },
+     { key: '7', desc: '👩 Parceiro/a' },
      { key: '8', desc: '📅 Histórico' },
      { key: '9', desc: '📈 Alocação' },
      { key: '0', desc: '💎 Portfolio' },
@@ -6985,7 +7370,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      saraData.push([]);
      saraData.push(['═══ ALOCAÇÕES ═══', '']);
      G.sara.aloc.forEach(a => saraData.push([a.desc, a.val]));
-     sheetsData.push({ title: '👩 Sara', data: saraData, headerRows: [3, 8] });
+     sheetsData.push({ title: '👩 Parceiro', data: saraData, headerRows: [3, 8] });
      
      const url = await createGoogleSheet(`Dashboard Financeiro ${ano}`, sheetsData);
      window.open(url, '_blank');
@@ -7526,6 +7911,23 @@ ${transacoesOrdenadas.map(t => `<tr>
    // Impostos estimados
    const impostoEstimado = totalComTaxas * (taxa / 100);
    
+   // Dados de créditos
+   const creditosData = G.creditos || [];
+   const creditosAtivos = creditosData.filter(c => c.estado === 'ativo');
+   const creditosLiquidadosAno = creditosData.filter(c => c.estado === 'liquidado' && c.dataLiquidacao?.startsWith(String(anoRel)));
+   const totalDividaAtiva = creditosAtivos.reduce((acc, c) => acc + (c.dividaAtual || 0), 0);
+   
+   // Calcular amortização do ano para cada crédito
+   const amortizacaoPorCredito = creditosData.map(c => {
+     const hist = c.historico || [];
+     const inicioAno = hist.find(h => h.date === `${anoRel-1}-12`)?.divida || c.montanteInicial;
+     const fimAno = hist.find(h => h.date === `${anoRel}-12`)?.divida || c.dividaAtual;
+     const amortizado = inicioAno - fimAno;
+     return { ...c, amortizado: amortizado > 0 ? amortizado : 0, inicioAno, fimAno };
+   }).filter(c => c.amortizado > 0);
+   
+   const totalAmortizadoAno = amortizacaoPorCredito.reduce((acc, c) => acc + c.amortizado, 0);
+   
    return {
      ano: anoRel,
      totalReceitas,
@@ -7545,7 +7947,13 @@ ${transacoesOrdenadas.map(t => `<tr>
      valorDiaMedio,
      mediaHorasMes,
      horasPorMes,
-     mesesComHoras: horasPorMes.length
+     mesesComHoras: horasPorMes.length,
+     // Dados de créditos
+     creditosAtivos,
+     creditosLiquidadosAno,
+     totalDividaAtiva,
+     amortizacaoPorCredito,
+     totalAmortizadoAno
    };
  };
  
@@ -7639,6 +8047,38 @@ ${transacoesOrdenadas.map(t => `<tr>
          </div>
        `).join('')}
      </div>
+     ` : ''}
+     
+     ${(relatorio.creditosAtivos?.length > 0 || relatorio.creditosLiquidadosAno?.length > 0 || relatorio.totalAmortizadoAno > 0) ? `
+     <h2>🏦 Créditos</h2>
+     <div class="grid">
+       <div class="card"><div class="card-label">Dívida Total Ativa</div><div class="card-value" style="color: #ef4444;">${fmt(relatorio.totalDividaAtiva)}</div></div>
+       <div class="card"><div class="card-label">Amortizado em ${relatorio.ano}</div><div class="card-value green">${fmt(relatorio.totalAmortizadoAno)}</div></div>
+       <div class="card"><div class="card-label">Créditos Ativos</div><div class="card-value">${relatorio.creditosAtivos?.length || 0}</div></div>
+       <div class="card"><div class="card-label">Liquidados em ${relatorio.ano}</div><div class="card-value green">${relatorio.creditosLiquidadosAno?.length || 0}</div></div>
+     </div>
+     ${relatorio.amortizacaoPorCredito?.length > 0 ? `
+     <div class="section" style="margin-top: 16px;">
+       <div class="section-title">Evolução por Crédito</div>
+       ${relatorio.amortizacaoPorCredito.map(c => `
+         <div class="row">
+           <span class="row-label">${c.nome || 'Crédito'}</span>
+           <span class="row-value">${fmt(c.inicioAno)} → ${fmt(c.fimAno)} <span style="color: #10b981; margin-left: 8px;">(-${fmt(c.amortizado)})</span></span>
+         </div>
+       `).join('')}
+     </div>
+     ` : ''}
+     ${relatorio.creditosLiquidadosAno?.length > 0 ? `
+     <div class="section" style="margin-top: 16px;">
+       <div class="section-title">✅ Créditos Liquidados em ${relatorio.ano}</div>
+       ${relatorio.creditosLiquidadosAno.map(c => `
+         <div class="row">
+           <span class="row-label">${c.nome}</span>
+           <span class="row-value green">Liquidado em ${new Date(c.dataLiquidacao).toLocaleDateString('pt-PT')} - ${fmt(c.valorLiquidacao)}</span>
+         </div>
+       `).join('')}
+     </div>
+     ` : ''}
      ` : ''}
      
      <div class="footer">Dashboard Financeiro Freelance • Relatório gerado automaticamente</div>
@@ -7801,6 +8241,62 @@ ${transacoesOrdenadas.map(t => `<tr>
                    </div>
                  ))}
                </div>
+             </div>
+           )}
+           
+           {/* CRÉDITOS */}
+           {(relatorio.creditosAtivos?.length > 0 || relatorio.creditosLiquidadosAno?.length > 0 || relatorio.totalAmortizadoAno > 0) && (
+             <div className="bg-gradient-to-r from-red-500/10 to-green-500/10 border border-red-500/20 rounded-xl p-4">
+               <h4 className="font-semibold mb-4 flex items-center gap-2">
+                 <span>🏦 Créditos</span>
+               </h4>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Dívida Total</p>
+                   <p className="text-lg font-bold text-red-400">{fmt(relatorio.totalDividaAtiva)}</p>
+                 </div>
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Amortizado em {relatorio.ano}</p>
+                   <p className="text-lg font-bold text-emerald-400">{fmt(relatorio.totalAmortizadoAno)}</p>
+                 </div>
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Créditos Ativos</p>
+                   <p className="text-lg font-bold">{relatorio.creditosAtivos?.length || 0}</p>
+                 </div>
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Liquidados</p>
+                   <p className="text-lg font-bold text-green-400">{relatorio.creditosLiquidadosAno?.length || 0}</p>
+                 </div>
+               </div>
+               
+               {relatorio.amortizacaoPorCredito?.length > 0 && (
+                 <div className="space-y-2">
+                   <p className="text-xs text-slate-400">Evolução por Crédito:</p>
+                   {relatorio.amortizacaoPorCredito.map((c, i) => (
+                     <div key={i} className="flex justify-between items-center p-2 bg-slate-700/20 rounded-lg text-sm">
+                       <span className="text-slate-300">{c.nome || 'Crédito'}</span>
+                       <span>
+                         <span className="text-slate-400">{fmt(c.inicioAno)}</span>
+                         <span className="text-slate-500 mx-2">→</span>
+                         <span className="text-slate-300">{fmt(c.fimAno)}</span>
+                         <span className="text-emerald-400 ml-2">(-{fmt(c.amortizado)})</span>
+                       </span>
+                     </div>
+                   ))}
+                 </div>
+               )}
+               
+               {relatorio.creditosLiquidadosAno?.length > 0 && (
+                 <div className="mt-3 pt-3 border-t border-slate-600/50">
+                   <p className="text-xs text-green-400 mb-2">✅ Liquidados em {relatorio.ano}:</p>
+                   {relatorio.creditosLiquidadosAno.map((c, i) => (
+                     <div key={i} className="flex justify-between items-center p-2 bg-green-500/10 rounded-lg text-sm">
+                       <span className="text-slate-300">{c.nome}</span>
+                       <span className="text-green-400">{new Date(c.dataLiquidacao).toLocaleDateString('pt-PT')} - {fmt(c.valorLiquidacao)}</span>
+                     </div>
+                   ))}
+                 </div>
+               )}
              </div>
            )}
            
@@ -8485,18 +8981,27 @@ ${transacoesOrdenadas.map(t => `<tr>
         </header>
 
       <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
-        {tabs.map(t => (
-          t.separator ? (
+        {tabs.map(t => {
+          // Verificar se alguma sub-tab está ativa
+          const isSubActive = t.submenu?.some(sub => tab === sub.id);
+          
+          return t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
             <div key={t.id} className="relative flex-shrink-0">
               <button 
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  setDespesasPos({ left: rect.left, top: rect.bottom + 4 });
+                  setDespesasPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
                   setHoveredTab(hoveredTab === t.id ? null : t.id);
                 }}
-                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${(tab==='abanca'||tab==='pessoais')?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
+                  isSubActive 
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25'
+                    : theme === 'light' 
+                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' 
+                      : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
               >
                 <span className="sm:mr-1">{t.icon}</span>
                 <span className="hidden sm:inline">{t.label}</span>
@@ -8505,23 +9010,29 @@ ${transacoesOrdenadas.map(t => `<tr>
             </div>
           ) : (
             <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
-          )
-        ))}
+          );
+        })}
       </nav>
       
-      {/* Dropdown de Despesas - posição fixa baseada no botão */}
-      {hoveredTab === 'despesas' && (
+      {/* Dropdown genérico para qualquer submenu */}
+      {hoveredTab && tabs.find(t => t.id === hoveredTab)?.submenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setHoveredTab(null)} />
           <div 
-            className="fixed bg-slate-800 border border-slate-700 rounded-xl py-1 shadow-xl z-50 min-w-[140px]"
+            className={`fixed ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 shadow-xl z-50 min-w-[160px]`}
             style={{ left: despesasPos.left, top: despesasPos.top }}
           >
-            {tabs.find(t => t.id === 'despesas')?.submenu?.map(sub => (
+            {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
               <button 
                 key={sub.id} 
                 onClick={() => { setTab(sub.id); setHoveredTab(null); }}
-                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${tab===sub.id ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-slate-700'}`}
+                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
+                  tab === sub.id 
+                    ? 'bg-blue-500/20 text-blue-400' 
+                    : theme === 'light'
+                      ? 'text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-300 hover:bg-slate-700'
+                }`}
               >
                 <span>{sub.icon}</span>
                 <span>{sub.label}</span>
