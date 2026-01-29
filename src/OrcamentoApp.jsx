@@ -672,7 +672,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','receitas','abanca','pessoais','invest','portfolio','transacoes','agenda','calendario','performance'];
+  const tabOrder = ['resumo','performance','receitas','abanca','pessoais','credito','sara','historico','invest','portfolio'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -6692,28 +6692,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // 6. Análise: Histórico
  // 7. Sara (separado)
  const tabs = [
-   // Uso frequente
+   // 💵 Dinheiro
    {id:'resumo',icon:'📊',label:'Dashboard'},
+   {id:'performance',icon:'🚀',label:'Performance'},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
-   // Investimentos (consolidado)
-   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[
-     {id:'invest',icon:'🎯',label:'Alocação'},
-     {id:'portfolio',icon:'💎',label:'Portfolio'},
-     {id:'transacoes',icon:'📝',label:'Transações'}
-   ]},
-   // Agenda (consolidado)
-   {id:'agenda-menu',icon:'📅',label:'Agenda',submenu:[
-     {id:'agenda',icon:'📋',label:'Tarefas'},
-     {id:'calendario',icon:'📆',label:'Projetos'}
-   ]},
-   // Mais (menos frequente)
-   {id:'mais',icon:'⚙️',label:'Mais',submenu:[
-     {id:'performance',icon:'🚀',label:'Performance'},
-     {id:'historico',icon:'📊',label:'Histórico'},
-     {id:'credito',icon:'🏦',label:'Crédito'},
-     {id:'sara',icon:'👩',label:'Parceiro/a'}
-   ]}
+   {id:'credito',icon:'🏦',label:'Crédito'},
+   {id:'sara',icon:'👩',label:'Parceiro/a'},
+   {id:'historico',icon:'📅',label:'Histórico'},
+   // Separador
+   {id:'sep1',separator:true},
+   // 📈 Investimentos
+   {id:'invest',icon:'📈',label:'Alocação'},
+   {id:'portfolio',icon:'💎',label:'Portfolio'},
+   {id:'transacoes',icon:'📝',label:'Transações'},
+   // Separador
+   {id:'sep2',separator:true},
+   // 📋 Gestão
+   {id:'calendario',icon:'📆',label:'Projetos'},
+   {id:'agenda',icon:'📋',label:'Tarefas'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const [despesasPos, setDespesasPos] = useState({ left: 0, top: 0 });
