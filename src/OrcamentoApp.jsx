@@ -2239,6 +2239,237 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
        )}
        
+       {/* COMPARAÇÃO ANO VS ANO */}
+       <Card>
+         <h3 className="font-semibold mb-4">📊 Comparação {ano} vs {ano - 1}</h3>
+         {(() => {
+           // Dados do ano atual
+           const dadosAnoAtual = {
+             receitas: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.regCom || []).reduce((a, r) => a + r.val, 0) + (v.regSem || []).reduce((a, r) => a + r.val, 0), 0),
+             horas: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0),
+             investimentos: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0),
+             meses: Object.entries(M).filter(([k, v]) => k.startsWith(`${ano}-`) && ((v.regCom || []).length > 0 || (v.regSem || []).length > 0)).length
+           };
+           
+           // Dados do ano anterior (mesmos meses para comparação justa)
+           const dadosAnoAnterior = {
+             receitas: Object.entries(M).filter(([k]) => {
+               const [a, m] = k.split('-').map(Number);
+               return a === ano - 1 && m <= mesAtualNum;
+             }).reduce((acc, [, v]) => acc + (v.regCom || []).reduce((a, r) => a + r.val, 0) + (v.regSem || []).reduce((a, r) => a + r.val, 0), 0),
+             horas: Object.entries(M).filter(([k]) => {
+               const [a, m] = k.split('-').map(Number);
+               return a === ano - 1 && m <= mesAtualNum;
+             }).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0),
+             investimentos: Object.entries(M).filter(([k]) => {
+               const [a, m] = k.split('-').map(Number);
+               return a === ano - 1 && m <= mesAtualNum;
+             }).reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0),
+             meses: Object.entries(M).filter(([k, v]) => {
+               const [a, m] = k.split('-').map(Number);
+               return a === ano - 1 && m <= mesAtualNum && ((v.regCom || []).length > 0 || (v.regSem || []).length > 0);
+             }).length
+           };
+           
+           // Valor/hora
+           const valorHoraAtual = dadosAnoAtual.horas > 0 ? dadosAnoAtual.receitas / dadosAnoAtual.horas : 0;
+           const valorHoraAnterior = dadosAnoAnterior.horas > 0 ? dadosAnoAnterior.receitas / dadosAnoAnterior.horas : 0;
+           
+           // Calcular variações
+           const calcVariacao = (atual, anterior) => anterior > 0 ? ((atual - anterior) / anterior * 100) : (atual > 0 ? 100 : 0);
+           
+           const variacoes = [
+             { label: '💰 Receitas', atual: dadosAnoAtual.receitas, anterior: dadosAnoAnterior.receitas, variacao: calcVariacao(dadosAnoAtual.receitas, dadosAnoAnterior.receitas), formato: fmt },
+             { label: '⏱️ Horas', atual: dadosAnoAtual.horas, anterior: dadosAnoAnterior.horas, variacao: calcVariacao(dadosAnoAtual.horas, dadosAnoAnterior.horas), formato: v => `${Math.round(v)}h`, invertido: true },
+             { label: '💵 Valor/Hora', atual: valorHoraAtual, anterior: valorHoraAnterior, variacao: calcVariacao(valorHoraAtual, valorHoraAnterior), formato: fmt },
+             { label: '📈 Investimentos', atual: dadosAnoAtual.investimentos, anterior: dadosAnoAnterior.investimentos, variacao: calcVariacao(dadosAnoAtual.investimentos, dadosAnoAnterior.investimentos), formato: fmt },
+           ];
+           
+           return (
+             <div className="space-y-3">
+               <p className="text-xs text-slate-500 mb-2">
+                 Comparação dos primeiros {mesAtualNum} meses de cada ano
+               </p>
+               {variacoes.map(v => {
+                 const isPositive = v.invertido ? v.variacao <= 0 : v.variacao >= 0;
+                 return (
+                   <div key={v.label} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+                     <span className="text-sm">{v.label}</span>
+                     <div className="flex items-center gap-4">
+                       <div className="text-right">
+                         <span className="text-xs text-slate-500">{ano - 1}: {v.formato(v.anterior)}</span>
+                       </div>
+                       <div className="text-right">
+                         <span className="font-semibold">{v.formato(v.atual)}</span>
+                       </div>
+                       <span className={`px-2 py-1 rounded text-xs font-medium ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                         {v.variacao >= 0 ? '+' : ''}{v.variacao.toFixed(1)}%
+                       </span>
+                     </div>
+                   </div>
+                 );
+               })}
+               
+               {dadosAnoAnterior.receitas === 0 && (
+                 <p className="text-xs text-slate-500 text-center py-2">
+                   Sem dados de {ano - 1} para comparação
+                 </p>
+               )}
+             </div>
+           );
+         })()}
+       </Card>
+       
+       {/* GRÁFICO PATRIMÓNIO LÍQUIDO */}
+       <Card>
+         <h3 className="font-semibold mb-4">💎 Evolução do Património Líquido</h3>
+         {(() => {
+           // Calcular património ao longo do tempo
+           const patrimonioHist = G.patrimonioHist || [];
+           const portfolioHistorico = G.portfolioHist || [];
+           const creditosData = G.creditos || [];
+           
+           // Criar série temporal
+           const mesesDoAno = [];
+           for (let m = 1; m <= 12; m++) {
+             const mesKey = `${ano}-${m}`;
+             const mesNome = meses[m - 1]?.substring(0, 3) || m;
+             
+             // Portfolio no final do mês
+             const portfolioMes = portfolioHistorico.find(p => p.date === mesKey)?.total || 
+                                  (m <= mesAtualNum ? portfolio.reduce((a, p) => a + p.val, 0) : null);
+             
+             // Dívida no mês (do histórico dos créditos)
+             let dividaMes = 0;
+             creditosData.forEach(c => {
+               if (c.estado === 'liquidado' && c.dataLiquidacao) {
+                 const [aLiq, mLiq] = c.dataLiquidacao.split('-').map(Number);
+                 if (aLiq < ano || (aLiq === ano && mLiq < m)) {
+                   dividaMes += 0; // já liquidado
+                 } else {
+                   const histEntry = (c.historico || []).find(h => h.date === mesKey);
+                   dividaMes += histEntry?.divida || c.montanteInicial;
+                 }
+               } else {
+                 const histEntry = (c.historico || []).find(h => h.date === mesKey);
+                 dividaMes += histEntry?.divida || c.dividaAtual || 0;
+               }
+             });
+             
+             // Se não há créditos no novo sistema, usar o antigo
+             if (creditosData.length === 0 && G.credito) {
+               const histEntry = (G.credito.historico || []).find(h => h.date === mesKey);
+               dividaMes = histEntry?.divida || G.credito.dividaAtual || 0;
+             }
+             
+             // Valor da casa (equity)
+             const valorCasa = G.credito?.valorCasa || creditosData.find(c => c.tipo === 'habitacao')?.valorBem || 0;
+             const equityCasa = valorCasa > 0 ? valorCasa - dividaMes : 0;
+             
+             // Património líquido = Portfolio + Equity Casa
+             const patrimonioLiq = portfolioMes !== null ? (portfolioMes + equityCasa) : null;
+             
+             mesesDoAno.push({
+               mes: mesNome,
+               mesNum: m,
+               portfolio: portfolioMes,
+               divida: dividaMes,
+               equityCasa,
+               patrimonioLiq
+             });
+           }
+           
+           // Filtrar apenas meses com dados
+           const mesesComDados = mesesDoAno.filter(m => m.patrimonioLiq !== null);
+           
+           if (mesesComDados.length < 2) {
+             return (
+               <div className="text-center py-8 text-slate-500">
+                 <p>📊 Adiciona snapshots mensais do portfolio para ver a evolução</p>
+                 <p className="text-xs mt-2">Vai a Portfolio → Snapshot para registar</p>
+               </div>
+             );
+           }
+           
+           const maxPatrimonio = Math.max(...mesesComDados.map(m => m.patrimonioLiq || 0), 1);
+           const minPatrimonio = Math.min(...mesesComDados.map(m => m.patrimonioLiq || 0));
+           const range = maxPatrimonio - minPatrimonio;
+           
+           const primeiro = mesesComDados[0]?.patrimonioLiq || 0;
+           const ultimo = mesesComDados[mesesComDados.length - 1]?.patrimonioLiq || 0;
+           const crescimento = primeiro > 0 ? ((ultimo - primeiro) / primeiro * 100) : 0;
+           
+           return (
+             <div className="space-y-4">
+               {/* Resumo */}
+               <div className="grid grid-cols-3 gap-3">
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Início {ano}</p>
+                   <p className="font-bold text-slate-300">{fmt(primeiro)}</p>
+                 </div>
+                 <div className="text-center p-2 bg-slate-700/30 rounded-lg">
+                   <p className="text-xs text-slate-400">Atual</p>
+                   <p className="font-bold text-purple-400">{fmt(ultimo)}</p>
+                 </div>
+                 <div className={`text-center p-2 rounded-lg ${crescimento >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                   <p className="text-xs text-slate-400">Variação</p>
+                   <p className={`font-bold ${crescimento >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                     {crescimento >= 0 ? '+' : ''}{crescimento.toFixed(1)}%
+                   </p>
+                 </div>
+               </div>
+               
+               {/* Gráfico */}
+               <div className="h-40 flex items-end gap-1">
+                 {mesesDoAno.map((m, i) => {
+                   if (m.patrimonioLiq === null) {
+                     return (
+                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                         <div className="w-full h-32 flex items-end justify-center">
+                           <div className="w-full max-w-[25px] h-2 bg-slate-700/30 rounded-t" />
+                         </div>
+                         <span className="text-xs text-slate-600">{m.mes}</span>
+                       </div>
+                     );
+                   }
+                   
+                   const altura = range > 0 ? ((m.patrimonioLiq - minPatrimonio) / range * 80 + 20) : 50;
+                   const isMesAtual = m.mesNum === mesAtualNum;
+                   
+                   return (
+                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                       <div className="w-full h-32 flex items-end justify-center">
+                         <div 
+                           className={`w-full max-w-[25px] rounded-t transition-all ${isMesAtual ? 'bg-purple-500' : 'bg-purple-500/50'}`}
+                           style={{ height: `${altura}%` }}
+                           title={`${m.mes}: ${fmt(m.patrimonioLiq)}\nPortfolio: ${fmt(m.portfolio)}\nEquity Casa: ${fmt(m.equityCasa)}`}
+                         />
+                       </div>
+                       <span className={`text-xs ${isMesAtual ? 'text-purple-400 font-bold' : 'text-slate-500'}`}>{m.mes}</span>
+                     </div>
+                   );
+                 })}
+               </div>
+               
+               {/* Composição atual */}
+               <div className="pt-3 border-t border-slate-700">
+                 <p className="text-xs text-slate-500 mb-2">Composição atual:</p>
+                 <div className="flex gap-4 text-sm">
+                   <span className="flex items-center gap-1">
+                     <span className="w-2 h-2 rounded-full bg-blue-500" />
+                     Portfolio: {fmt(portfolio.reduce((a, p) => a + p.val, 0))}
+                   </span>
+                   <span className="flex items-center gap-1">
+                     <span className="w-2 h-2 rounded-full bg-green-500" />
+                     Equity Casa: {fmt(mesesComDados[mesesComDados.length - 1]?.equityCasa || 0)}
+                   </span>
+                 </div>
+               </div>
+             </div>
+           );
+         })()}
+       </Card>
+       
        {/* Distribuição de Despesas */}
        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
          <Card>
@@ -7450,10 +7681,10 @@ ${transacoesOrdenadas.map(t => `<tr>
      if (!a.ativo) return;
      
      if (a.tipo === 'despesa' && a.campo === 'despPess' && totPess > a.limite) {
-       alerts.push({...a, msg: `⚠️ ${a.desc}: ${fmt(totPess)} (limite: ${fmt(a.limite)})`});
+       alerts.push({...a, msg: `⚠️ ${a.desc}: ${fmt(totPess)} (limite: ${fmt(a.limite)})`, severity: 'warning'});
      }
      if (a.tipo === 'poupanca' && taxaPoupanca < a.limite) {
-       alerts.push({...a, msg: `⚠️ ${a.desc}: ${taxaPoupanca.toFixed(1)}%`});
+       alerts.push({...a, msg: `⚠️ ${a.desc}: ${taxaPoupanca.toFixed(1)}%`, severity: 'warning'});
      }
    });
    
@@ -7462,8 +7693,70 @@ ${transacoesOrdenadas.map(t => `<tr>
    const progressoEsperado = mesAtualNum / 12;
    const totaisAnuais = calcularTotaisAnuais();
    
+   // ALERTA: Receitas abaixo do esperado
    if (totaisAnuais.receitasAnuais < metas.receitas * progressoEsperado * 0.8) {
-     alerts.push({tipo: 'meta', msg: `📉 Receitas abaixo do esperado: ${fmt(totaisAnuais.receitasAnuais)} vs ${fmt(metas.receitas * progressoEsperado)}`});
+     alerts.push({tipo: 'meta', msg: `📉 Receitas abaixo do esperado: ${fmt(totaisAnuais.receitasAnuais)} vs ${fmt(metas.receitas * progressoEsperado)}`, severity: 'warning'});
+   }
+   
+   // ALERTA: Receitas significativamente acima - POSITIVO!
+   if (totaisAnuais.receitasAnuais > metas.receitas * progressoEsperado * 1.2 && totaisAnuais.receitasAnuais > 0) {
+     alerts.push({tipo: 'sucesso', msg: `🎉 Receitas acima do esperado! ${fmt(totaisAnuais.receitasAnuais)} (+${((totaisAnuais.receitasAnuais / (metas.receitas * progressoEsperado) - 1) * 100).toFixed(0)}%)`, severity: 'success'});
+   }
+   
+   // ALERTA: Melhor mês de sempre
+   const receitasMeses = Object.entries(M).map(([k, v]) => ({
+     key: k,
+     receita: (v.regCom || []).reduce((a, r) => a + r.val, 0) + (v.regSem || []).reduce((a, r) => a + r.val, 0)
+   })).filter(m => m.receita > 0);
+   
+   if (receitasMeses.length > 1) {
+     const receitaAtual = (M[mesKey]?.regCom || []).reduce((a, r) => a + r.val, 0) + (M[mesKey]?.regSem || []).reduce((a, r) => a + r.val, 0);
+     const melhorAnterior = Math.max(...receitasMeses.filter(m => m.key !== mesKey).map(m => m.receita));
+     if (receitaAtual > melhorAnterior && receitaAtual > 0) {
+       alerts.push({tipo: 'sucesso', msg: `🏆 Melhor mês de sempre! ${fmt(receitaAtual)}`, severity: 'success'});
+     }
+   }
+   
+   // ALERTA: Horas não registadas
+   const horasEsteMes = M[mesKey]?.horasTrabalhadas || 0;
+   const temReceitas = totRec > 0;
+   const diaAtual = new Date().getDate();
+   
+   if (temReceitas && horasEsteMes === 0 && diaAtual > 5) {
+     alerts.push({tipo: 'lembrete', msg: `💡 Não registaste horas de trabalho este mês`, severity: 'info'});
+   }
+   
+   // ALERTA: Horas acima da meta (work-life balance)
+   if (horasEsteMes > (metas.horasMensais || 120) * 1.2) {
+     alerts.push({tipo: 'aviso', msg: `⚠️ Horas acima da meta: ${horasEsteMes}h / ${metas.horasMensais || 120}h (+${(horasEsteMes - (metas.horasMensais || 120))}h)`, severity: 'warning'});
+   }
+   
+   // ALERTA: Portfolio sem snapshot recente
+   const portfolioHist = G.portfolioHist || [];
+   const ultimoSnapshot = portfolioHist.length > 0 ? portfolioHist[portfolioHist.length - 1]?.date : null;
+   const mesPassado = `${mesAtualNum === 1 ? ano - 1 : ano}-${mesAtualNum === 1 ? 12 : mesAtualNum - 1}`;
+   
+   if (diaAtual >= 28 && ultimoSnapshot !== mesKey && portfolioHist.length > 0) {
+     alerts.push({tipo: 'lembrete', msg: `📸 Fim do mês! Faz snapshot do portfolio`, severity: 'info'});
+   }
+   
+   // ALERTA: Investimentos abaixo da meta
+   const investAnoAtual = Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0);
+   if (investAnoAtual < metas.investimentos * progressoEsperado * 0.7 && mesAtualNum > 2) {
+     alerts.push({tipo: 'meta', msg: `📈 Investimentos abaixo do esperado: ${fmt(investAnoAtual)} vs ${fmt(metas.investimentos * progressoEsperado)}`, severity: 'warning'});
+   }
+   
+   // ALERTA: Variação significativa vs mês anterior
+   const mesAnteriorKey = `${mesAtualNum === 1 ? ano - 1 : ano}-${mesAtualNum === 1 ? 12 : mesAtualNum - 1}`;
+   const receitasMesAnterior = (M[mesAnteriorKey]?.regCom || []).reduce((a, r) => a + r.val, 0) + (M[mesAnteriorKey]?.regSem || []).reduce((a, r) => a + r.val, 0);
+   
+   if (receitasMesAnterior > 0) {
+     const variacao = ((totRec - receitasMesAnterior) / receitasMesAnterior * 100);
+     if (variacao < -30) {
+       alerts.push({tipo: 'aviso', msg: `📉 Receitas ${variacao.toFixed(0)}% abaixo do mês anterior`, severity: 'warning'});
+     } else if (variacao > 50) {
+       alerts.push({tipo: 'sucesso', msg: `📈 Receitas +${variacao.toFixed(0)}% vs mês anterior!`, severity: 'success'});
+     }
    }
    
    // Verificar tarefas pendentes/atrasadas
@@ -7481,30 +7774,32 @@ ${transacoesOrdenadas.map(t => `<tr>
      
      if (!concluida) {
        if (t.dia < diaHoje) {
-         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc} (dia ${t.dia})`, cat: t.cat});
+         alerts.push({tipo: 'tarefa', msg: `🚨 Tarefa atrasada: ${t.desc} (dia ${t.dia})`, cat: t.cat, severity: 'error'});
        } else if (t.dia <= diaHoje + 3) {
-         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc} (dia ${t.dia})`, cat: t.cat});
+         alerts.push({tipo: 'tarefa', msg: `⏰ Em breve: ${t.desc} (dia ${t.dia})`, cat: t.cat, severity: 'warning'});
        }
      }
    });
    
    // Verificar transferências do mês
-   // Primeiro: transferir receitas para TR (quando recebe)
    if (!transf.toTR && totRec > 0) {
-     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(totRec)}`});
+     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(totRec)}`, severity: 'info'});
    }
    
-   // Depois: distribuir da TR (dias 25-26)
    if (diaHoje >= 24 && diaHoje <= 26) {
-     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 TR → ABanca (Casal): ${fmt(minhaAB)}`});
-     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 TR → Activo Bank (Pessoais): ${fmt(totPess)}`});
+     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 TR → ABanca (Casal): ${fmt(minhaAB)}`, severity: 'info'});
+     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 TR → Activo Bank (Pessoais): ${fmt(totPess)}`, severity: 'info'});
    }
    if (diaHoje >= 30 || diaHoje <= 2) {
-     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 TR → Revolut (Férias): ${fmt(totalFerias)}`});
+     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 TR → Revolut (Férias): ${fmt(totalFerias)}`, severity: 'info'});
    }
    
+   // Ordenar por severidade: error > warning > info > success
+   const severityOrder = { error: 0, warning: 1, info: 2, success: 3 };
+   alerts.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
+   
    return alerts;
- }, [G, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias]);
+ }, [G, M, mesKey, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias, ano]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -8351,10 +8646,23 @@ ${transacoesOrdenadas.map(t => `<tr>
    const alerts = getActiveAlerts();
    const alertas = G.alertas || [];
    
+   // Agrupar alertas por tipo
+   const alertasErro = alerts.filter(a => a.severity === 'error');
+   const alertasAviso = alerts.filter(a => a.severity === 'warning');
+   const alertasInfo = alerts.filter(a => a.severity === 'info');
+   const alertasSucesso = alerts.filter(a => a.severity === 'success');
+   
+   const severityStyles = {
+     error: 'bg-red-500/10 border-red-500/30 text-red-400',
+     warning: 'bg-orange-500/10 border-orange-500/30 text-orange-400',
+     info: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+     success: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+   };
+   
    return (
      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAlerts(false); }}>
-       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg mx-4 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
-         <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+       <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+         <div className="p-4 border-b border-slate-700 flex justify-between items-center sticky top-0 bg-slate-800 z-10">
            <h3 className="text-lg font-semibold">🔔 Alertas e Notificações</h3>
            <button onClick={() => setShowAlerts(false)} className="text-slate-400 hover:text-white">✕</button>
          </div>
@@ -8362,12 +8670,54 @@ ${transacoesOrdenadas.map(t => `<tr>
            {alerts.length === 0 ? (
              <p className="text-center py-4 text-emerald-400">✅ Tudo em ordem! Sem alertas ativos.</p>
            ) : (
-             <div className="space-y-2">
-               {alerts.map((a, i) => (
-                 <div key={i} className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-xl text-orange-400">
-                   {a.msg}
+             <div className="space-y-3">
+               {/* Sucessos primeiro (boas notícias!) */}
+               {alertasSucesso.length > 0 && (
+                 <div className="space-y-2">
+                   <p className="text-xs text-emerald-400 font-medium">🎉 Boas notícias</p>
+                   {alertasSucesso.map((a, i) => (
+                     <div key={`success-${i}`} className={`p-3 border rounded-xl ${severityStyles.success}`}>
+                       {a.msg}
+                     </div>
+                   ))}
                  </div>
-               ))}
+               )}
+               
+               {/* Erros (urgentes) */}
+               {alertasErro.length > 0 && (
+                 <div className="space-y-2">
+                   <p className="text-xs text-red-400 font-medium">🚨 Urgente</p>
+                   {alertasErro.map((a, i) => (
+                     <div key={`error-${i}`} className={`p-3 border rounded-xl ${severityStyles.error}`}>
+                       {a.msg}
+                     </div>
+                   ))}
+                 </div>
+               )}
+               
+               {/* Avisos */}
+               {alertasAviso.length > 0 && (
+                 <div className="space-y-2">
+                   <p className="text-xs text-orange-400 font-medium">⚠️ Atenção</p>
+                   {alertasAviso.map((a, i) => (
+                     <div key={`warning-${i}`} className={`p-3 border rounded-xl ${severityStyles.warning}`}>
+                       {a.msg}
+                     </div>
+                   ))}
+                 </div>
+               )}
+               
+               {/* Informativos */}
+               {alertasInfo.length > 0 && (
+                 <div className="space-y-2">
+                   <p className="text-xs text-blue-400 font-medium">💡 Lembretes</p>
+                   {alertasInfo.map((a, i) => (
+                     <div key={`info-${i}`} className={`p-3 border rounded-xl ${severityStyles.info}`}>
+                       {a.msg}
+                     </div>
+                   ))}
+                 </div>
+               )}
              </div>
            )}
            
