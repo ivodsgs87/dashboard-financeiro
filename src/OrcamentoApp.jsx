@@ -4376,6 +4376,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [showAddCredito, setShowAddCredito] = useState(false);
  const [editCredito, setEditCredito] = useState(null);
  const [showLiquidar, setShowLiquidar] = useState(false);
+ const [showAllHistorico, setShowAllHistorico] = useState(false);
  
  // Usar sistema de múltiplos créditos ou fallback para estrutura antiga
  const creditos = G.creditos || [];
@@ -5129,11 +5130,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {historico.length === 0 ? (
        <p className="text-slate-500 text-sm text-center py-4">Nenhum registo no histórico</p>
      ) : (
-       historicoOrdenado.map((h, i) => {
+       <>
+       {/* Mostrar apenas os últimos 6 registos por defeito, ou todos se expandido */}
+       {(() => {
+         const LIMITE_REGISTOS = 6;
+         const totalRegistos = historicoOrdenado.length;
+         const mostrarTodos = showAllHistorico || totalRegistos <= LIMITE_REGISTOS;
+         const registosVisiveis = mostrarTodos ? historicoOrdenado : historicoOrdenado.slice(-LIMITE_REGISTOS);
+         const registosOcultos = totalRegistos - LIMITE_REGISTOS;
+         
+         return (
+           <>
+             {totalRegistos > LIMITE_REGISTOS && (
+               <button 
+                 onClick={() => setShowAllHistorico(!showAllHistorico)}
+                 className="w-full p-2 text-sm text-slate-400 hover:text-slate-300 bg-slate-700/20 rounded-lg mb-2"
+               >
+                 {showAllHistorico ? '📜 Mostrar menos' : `📜 +${registosOcultos} registos antigos (clica para ver todos)`}
+               </button>
+             )}
+             {registosVisiveis.map((h, i, arr) => {
          const [y, m] = h.date.split('-').map(Number);
          const mesNome = meses[m-1] || m;
          const isInicioAno = h.date === `${ano-1}-12`;
-         const isUltimo = i === historicoOrdenado.length - 1;
+         const isUltimo = historicoOrdenado.indexOf(h) === historicoOrdenado.length - 1;
          return (
            <div key={h.date} className={`flex items-center justify-between p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : isUltimo ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
              <div className="flex items-center gap-3">
@@ -5143,7 +5163,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
              <div className="flex items-center gap-3">
                <StableInput 
-                 type="number" 
+                 type="number"
                  className="w-32 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-1 text-right text-sm" 
                  initialValue={h.divida} 
                  onSave={v => {
@@ -5180,7 +5200,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
            </div>
          );
-       })
+       })}
+           </>
+         );
+       })()}
+       </>
      )}
    </div>
    {historico.length > 0 && (
