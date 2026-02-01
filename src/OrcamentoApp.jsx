@@ -4371,12 +4371,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [simDivida, setSimDivida] = useState(null);
  const [showAddCredito, setShowAddCredito] = useState(false);
  const [editCredito, setEditCredito] = useState(null);
- const [creditoSelecionado, setCreditoSelecionado] = useState(null);
  const [showLiquidar, setShowLiquidar] = useState(false);
  
  // Usar sistema de múltiplos créditos ou fallback para estrutura antiga
  const creditos = G.creditos || [];
  const creditoAtivo = creditos.find(c => c.estado === 'ativo') || null;
+ 
+ // Auto-selecionar crédito ativo
+ const [creditoSelecionado, setCreditoSelecionado] = useState(() => creditoAtivo?.id || null);
+ 
+ // Atualizar seleção quando créditos mudam
+ useEffect(() => {
+   if (creditos.length > 0 && !creditoSelecionado) {
+     const ativo = creditos.find(c => c.estado === 'ativo');
+     if (ativo) setCreditoSelecionado(ativo.id);
+   }
+ }, [creditos.length]);
  
  // Se não há créditos no novo sistema, usar estrutura antiga
  const usarCreditoAntigo = creditos.length === 0 && credito;
@@ -4418,7 +4428,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  const atualizarCredito = (id, campo, valor) => {
-   uG('creditos', creditos.map(c => c.id === id ? { ...c, [campo]: valor } : c));
+   // Converter para número se for um campo numérico
+   const camposNumericos = ['valorBem', 'entradaInicial', 'montanteInicial', 'dividaAtual', 'taxaJuro', 'spread', 'euribor', 'prestacao', 'seguros'];
+   const valorFinal = camposNumericos.includes(campo) ? parseFloat(valor) || 0 : valor;
+   uG('creditos', creditos.map(c => c.id === id ? { ...c, [campo]: valorFinal } : c));
  };
  
  const liquidarCredito = (id, dataLiq, valorLiq) => {
@@ -4868,8 +4881,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${pctCredito}% crédito · ${pctCasa}% casa`} icon="✅"/>
  </div>
 
- <Card>
- <h3 className="text-lg font-semibold mb-4">📋 Dados do Crédito {creditoEmUso.nome && `- ${creditoEmUso.nome}`}</h3>
+ <Card key={`credito-dados-${creditoSelecionado || 'antigo'}-${dividaAtual}`}>
+ <h3 className="text-lg font-semibold mb-4">📋 Dados do Crédito {creditoEmUso?.nome && `- ${creditoEmUso.nome}`}</h3>
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <div className="space-y-2">
  <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
@@ -4886,7 +4899,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="flex justify-between items-center p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
  <span className="text-slate-300 text-sm">Data Fim</span>
- <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dataFim', e.target.value) : uC('dataFim',e.target.value)}/>
+ <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dataFim', e.target.value) : uC('dataFim',e.target.value)} key={`dataFim-${creditoSelecionado}`}/>
  </div>
  </div>
  <div className="space-y-2">
@@ -5039,7 +5052,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            if (novoValor && !isNaN(parseFloat(novoValor))) {
              const novoHist = [...historico, { date: novaData, divida: parseFloat(novoValor) }]
                .sort((a, b) => a.date.localeCompare(b.date));
-             uC('historico', novoHist);
+             // Gravar no sistema correto
+             if (creditoSelecionado) {
+               atualizarCredito(creditoSelecionado, 'historico', novoHist);
+             } else {
+               uC('historico', novoHist);
+             }
+             // Também atualizar a dívida atual se for o registo mais recente
+             const ultimoRegisto = novoHist[novoHist.length - 1];
+             if (ultimoRegisto.date === novaData) {
+               if (creditoSelecionado) {
+                 atualizarCredito(creditoSelecionado, 'dividaAtual', parseFloat(novoValor));
+               } else {
+                 uC('dividaAtual', parseFloat(novoValor));
+               }
+             }
            }
          }
        }}
@@ -5059,11 +5086,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const [y, m] = h.date.split('-').map(Number);
          const mesNome = meses[m-1] || m;
          const isInicioAno = h.date === `${ano-1}-12`;
+         const isUltimo = i === historicoOrdenado.length - 1;
          return (
-           <div key={h.date} className={`flex items-center justify-between p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-700/30'}`}>
+           <div key={h.date} className={`flex items-center justify-between p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : isUltimo ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
              <div className="flex items-center gap-3">
                <span className="text-sm font-medium">{mesNome} {y}</span>
                {isInicioAno && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Início {ano}</span>}
+               {isUltimo && !isInicioAno && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">Atual</span>}
              </div>
              <div className="flex items-center gap-3">
                <StableInput 
@@ -5072,13 +5101,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  initialValue={h.divida} 
                  onSave={v => {
                    const novoHist = historico.map(x => x.date === h.date ? { ...x, divida: parseFloat(v) } : x);
-                   uC('historico', novoHist);
+                   if (creditoSelecionado) {
+                     atualizarCredito(creditoSelecionado, 'historico', novoHist);
+                     // Se é o último registo, atualizar também a dívida atual
+                     if (isUltimo) {
+                       atualizarCredito(creditoSelecionado, 'dividaAtual', parseFloat(v));
+                     }
+                   } else {
+                     uC('historico', novoHist);
+                     if (isUltimo) {
+                       uC('dividaAtual', parseFloat(v));
+                     }
+                   }
                  }}
                />
                <button 
                  onClick={() => {
                    if (confirm(`Remover registo de ${mesNome} ${y}?`)) {
-                     uC('historico', historico.filter(x => x.date !== h.date));
+                     const novoHist = historico.filter(x => x.date !== h.date);
+                     if (creditoSelecionado) {
+                       atualizarCredito(creditoSelecionado, 'historico', novoHist);
+                     } else {
+                       uC('historico', novoHist);
+                     }
                    }
                  }}
                  className="text-red-400 hover:text-red-300 p-1"
