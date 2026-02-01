@@ -1350,7 +1350,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
    
    // Amortização real baseada no histórico de dívida
-   const historico = G.credito?.historico || [];
+   // Usar novo sistema G.creditos se disponível, senão fallback para G.credito
+   const creditosAtivos = G.creditos?.filter(c => c.estado === 'ativo') || [];
+   const creditoParaCalculo = creditosAtivos.length > 0 ? creditosAtivos[0] : G.credito;
+   
+   const historico = creditoParaCalculo?.historico || [];
    const anoStr = ano.toString();
    const anoAnteriorStr = (ano - 1).toString();
    
@@ -1362,7 +1366,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const registosDoAno = historicoOrdenado.filter(h => h.date.startsWith(anoStr));
    
    // Dívida no início do ano
-   let dividaInicio = G.credito?.montanteInicial || 328500;
+   let dividaInicio = creditoParaCalculo?.montanteInicial || 328500;
    
    if (registosAteInicioAno.length > 0) {
      // Usar o último registo até dezembro do ano anterior
@@ -1374,7 +1378,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    if (ano < anoAtualReal) {
      // Ano passado - usar dívida atual como referência final
-     const dividaFimAno = G.credito?.dividaAtual || dividaInicio;
+     const dividaFimAno = creditoParaCalculo?.dividaAtual || dividaInicio;
      amortizacaoAnual = Math.max(0, dividaInicio - dividaFimAno);
    } else if (ano === anoAtualReal) {
      // Ano atual - calcular apenas com base em registos do histórico DESTE ano
@@ -1386,11 +1390,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        amortizacaoAnual = Math.max(0, dividaInicio - ultimoRegistoAno.divida);
      } else {
        // Não há registos este ano ainda - verificar se há meses passados
-       if (mesesAContar > 0 && G.credito?.prestacao) {
+       if (mesesAContar > 0 && creditoParaCalculo?.prestacao) {
          // Estimar amortização baseada na prestação
-         const taxaMensal = (G.credito?.taxaJuro || 2) / 100 / 12;
+         const taxaMensal = (creditoParaCalculo?.taxaJuro || 2) / 100 / 12;
          const jurosMensais = dividaInicio * taxaMensal;
-         const amortMensal = Math.max(0, G.credito.prestacao - jurosMensais);
+         const amortMensal = Math.max(0, creditoParaCalculo.prestacao - jurosMensais);
          amortizacaoAnual = amortMensal * mesesAContar;
        }
        // Se mesesAContar = 0 (ainda em Janeiro e não passou nenhum mês completo), fica 0
@@ -1401,7 +1405,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Dívida atual para mostrar no UI
    const dividaAtualCalc = registosDoAno.length > 0 
      ? registosDoAno[registosDoAno.length - 1].divida 
-     : (G.credito?.dividaAtual || dividaInicio);
+     : (creditoParaCalculo?.dividaAtual || dividaInicio);
    
    // Investimentos em portfolio com categoria CREDITO (amortizações extra manuais)
    // Só contar se for ano atual ou passado
