@@ -4378,15 +4378,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const creditoAtivo = creditos.find(c => c.estado === 'ativo') || null;
  
  // Auto-selecionar crédito ativo
- const [creditoSelecionado, setCreditoSelecionado] = useState(() => creditoAtivo?.id || null);
+ const [creditoSelecionado, setCreditoSelecionado] = useState(null);
  
- // Atualizar seleção quando créditos mudam
+ // Atualizar seleção quando créditos mudam ou quando não há seleção
  useEffect(() => {
-   if (creditos.length > 0 && !creditoSelecionado) {
-     const ativo = creditos.find(c => c.estado === 'ativo');
-     if (ativo) setCreditoSelecionado(ativo.id);
+   if (creditos.length > 0) {
+     // Se não há crédito selecionado, ou o selecionado já não existe, selecionar o ativo
+     const creditoExiste = creditos.find(c => c.id === creditoSelecionado);
+     if (!creditoSelecionado || !creditoExiste) {
+       const ativo = creditos.find(c => c.estado === 'ativo');
+       if (ativo) setCreditoSelecionado(ativo.id);
+       else if (creditos.length > 0) setCreditoSelecionado(creditos[0].id);
+     }
    }
- }, [creditos.length]);
+ }, [creditos, creditoSelecionado]);
  
  // Se não há créditos no novo sistema, usar estrutura antiga
  const usarCreditoAntigo = creditos.length === 0 && credito;
@@ -4395,6 +4400,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const creditoEmUso = creditoSelecionado 
    ? creditos.find(c => c.id === creditoSelecionado) 
    : (creditoAtivo || (usarCreditoAntigo ? { ...credito, id: 0, nome: 'Crédito Habitação', tipo: 'habitacao', estado: 'ativo', valorBem: credito.valorCasa } : null));
+ 
+ // Debug: log para verificar estado
+ useEffect(() => {
+   console.log('Crédito Debug:', { 
+     creditoSelecionado, 
+     creditosLength: creditos.length,
+     creditoEmUsoId: creditoEmUso?.id,
+     creditoEmUsoNome: creditoEmUso?.nome,
+     historicoLength: creditoEmUso?.historico?.length
+   });
+ }, [creditoSelecionado, creditos, creditoEmUso]);
  
  const {valorBem=365000, valorCasa=365000, entradaInicial=36500, montanteInicial=328500, dividaAtual=229693.43, taxaJuro=2, prestacao=971, seguros=50, historico=[], dataFim='2054-02-01', spread=1.0, euribor=2.5, dataInicio, dataLiquidacao, valorLiquidacao, estado='ativo', nome='Crédito'} = creditoEmUso || {};
  
@@ -5041,32 +5057,50 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
 
  {/* Histórico de Dívida */}
- <Card>
+ <Card key={`historico-${creditoSelecionado || 'antigo'}-${historico.length}`}>
    <div className="flex justify-between items-center mb-4">
      <h3 className="text-lg font-semibold">📈 Histórico de Dívida</h3>
      <button 
        onClick={() => {
+         console.log('Adicionar histórico - creditoSelecionado:', creditoSelecionado);
          const novaData = prompt('Data (AAAA-MM):', `${ano}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
          if (novaData && /^\d{4}-\d{2}$/.test(novaData)) {
+           // Verificar se já existe registo para esta data
+           const existente = historico.find(h => h.date === novaData);
+           if (existente) {
+             if (!confirm(`Já existe um registo para ${novaData} (${fmt(existente.divida)}). Queres substituir?`)) {
+               return;
+             }
+           }
+           
            const novoValor = prompt('Valor da dívida nessa data:', dividaAtual.toString());
            if (novoValor && !isNaN(parseFloat(novoValor))) {
-             const novoHist = [...historico, { date: novaData, divida: parseFloat(novoValor) }]
+             // Remover duplicados e adicionar novo
+             const historicoSemDuplicado = historico.filter(h => h.date !== novaData);
+             const novoHist = [...historicoSemDuplicado, { date: novaData, divida: parseFloat(novoValor) }]
                .sort((a, b) => a.date.localeCompare(b.date));
+             
+             console.log('Novo histórico:', novoHist);
+             
              // Gravar no sistema correto
              if (creditoSelecionado) {
+               console.log('Gravando em G.creditos[', creditoSelecionado, '].historico');
                atualizarCredito(creditoSelecionado, 'historico', novoHist);
-             } else {
-               uC('historico', novoHist);
-             }
-             // Também atualizar a dívida atual se for o registo mais recente
-             const ultimoRegisto = novoHist[novoHist.length - 1];
-             if (ultimoRegisto.date === novaData) {
-               if (creditoSelecionado) {
+               // Também atualizar a dívida atual se for o registo mais recente
+               const ultimoRegisto = novoHist[novoHist.length - 1];
+               if (ultimoRegisto.date === novaData) {
                  atualizarCredito(creditoSelecionado, 'dividaAtual', parseFloat(novoValor));
-               } else {
+               }
+             } else {
+               console.log('Gravando em G.credito.historico');
+               uC('historico', novoHist);
+               const ultimoRegisto = novoHist[novoHist.length - 1];
+               if (ultimoRegisto.date === novaData) {
                  uC('dividaAtual', parseFloat(novoValor));
                }
              }
+             
+             alert(`✅ Registo adicionado: ${novaData} = ${fmt(parseFloat(novoValor))}`);
            }
          }
        }}
