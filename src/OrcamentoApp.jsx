@@ -4412,7 +4412,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      creditosLength: creditos.length,
      creditoEmUsoId: creditoEmUso?.id,
      creditoEmUsoNome: creditoEmUso?.nome,
-     historicoLength: creditoEmUso?.historico?.length
+     historicoLength: creditoEmUso?.historico?.length,
+     historico: creditoEmUso?.historico,
+     dividaAtual: creditoEmUso?.dividaAtual
    });
  }, [creditoSelecionado, creditos, creditoEmUso]);
  
@@ -4451,7 +4453,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Converter para número se for um campo numérico
    const camposNumericos = ['valorBem', 'entradaInicial', 'montanteInicial', 'dividaAtual', 'taxaJuro', 'spread', 'euribor', 'prestacao', 'seguros'];
    const valorFinal = camposNumericos.includes(campo) ? parseFloat(valor) || 0 : valor;
-   uG('creditos', creditos.map(c => c.id === id ? { ...c, [campo]: valorFinal } : c));
+   
+   // Usar função para garantir que temos o estado mais recente
+   setG(prevG => {
+     const creditosAtuais = prevG.creditos || [];
+     const novosCreditos = creditosAtuais.map(c => c.id === id ? { ...c, [campo]: valorFinal } : c);
+     console.log('atualizarCredito - campo:', campo, 'novosCreditos[0].historico.length:', novosCreditos[0]?.historico?.length);
+     return { ...prevG, creditos: novosCreditos };
+   });
  };
  
  const liquidarCredito = (id, dataLiq, valorLiq) => {
