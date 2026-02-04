@@ -2317,30 +2317,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </Card>
        
        {/* Previsão de Fim de Ano */}
-       {mesAtualNum > 0 && (
+       {mesSelecionadoIdx > 0 && !isAnoPassado && (
          <Card>
-           <h3 className="font-semibold mb-4">🔮 Previsão de Fim de Ano ({ano})</h3>
+           <div className="flex justify-between items-center mb-4">
+             <h3 className="font-semibold">🔮 Previsão de Fim de Ano ({ano})</h3>
+             <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded">
+               Baseada em {mesesComDadosParaProjecao} {mesesComDadosParaProjecao === 1 ? 'mês' : 'meses'}
+             </span>
+           </div>
            {(() => {
-             const mesesRestantes = 12 - mesAtualNum;
-             const receitaMedia = totaisAnuais.receitasAnuais / mesAtualNum;
-             const projecaoReceitas = totaisAnuais.receitasAnuais + (receitaMedia * mesesRestantes);
+             // Usar mesesComDadosParaProjecao já calculado (considera mês selecionado vs mês atual)
+             const mesesRestantes = 12 - mesesComDadosParaProjecao;
+             const receitaMedia = mesesComDadosParaProjecao > 0 ? receitasParaProjecao / mesesComDadosParaProjecao : 0;
+             const projecaoReceitas = receitasParaProjecao + (receitaMedia * mesesRestantes);
              
-             // Horas
-             const horasAno = Object.entries(M)
-               .filter(([k]) => k.startsWith(`${ano}-`))
-               .reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
-             const mesesComHoras = Object.entries(M)
-               .filter(([k, v]) => k.startsWith(`${ano}-`) && v.horasTrabalhadas > 0).length;
-             const horasMedia = mesesComHoras > 0 ? horasAno / mesesComHoras : (metas.horasMensais || 120);
-             const projecaoHoras = horasAno + (horasMedia * mesesRestantes);
+             // Horas - calcular até ao mês de referência
+             let horasAteOMes = 0;
+             let mesesComHoras = 0;
+             for (let m = 1; m <= mesesComDadosParaProjecao; m++) {
+               const k = `${ano}-${m}`;
+               const mesData = M[k] || {};
+               if (mesData.horasTrabalhadas > 0) {
+                 horasAteOMes += mesData.horasTrabalhadas;
+                 mesesComHoras++;
+               }
+             }
+             const horasMedia = mesesComHoras > 0 ? horasAteOMes / mesesComHoras : (metas.horasMensais || 120);
+             const projecaoHoras = horasAteOMes + (horasMedia * mesesRestantes);
              const projecaoDias = projecaoHoras / 8;
              
-             // Investimentos
-             const investAno = Object.entries(M)
-               .filter(([k]) => k.startsWith(`${ano}-`))
-               .reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0);
-             const investMedia = mesAtualNum > 0 ? investAno / mesAtualNum : 0;
-             const projecaoInvest = investAno + (investMedia * mesesRestantes);
+             // Investimentos - calcular até ao mês de referência
+             let investAteOMes = 0;
+             for (let m = 1; m <= mesesComDadosParaProjecao; m++) {
+               const k = `${ano}-${m}`;
+               const mesData = M[k] || {};
+               investAteOMes += (mesData.inv || []).reduce((a, i) => a + i.val, 0);
+             }
+             const investMedia = mesesComDadosParaProjecao > 0 ? investAteOMes / mesesComDadosParaProjecao : 0;
+             const projecaoInvest = investAteOMes + (investMedia * mesesRestantes);
              
              // Valor/hora projetado
              const valorHoraProj = projecaoHoras > 0 ? projecaoReceitas / projecaoHoras : 0;
@@ -2348,8 +2362,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              // Portfolio projetado (crescimento médio)
              const portfolioAtual = portfolio.reduce((a, p) => a + p.val, 0);
              const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0]?.total || portfolioAtual : portfolioAtual;
-             const crescimentoMensal = mesAtualNum > 0 && portfolioInicio > 0 
-               ? (portfolioAtual - portfolioInicio) / mesAtualNum 
+             const crescimentoMensal = mesesComDadosParaProjecao > 0 && portfolioInicio > 0 
+               ? (portfolioAtual - portfolioInicio) / mesesComDadosParaProjecao 
                : investMedia;
              const projecaoPortfolio = portfolioAtual + (crescimentoMensal * mesesRestantes);
              
@@ -2411,11 +2425,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <span>
                        💪 Para atingir as metas, precisas de média de{' '}
                        {projecaoReceitas < metas.receitas && (
-                         <strong>{fmt((metas.receitas - totaisAnuais.receitasAnuais) / Math.max(mesesRestantes, 1))}/mês em receitas</strong>
+                         <strong>{fmt((metas.receitas - receitasParaProjecao) / Math.max(mesesRestantes, 1))}/mês em receitas</strong>
                        )}
                        {projecaoReceitas < metas.receitas && projecaoInvest < metas.investimentos && ' e '}
                        {projecaoInvest < metas.investimentos && (
-                         <strong>{fmt((metas.investimentos - investAno) / Math.max(mesesRestantes, 1))}/mês em investimentos</strong>
+                         <strong>{fmt((metas.investimentos - investAteOMes) / Math.max(mesesRestantes, 1))}/mês em investimentos</strong>
                        )}
                      </span>
                    )}
