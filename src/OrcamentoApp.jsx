@@ -2359,25 +2359,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              // Valor/hora projetado
              const valorHoraProj = projecaoHoras > 0 ? projecaoReceitas / projecaoHoras : 0;
              
-             // Portfolio projetado (crescimento médio)
-             // Usar snapshot do mês selecionado se disponível, senão o atual
+             // Portfolio projetado (crescimento médio baseado em investimentos)
              const portfolioAtual = portfolio.reduce((a, p) => a + p.val, 0);
              
-             // Encontrar snapshot mais próximo do mês selecionado
-             const mesRef = `${ano}-${String(mesesComDadosParaProjecao).padStart(2, '0')}`;
-             const snapshotMesSelecionado = portfolioHist.find(h => h.date === mesRef || h.date === `${ano}-${mesesComDadosParaProjecao}`);
-             const portfolioNoMes = snapshotMesSelecionado?.total || portfolioAtual;
-             
-             // Encontrar portfolio no início do ano (dezembro anterior ou primeiro snapshot)
-             const snapshotsAnoAnterior = portfolioHist.filter(h => h.date && h.date.startsWith(`${ano-1}`));
-             const snapshotDezAnterior = snapshotsAnoAnterior.find(h => h.date === `${ano-1}-12` || h.date === `${ano-1}-12`);
-             const primeiroSnapshotAno = portfolioHist.filter(h => h.date && h.date.startsWith(`${ano}`)).sort((a,b) => a.date.localeCompare(b.date))[0];
-             const portfolioInicio = snapshotDezAnterior?.total || primeiroSnapshotAno?.total || portfolioNoMes;
-             
-             const crescimentoMensal = mesesComDadosParaProjecao > 0 && portfolioInicio > 0 
-               ? (portfolioNoMes - portfolioInicio) / mesesComDadosParaProjecao 
-               : investMedia;
-             const projecaoPortfolio = portfolioNoMes + (crescimentoMensal * mesesRestantes);
+             // Usar investimentos médios como proxy de crescimento do portfolio
+             // Isto é mais seguro do que depender de snapshots que podem não existir
+             const crescimentoMensal = investMedia;
+             const projecaoPortfolio = portfolioAtual + (crescimentoMensal * mesesRestantes);
              
              return (
                <div className="space-y-4">
