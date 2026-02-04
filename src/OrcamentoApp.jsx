@@ -769,6 +769,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const defG = {
     clientes: [{id:1,nome:'Marius',cor:'#3b82f6'},{id:2,nome:'Sophie',cor:'#ec4899'}],
     taxa: 38, contrib: 50, alocAmort: 75, alocFerias: 0, ferias: 130,
+    // IVA real pago por trimestre (chave: "AAAA-TN", ex: "2025-T4")
+    ivaPago: {},
     despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Utilidades',val:200},{id:5,desc:'Mercado',cat:'Alimentação',val:714},{id:6,desc:'Internet',cat:'Utilidades',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Bancário',val:5},{id:9,desc:'Bar/Café',cat:'Lazer',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Outros',val:120},{id:12,desc:'Ginástica',cat:'Outros',val:45},{id:13,desc:'Seguro filhos',cat:'Seguros',val:60}],
     despPess: [{id:1,desc:'Telemóvel',cat:'Utilidades',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Vários',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Alimentação',val:100}],
     catsInv: ['ETF','PPR','P2P','CRIPTO','FE','CREDITO'],
@@ -1551,11 +1553,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const proximoTrimestre = trimestreAtual < 4 ? trimestreAtual + 1 : 1;
    const anoProximoTrimestre = trimestreAtual < 4 ? anoAtualSistema : anoAtualSistema + 1;
    
+   // IVA trimestre anterior (o que tens de pagar agora)
+   const trimestreAnterior = trimestreAtual === 1 ? 4 : trimestreAtual - 1;
+   const anoTrimestreAnterior = trimestreAtual === 1 ? anoAtualSistema - 1 : anoAtualSistema;
+   const mesesDoTrimestreAnterior = [trimestreAnterior * 3 - 2, trimestreAnterior * 3 - 1, trimestreAnterior * 3];
+   let ivaTrimestreAnterior = 0;
+   mesesDoTrimestreAnterior.forEach(m => {
+     const mKey = `${anoTrimestreAnterior}-${m}`;
+     const mesData = M[mKey] || {};
+     (mesData.regCom || []).forEach(r => { ivaTrimestreAnterior += r.iva || 0; });
+   });
+   
+   // Chave para IVA pago (ex: "2025-T4")
+   const chaveIvaAnterior = `${anoTrimestreAnterior}-T${trimestreAnterior}`;
+   const ivaPagoAnterior = G.ivaPago?.[chaveIvaAnterior] || null;
+   
+   // Data limite de pagamento do IVA (dia 25 do 2º mês após fim do trimestre)
+   // T1 (Jan-Mar) -> pagar até 25 Maio, T2 (Abr-Jun) -> 25 Ago, T3 (Jul-Set) -> 25 Nov, T4 (Out-Dez) -> 25 Fev
+   const mesesPagamentoIva = { 1: 5, 2: 8, 3: 11, 4: 2 };
+   const mesPagamentoIva = mesesPagamentoIva[trimestreAnterior];
+   const anoPagamentoIva = trimestreAnterior === 4 ? anoTrimestreAnterior + 1 : anoTrimestreAnterior;
+   const dataLimiteIva = new Date(anoPagamentoIva, mesPagamentoIva - 1, 25);
+   const diasParaIva = Math.ceil((dataLimiteIva - new Date()) / (1000 * 60 * 60 * 24));
+   
    const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
    const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
    const totalImpostos = ssAnual + totalIVA + Math.max(0, -irsAPagarReceber);
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
  };
  const previsaoImpostos = calcPrevisaoImpostos();
  
@@ -1727,14 +1752,51 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-[10px] text-slate-500 mt-1">Anual: {fmt(previsaoImpostos.ssAnual)}</p>
      </div>
      
-     {/* Próximo IVA */}
+     {/* IVA a Pagar (trimestre anterior) */}
+     <div className={`p-3 rounded-xl ${previsaoImpostos.diasParaIva <= 7 ? 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30' : 'bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30'}`}>
+       <div className="flex items-center justify-between mb-1">
+         <div className="flex items-center gap-2">
+           <span className="text-orange-400">💶</span>
+           <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior} a pagar</span>
+         </div>
+         {previsaoImpostos.diasParaIva > 0 && (
+           <span className={`text-[10px] px-1.5 py-0.5 rounded ${previsaoImpostos.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-400'}`}>
+             {previsaoImpostos.diasParaIva}d
+           </span>
+         )}
+       </div>
+       <div className="flex items-center gap-2">
+         <span className="text-slate-500">€</span>
+         <input
+           type="number"
+           className="w-24 bg-slate-700/50 border border-orange-500/30 rounded px-2 py-1 text-orange-400 font-bold text-right text-lg focus:outline-none focus:border-orange-400"
+           placeholder={previsaoImpostos.ivaTrimestreAnterior.toFixed(0)}
+           defaultValue={previsaoImpostos.ivaPagoAnterior || ''}
+           onBlur={e => {
+             const val = parseFloat(e.target.value);
+             if (!isNaN(val) && val > 0) {
+               uG('ivaPago', { ...G.ivaPago, [previsaoImpostos.chaveIvaAnterior]: val });
+             } else if (e.target.value === '') {
+               const newIvaPago = { ...G.ivaPago };
+               delete newIvaPago[previsaoImpostos.chaveIvaAnterior];
+               uG('ivaPago', newIvaPago);
+             }
+           }}
+         />
+       </div>
+       <p className="text-[10px] text-slate-500 mt-1">
+         Previsão: {fmt(previsaoImpostos.ivaTrimestreAnterior)} | Prazo: 25/{previsaoImpostos.dataLimiteIva.getMonth() + 1}
+       </p>
+     </div>
+     
+     {/* Previsão IVA (trimestre atual) */}
      <div className="p-3 bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl">
        <div className="flex items-center gap-2 mb-1">
-         <span className="text-purple-400">💶</span>
-         <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAtual}</span>
+         <span className="text-purple-400">📊</span>
+         <span className="text-xs text-slate-400">Previsão IVA T{previsaoImpostos.trimestreAtual}/{anoAtualSistema}</span>
        </div>
        <p className="text-xl font-bold text-purple-400">{fmt(previsaoImpostos.ivaTrimestreAtual)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">Anual: {fmt(previsaoImpostos.ivaAPagar)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">A acumular (pagar em {previsaoImpostos.proximoTrimestre === 1 ? 'Fev' : previsaoImpostos.proximoTrimestre === 2 ? 'Mai' : previsaoImpostos.proximoTrimestre === 3 ? 'Ago' : 'Nov'})</p>
      </div>
      
      {/* IRS Anual */}
