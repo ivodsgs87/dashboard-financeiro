@@ -1304,11 +1304,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      ? meses.indexOf(mes) + 1
      : mesAtualSistemaNum;
  
+ // Mês selecionado na UI
+ const mesSelecionadoIdx = meses.indexOf(mes) + 1;
+ 
+ // Progresso esperado baseado no contexto
  const progressoEsperado = ano < anoAtualSistema 
    ? 1 // 100% - ano completo
    : ano > anoAtualSistema 
-     ? (meses.indexOf(mes) + 1) / 12 // progresso até ao mês selecionado
-     : mesAtualSistemaNum / 12; // progresso real do ano atual
+     ? mesSelecionadoIdx / 12 // progresso até ao mês selecionado (ano futuro)
+     : Math.min(mesSelecionadoIdx, mesAtualSistemaNum) / 12; // menor entre mês selecionado e mês atual
 
  // Calcular totais anuais para metas
  const calcularTotaisAnuais = useCallback(() => {
@@ -2065,11 +2069,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const receitasMesAnterior = (dadosMesAnterior.regCom || []).reduce((a, r) => a + r.val, 0) + (dadosMesAnterior.regSem || []).reduce((a, r) => a + r.val, 0);
    const variacaoReceitas = receitasMesAnterior > 0 ? ((totRec - receitasMesAnterior) / receitasMesAnterior * 100) : 0;
    
-   // Meses até atingir meta
-   const receitaMedia = totaisAnuais.receitasAnuais / mesAtualNum;
-   const mesesRestantes = 12 - mesAtualNum;
-   const projecaoFinal = totaisAnuais.receitasAnuais + (receitaMedia * mesesRestantes);
+   // Determinar contexto da projeção baseado no mês/ano selecionado
+   const mesSelecionadoNum = meses.indexOf(mes) + 1;
+   const isAnoPassado = ano < anoAtualSistema;
+   const isAnoFuturo = ano > anoAtualSistema;
+   const isAnoAtual = ano === anoAtualSistema;
+   const isMesFuturo = isAnoAtual && mesSelecionadoNum > mesAtualNum;
+   
+   // Calcular receitas acumuladas até ao mês selecionado
+   let receitasAteOMes = 0;
+   for (let m = 1; m <= mesSelecionadoNum; m++) {
+     const k = `${ano}-${m}`;
+     const mesData = M[k] || {};
+     receitasAteOMes += (mesData.regCom || []).reduce((a, r) => a + r.val, 0) + (mesData.regSem || []).reduce((a, r) => a + r.val, 0);
+   }
+   
+   // Meses até atingir meta - usar mês selecionado como referência
+   const mesesComDadosParaProjecao = isAnoPassado ? 12 : (isMesFuturo ? mesAtualNum : mesSelecionadoNum);
+   const receitasParaProjecao = isAnoPassado ? totaisAnuais.receitasAnuais : receitasAteOMes;
+   const receitaMedia = mesesComDadosParaProjecao > 0 ? receitasParaProjecao / mesesComDadosParaProjecao : 0;
+   const mesesRestantes = 12 - mesesComDadosParaProjecao;
+   const projecaoFinal = receitasParaProjecao + (receitaMedia * mesesRestantes);
    const atingeMeta = projecaoFinal >= metas.receitas;
+   
+   // Label explicativa da projeção
+   let projecaoLabel = '';
+   let projecaoExplicacao = '';
+   if (isAnoPassado) {
+     projecaoLabel = `Resultado final de ${ano}`;
+     projecaoExplicacao = 'Ano encerrado';
+   } else if (isAnoFuturo) {
+     projecaoLabel = 'Sem dados para projeção';
+     projecaoExplicacao = 'Ano futuro';
+   } else if (isMesFuturo) {
+     projecaoLabel = `Projeção baseada em ${mesAtualNum} ${mesAtualNum === 1 ? 'mês' : 'meses'}`;
+     projecaoExplicacao = `Dados até ${mesAtualSistema} ${anoAtualSistema}`;
+   } else {
+     projecaoLabel = `Projeção baseada em ${mesSelecionadoNum} ${mesSelecionadoNum === 1 ? 'mês' : 'meses'}`;
+     projecaoExplicacao = `Dados de Jan a ${mes}`;
+   }
    
    return (
      <div className="space-y-4">
@@ -2167,13 +2205,38 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
          
          <div className="mt-4 p-3 bg-slate-700/30 rounded-lg">
-           <p className="text-sm">
-             {atingeMeta ? (
-               <span className="text-green-400">✅ Ao ritmo atual, vais atingir a meta de receitas! Projeção: {fmt(projecaoFinal)}</span>
-             ) : (
-               <span className="text-amber-400">⚠️ Ao ritmo atual, ficarás abaixo da meta. Projeção: {fmt(projecaoFinal)} ({((projecaoFinal/metas.receitas)*100).toFixed(0)}%)</span>
-             )}
-           </p>
+           {isAnoFuturo ? (
+             <p className="text-sm text-slate-400">
+               📅 Ainda não há dados para {ano}
+             </p>
+           ) : isAnoPassado ? (
+             <div>
+               <div className="flex items-center gap-2 mb-1">
+                 <span className="text-xs px-2 py-0.5 bg-slate-600 rounded text-slate-300">{projecaoExplicacao}</span>
+               </div>
+               <p className="text-sm">
+                 {totaisAnuais.receitasAnuais >= metas.receitas ? (
+                   <span className="text-green-400">✅ Meta atingida em {ano}! Total: {fmt(totaisAnuais.receitasAnuais)} ({((totaisAnuais.receitasAnuais/metas.receitas)*100).toFixed(0)}%)</span>
+                 ) : (
+                   <span className="text-amber-400">⚠️ Meta não atingida em {ano}. Total: {fmt(totaisAnuais.receitasAnuais)} ({((totaisAnuais.receitasAnuais/metas.receitas)*100).toFixed(0)}%)</span>
+                 )}
+               </p>
+             </div>
+           ) : (
+             <div>
+               <div className="flex items-center gap-2 mb-1">
+                 <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">{projecaoLabel}</span>
+                 <span className="text-xs text-slate-500">{projecaoExplicacao}</span>
+               </div>
+               <p className="text-sm">
+                 {atingeMeta ? (
+                   <span className="text-green-400">✅ Ao ritmo atual, vais atingir a meta de receitas! Projeção: {fmt(projecaoFinal)}</span>
+                 ) : (
+                   <span className="text-amber-400">⚠️ Ao ritmo atual, ficarás abaixo da meta. Projeção: {fmt(projecaoFinal)} ({((projecaoFinal/metas.receitas)*100).toFixed(0)}%)</span>
+                 )}
+               </p>
+             </div>
+           )}
          </div>
        </Card>
        
