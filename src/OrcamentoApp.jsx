@@ -2362,8 +2362,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              // Portfolio projetado (crescimento médio baseado em investimentos)
              const portfolioAtual = portfolio.reduce((a, p) => a + p.val, 0);
              
+             // Verificar se há snapshot do mês atual (para saber se foi preenchido)
+             const mesAtualKey = `${anoAtualSistema}-${String(mesAtualSistemaNum).padStart(2, '0')}`;
+             const mesAtualKeyAlt = `${anoAtualSistema}-${mesAtualSistemaNum}`;
+             const temSnapshotMesAtual = portfolioHist.some(h => h.date === mesAtualKey || h.date === mesAtualKeyAlt);
+             
              // Usar investimentos médios como proxy de crescimento do portfolio
-             // Isto é mais seguro do que depender de snapshots que podem não existir
              const crescimentoMensal = investMedia;
              const projecaoPortfolio = portfolioAtual + (crescimentoMensal * mesesRestantes);
              
@@ -2396,12 +2400,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <p className="text-xs text-slate-500">{projecaoDias.toFixed(0)} dias de trabalho</p>
                    </div>
                    
-                   <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                   <div className={`p-3 rounded-lg ${temSnapshotMesAtual ? 'bg-purple-500/10 border border-purple-500/30' : 'bg-slate-700/30 border border-dashed border-slate-500/50'}`}>
                      <p className="text-xs text-slate-400">💎 Portfolio</p>
-                     <p className="text-xl font-bold text-purple-400">{fmt(projecaoPortfolio)}</p>
-                     <p className="text-xs text-slate-500">
-                       {crescimentoMensal >= 0 ? '+' : ''}{fmt(crescimentoMensal)}/mês
-                     </p>
+                     {temSnapshotMesAtual ? (
+                       <>
+                         <p className="text-xl font-bold text-purple-400">{fmt(projecaoPortfolio)}</p>
+                         <p className="text-xs text-slate-500">
+                           {crescimentoMensal >= 0 ? '+' : ''}{fmt(crescimentoMensal)}/mês
+                         </p>
+                       </>
+                     ) : (
+                       <>
+                         <p className="text-lg font-medium text-slate-500">Por preencher</p>
+                         <p className="text-xs text-slate-600">Atualiza o snapshot mensal</p>
+                       </>
+                     )}
                    </div>
                  </div>
                  
