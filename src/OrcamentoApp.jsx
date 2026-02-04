@@ -1184,6 +1184,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const minhaAB = totAB * (contrib/100);
  const parteSaraAB = totAB * (1-contrib/100);
  const segFilhos = despABanca.find(d=>d.desc.toLowerCase().includes('seguro filhos'))?.val || 60;
+ const investFilhos = despABanca.find(d=>d.desc.toLowerCase().includes('investimentos filhos'))?.val || 0;
  const totPess = despPess.reduce((a,d)=>a+d.val,0);
  const totInv = inv.reduce((a,d)=>a+d.val,0);
  const restante = recLiq - minhaAB - totPess - ferias;
@@ -1969,6 +1970,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <span className="font-bold">{fmt(t.v)}</span>
          </div>
        ))}
+       
+       {/* Transferência entre contas: ABanca → Activo Bank */}
+       {investFilhos > 0 && (
+         <>
+           <div className="border-t border-slate-700/50 my-2 pt-2">
+             <p className="text-xs text-slate-500 mb-2">🔄 Entre contas:</p>
+           </div>
+           <div className={`flex items-center gap-2 p-2 rounded-lg ${transf.investFilhos ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-slate-700/30'}`}>
+             <input type="checkbox" className="w-4 h-4 accent-cyan-500" checked={transf.investFilhos || false} onChange={e=>uM('transf',{...transf,investFilhos:e.target.checked})}/>
+             <div className="flex-1">
+               <p className="text-sm">ABanca → Activo Bank</p>
+               <p className="text-xs text-slate-500">Investimentos Filhos</p>
+             </div>
+             <span className="font-bold text-cyan-400">{fmt(investFilhos)}</span>
+           </div>
+         </>
+       )}
        
        {/* Resumo: fica na TR */}
        <div className="border-t border-slate-700/50 mt-3 pt-3">
