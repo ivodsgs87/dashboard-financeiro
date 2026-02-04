@@ -1122,8 +1122,33 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const uMeta = useCallback((key, v) => {
    saveUndo();
-   setG(p => ({...p, metas: {...p.metas, [key]: v}}));
- }, [saveUndo]);
+   setG(p => {
+     const metasAtuais = p.metas || {};
+     // Verificar se já está na estrutura por ano
+     const isNovaEstrutura = metasAtuais.default || Object.keys(metasAtuais).some(k => /^\d{4}$/.test(k));
+     
+     if (isNovaEstrutura) {
+       // Estrutura nova - atualizar metas do ano selecionado
+       const metasAno = metasAtuais[ano] || metasAtuais.default || { receitas: 80000, amortizacao: 15000, investimentos: 12000, horasMensais: 120 };
+       return {
+         ...p, 
+         metas: {
+           ...metasAtuais,
+           [ano]: { ...metasAno, [key]: v }
+         }
+       };
+     } else {
+       // Migrar estrutura antiga para nova
+       return {
+         ...p,
+         metas: {
+           default: { ...metasAtuais },
+           [ano]: { ...metasAtuais, [key]: v }
+         }
+       };
+     }
+   });
+ }, [saveUndo, ano]);
 
  const uPortHist = useCallback((newHist, detail) => {
    saveUndo();
@@ -1172,8 +1197,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
  }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
- const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas=defG.metas,credito=defG.credito} = G;
+ const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas:metasRaw=defG.metas,credito=defG.credito} = G;
  const {regCom,regSem,inv,transf} = mesD;
+
+ // Suporte para metas por ano - compatível com estrutura antiga
+ const getMetasAno = (anoAlvo) => {
+   // Se metas tem estrutura nova (por ano)
+   if (metasRaw[anoAlvo]) {
+     return metasRaw[anoAlvo];
+   }
+   // Se tem default
+   if (metasRaw.default) {
+     return metasRaw.default;
+   }
+   // Estrutura antiga - usar diretamente
+   return metasRaw;
+ };
+ const metas = getMetasAno(ano);
 
  const inCom = regCom.reduce((a,r)=>a+r.val,0);
  const inSem = regSem.reduce((a,r)=>a+r.val,0);
@@ -1837,7 +1877,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <div className="flex justify-between items-center mb-4">
      <h3 className="font-semibold">🎯 {ano < anoAtualSistema ? `Resultado ${ano}` : ano > anoAtualSistema ? `Projeção ${ano}` : `Progresso ${ano}`}</h3>
      <span className="text-xs text-slate-500">
-       {ano < anoAtualSistema ? '✓ Ano completo' : ano > anoAtualSistema ? `${mes} (${mesAtualNum}/12)` : `${mesAtualNum}/12 meses`}
+       {ano < anoAtualSistema ? '✓ Ano completo' : ano > anoAtualSistema ? `${mes} (${mesAtualNum}/12)` : `${mesSelecionadoIdx}/12 meses`}
      </span>
    </div>
    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1869,9 +1909,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {m.proj && <p className="text-xs text-slate-400 mb-1">→ Projeção: {fmt(m.proj)}</p>}
            <ProgressBar value={m.atual} max={m.meta || 1} color={m.color} height="h-1.5"/>
            <div className="mt-2 flex items-center gap-2">
-             <span className="text-xs text-slate-500">Meta:</span>
-             <StableInput type="number" className="w-20 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-0.5 text-xs text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
+             <span className="text-xs text-slate-500">Meta {ano}:</span>
+             <StableInput key={`meta-${m.key}-${ano}`} type="number" className="w-20 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-0.5 text-xs text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
              {m.isHoras && <span className="text-xs text-slate-500">h/mês</span>}
+           </div>
            </div>
          </div>
        );
