@@ -2360,12 +2360,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const valorHoraProj = projecaoHoras > 0 ? projecaoReceitas / projecaoHoras : 0;
              
              // Portfolio projetado (crescimento médio)
+             // Usar snapshot do mês selecionado se disponível, senão o atual
              const portfolioAtual = portfolio.reduce((a, p) => a + p.val, 0);
-             const portfolioInicio = portfolioHist.length > 0 ? portfolioHist[0]?.total || portfolioAtual : portfolioAtual;
+             
+             // Encontrar snapshot mais próximo do mês selecionado
+             const mesRef = `${ano}-${String(mesesComDadosParaProjecao).padStart(2, '0')}`;
+             const snapshotMesSelecionado = portfolioHist.find(h => h.date === mesRef || h.date === `${ano}-${mesesComDadosParaProjecao}`);
+             const portfolioNoMes = snapshotMesSelecionado?.total || portfolioAtual;
+             
+             // Encontrar portfolio no início do ano (dezembro anterior ou primeiro snapshot)
+             const snapshotsAnoAnterior = portfolioHist.filter(h => h.date && h.date.startsWith(`${ano-1}`));
+             const snapshotDezAnterior = snapshotsAnoAnterior.find(h => h.date === `${ano-1}-12` || h.date === `${ano-1}-12`);
+             const primeiroSnapshotAno = portfolioHist.filter(h => h.date && h.date.startsWith(`${ano}`)).sort((a,b) => a.date.localeCompare(b.date))[0];
+             const portfolioInicio = snapshotDezAnterior?.total || primeiroSnapshotAno?.total || portfolioNoMes;
+             
              const crescimentoMensal = mesesComDadosParaProjecao > 0 && portfolioInicio > 0 
-               ? (portfolioAtual - portfolioInicio) / mesesComDadosParaProjecao 
+               ? (portfolioNoMes - portfolioInicio) / mesesComDadosParaProjecao 
                : investMedia;
-             const projecaoPortfolio = portfolioAtual + (crescimentoMensal * mesesRestantes);
+             const projecaoPortfolio = portfolioNoMes + (crescimentoMensal * mesesRestantes);
              
              return (
                <div className="space-y-4">
@@ -2399,7 +2411,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
                      <p className="text-xs text-slate-400">💎 Portfolio</p>
                      <p className="text-xl font-bold text-purple-400">{fmt(projecaoPortfolio)}</p>
-                     <p className="text-xs text-slate-500">+{fmt(projecaoPortfolio - portfolioAtual)} até Dez</p>
+                     <p className="text-xs text-slate-500">
+                       {crescimentoMensal >= 0 ? '+' : ''}{fmt(crescimentoMensal)}/mês
+                     </p>
                    </div>
                  </div>
                  
@@ -4603,18 +4617,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    ? creditos.find(c => c.id === creditoSelecionado) 
    : (creditoAtivo || (usarCreditoAntigo ? { ...credito, id: 0, nome: 'Crédito Habitação', tipo: 'habitacao', estado: 'ativo', valorBem: credito.valorCasa } : null));
  
- // Debug: log para verificar estado
- useEffect(() => {
-   console.log('Crédito Debug:', { 
-     creditoSelecionado, 
-     creditosLength: creditos.length,
-     creditoEmUsoId: creditoEmUso?.id,
-     creditoEmUsoNome: creditoEmUso?.nome,
-     historicoLength: creditoEmUso?.historico?.length,
-     historico: creditoEmUso?.historico,
-     dividaAtual: creditoEmUso?.dividaAtual
-   });
- }, [creditoSelecionado, creditos, creditoEmUso]);
+ // Debug removido - sistema estável
  
  const {valorBem=365000, valorCasa=365000, entradaInicial=36500, montanteInicial=328500, dividaAtual=229693.43, taxaJuro=2, prestacao=971, seguros=50, historico=[], dataFim='2054-02-01', spread=1.0, euribor=2.5, dataInicio, dataLiquidacao, valorLiquidacao, estado='ativo', nome='Crédito'} = creditoEmUso || {};
  
@@ -4656,7 +4659,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    setG(prevG => {
      const creditosAtuais = prevG.creditos || [];
      const novosCreditos = creditosAtuais.map(c => c.id === id ? { ...c, [campo]: valorFinal } : c);
-     console.log('atualizarCredito - campo:', campo, 'novosCreditos[0].historico.length:', novosCreditos[0]?.historico?.length);
      return { ...prevG, creditos: novosCreditos };
    });
  };
@@ -5273,7 +5275,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="text-lg font-semibold">📈 Histórico de Dívida</h3>
      <button 
        onClick={() => {
-         console.log('Adicionar histórico - creditoSelecionado:', creditoSelecionado);
          const novaData = prompt('Data (AAAA-MM):', `${ano}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
          if (novaData && /^\d{4}-\d{2}$/.test(novaData)) {
            // Verificar se já existe registo para esta data
@@ -5291,11 +5292,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const novoHist = [...historicoSemDuplicado, { date: novaData, divida: parseFloat(novoValor) }]
                .sort((a, b) => a.date.localeCompare(b.date));
              
-             console.log('Novo histórico:', novoHist);
-             
              // Gravar no sistema correto
              if (creditoSelecionado) {
-               console.log('Gravando em G.creditos[', creditoSelecionado, '].historico');
                atualizarCredito(creditoSelecionado, 'historico', novoHist);
                // Também atualizar a dívida atual se for o registo mais recente
                const ultimoRegisto = novoHist[novoHist.length - 1];
@@ -5303,7 +5301,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  atualizarCredito(creditoSelecionado, 'dividaAtual', parseFloat(novoValor));
                }
              } else {
-               console.log('Gravando em G.credito.historico');
                uC('historico', novoHist);
                const ultimoRegisto = novoHist[novoHist.length - 1];
                if (ultimoRegisto.date === novaData) {
