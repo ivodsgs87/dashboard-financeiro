@@ -1913,7 +1913,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <StableInput key={`meta-${m.key}-${ano}`} type="number" className="w-20 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-0.5 text-xs text-right" initialValue={m.meta} onSave={v => uMeta(m.key, v)}/>
              {m.isHoras && <span className="text-xs text-slate-500">h/mês</span>}
            </div>
-           </div>
          </div>
        );
      })}
