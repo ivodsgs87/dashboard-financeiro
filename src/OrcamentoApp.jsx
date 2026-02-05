@@ -3222,10 +3222,55 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        iva: editRecibo.iva || 0,
        taxaIva: editRecibo.taxaIva || 23,
        retIRS: editRecibo.retIRS || 0,
-       pais: editRecibo.pais || 'PT'
+       pais: editRecibo.pais || 'PT',
+       // Ficheiro do recibo (base64)
+       ficheiro: editRecibo.ficheiro || null,
+       ficheiroNome: editRecibo.ficheiroNome || null,
+       ficheiroTipo: editRecibo.ficheiroTipo || null
      } : x));
      setShowReciboModal(false);
      setEditRecibo(null);
+   };
+   
+   // Função para fazer upload do ficheiro do recibo
+   const handleReciboFileUpload = async (e) => {
+     const file = e.target.files?.[0];
+     if (!file) return;
+     
+     // Verificar tamanho (max 5MB)
+     if (file.size > 5 * 1024 * 1024) {
+       alert('Ficheiro demasiado grande. Máximo 5MB.');
+       return;
+     }
+     
+     // Converter para base64
+     const reader = new FileReader();
+     reader.onload = () => {
+       setEditRecibo({
+         ...editRecibo,
+         ficheiro: reader.result,
+         ficheiroNome: file.name,
+         ficheiroTipo: file.type
+       });
+     };
+     reader.readAsDataURL(file);
+   };
+   
+   // Função para abrir o ficheiro do recibo
+   const abrirFicheiroRecibo = (ficheiro, nome, tipo) => {
+     if (!ficheiro) return;
+     
+     // Criar blob e abrir em nova janela
+     const byteString = atob(ficheiro.split(',')[1]);
+     const mimeType = tipo || 'application/pdf';
+     const ab = new ArrayBuffer(byteString.length);
+     const ia = new Uint8Array(ab);
+     for (let i = 0; i < byteString.length; i++) {
+       ia[i] = byteString.charCodeAt(i);
+     }
+     const blob = new Blob([ab], { type: mimeType });
+     const url = URL.createObjectURL(blob);
+     window.open(url, '_blank');
    };
    
    const renderReciboModal = () => {
@@ -3351,6 +3396,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
              </div>
              
+             {/* Secção de Ficheiro do Recibo */}
+             <div className="p-3 bg-slate-700/30 rounded-xl">
+               <label className="text-xs text-slate-400 mb-2 block">📎 Ficheiro do Recibo</label>
+               {editRecibo.ficheiro ? (
+                 <div className="flex items-center justify-between gap-2">
+                   <div className="flex items-center gap-2 flex-1 min-w-0">
+                     <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼️'}</span>
+                     <span className="text-sm text-slate-300 truncate">{editRecibo.ficheiroNome || 'Recibo'}</span>
+                   </div>
+                   <div className="flex gap-2 flex-shrink-0">
+                     <button
+                       onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
+                       className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
+                     >
+                       Abrir
+                     </button>
+                     <button
+                       onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
+                       className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm hover:bg-red-500/30"
+                     >
+                       Remover
+                     </button>
+                   </div>
+                 </div>
+               ) : (
+                 <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500/50 hover:bg-slate-700/30 transition-colors">
+                   <span className="text-slate-400">📤</span>
+                   <span className="text-sm text-slate-400">Clica para adicionar PDF ou imagem</span>
+                   <input
+                     type="file"
+                     accept=".pdf,image/*"
+                     onChange={handleReciboFileUpload}
+                     className="hidden"
+                   />
+                 </label>
+               )}
+             </div>
+             
              <div className="p-3 bg-slate-700/50 rounded-xl space-y-2">
                <div className="flex justify-between text-sm">
                  <span className="text-slate-400">Total do Documento:</span>
@@ -3445,7 +3528,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
-       <button onClick={() => openReciboModal(r, 'com')} className="text-blue-400 hover:text-blue-300 p-0.5 sm:p-1 flex-shrink-0" title="Detalhes do recibo">📄</button>
+       {r.ficheiro && (
+         <button 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
+           title="Abrir recibo"
+         >
+           📎
+         </button>
+       )}
+       <button onClick={() => openReciboModal(r, 'com')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
@@ -3468,6 +3560,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       {r.ficheiro && (
+         <button 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
+           title="Abrir recibo"
+         >
+           📎
+         </button>
+       )}
+       <button onClick={() => openReciboModal(r, 'sem')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
