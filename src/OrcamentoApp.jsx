@@ -3400,30 +3400,56 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div className="p-3 bg-slate-700/30 rounded-xl">
                <label className="text-xs text-slate-400 mb-2 block">📎 Ficheiro do Recibo</label>
                {editRecibo.ficheiro ? (
-                 <div className="flex items-center justify-between gap-2">
-                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                     <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼️'}</span>
-                     <span className="text-sm text-slate-300 truncate">{editRecibo.ficheiroNome || 'Recibo'}</span>
+                 <div className="space-y-3">
+                   {/* Pré-visualização inline */}
+                   <div className="relative rounded-lg overflow-hidden border border-slate-600 bg-slate-800">
+                     {editRecibo.ficheiroTipo?.includes('pdf') ? (
+                       <div className="flex flex-col items-center justify-center py-6 gap-2">
+                         <span className="text-4xl">📄</span>
+                         <span className="text-sm text-slate-300">{editRecibo.ficheiroNome || 'Recibo.pdf'}</span>
+                         <button
+                           onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
+                           className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30 mt-1"
+                         >
+                           Abrir PDF ↗
+                         </button>
+                       </div>
+                     ) : (
+                       <div className="relative group">
+                         <img 
+                           src={editRecibo.ficheiro} 
+                           alt={editRecibo.ficheiroNome || 'Recibo'} 
+                           className="w-full max-h-48 object-contain bg-slate-900 cursor-pointer"
+                           onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
+                         />
+                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100">
+                           <span className="text-white text-sm bg-black/60 px-3 py-1.5 rounded-lg">🔍 Ampliar</span>
+                         </div>
+                       </div>
+                     )}
                    </div>
-                   <div className="flex gap-2 flex-shrink-0">
-                     <button
-                       onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
-                       className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
-                     >
-                       Abrir
-                     </button>
-                     <button
-                       onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
-                       className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm hover:bg-red-500/30"
-                     >
-                       Remover
-                     </button>
+                   {/* Info do ficheiro + ações */}
+                   <div className="flex items-center justify-between gap-2">
+                     <span className="text-xs text-slate-500 truncate flex-1">{editRecibo.ficheiroNome || 'Recibo'}</span>
+                     <div className="flex gap-2 flex-shrink-0">
+                       <label className="px-3 py-1.5 bg-slate-600/50 text-slate-300 rounded-lg text-xs hover:bg-slate-600 cursor-pointer transition-colors">
+                         🔄 Substituir
+                         <input type="file" accept=".pdf,image/*" onChange={handleReciboFileUpload} className="hidden"/>
+                       </label>
+                       <button
+                         onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
+                         className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition-colors"
+                       >
+                         🗑️ Remover
+                       </button>
+                     </div>
                    </div>
                  </div>
                ) : (
-                 <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500/50 hover:bg-slate-700/30 transition-colors">
-                   <span className="text-slate-400">📤</span>
+                 <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500/50 hover:bg-slate-700/30 transition-colors">
+                   <span className="text-3xl">📤</span>
                    <span className="text-sm text-slate-400">Clica para adicionar PDF ou imagem</span>
+                   <span className="text-xs text-slate-600">PDF, JPG, PNG até 5MB</span>
                    <input
                      type="file"
                      accept=".pdf,image/*"
@@ -3528,16 +3554,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
-       {r.ficheiro && (
-         <button 
-           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
-           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
-           title="Abrir recibo"
-         >
-           📎
-         </button>
-       )}
-       <button onClick={() => openReciboModal(r, 'com')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
+       <button onClick={() => openReciboModal(r, 'com')} className={`relative p-0.5 sm:p-1 flex-shrink-0 transition-colors ${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-slate-600 hover:text-slate-400'}`} title={r.ficheiro ? "Ver recibo ✓" : "Sem recibo - clica para adicionar"}>
+         📄{r.ficheiro && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full border border-slate-700"/>}
+       </button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
@@ -3560,16 +3579,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
-       {r.ficheiro && (
-         <button 
-           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
-           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
-           title="Abrir recibo"
-         >
-           📎
-         </button>
-       )}
-       <button onClick={() => openReciboModal(r, 'sem')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
+       <button onClick={() => openReciboModal(r, 'sem')} className={`relative p-0.5 sm:p-1 flex-shrink-0 transition-colors ${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-slate-600 hover:text-slate-400'}`} title={r.ficheiro ? "Ver recibo ✓" : "Sem recibo - clica para adicionar"}>
+         📄{r.ficheiro && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full border border-slate-700"/>}
+       </button>
        <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
