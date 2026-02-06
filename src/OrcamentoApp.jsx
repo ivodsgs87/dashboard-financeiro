@@ -44,11 +44,6 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       }
     };
     
-    // Prevenir que atualizações externas interfiram enquanto focado
-    const observer = new MutationObserver(() => {
-      // Ignorar mutações - o input controla o seu próprio valor
-    });
-    
     input.addEventListener('focus', onFocus);
     input.addEventListener('blur', onBlur);
     input.addEventListener('keydown', onKeyDown);
@@ -497,7 +492,7 @@ const AddClienteInput = memo(({onAdd, inputClass}) => {
  value={value} 
  onChange={e => setValue(e.target.value)} 
  placeholder="Nome do novo cliente..." 
- onKeyPress={e => e.key === 'Enter' && handleAdd()}
+ onKeyDown={e => e.key === 'Enter' && handleAdd()}
  />
  <button 
  onClick={handleAdd}
@@ -668,6 +663,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [compareYear, setCompareYear] = useState(null);
   // Nota: estado offline gerido por isOnline acima
+  
+  // Sistema de Toast (substitui alert())
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+  const showToast = useCallback((message, type = 'success', duration = 4000) => {
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
+  }, []);
+  
+  // Sistema de confirmação (substitui clicks destrutivos sem confirmação)
+  const [confirmAction, setConfirmAction] = useState(null);
+  const confirmDelete = useCallback((message, onConfirm) => {
+    setConfirmAction({ message, onConfirm });
+  }, []);
   
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
@@ -1030,46 +1040,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     mesKeyRef.current = mesKey;
   }, [mesKey]);
 
- // DESATIVADO TEMPORARIAMENTE - estava a causar loops de re-render
- // Atualiza automaticamente o portfolioHist quando o portfolio do mês muda
- // const lastPortfolioUpdate = useRef({ mesKey: '', total: 0 });
- // 
- // useEffect(() => {
- //   if (!mesD.portfolio || !Array.isArray(mesD.portfolio)) return;
- //   
- //   const totPort = mesD.portfolio.reduce((a,p) => a + (p.val || 0), 0);
- //   
- //   // Evitar updates desnecessários - só atualizar se realmente mudou
- //   if (lastPortfolioUpdate.current.mesKey === mesKey && 
- //       lastPortfolioUpdate.current.total === totPort) {
- //     return;
- //   }
- //   
- //   const hist = G.portfolioHist || [];
- //   const existingIdx = hist.findIndex(h => h.date === mesKey);
- //   
- //   let needsUpdate = false;
- //   let newHist = hist;
- //   
- //   if (existingIdx >= 0) {
- //     if (hist[existingIdx].total !== totPort) {
- //       newHist = hist.map((h, i) => i === existingIdx ? {...h, total: totPort} : h);
- //       needsUpdate = true;
- //     }
- //   } else if (totPort > 0) {
- //     newHist = [...hist, {date: mesKey, total: totPort}].sort((a,b) => {
- //       const [aY,aM] = a.date.split('-').map(Number);
- //       const [bY,bM] = b.date.split('-').map(Number);
- //       return aY === bY ? aM - bM : aY - bY;
- //     });
- //     needsUpdate = true;
- //   }
- //   
- //   if (needsUpdate) {
- //     lastPortfolioUpdate.current = { mesKey, total: totPort };
- //     setG(p => ({...p, portfolioHist: newHist}));
- //   }
- // }, [mesD.portfolio, mesKey]);
+ // Nota: portfolioHist auto-update desativado (causava loops de re-render)
+ // Pode ser reimplementado com useRef + condição de guard
 
  // Funções de update que guardam estado para undo ANTES de alterar
  const saveUndo = useCallback(() => {
@@ -1172,7 +1144,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
      return newM;
    });
-   alert(`✅ Investimentos aplicados até Dezembro ${ano + 1}`);
+   showToast(`Investimentos aplicados até Dezembro ${ano + 1}`);
  }, [mes, ano, mesKey, M, meses]);
 
  // Função para duplicar receitas do mês anterior
@@ -1180,7 +1152,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mesAnteriorKey = getMesAnteriorKey(mesKey);
    const mesAnteriorData = M[mesAnteriorKey];
    if (!mesAnteriorData || (mesAnteriorData.regCom?.length === 0 && mesAnteriorData.regSem?.length === 0)) {
-     alert('⚠️ O mês anterior não tem receitas para duplicar');
+     showToast('O mês anterior não tem receitas para duplicar', 'warning');
      return;
    }
    saveUndo();
@@ -1194,7 +1166,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        regSem: [...(prev[mesKey]?.regSem || []), ...novasRegSem]
      }
    }));
-   alert(`✅ ${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
+   showToast(`${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
  }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
  const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas:metasRaw=defG.metas,credito=defG.credito} = G;
@@ -3239,7 +3211,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      
      // Verificar tamanho (max 5MB)
      if (file.size > 5 * 1024 * 1024) {
-       alert('Ficheiro demasiado grande. Máximo 5MB.');
+       showToast('Ficheiro demasiado grande. Máximo 5MB.', 'error');
        return;
      }
      
@@ -3400,56 +3372,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div className="p-3 bg-slate-700/30 rounded-xl">
                <label className="text-xs text-slate-400 mb-2 block">📎 Ficheiro do Recibo</label>
                {editRecibo.ficheiro ? (
-                 <div className="space-y-3">
-                   {/* Pré-visualização inline */}
-                   <div className="relative rounded-lg overflow-hidden border border-slate-600 bg-slate-800">
-                     {editRecibo.ficheiroTipo?.includes('pdf') ? (
-                       <div className="flex flex-col items-center justify-center py-6 gap-2">
-                         <span className="text-4xl">📄</span>
-                         <span className="text-sm text-slate-300">{editRecibo.ficheiroNome || 'Recibo.pdf'}</span>
-                         <button
-                           onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
-                           className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30 mt-1"
-                         >
-                           Abrir PDF ↗
-                         </button>
-                       </div>
-                     ) : (
-                       <div className="relative group">
-                         <img 
-                           src={editRecibo.ficheiro} 
-                           alt={editRecibo.ficheiroNome || 'Recibo'} 
-                           className="w-full max-h-48 object-contain bg-slate-900 cursor-pointer"
-                           onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
-                         />
-                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100">
-                           <span className="text-white text-sm bg-black/60 px-3 py-1.5 rounded-lg">🔍 Ampliar</span>
-                         </div>
-                       </div>
-                     )}
+                 <div className="flex items-center justify-between gap-2">
+                   <div className="flex items-center gap-2 flex-1 min-w-0">
+                     <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼️'}</span>
+                     <span className="text-sm text-slate-300 truncate">{editRecibo.ficheiroNome || 'Recibo'}</span>
                    </div>
-                   {/* Info do ficheiro + ações */}
-                   <div className="flex items-center justify-between gap-2">
-                     <span className="text-xs text-slate-500 truncate flex-1">{editRecibo.ficheiroNome || 'Recibo'}</span>
-                     <div className="flex gap-2 flex-shrink-0">
-                       <label className="px-3 py-1.5 bg-slate-600/50 text-slate-300 rounded-lg text-xs hover:bg-slate-600 cursor-pointer transition-colors">
-                         🔄 Substituir
-                         <input type="file" accept=".pdf,image/*" onChange={handleReciboFileUpload} className="hidden"/>
-                       </label>
-                       <button
-                         onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
-                         className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition-colors"
-                       >
-                         🗑️ Remover
-                       </button>
-                     </div>
+                   <div className="flex gap-2 flex-shrink-0">
+                     <button
+                       onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
+                       className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
+                     >
+                       Abrir
+                     </button>
+                     <button
+                       onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
+                       className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm hover:bg-red-500/30"
+                     >
+                       Remover
+                     </button>
                    </div>
                  </div>
                ) : (
-                 <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500/50 hover:bg-slate-700/30 transition-colors">
-                   <span className="text-3xl">📤</span>
+                 <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500/50 hover:bg-slate-700/30 transition-colors">
+                   <span className="text-slate-400">📤</span>
                    <span className="text-sm text-slate-400">Clica para adicionar PDF ou imagem</span>
-                   <span className="text-xs text-slate-600">PDF, JPG, PNG até 5MB</span>
                    <input
                      type="file"
                      accept=".pdf,image/*"
@@ -3522,7 +3468,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {clientes.map(c => (
  <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 bg-slate-700/30 rounded-xl border-2" style={{borderColor: c.cor}}>
  <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm">{c.nome}</span>
- <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>uG('clientes',clientes.filter(x=>x.id!==c.id))}>✕</button>
+ <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>confirmDelete(`Apagar o cliente "${c.nome}"? As receitas associadas não serão apagadas.`, ()=>uG('clientes',clientes.filter(x=>x.id!==c.id)))}>✕</button>
  </div>
  ))}
  </div>
@@ -3554,9 +3500,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
-       <button onClick={() => openReciboModal(r, 'com')} className={`relative p-0.5 sm:p-1 flex-shrink-0 transition-colors ${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-slate-600 hover:text-slate-400'}`} title={r.ficheiro ? "Ver recibo ✓" : "Sem recibo - clica para adicionar"}>
-         📄{r.ficheiro && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full border border-slate-700"/>}
-       </button>
+       {r.ficheiro && (
+         <button 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
+           title="Abrir recibo"
+         >
+           📎
+         </button>
+       )}
+       <button onClick={() => openReciboModal(r, 'com')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
@@ -3579,9 +3532,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
-       <button onClick={() => openReciboModal(r, 'sem')} className={`relative p-0.5 sm:p-1 flex-shrink-0 transition-colors ${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-slate-600 hover:text-slate-400'}`} title={r.ficheiro ? "Ver recibo ✓" : "Sem recibo - clica para adicionar"}>
-         📄{r.ficheiro && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full border border-slate-700"/>}
-       </button>
+       {r.ficheiro && (
+         <button 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
+           title="Abrir recibo"
+         >
+           📎
+         </button>
+       )}
+       <button onClick={() => openReciboModal(r, 'sem')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
      </div>
    )}
@@ -4640,7 +4600,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        }));
        uM('portfolio', novoPortfolio);
      } else {
-       alert('Não há dados no mês anterior para copiar.');
+       showToast('Não há dados no mês anterior para copiar.', 'warning');
      }
    }} title="Copiar estrutura e valores do mês anterior">
      📥 Copiar Mês Anterior
@@ -5423,7 +5383,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                }
              }
              
-             alert(`✅ Registo adicionado: ${novaData} = ${fmt(parseFloat(novoValor))}`);
+             showToast(`Registo adicionado: ${novaData} = ${fmt(parseFloat(novoValor))}`);
            }
          }
        }}
@@ -5816,7 +5776,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                onChange={e => setNovaCorretora(e.target.value)}
                placeholder="Nova corretora..."
                className={`${inputClass} flex-1 text-sm`}
-               onKeyPress={e => e.key === 'Enter' && addCorretora()}
+               onKeyDown={e => e.key === 'Enter' && addCorretora()}
              />
              <Button size="sm" onClick={addCorretora}>+</Button>
            </div>
@@ -7579,7 +7539,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      a.click();
      document.body.removeChild(a);
      URL.revokeObjectURL(url);
-     alert('Popup bloqueado. Ficheiro HTML descarregado - abre-o e usa Ctrl+P para guardar como PDF.');
+     showToast('Popup bloqueado. Ficheiro HTML descarregado - abre-o e usa Ctrl+P para guardar como PDF.', 'warning', 6000);
    }
  };
 
@@ -7642,7 +7602,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const transacoesAno = transacoes.filter(t => t.data.startsWith(anoExport.toString()));
    
    if (transacoesAno.length === 0) {
-     alert(`Não há transações registadas em ${anoExport}`);
+     showToast(`Não há transações registadas em ${anoExport}`, 'warning');
      return;
    }
    
@@ -7750,7 +7710,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    const transacoesAno = transacoes.filter(t => t.data.startsWith(anoExport.toString()));
    
    if (transacoesAno.length === 0) {
-     alert(`Não há transações registadas em ${anoExport}`);
+     showToast(`Não há transações registadas em ${anoExport}`, 'warning');
      return;
    }
    
@@ -7831,7 +7791,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      
    } catch (error) {
      console.error('Erro ao exportar Excel:', error);
-     alert('Erro ao exportar para Excel. Tenta novamente.');
+     showToast('Erro ao exportar para Excel. Tenta novamente.', 'error');
    }
  };
 
@@ -7841,7 +7801,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    try {
      if (!getAccessToken()) {
-       alert('Para exportar para Google Sheets, faz logout e login novamente para autorizar o acesso.');
+       showToast('Para exportar para Google Sheets, faz logout e login novamente para autorizar o acesso.', 'warning', 6000);
        setExporting(false);
        return;
      }
@@ -8030,7 +7990,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      
    } catch (e) {
      console.error(e);
-     alert('Erro ao exportar: ' + e.message);
+     showToast('Erro ao exportar: ' + e.message, 'error');
    }
    setExporting(false);
  };
@@ -8043,7 +8003,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        setG(defG);
        setM({});
        setHasChanges(true);
-       alert('✅ Todos os dados foram resetados para os valores iniciais.');
+       showToast('Todos os dados foram resetados para os valores iniciais.');
      }
    }
  };
@@ -8524,7 +8484,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      const tipoIdx = headers.findIndex(h => h.includes('tipo') || h.includes('type'));
      
      if (valorIdx === -1) {
-       alert('❌ CSV deve ter coluna "valor" ou "amount"');
+       showToast('CSV deve ter coluna "valor" ou "amount"', 'error');
        return;
      }
      
@@ -8546,7 +8506,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      }
      
      if (registos.length === 0) {
-       alert('❌ Nenhum registo válido encontrado no CSV');
+       showToast('Nenhum registo válido encontrado no CSV', 'error');
        return;
      }
      
@@ -8559,10 +8519,10 @@ ${transacoesOrdenadas.map(t => `<tr>
        }
      }));
      
-     alert(`✅ ${registos.length} registos importados!`);
+     showToast(`${registos.length} registos importados!`);
      setShowImportCSV(false);
    } catch (e) {
-     alert('❌ Erro ao processar CSV: ' + e.message);
+     showToast('Erro ao processar CSV: ' + e.message, 'error');
    }
  };
 
@@ -9645,6 +9605,40 @@ ${transacoesOrdenadas.map(t => `<tr>
    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
  `}</style>
  
+ {/* Toast Notifications */}
+ {toasts.length > 0 && (
+   <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+     {toasts.map(t => (
+       <div 
+         key={t.id} 
+         className={`pointer-events-auto px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 animate-fadeIn max-w-sm ${
+           t.type === 'success' ? 'bg-emerald-500/90 text-white' :
+           t.type === 'warning' ? 'bg-amber-500/90 text-white' :
+           t.type === 'error' ? 'bg-red-500/90 text-white' :
+           'bg-blue-500/90 text-white'
+         }`}
+       >
+         <span>{t.type === 'success' ? '✅' : t.type === 'warning' ? '⚠️' : t.type === 'error' ? '❌' : 'ℹ️'}</span>
+         <span>{t.message}</span>
+         <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="ml-2 opacity-70 hover:opacity-100">✕</button>
+       </div>
+     ))}
+   </div>
+ )}
+ 
+ {/* Modal de Confirmação */}
+ {confirmAction && (
+   <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setConfirmAction(null)}>
+     <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl p-5 max-w-sm w-full shadow-2xl animate-fadeIn`} onClick={e => e.stopPropagation()}>
+       <p className={`text-sm mb-4 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{confirmAction.message}</p>
+       <div className="flex justify-end gap-2">
+         <button onClick={() => setConfirmAction(null)} className={`px-4 py-2 text-sm rounded-xl ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`}>Cancelar</button>
+         <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }} className="px-4 py-2 text-sm rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium">Apagar</button>
+       </div>
+     </div>
+   </div>
+ )}
+
  <header className={`${theme === 'light' ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50 no-print`}>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
