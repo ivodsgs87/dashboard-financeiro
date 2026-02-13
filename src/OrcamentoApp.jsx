@@ -1556,12 +1556,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Exemplo: Declaração de Janeiro declara Out+Nov+Dez → paga-se em Jan, Fev, Mar
    //          Declaração de Abril declara Jan+Fev+Mar → paga-se em Abr, Mai, Jun
    
-   // Função para obter receitas de um mês (qualquer ano)
-   const getReceitasMes = (anoR, mesR) => {
+   // Função para obter receitas DECLARÁVEIS de um mês (SÓ regCom - com taxas)
+   // Receitas sem taxas (regSem) são de clientes fora da UE e não entram na SS
+   const getReceitasMesDeclaraveis = (anoR, mesR) => {
      const k = `${anoR}-${mesR}`;
      const md = M[k] || {};
-     return (md.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
-            (md.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+     return (md.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
    };
    
    // Determinar qual declaração trimestral está ativa AGORA
@@ -1589,7 +1589,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
    
    // Receitas do trimestre declarado
-   const receitasTrimestreDeclarado = mesesDeclarados.reduce((acc, m) => acc + getReceitasMes(m.ano, m.mes), 0);
+   const receitasTrimestreDeclarado = mesesDeclarados.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
    
    // Cálculo SS mensal correto: receitas_trimestre × 70% ÷ 3 × 21.4%
    // Ou equivalente: receitas_trimestre × 70% × 21.4% ÷ 3
@@ -1609,7 +1609,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    } else {
      mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 10}, {ano: anoAtualSistema, mes: 11}, {ano: anoAtualSistema, mes: 12}];
    }
-   const receitasProximoTrimestre = mesesProximaDeclaracao.reduce((acc, m) => acc + getReceitasMes(m.ano, m.mes), 0);
+   const receitasProximoTrimestre = mesesProximaDeclaracao.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
    const ssProximoTrimestre = Math.max(20, (receitasProximoTrimestre * 0.70 / 3) * 0.214);
    
    // SS anual estimada (baseada na média dos trimestres com dados)
