@@ -8284,24 +8284,25 @@ ${transacoesOrdenadas.map(t => `<tr>
    const hAno = h.filter(x => x.ano === anoAtualSistema);
    const receitasAnuais = hAno.reduce((a, x) => a + x.tot, 0);
    
-   // Escalões IRS 2024 simplificados
+   // Escalões IRS 2026 (OE 2026 - Lei n.º 73-A/2025)
+   // Limites atualizados em 3.51% + taxas do 2º ao 5º escalão -0.3pp
    const escaloes = [
-     { limite: 7703, taxa: 0.145 },
-     { limite: 11623, taxa: 0.21 },
-     { limite: 16472, taxa: 0.265 },
-     { limite: 21321, taxa: 0.285 },
-     { limite: 27146, taxa: 0.35 },
-     { limite: 39791, taxa: 0.37 },
-     { limite: 51997, taxa: 0.435 },
-     { limite: 81199, taxa: 0.45 },
+     { limite: 8342, taxa: 0.125 },
+     { limite: 12587, taxa: 0.157 },
+     { limite: 17838, taxa: 0.212 },
+     { limite: 23089, taxa: 0.241 },
+     { limite: 29397, taxa: 0.311 },
+     { limite: 43090, taxa: 0.349 },
+     { limite: 55953, taxa: 0.431 },
+     { limite: 86634, taxa: 0.446 },
      { limite: Infinity, taxa: 0.48 }
    ];
    
-   // Rendimento coletável (75% para trabalhadores independentes com regime simplificado)
+   // Rendimento coletável (75% para trabalhadores independentes - regime simplificado, art.151 CIRS)
    const coeficiente = 0.75;
    const rendColetavel = receitasAnuais * coeficiente;
    
-   // Calcular imposto por escalões
+   // Calcular imposto por escalões (taxas normais/marginais)
    let imposto = 0;
    let anterior = 0;
    for (const e of escaloes) {
@@ -8312,8 +8313,10 @@ ${transacoesOrdenadas.map(t => `<tr>
      }
    }
    
-   // Deduções estimadas (pessoal + despesas gerais)
-   const deducoes = 4104 + Math.min(receitasAnuais * 0.15, 250);
+   // Deduções estimadas
+   // Cat B (independentes): dedução específica = 4.587,09€ ou SS pago (se superior) - art.28 CIRS
+   // + despesas gerais familiares (max 250€) + eventuais deduções saúde/educação
+   const deducoes = 4587.09 + Math.min(receitasAnuais * 0.15, 250);
    const impostoFinal = Math.max(0, imposto - deducoes);
    
    // Retenções já feitas (estimada com base na taxa configurada)
