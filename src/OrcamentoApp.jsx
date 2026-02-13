@@ -1547,16 +1547,83 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      });
    });
    
-   const rendimentoRelevanteSS = totalIliquido * 0.70;
-   const ssAnual = rendimentoRelevanteSS * 0.214;
-   const ssMensal = ssAnual / 12;
+   // ===== CÁLCULO SS (TRIMESTRAL - CORRETO) =====
+   // A SS funciona assim:
+   // 1. Declaração trimestral (Jan, Abr, Jul, Out) com receitas dos 3 meses ANTERIORES
+   // 2. SS calcula: rendimentos_trimestre × 70% ÷ 3 × 21.4%
+   // 3. Esse valor é pago mensalmente nos 3 meses seguintes (incluindo o mês da declaração)
+   //
+   // Exemplo: Declaração de Janeiro declara Out+Nov+Dez → paga-se em Jan, Fev, Mar
+   //          Declaração de Abril declara Jan+Fev+Mar → paga-se em Abr, Mai, Jun
    
-   // SS próximo mês - baseado nas receitas do MÊS ATUAL (que serão pagas no mês seguinte)
-   const mesAtualKey = `${anoAtualSistema}-${mesAtualNum}`;
-   const dadosMesAtual = M[mesAtualKey] || {};
-   const receitasMesAtual = (dadosMesAtual.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
-                            (dadosMesAtual.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
-   const ssProximoMes = receitasMesAtual * 0.70 * 0.214;
+   // Função para obter receitas de um mês (qualquer ano)
+   const getReceitasMes = (anoR, mesR) => {
+     const k = `${anoR}-${mesR}`;
+     const md = M[k] || {};
+     return (md.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0) +
+            (md.regSem || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+   };
+   
+   // Determinar qual declaração trimestral está ativa AGORA
+   // Mês atual -> última declaração feita -> meses declarados
+   // Jan-Mar: declaração de Jan (declara Out,Nov,Dez anterior)
+   // Abr-Jun: declaração de Abr (declara Jan,Fev,Mar)
+   // Jul-Set: declaração de Jul (declara Abr,Mai,Jun)
+   // Out-Dez: declaração de Out (declara Jul,Ago,Set)
+   const trimestrePagamento = Math.ceil(mesAtualNum / 3); // 1=Jan-Mar, 2=Abr-Jun, etc.
+   
+   // Meses que foram DECLARADOS para o trimestre de pagamento atual
+   let mesesDeclarados = [];
+   if (trimestrePagamento === 1) {
+     // Jan-Mar: declarou Out, Nov, Dez do ano anterior
+     mesesDeclarados = [{ano: anoAtualSistema - 1, mes: 10}, {ano: anoAtualSistema - 1, mes: 11}, {ano: anoAtualSistema - 1, mes: 12}];
+   } else if (trimestrePagamento === 2) {
+     // Abr-Jun: declarou Jan, Fev, Mar
+     mesesDeclarados = [{ano: anoAtualSistema, mes: 1}, {ano: anoAtualSistema, mes: 2}, {ano: anoAtualSistema, mes: 3}];
+   } else if (trimestrePagamento === 3) {
+     // Jul-Set: declarou Abr, Mai, Jun
+     mesesDeclarados = [{ano: anoAtualSistema, mes: 4}, {ano: anoAtualSistema, mes: 5}, {ano: anoAtualSistema, mes: 6}];
+   } else {
+     // Out-Dez: declarou Jul, Ago, Set
+     mesesDeclarados = [{ano: anoAtualSistema, mes: 7}, {ano: anoAtualSistema, mes: 8}, {ano: anoAtualSistema, mes: 9}];
+   }
+   
+   // Receitas do trimestre declarado
+   const receitasTrimestreDeclarado = mesesDeclarados.reduce((acc, m) => acc + getReceitasMes(m.ano, m.mes), 0);
+   
+   // Cálculo SS mensal correto: receitas_trimestre × 70% ÷ 3 × 21.4%
+   // Ou equivalente: receitas_trimestre × 70% × 21.4% ÷ 3
+   const rendimentoRelevanteTrimestreAtual = receitasTrimestreDeclarado * 0.70;
+   const ssBaseIncidenciaMensal = rendimentoRelevanteTrimestreAtual / 3;
+   const ssMesAtual = Math.max(20, ssBaseIncidenciaMensal * 0.214); // mínimo 20€
+   
+   // Calcular também o PRÓXIMO trimestre (para previsão)
+   // Próxima declaração = meses do trimestre que estamos a viver agora
+   let mesesProximaDeclaracao = [];
+   if (trimestrePagamento === 1) {
+     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 1}, {ano: anoAtualSistema, mes: 2}, {ano: anoAtualSistema, mes: 3}];
+   } else if (trimestrePagamento === 2) {
+     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 4}, {ano: anoAtualSistema, mes: 5}, {ano: anoAtualSistema, mes: 6}];
+   } else if (trimestrePagamento === 3) {
+     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 7}, {ano: anoAtualSistema, mes: 8}, {ano: anoAtualSistema, mes: 9}];
+   } else {
+     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 10}, {ano: anoAtualSistema, mes: 11}, {ano: anoAtualSistema, mes: 12}];
+   }
+   const receitasProximoTrimestre = mesesProximaDeclaracao.reduce((acc, m) => acc + getReceitasMes(m.ano, m.mes), 0);
+   const ssProximoTrimestre = Math.max(20, (receitasProximoTrimestre * 0.70 / 3) * 0.214);
+   
+   // SS anual estimada (baseada na média dos trimestres com dados)
+   const ssAnual = ssMesAtual * 12; // estimativa baseada no trimestre atual
+   const ssMensal = ssMesAtual;
+   
+   // Meses de referência para mostrar na UI
+   const nomeMesesDeclarados = mesesDeclarados.map(m => meses[m.mes - 1]?.substring(0, 3)).join('+');
+   const anoMesesDeclarados = mesesDeclarados[0]?.ano;
+   const nomeMesesProximos = mesesProximaDeclaracao.map(m => meses[m.mes - 1]?.substring(0, 3)).join('+');
+   
+   // Para compatibilidade (usado noutros sítios)
+   const rendimentoRelevanteSS = totalIliquido * 0.70;
+   const ssProximoMes = ssMesAtual; // agora é o valor correto do mês atual
    
    // IVA trimestre atual
    const trimestreAtual = Math.ceil(mesAtualNum / 3);
@@ -1597,7 +1664,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
    const totalImpostos = ssAnual + totalIVA + Math.max(0, -irsAPagarReceber);
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
  };
  const previsaoImpostos = calcPrevisaoImpostos();
  
@@ -1759,14 +1826,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    {/* Grid horizontal com todos os impostos */}
    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     {/* Próximo SS */}
+     {/* SS Mensal (baseada na declaração trimestral ativa) */}
      <div className="p-3 bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl">
        <div className="flex items-center gap-2 mb-1">
          <span className="text-blue-400">🏛️</span>
-         <span className="text-xs text-slate-400">SS (dia 10-20)</span>
+         <span className="text-xs text-slate-400">SS este mês</span>
        </div>
-       <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssProximoMes)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">Anual: {fmt(previsaoImpostos.ssAnual)}</p>
+       <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssMesAtual || previsaoImpostos.ssProximoMes)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
+       <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
      </div>
      
      {/* IVA a Pagar (trimestre anterior) */}
