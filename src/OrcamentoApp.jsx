@@ -552,6 +552,158 @@ const DraggableList = memo(({items, onReorder, renderItem, className}) => {
  );
 });
 
+// Componente isolado para pagamentos de impostos - memo evita re-renders do pai
+const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpdate, onDelete, fmt, showToast, confirmDelete }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const tipoRef = useRef(null);
+  const direcaoRef = useRef(null);
+  const dataRef = useRef(null);
+  const valorRef = useRef(null);
+  const refRef = useRef(null);
+
+  const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
+  const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
+  const todos = (impostosPagos || []).filter(p => p.data?.startsWith(anoAtual.toString())).sort((a, b) => b.data.localeCompare(a.data));
+  const totalPago = todos.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
+  const totalRecebido = todos.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
+
+  return (
+    <div className="mt-3">
+      <button 
+        onClick={() => setExpanded(!expanded)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/30 hover:bg-slate-700/50 text-slate-300'} transition-all`}
+      >
+        <span className="flex items-center gap-2">
+          <span>💳</span>
+          <span className="font-medium">Pagamentos registados</span>
+          {todos.length > 0 && (
+            <span className="text-xs text-slate-400">
+              ({todos.length}){' '}
+              {totalPago > 0 && <span className="text-red-400">↑ {fmt(totalPago)}</span>}
+              {totalPago > 0 && totalRecebido > 0 && ' '}
+              {totalRecebido > 0 && <span className="text-emerald-400">↓ {fmt(totalRecebido)}</span>}
+            </span>
+          )}
+        </span>
+        <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+      
+      {expanded && (
+        <div className="mt-2 space-y-2 animate-fadeIn">
+          {/* Formulário */}
+          <div className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">Tipo</span>
+              <select ref={tipoRef} defaultValue="SS"
+                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
+                <option value="SS">🏛️ SS</option>
+                <option value="IVA">💶 IVA</option>
+                <option value="IRS">📋 IRS</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">Direção</span>
+              <select ref={direcaoRef} defaultValue="pago"
+                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
+                <option value="pago">↑ Pago</option>
+                <option value="recebido">↓ Recebido</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">Data</span>
+              <input ref={dataRef} type="date" defaultValue={new Date().toISOString().split('T')[0]}
+                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">Valor (€)</span>
+              <input ref={valorRef} type="number" step="0.01" placeholder="0.00"
+                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">Ref.</span>
+              <input ref={refRef} type="text" placeholder="Jan/26"
+                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-20`} />
+            </div>
+            <button onClick={() => {
+              const tipo = tipoRef.current?.value || 'SS';
+              const direcao = direcaoRef.current?.value || 'pago';
+              const data = dataRef.current?.value || new Date().toISOString().split('T')[0];
+              const valRaw = parseFloat(valorRef.current?.value);
+              const referencia = refRef.current?.value || '';
+              if (!valRaw || valRaw <= 0) { showToast('Insere um valor válido', 'warning'); return; }
+              onAdd({ tipo, data, valor: direcao === 'recebido' ? -valRaw : valRaw, referencia });
+              if (valorRef.current) valorRef.current.value = '';
+              if (refRef.current) refRef.current.value = '';
+            }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
+            >+ Adicionar</button>
+          </div>
+          
+          {/* Lista */}
+          {todos.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtual}</p>
+          ) : (() => {
+            const totaisPorTipo = {};
+            todos.forEach(p => { 
+              if (!totaisPorTipo[p.tipo]) totaisPorTipo[p.tipo] = { pago: 0, recebido: 0 };
+              if (p.valor >= 0) totaisPorTipo[p.tipo].pago += p.valor;
+              else totaisPorTipo[p.tipo].recebido += Math.abs(p.valor);
+            });
+            const LIMIT = 6;
+            const visivel = showAll ? todos : todos.slice(0, LIMIT);
+            return (
+              <>
+                <div className="flex flex-wrap gap-3 px-3">
+                  {Object.entries(totaisPorTipo).map(([tipo, vals]) => (
+                    <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>
+                      {tiposIcons[tipo]} {tipo}: {vals.pago > 0 ? `↑${fmt(vals.pago)}` : ''}{vals.pago > 0 && vals.recebido > 0 ? ' · ' : ''}{vals.recebido > 0 ? <span className="text-emerald-400">↓{fmt(vals.recebido)}</span> : ''}
+                    </span>
+                  ))}
+                </div>
+                <div className="space-y-1 px-1">
+                  {visivel.map(p => (
+                    <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${p.valor < 0 ? (theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-900/10') : (theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30')}`}>
+                      <span className="flex-shrink-0">{tiposIcons[p.tipo]}</span>
+                      <select defaultValue={p.tipo}
+                        className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} text-xs w-12 cursor-pointer`}
+                        onChange={e => onUpdate(p.id, 'tipo', e.target.value)}>
+                        <option value="SS">SS</option><option value="IVA">IVA</option><option value="IRS">IRS</option>
+                      </select>
+                      <input type="date" defaultValue={p.data}
+                        className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
+                        onBlur={e => { if (e.target.value !== p.data) onUpdate(p.id, 'data', e.target.value); }} />
+                      <input type="text" defaultValue={p.referencia} placeholder="—"
+                        className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
+                        onBlur={e => { if (e.target.value !== p.referencia) onUpdate(p.id, 'referencia', e.target.value); }} />
+                      <div className="flex-1" />
+                      <span className={`text-[10px] flex-shrink-0 ${p.valor < 0 ? 'text-emerald-400' : 'text-red-400'}`}>{p.valor < 0 ? '↓' : '↑'}</span>
+                      <input type="number" step="0.01" defaultValue={Math.abs(p.valor)}
+                        className={`${p.valor < 0 ? 'text-emerald-400' : (theme === 'light' ? 'text-slate-900' : 'text-white')} bg-transparent font-bold text-xs text-right w-20`}
+                        onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { const nv = p.valor < 0 ? -Math.abs(v) : Math.abs(v); if (nv !== p.valor) onUpdate(p.id, 'valor', nv); }}} />
+                      <span className="text-slate-500 text-[10px]">€</span>
+                      <button onClick={() => onUpdate(p.id, 'valor', -p.valor)}
+                        className={`text-[10px] px-1 rounded ${p.valor < 0 ? 'text-emerald-400/60 hover:text-emerald-400' : 'text-red-400/60 hover:text-red-400'}`} title="Alternar pago/recebido">⇅</button>
+                      <button onClick={() => onDelete(p)}
+                        className="text-red-400/50 hover:text-red-400 flex-shrink-0">✕</button>
+                    </div>
+                  ))}
+                </div>
+                {todos.length > LIMIT && (
+                  <button onClick={() => setShowAll(!showAll)}
+                    className={`w-full text-center text-xs py-1.5 rounded-lg ${theme === 'light' ? 'text-blue-600 hover:bg-slate-100' : 'text-blue-400 hover:bg-slate-700/30'}`}>
+                    {showAll ? `▲ Mostrar últimos ${LIMIT}` : `▼ Ver todos (${todos.length})`}
+                  </button>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
@@ -664,14 +816,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [compareYear, setCompareYear] = useState(null);
   // Nota: estado offline gerido por isOnline acima
   
-  // Pagamentos de impostos
-  const [showPagImpostos, setShowPagImpostos] = useState(false);
-  const [showTodosPagImpostos, setShowTodosPagImpostos] = useState(false);
-  const pagImpostoTipoRef = useRef('SS');
-  const pagImpostoDataRef = useRef(null);
-  const pagImpostoValorRef = useRef(null);
-  const pagImpostoRefRef = useRef(null);
-  const pagImpostoDirecaoRef = useRef(null);
+  // Pagamentos de impostos - callbacks estáveis para o componente memo
+  const handleAddPagamento = useCallback(({ tipo, data, valor, referencia }) => {
+    saveUndo();
+    const novo = { id: Date.now(), tipo, data, valor, referencia, notas: '' };
+    uG('impostosPagos', [...(G.impostosPagos || []), novo]);
+    showToast(`${valor < 0 ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(Math.abs(valor))} registado`);
+  }, [G.impostosPagos]);
+  const handleUpdatePagamento = useCallback((id, field, value) => {
+    saveUndo();
+    uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
+  }, [G.impostosPagos]);
+  const handleDeletePagamento = useCallback((p) => {
+    confirmDelete(`Apagar ${p.valor < 0 ? 'reembolso' : 'pagamento'} ${p.tipo} de ${fmt(Math.abs(p.valor))}?`, () => {
+      saveUndo();
+      uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
+      showToast('Registo removido');
+    });
+  }, [G.impostosPagos]);
   
   // Sistema de Toast (substitui alert())
   const [toasts, setToasts] = useState([]);
@@ -1673,9 +1835,127 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
    const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
-   const totalImpostos = ssAnual + totalIVA + Math.max(0, -irsAPagarReceber);
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual, ssMensal, ssProximoMes, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA, ivaTrimestral: totalIVA/4, ivaTrimestreAtual, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos };
+   // ===== CALIBRAÇÃO COM BASE NO HISTÓRICO DE PAGAMENTOS =====
+   // Compara previsão vs real dos anos anteriores para ajustar estimativas
+   const calibracao = { SS: null, IVA: null, IRS: null };
+   const pagamentos = G.impostosPagos || [];
+   
+   // Recolher anos com pagamentos (excluindo o ano atual)
+   const anosComDados = [...new Set(pagamentos.filter(p => !p.data?.startsWith(anoAtualSistema.toString())).map(p => parseInt(p.data?.split('-')[0])))].filter(a => !isNaN(a)).sort();
+   
+   if (anosComDados.length > 0) {
+     // Para cada ano anterior, calcular o que a fórmula teria previsto
+     anosComDados.forEach(anoHist => {
+       const pagosAno = pagamentos.filter(p => p.data?.startsWith(anoHist.toString()));
+       
+       // SS: soma de pagamentos reais de SS nesse ano
+       const ssRealAno = pagosAno.filter(p => p.tipo === 'SS' && p.valor > 0).reduce((a, p) => a + p.valor, 0);
+       // SS previsto: recalcular com as receitas declaráveis desse ano
+       if (ssRealAno > 0) {
+         let ssPrevistoAno = 0;
+         for (let q = 1; q <= 4; q++) {
+           // Para cada trimestre de pagamento, determinar os meses declarados
+           let mesesDecl;
+           if (q === 1) mesesDecl = [{ano: anoHist - 1, mes: 10}, {ano: anoHist - 1, mes: 11}, {ano: anoHist - 1, mes: 12}];
+           else { const base = (q - 1) * 3; mesesDecl = [{ano: anoHist, mes: base - 2}, {ano: anoHist, mes: base - 1}, {ano: anoHist, mes: base}]; }
+           const recTrim = mesesDecl.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
+           const ssTrim = Math.max(20, (recTrim * 0.70 / 3) * 0.214) * 3; // 3 meses por trimestre
+           ssPrevistoAno += ssTrim;
+         }
+         if (ssPrevistoAno > 0) {
+           const fator = ssRealAno / ssPrevistoAno;
+           if (!calibracao.SS) calibracao.SS = { fatores: [], totalReal: 0, totalPrevisto: 0 };
+           calibracao.SS.fatores.push(fator);
+           calibracao.SS.totalReal += ssRealAno;
+           calibracao.SS.totalPrevisto += ssPrevistoAno;
+         }
+       }
+       
+       // IVA: soma de IVA pago nesse ano
+       const ivaRealAno = pagosAno.filter(p => p.tipo === 'IVA' && p.valor > 0).reduce((a, p) => a + p.valor, 0);
+       if (ivaRealAno > 0) {
+         // IVA previsto: soma de r.iva de todas as receitas desse ano
+         let ivaPrevistoAno = 0;
+         Object.entries(M).forEach(([key, mesData]) => {
+           if (!key.startsWith(anoHist.toString())) return;
+           (mesData.regCom || []).forEach(r => { ivaPrevistoAno += r.iva || 0; });
+         });
+         if (ivaPrevistoAno > 0) {
+           const fator = ivaRealAno / ivaPrevistoAno;
+           if (!calibracao.IVA) calibracao.IVA = { fatores: [], totalReal: 0, totalPrevisto: 0 };
+           calibracao.IVA.fatores.push(fator);
+           calibracao.IVA.totalReal += ivaRealAno;
+           calibracao.IVA.totalPrevisto += ivaPrevistoAno;
+         }
+       }
+       
+       // IRS: valor pago (positivo) ou recebido (negativo) nesse ano
+       const irsPagosAno = pagosAno.filter(p => p.tipo === 'IRS');
+       const irsRealAno = irsPagosAno.reduce((a, p) => a + p.valor, 0); // negativo = reembolso
+       if (irsPagosAno.length > 0) {
+         // IRS previsto: recalcular com receitas desse ano
+         const hAno = getHist().filter(x => x.ano === anoHist);
+         const recAnuais = hAno.reduce((a, x) => a + x.tot, 0);
+         if (recAnuais > 0) {
+           const rendCol = recAnuais * 0.75;
+           let impostoHist = 0, anterior = 0;
+           const escaloesHist = [
+             { limite: 8342, taxa: 0.125 }, { limite: 12587, taxa: 0.157 },
+             { limite: 17838, taxa: 0.212 }, { limite: 23089, taxa: 0.241 },
+             { limite: 29397, taxa: 0.311 }, { limite: 43090, taxa: 0.349 },
+             { limite: 55953, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
+             { limite: Infinity, taxa: 0.48 }
+           ];
+           for (const e of escaloesHist) {
+             if (rendCol > anterior) { impostoHist += (Math.min(rendCol, e.limite) - anterior) * e.taxa; anterior = e.limite; }
+           }
+           const deducoesHist = 4587.09 + Math.min(recAnuais * 0.15, 250);
+           const irsEstimadoHist = Math.max(0, impostoHist - deducoesHist);
+           const recComTaxas = hAno.reduce((a, x) => a + x.com, 0);
+           const retencoesHist = recComTaxas * (taxa / 100);
+           const irsPrevistoHist = -(retencoesHist - irsEstimadoHist); // positivo = a pagar, negativo = reembolso
+           
+           if (Math.abs(irsPrevistoHist) > 0) {
+             // Desvio absoluto: quanto a previsão errou
+             const desvio = irsRealAno - irsPrevistoHist;
+             if (!calibracao.IRS) calibracao.IRS = { desvios: [], totalReal: 0, totalPrevisto: 0 };
+             calibracao.IRS.desvios.push(desvio);
+             calibracao.IRS.totalReal += irsRealAno;
+             calibracao.IRS.totalPrevisto += irsPrevistoHist;
+           }
+         }
+       }
+     });
+   }
+   
+   // Calcular fatores de ajuste médios
+   const ssFatorAjuste = calibracao.SS ? calibracao.SS.totalReal / calibracao.SS.totalPrevisto : 1;
+   const ivaFatorAjuste = calibracao.IVA ? calibracao.IVA.totalReal / calibracao.IVA.totalPrevisto : 1;
+   const irsDesvioMedio = calibracao.IRS ? calibracao.IRS.desvios.reduce((a, d) => a + d, 0) / calibracao.IRS.desvios.length : 0;
+   
+   // Aplicar calibração
+   const ssMesAtualCalibrado = ssMesAtual * ssFatorAjuste;
+   const ssProximoTrimestreCalibrado = ssProximoTrimestre * ssFatorAjuste;
+   const ssAnualCalibrado = ssMesAtualCalibrado * 12;
+   const ivaTrimestreAtualCalibrado = ivaTrimestreAtual * ivaFatorAjuste;
+   const ivaTrimestreAnteriorCalibrado = ivaTrimestreAnterior * ivaFatorAjuste;
+   const irsAPagarReceberCalibrado = irsAPagarReceber + irsDesvioMedio;
+   
+   // Total impostos com calibração
+   const totalImpostos = ssAnualCalibrado + (totalIVA * ivaFatorAjuste) + Math.max(0, -irsAPagarReceberCalibrado);
+   const temCalibracao = calibracao.SS || calibracao.IVA || calibracao.IRS;
+   
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos,
+     // Dados de calibração para UI
+     calibracao: {
+       ativa: !!temCalibracao,
+       anosBase: anosComDados,
+       SS: calibracao.SS ? { fator: ssFatorAjuste, original: ssMesAtual, calibrado: ssMesAtualCalibrado } : null,
+       IVA: calibracao.IVA ? { fator: ivaFatorAjuste, original: ivaTrimestreAtual, calibrado: ivaTrimestreAtualCalibrado } : null,
+       IRS: calibracao.IRS ? { desvio: irsDesvioMedio, original: irsAPagarReceber, calibrado: irsAPagarReceberCalibrado } : null
+     }
+   };
  };
  const previsaoImpostos = calcPrevisaoImpostos();
  
@@ -1844,7 +2124,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
  <Card>
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-     <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
+     <div className="flex items-center gap-2">
+       <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
+       {previsaoImpostos.calibracao?.ativa && (
+         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title={`Calibrado com dados de ${previsaoImpostos.calibracao.anosBase.join(', ')}`}>
+           🎯 Calibrado
+         </span>
+       )}
+     </div>
      <div className="flex items-center gap-4">
        <span className="text-xs text-slate-500">Total anual:</span>
        <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos)}</span>
@@ -1862,6 +2149,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssMesAtual || previsaoImpostos.ssProximoMes)}</p>
        <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
        <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
+       {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.SS.original)} (×{previsaoImpostos.calibracao.SS.fator.toFixed(2)})</p>}
        {(() => {
          const mesNome = meses[new Date().getMonth()].substring(0,3);
          const anoShort = anoAtualSistema.toString().substring(2);
@@ -1894,6 +2182,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
          })()}
        </p>
+       {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.IVA.original)} (×{previsaoImpostos.calibracao.IVA.fator.toFixed(2)})</p>}
      </div>
      
      {/* Previsão IVA (trimestre atual) */}
@@ -1916,197 +2205,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {previsaoImpostos.irsAPagarReceber >= 0 ? '+' : ''}{fmt(previsaoImpostos.irsAPagarReceber)}
        </p>
        <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
+       {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400/70">🎯 Ajuste: {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)} (s/ ajuste: {fmt(previsaoImpostos.calibracao.IRS.original)})</p>}
      </div>
    </div>
    
    {/* PAGAMENTOS DE IMPOSTOS */}
-   <div className="mt-3">
-     <button 
-       onClick={() => setShowPagImpostos(!showPagImpostos)}
-       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/30 hover:bg-slate-700/50 text-slate-300'} transition-all`}
-     >
-       <span className="flex items-center gap-2">
-         <span>💳</span>
-         <span className="font-medium">Pagamentos registados</span>
-         {(() => {
-           const pagosAno = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString()));
-           const totalPago = pagosAno.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
-           const totalRecebido = pagosAno.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
-           const parts = [];
-           if (totalPago > 0) parts.push(`↑ ${fmt(totalPago)}`);
-           if (totalRecebido > 0) parts.push(`↓ ${fmt(totalRecebido)}`);
-           return parts.length > 0 ? <span className="text-xs text-slate-400">({pagosAno.length}) <span className="text-red-400">{parts[0]}</span>{parts[1] ? <>{' '}<span className="text-emerald-400">{parts[1]}</span></> : ''}</span> : null;
-         })()}
-       </span>
-       <span className={`transition-transform ${showPagImpostos ? 'rotate-180' : ''}`}>▾</span>
-     </button>
-     
-     {showPagImpostos && (
-       <div className="mt-2 space-y-2 animate-fadeIn">
-         {/* Formulário para novo pagamento */}
-         <div key="pag-form-static" className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
-           <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Tipo</span>
-             <select 
-               className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}
-               defaultValue="SS"
-               ref={el => { pagImpostoTipoRef.current = el; }}
-             >
-               <option value="SS">🏛️ SS</option>
-               <option value="IVA">💶 IVA</option>
-               <option value="IRS">📋 IRS</option>
-             </select>
-           </div>
-           <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Direção</span>
-             <select 
-               className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}
-               defaultValue="pago"
-               ref={el => { pagImpostoDirecaoRef.current = el; }}
-             >
-               <option value="pago">↑ Pago</option>
-               <option value="recebido">↓ Recebido</option>
-             </select>
-           </div>
-           <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Data</span>
-             <input type="date" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`}
-               defaultValue={new Date().toISOString().split('T')[0]}
-               ref={el => { pagImpostoDataRef.current = el; }}
-             />
-           </div>
-           <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Valor (€)</span>
-             <input type="number" step="0.01" placeholder="0.00" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
-               ref={el => { pagImpostoValorRef.current = el; }}
-             />
-           </div>
-           <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Ref.</span>
-             <input type="text" placeholder="Jan/26" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-20`}
-               ref={el => { pagImpostoRefRef.current = el; }}
-             />
-           </div>
-           <button 
-             onClick={() => {
-               const tipo = pagImpostoTipoRef.current?.value || 'SS';
-               const direcao = pagImpostoDirecaoRef.current?.value || 'pago';
-               const data = pagImpostoDataRef.current?.value || new Date().toISOString().split('T')[0];
-               const valRaw = parseFloat(pagImpostoValorRef.current?.value);
-               const referencia = pagImpostoRefRef.current?.value || '';
-               if (!valRaw || valRaw <= 0) { showToast('Insere um valor válido', 'warning'); return; }
-               const valor = direcao === 'recebido' ? -valRaw : valRaw;
-               saveUndo();
-               const novo = { id: Date.now(), tipo, data, valor, referencia, notas: '' };
-               uG('impostosPagos', [...(G.impostosPagos || []), novo]);
-               if (pagImpostoValorRef.current) pagImpostoValorRef.current.value = '';
-               if (pagImpostoRefRef.current) pagImpostoRefRef.current.value = '';
-               showToast(`${direcao === 'recebido' ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(valRaw)} registado`);
-             }}
-             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
-           >+ Adicionar</button>
-         </div>
-         
-         {/* Lista de pagamentos do ano */}
-         {(() => {
-           const todos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => b.data.localeCompare(a.data));
-           if (todos.length === 0) return <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtualSistema}</p>;
-           
-           const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
-           const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
-           const totaisPorTipo = {};
-           todos.forEach(p => { 
-             if (!totaisPorTipo[p.tipo]) totaisPorTipo[p.tipo] = { pago: 0, recebido: 0 };
-             if (p.valor >= 0) totaisPorTipo[p.tipo].pago += p.valor;
-             else totaisPorTipo[p.tipo].recebido += Math.abs(p.valor);
-           });
-           
-           const updatePagamento = (id, field, value) => {
-             saveUndo();
-             uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
-           };
-           
-           const LIMIT = 6;
-           const pagos = showTodosPagImpostos ? todos : todos.slice(0, LIMIT);
-           
-           return (
-             <>
-               {/* Resumo por tipo */}
-               <div className="flex flex-wrap gap-3 px-3">
-                 {Object.entries(totaisPorTipo).map(([tipo, vals]) => (
-                   <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>
-                     {tiposIcons[tipo]} {tipo}: {vals.pago > 0 ? `↑${fmt(vals.pago)}` : ''}{vals.pago > 0 && vals.recebido > 0 ? ' · ' : ''}{vals.recebido > 0 ? <span className="text-emerald-400">↓{fmt(vals.recebido)}</span> : ''}
-                   </span>
-                 ))}
-               </div>
-               
-               {/* Lista editável */}
-               <div className="space-y-1 px-1">
-                 {pagos.map(p => (
-                   <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${p.valor < 0 ? (theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-900/10') : (theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30')}`}>
-                     <span className="flex-shrink-0">{tiposIcons[p.tipo]}</span>
-                     <select 
-                       defaultValue={p.tipo}
-                       className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} text-xs w-12 cursor-pointer`}
-                       onChange={e => updatePagamento(p.id, 'tipo', e.target.value)}
-                     >
-                       <option value="SS">SS</option>
-                       <option value="IVA">IVA</option>
-                       <option value="IRS">IRS</option>
-                     </select>
-                     <input type="date" defaultValue={p.data}
-                       className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
-                       onBlur={e => { if (e.target.value !== p.data) updatePagamento(p.id, 'data', e.target.value); }}
-                     />
-                     <input type="text" defaultValue={p.referencia} placeholder="—"
-                       className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
-                       onBlur={e => { if (e.target.value !== p.referencia) updatePagamento(p.id, 'referencia', e.target.value); }}
-                     />
-                     <div className="flex-1" />
-                     <span className={`text-[10px] flex-shrink-0 ${p.valor < 0 ? 'text-emerald-400' : 'text-red-400'}`}>{p.valor < 0 ? '↓' : '↑'}</span>
-                     <input type="number" step="0.01" defaultValue={Math.abs(p.valor)}
-                       className={`${p.valor < 0 ? 'text-emerald-400' : (theme === 'light' ? 'text-slate-900' : 'text-white')} bg-transparent font-bold text-xs text-right w-20`}
-                       onBlur={e => { 
-                         const v = parseFloat(e.target.value); 
-                         if (!isNaN(v)) {
-                           const newVal = p.valor < 0 ? -Math.abs(v) : Math.abs(v);
-                           if (newVal !== p.valor) updatePagamento(p.id, 'valor', newVal); 
-                         }
-                       }}
-                     />
-                     <span className="text-slate-500 text-[10px]">€</span>
-                     <button
-                       onClick={() => updatePagamento(p.id, 'valor', -p.valor)}
-                       className={`text-[10px] px-1 rounded ${p.valor < 0 ? 'text-emerald-400/60 hover:text-emerald-400' : 'text-red-400/60 hover:text-red-400'}`}
-                       title="Alternar pago/recebido"
-                     >⇅</button>
-                     <button 
-                       onClick={() => confirmDelete(`Apagar ${p.valor < 0 ? 'reembolso' : 'pagamento'} ${p.tipo} de ${fmt(Math.abs(p.valor))}?`, () => {
-                         saveUndo();
-                         uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
-                         showToast('Registo removido');
-                       })}
-                       className="text-red-400/50 hover:text-red-400 flex-shrink-0"
-                     >✕</button>
-                   </div>
-                 ))}
-               </div>
-               
-               {/* Botão ver mais/menos */}
-               {todos.length > LIMIT && (
-                 <button 
-                   onClick={() => setShowTodosPagImpostos(!showTodosPagImpostos)}
-                   className={`w-full text-center text-xs py-1.5 rounded-lg ${theme === 'light' ? 'text-blue-600 hover:bg-slate-100' : 'text-blue-400 hover:bg-slate-700/30'}`}
-                 >
-                   {showTodosPagImpostos ? `▲ Mostrar últimos ${LIMIT}` : `▼ Ver todos (${todos.length})`}
-                 </button>
-               )}
-             </>
-           );
-         })()}
-       </div>
-     )}
-   </div>
+   <PagamentosImpostos
+     impostosPagos={G.impostosPagos}
+     anoAtual={anoAtualSistema}
+     theme={theme}
+     onAdd={handleAddPagamento}
+     onUpdate={handleUpdatePagamento}
+     onDelete={handleDeletePagamento}
+     fmt={fmt}
+     showToast={showToast}
+     confirmDelete={confirmDelete}
+   />
  </Card>
 
  {/* METAS ANUAIS */}
