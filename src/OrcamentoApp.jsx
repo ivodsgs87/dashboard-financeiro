@@ -664,6 +664,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [compareYear, setCompareYear] = useState(null);
   // Nota: estado offline gerido por isOnline acima
   
+  // Pagamentos de impostos
+  const [showPagImpostos, setShowPagImpostos] = useState(false);
+  const [novoPagImposto, setNovoPagImposto] = useState({ tipo: 'SS', data: new Date().toISOString().split('T')[0], valor: '', referencia: '', notas: '' });
+  
   // Sistema de Toast (substitui alert())
   const [toasts, setToasts] = useState([]);
   const toastIdRef = useRef(0);
@@ -781,6 +785,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     taxa: 38, contrib: 50, alocAmort: 75, alocFerias: 0, ferias: 130,
     // IVA real pago por trimestre (chave: "AAAA-TN", ex: "2025-T4")
     ivaPago: {},
+    // Registo de pagamentos de impostos (SS, IVA, IRS)
+    impostosPagos: [], // {id, tipo:'SS'|'IVA'|'IRS', data, valor, referencia, notas}
     despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Utilidades',val:200},{id:5,desc:'Mercado',cat:'Alimentação',val:714},{id:6,desc:'Internet',cat:'Utilidades',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Bancário',val:5},{id:9,desc:'Bar/Café',cat:'Lazer',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Outros',val:120},{id:12,desc:'Ginástica',cat:'Outros',val:45},{id:13,desc:'Seguro filhos',cat:'Seguros',val:60}],
     despPess: [{id:1,desc:'Telemóvel',cat:'Utilidades',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Vários',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Alimentação',val:100}],
     catsInv: ['ETF','PPR','P2P','CRIPTO','FE','CREDITO'],
@@ -1909,6 +1915,125 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {previsaoImpostos.totalForaUE > 0 && <span>🌍 {fmt(previsaoImpostos.totalForaUE)}</span>}
        </div>
      </div>
+   </div>
+   
+   {/* PAGAMENTOS DE IMPOSTOS */}
+   <div className="mt-3">
+     <button 
+       onClick={() => setShowPagImpostos(!showPagImpostos)}
+       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/30 hover:bg-slate-700/50 text-slate-300'} transition-all`}
+     >
+       <span className="flex items-center gap-2">
+         <span>💳</span>
+         <span className="font-medium">Pagamentos registados</span>
+         {(() => {
+           const pagosAno = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString()));
+           const totalPago = pagosAno.reduce((a, p) => a + (p.valor || 0), 0);
+           return totalPago > 0 ? <span className="text-xs text-emerald-400">({pagosAno.length} — {fmt(totalPago)})</span> : null;
+         })()}
+       </span>
+       <span className={`transition-transform ${showPagImpostos ? 'rotate-180' : ''}`}>▾</span>
+     </button>
+     
+     {showPagImpostos && (
+       <div className="mt-2 space-y-2 animate-fadeIn">
+         {/* Formulário para novo pagamento */}
+         <div className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+           <div className="flex flex-col gap-1">
+             <span className="text-[10px] text-slate-500">Tipo</span>
+             <select 
+               className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}
+               value={novoPagImposto.tipo}
+               onChange={e => setNovoPagImposto({...novoPagImposto, tipo: e.target.value})}
+             >
+               <option value="SS">🏛️ SS</option>
+               <option value="IVA">💶 IVA</option>
+               <option value="IRS">📋 IRS</option>
+             </select>
+           </div>
+           <div className="flex flex-col gap-1">
+             <span className="text-[10px] text-slate-500">Data</span>
+             <input type="date" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`}
+               value={novoPagImposto.data}
+               onChange={e => setNovoPagImposto({...novoPagImposto, data: e.target.value})}
+             />
+           </div>
+           <div className="flex flex-col gap-1">
+             <span className="text-[10px] text-slate-500">Valor (€)</span>
+             <input type="number" step="0.01" placeholder="0.00" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
+               value={novoPagImposto.valor}
+               onChange={e => setNovoPagImposto({...novoPagImposto, valor: e.target.value})}
+             />
+           </div>
+           <div className="flex flex-col gap-1">
+             <span className="text-[10px] text-slate-500">Ref. (ex: Jan/26, T4/25)</span>
+             <input type="text" placeholder="Jan/26" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
+               value={novoPagImposto.referencia}
+               onChange={e => setNovoPagImposto({...novoPagImposto, referencia: e.target.value})}
+             />
+           </div>
+           <button 
+             onClick={() => {
+               const val = parseFloat(novoPagImposto.valor);
+               if (!val || val <= 0) { showToast('Insere um valor válido', 'warning'); return; }
+               saveUndo();
+               const novo = { id: Date.now(), tipo: novoPagImposto.tipo, data: novoPagImposto.data, valor: val, referencia: novoPagImposto.referencia, notas: novoPagImposto.notas };
+               uG('impostosPagos', [...(G.impostosPagos || []), novo]);
+               setNovoPagImposto({ tipo: novoPagImposto.tipo, data: new Date().toISOString().split('T')[0], valor: '', referencia: '', notas: '' });
+               showToast(`Pagamento ${novoPagImposto.tipo} de ${fmt(val)} registado`);
+             }}
+             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
+           >+ Adicionar</button>
+         </div>
+         
+         {/* Lista de pagamentos do ano */}
+         {(() => {
+           const pagos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => b.data.localeCompare(a.data));
+           if (pagos.length === 0) return <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtualSistema}</p>;
+           
+           const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
+           const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
+           const totaisPorTipo = { SS: 0, IVA: 0, IRS: 0 };
+           pagos.forEach(p => { totaisPorTipo[p.tipo] = (totaisPorTipo[p.tipo] || 0) + p.valor; });
+           
+           return (
+             <>
+               {/* Resumo por tipo */}
+               <div className="flex gap-3 px-3">
+                 {Object.entries(totaisPorTipo).filter(([,v]) => v > 0).map(([tipo, total]) => (
+                   <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>{tiposIcons[tipo]} {tipo}: {fmt(total)}</span>
+                 ))}
+               </div>
+               
+               {/* Lista */}
+               <div className="max-h-48 overflow-y-auto space-y-1 px-1">
+                 {pagos.map(p => (
+                   <div key={p.id} className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                     <div className="flex items-center gap-2">
+                       <span>{tiposIcons[p.tipo]}</span>
+                       <span className={`font-medium ${tiposCores[p.tipo]}`}>{p.tipo}</span>
+                       <span className="text-slate-500">{p.data?.split('-').reverse().join('/')}</span>
+                       {p.referencia && <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} text-[10px]`}>{p.referencia}</span>}
+                     </div>
+                     <div className="flex items-center gap-2">
+                       <span className="font-bold">{fmt(p.valor)}</span>
+                       <button 
+                         onClick={() => confirmDelete(`Apagar pagamento ${p.tipo} de ${fmt(p.valor)}?`, () => {
+                           saveUndo();
+                           uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
+                           showToast('Pagamento removido');
+                         })}
+                         className="text-red-400/50 hover:text-red-400 ml-1"
+                       >✕</button>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </>
+           );
+         })()}
+       </div>
+     )}
    </div>
  </Card>
 
