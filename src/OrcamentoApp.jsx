@@ -666,10 +666,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   // Pagamentos de impostos
   const [showPagImpostos, setShowPagImpostos] = useState(false);
+  const [showTodosPagImpostos, setShowTodosPagImpostos] = useState(false);
   const pagImpostoTipoRef = useRef('SS');
   const pagImpostoDataRef = useRef(null);
   const pagImpostoValorRef = useRef(null);
   const pagImpostoRefRef = useRef(null);
+  const pagImpostoDirecaoRef = useRef(null);
   
   // Sistema de Toast (substitui alert())
   const [toasts, setToasts] = useState([]);
@@ -1764,7 +1766,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      
      case 'stats': return (
        <div key={widgetId} className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
+         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líq: ${fmt(recLiq)}${previsaoImpostos.totalUE > 0 || previsaoImpostos.totalForaUE > 0 ? ` · 🇵🇹${fmt(previsaoImpostos.totalPT)}${previsaoImpostos.totalUE > 0 ? ` 🇪🇺${fmt(previsaoImpostos.totalUE)}` : ''}${previsaoImpostos.totalForaUE > 0 ? ` 🌍${fmt(previsaoImpostos.totalForaUE)}` : ''}` : ''}`} icon="💰"/>
          <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
          <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
          <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
@@ -1899,20 +1901,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </p>
        <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
      </div>
-     
-     {/* Receitas por país */}
-     <div className="p-3 bg-gradient-to-br from-slate-500/20 to-slate-600/10 border border-slate-500/30 rounded-xl">
-       <div className="flex items-center gap-2 mb-1">
-         <span>🌍</span>
-         <span className="text-xs text-slate-400">Receitas {anoAtualSistema}</span>
-       </div>
-       <p className="text-xl font-bold text-white">{fmt(previsaoImpostos.totalIliquido)}</p>
-       <div className="flex gap-2 text-[10px] text-slate-500 mt-1">
-         <span>🇵🇹 {fmt(previsaoImpostos.totalPT)}</span>
-         {previsaoImpostos.totalUE > 0 && <span>🇪🇺 {fmt(previsaoImpostos.totalUE)}</span>}
-         {previsaoImpostos.totalForaUE > 0 && <span>🌍 {fmt(previsaoImpostos.totalForaUE)}</span>}
-       </div>
-     </div>
    </div>
    
    {/* PAGAMENTOS DE IMPOSTOS */}
@@ -1926,8 +1914,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <span className="font-medium">Pagamentos registados</span>
          {(() => {
            const pagosAno = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString()));
-           const totalPago = pagosAno.reduce((a, p) => a + (p.valor || 0), 0);
-           return totalPago > 0 ? <span className="text-xs text-emerald-400">({pagosAno.length} — {fmt(totalPago)})</span> : null;
+           const totalPago = pagosAno.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
+           const totalRecebido = pagosAno.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
+           const parts = [];
+           if (totalPago > 0) parts.push(`↑ ${fmt(totalPago)}`);
+           if (totalRecebido > 0) parts.push(`↓ ${fmt(totalRecebido)}`);
+           return parts.length > 0 ? <span className="text-xs text-slate-400">({pagosAno.length}) <span className="text-red-400">{parts[0]}</span>{parts[1] ? <>{' '}<span className="text-emerald-400">{parts[1]}</span></> : ''}</span> : null;
          })()}
        </span>
        <span className={`transition-transform ${showPagImpostos ? 'rotate-180' : ''}`}>▾</span>
@@ -1950,6 +1942,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </select>
            </div>
            <div className="flex flex-col gap-1">
+             <span className="text-[10px] text-slate-500">Direção</span>
+             <select 
+               className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}
+               defaultValue="pago"
+               ref={el => { pagImpostoDirecaoRef.current = el; }}
+             >
+               <option value="pago">↑ Pago</option>
+               <option value="recebido">↓ Recebido</option>
+             </select>
+           </div>
+           <div className="flex flex-col gap-1">
              <span className="text-[10px] text-slate-500">Data</span>
              <input type="date" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`}
                defaultValue={new Date().toISOString().split('T')[0]}
@@ -1963,24 +1966,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              />
            </div>
            <div className="flex flex-col gap-1">
-             <span className="text-[10px] text-slate-500">Ref. (ex: Jan/26, T4/25)</span>
-             <input type="text" placeholder="Jan/26" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
+             <span className="text-[10px] text-slate-500">Ref.</span>
+             <input type="text" placeholder="Jan/26" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-20`}
                ref={el => { pagImpostoRefRef.current = el; }}
              />
            </div>
            <button 
              onClick={() => {
                const tipo = pagImpostoTipoRef.current?.value || 'SS';
+               const direcao = pagImpostoDirecaoRef.current?.value || 'pago';
                const data = pagImpostoDataRef.current?.value || new Date().toISOString().split('T')[0];
-               const val = parseFloat(pagImpostoValorRef.current?.value);
+               const valRaw = parseFloat(pagImpostoValorRef.current?.value);
                const referencia = pagImpostoRefRef.current?.value || '';
-               if (!val || val <= 0) { showToast('Insere um valor válido', 'warning'); return; }
+               if (!valRaw || valRaw <= 0) { showToast('Insere um valor válido', 'warning'); return; }
+               const valor = direcao === 'recebido' ? -valRaw : valRaw;
                saveUndo();
-               const novo = { id: Date.now(), tipo, data, valor: val, referencia, notas: '' };
+               const novo = { id: Date.now(), tipo, data, valor, referencia, notas: '' };
                uG('impostosPagos', [...(G.impostosPagos || []), novo]);
                if (pagImpostoValorRef.current) pagImpostoValorRef.current.value = '';
                if (pagImpostoRefRef.current) pagImpostoRefRef.current.value = '';
-               showToast(`Pagamento ${tipo} de ${fmt(val)} registado`);
+               showToast(`${direcao === 'recebido' ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(valRaw)} registado`);
              }}
              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
            >+ Adicionar</button>
@@ -1988,32 +1993,41 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Lista de pagamentos do ano */}
          {(() => {
-           const pagos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => b.data.localeCompare(a.data));
-           if (pagos.length === 0) return <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtualSistema}</p>;
+           const todos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => b.data.localeCompare(a.data));
+           if (todos.length === 0) return <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtualSistema}</p>;
            
            const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
            const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
-           const totaisPorTipo = { SS: 0, IVA: 0, IRS: 0 };
-           pagos.forEach(p => { totaisPorTipo[p.tipo] = (totaisPorTipo[p.tipo] || 0) + p.valor; });
+           const totaisPorTipo = {};
+           todos.forEach(p => { 
+             if (!totaisPorTipo[p.tipo]) totaisPorTipo[p.tipo] = { pago: 0, recebido: 0 };
+             if (p.valor >= 0) totaisPorTipo[p.tipo].pago += p.valor;
+             else totaisPorTipo[p.tipo].recebido += Math.abs(p.valor);
+           });
            
            const updatePagamento = (id, field, value) => {
              saveUndo();
              uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
            };
            
+           const LIMIT = 6;
+           const pagos = showTodosPagImpostos ? todos : todos.slice(0, LIMIT);
+           
            return (
              <>
                {/* Resumo por tipo */}
-               <div className="flex gap-3 px-3">
-                 {Object.entries(totaisPorTipo).filter(([,v]) => v > 0).map(([tipo, total]) => (
-                   <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>{tiposIcons[tipo]} {tipo}: {fmt(total)}</span>
+               <div className="flex flex-wrap gap-3 px-3">
+                 {Object.entries(totaisPorTipo).map(([tipo, vals]) => (
+                   <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>
+                     {tiposIcons[tipo]} {tipo}: {vals.pago > 0 ? `↑${fmt(vals.pago)}` : ''}{vals.pago > 0 && vals.recebido > 0 ? ' · ' : ''}{vals.recebido > 0 ? <span className="text-emerald-400">↓{fmt(vals.recebido)}</span> : ''}
+                   </span>
                  ))}
                </div>
                
                {/* Lista editável */}
-               <div className="max-h-48 overflow-y-auto space-y-1 px-1">
+               <div className="space-y-1 px-1">
                  {pagos.map(p => (
-                   <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                   <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${p.valor < 0 ? (theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-900/10') : (theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30')}`}>
                      <span className="flex-shrink-0">{tiposIcons[p.tipo]}</span>
                      <select 
                        defaultValue={p.tipo}
@@ -2028,27 +2042,49 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
                        onBlur={e => { if (e.target.value !== p.data) updatePagamento(p.id, 'data', e.target.value); }}
                      />
-                     <input type="text" defaultValue={p.referencia}
+                     <input type="text" defaultValue={p.referencia} placeholder="—"
                        className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
                        onBlur={e => { if (e.target.value !== p.referencia) updatePagamento(p.id, 'referencia', e.target.value); }}
                      />
                      <div className="flex-1" />
-                     <input type="number" step="0.01" defaultValue={p.valor}
-                       className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} font-bold text-xs text-right w-20`}
-                       onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== p.valor) updatePagamento(p.id, 'valor', v); }}
+                     <span className={`text-[10px] flex-shrink-0 ${p.valor < 0 ? 'text-emerald-400' : 'text-red-400'}`}>{p.valor < 0 ? '↓' : '↑'}</span>
+                     <input type="number" step="0.01" defaultValue={Math.abs(p.valor)}
+                       className={`${p.valor < 0 ? 'text-emerald-400' : (theme === 'light' ? 'text-slate-900' : 'text-white')} bg-transparent font-bold text-xs text-right w-20`}
+                       onBlur={e => { 
+                         const v = parseFloat(e.target.value); 
+                         if (!isNaN(v)) {
+                           const newVal = p.valor < 0 ? -Math.abs(v) : Math.abs(v);
+                           if (newVal !== p.valor) updatePagamento(p.id, 'valor', newVal); 
+                         }
+                       }}
                      />
                      <span className="text-slate-500 text-[10px]">€</span>
+                     <button
+                       onClick={() => updatePagamento(p.id, 'valor', -p.valor)}
+                       className={`text-[10px] px-1 rounded ${p.valor < 0 ? 'text-emerald-400/60 hover:text-emerald-400' : 'text-red-400/60 hover:text-red-400'}`}
+                       title="Alternar pago/recebido"
+                     >⇅</button>
                      <button 
-                       onClick={() => confirmDelete(`Apagar pagamento ${p.tipo} de ${fmt(p.valor)}?`, () => {
+                       onClick={() => confirmDelete(`Apagar ${p.valor < 0 ? 'reembolso' : 'pagamento'} ${p.tipo} de ${fmt(Math.abs(p.valor))}?`, () => {
                          saveUndo();
                          uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
-                         showToast('Pagamento removido');
+                         showToast('Registo removido');
                        })}
-                       className="text-red-400/50 hover:text-red-400 ml-1 flex-shrink-0"
+                       className="text-red-400/50 hover:text-red-400 flex-shrink-0"
                      >✕</button>
                    </div>
                  ))}
                </div>
+               
+               {/* Botão ver mais/menos */}
+               {todos.length > LIMIT && (
+                 <button 
+                   onClick={() => setShowTodosPagImpostos(!showTodosPagImpostos)}
+                   className={`w-full text-center text-xs py-1.5 rounded-lg ${theme === 'light' ? 'text-blue-600 hover:bg-slate-100' : 'text-blue-400 hover:bg-slate-700/30'}`}
+                 >
+                   {showTodosPagImpostos ? `▲ Mostrar últimos ${LIMIT}` : `▼ Ver todos (${todos.length})`}
+                 </button>
+               )}
              </>
            );
          })()}
