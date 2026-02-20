@@ -1766,7 +1766,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      
      case 'stats': return (
        <div key={widgetId} className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líq: ${fmt(recLiq)}${previsaoImpostos.totalUE > 0 || previsaoImpostos.totalForaUE > 0 ? ` · 🇵🇹${fmt(previsaoImpostos.totalPT)}${previsaoImpostos.totalUE > 0 ? ` 🇪🇺${fmt(previsaoImpostos.totalUE)}` : ''}${previsaoImpostos.totalForaUE > 0 ? ` 🌍${fmt(previsaoImpostos.totalForaUE)}` : ''}` : ''}`} icon="💰"/>
+         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
          <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
          <StatCard label="Taxa Poupança" value={`${taxaPoupanca.toFixed(1)}%`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
          <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
@@ -1825,6 +1825,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  </Card>
  
+ {/* RECEITAS ANUAIS POR ORIGEM */}
+ <Card className="p-3 sm:p-4">
+   <div className="flex items-center justify-between">
+     <div className="flex items-center gap-2">
+       <span>🌍</span>
+       <span className="font-semibold text-sm">Receitas {anoAtualSistema}</span>
+     </div>
+     <span className={`text-xl font-bold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{fmt(previsaoImpostos.totalIliquido)}</span>
+   </div>
+   <div className="flex gap-4 mt-1">
+     <span className="text-xs text-slate-500">🇵🇹 PT: {fmt(previsaoImpostos.totalPT)}</span>
+     {previsaoImpostos.totalUE > 0 && <span className="text-xs text-slate-500">🇪🇺 UE: {fmt(previsaoImpostos.totalUE)}</span>}
+     {previsaoImpostos.totalForaUE > 0 && <span className="text-xs text-slate-500">🌍 Fora UE: {fmt(previsaoImpostos.totalForaUE)}</span>}
+   </div>
+ </Card>
+
  {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
  <Card>
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
