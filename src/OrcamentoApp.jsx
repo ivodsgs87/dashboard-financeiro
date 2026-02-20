@@ -1845,8 +1845,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
        <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
        {(() => {
-         const mesRef = `${meses[new Date().getMonth()].substring(0,3)}/${anoAtualSistema.toString().substring(2)}`;
-         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && p.referencia === mesRef);
+         const mesNome = meses[new Date().getMonth()].substring(0,3);
+         const anoShort = anoAtualSistema.toString().substring(2);
+         const anoFull = anoAtualSistema.toString();
+         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && (p.referencia === `${mesNome}/${anoShort}` || p.referencia === `${mesNome}/${anoFull}`));
          return <p className="text-[10px] mt-0.5">{ssPago ? <span className="text-emerald-400">✓ Pago {fmt(ssPago.valor)}</span> : <span className="text-amber-400">⏳ Por pagar</span>}</p>;
        })()}
      </div>
@@ -1868,7 +1870,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-[10px] text-slate-500 mt-1">
          Prazo: 25/{previsaoImpostos.dataLimiteIva.getMonth() + 1}
          {(() => {
-           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && p.referencia === `T${previsaoImpostos.trimestreAnterior}/${previsaoImpostos.anoTrimestreAnterior}`);
+           const tAnt = previsaoImpostos.trimestreAnterior;
+           const aAnt = previsaoImpostos.anoTrimestreAnterior;
+           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && (p.referencia === `T${tAnt}/${aAnt}` || p.referencia === `T${tAnt}/${String(aAnt).slice(2)}`));
            return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
          })()}
        </p>
@@ -1932,7 +1936,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {showPagImpostos && (
        <div className="mt-2 space-y-2 animate-fadeIn">
          {/* Formulário para novo pagamento */}
-         <div className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+         <div key="pag-form-static" className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
            <div className="flex flex-col gap-1">
              <span className="text-[10px] text-slate-500">Tipo</span>
              <select 
@@ -1992,6 +1996,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            const totaisPorTipo = { SS: 0, IVA: 0, IRS: 0 };
            pagos.forEach(p => { totaisPorTipo[p.tipo] = (totaisPorTipo[p.tipo] || 0) + p.valor; });
            
+           const updatePagamento = (id, field, value) => {
+             saveUndo();
+             uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
+           };
+           
            return (
              <>
                {/* Resumo por tipo */}
@@ -2001,27 +2010,42 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  ))}
                </div>
                
-               {/* Lista */}
+               {/* Lista editável */}
                <div className="max-h-48 overflow-y-auto space-y-1 px-1">
                  {pagos.map(p => (
-                   <div key={p.id} className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                     <div className="flex items-center gap-2">
-                       <span>{tiposIcons[p.tipo]}</span>
-                       <span className={`font-medium ${tiposCores[p.tipo]}`}>{p.tipo}</span>
-                       <span className="text-slate-500">{p.data?.split('-').reverse().join('/')}</span>
-                       {p.referencia && <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} text-[10px]`}>{p.referencia}</span>}
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="font-bold">{fmt(p.valor)}</span>
-                       <button 
-                         onClick={() => confirmDelete(`Apagar pagamento ${p.tipo} de ${fmt(p.valor)}?`, () => {
-                           saveUndo();
-                           uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
-                           showToast('Pagamento removido');
-                         })}
-                         className="text-red-400/50 hover:text-red-400 ml-1"
-                       >✕</button>
-                     </div>
+                   <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                     <span className="flex-shrink-0">{tiposIcons[p.tipo]}</span>
+                     <select 
+                       defaultValue={p.tipo}
+                       className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} text-xs w-12 cursor-pointer`}
+                       onChange={e => updatePagamento(p.id, 'tipo', e.target.value)}
+                     >
+                       <option value="SS">SS</option>
+                       <option value="IVA">IVA</option>
+                       <option value="IRS">IRS</option>
+                     </select>
+                     <input type="date" defaultValue={p.data}
+                       className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
+                       onBlur={e => { if (e.target.value !== p.data) updatePagamento(p.id, 'data', e.target.value); }}
+                     />
+                     <input type="text" defaultValue={p.referencia}
+                       className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
+                       onBlur={e => { if (e.target.value !== p.referencia) updatePagamento(p.id, 'referencia', e.target.value); }}
+                     />
+                     <div className="flex-1" />
+                     <input type="number" step="0.01" defaultValue={p.valor}
+                       className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} font-bold text-xs text-right w-20`}
+                       onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== p.valor) updatePagamento(p.id, 'valor', v); }}
+                     />
+                     <span className="text-slate-500 text-[10px]">€</span>
+                     <button 
+                       onClick={() => confirmDelete(`Apagar pagamento ${p.tipo} de ${fmt(p.valor)}?`, () => {
+                         saveUndo();
+                         uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
+                         showToast('Pagamento removido');
+                       })}
+                       className="text-red-400/50 hover:text-red-400 ml-1 flex-shrink-0"
+                     >✕</button>
                    </div>
                  ))}
                </div>
