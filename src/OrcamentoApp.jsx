@@ -666,7 +666,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   // Pagamentos de impostos
   const [showPagImpostos, setShowPagImpostos] = useState(false);
-  const [novoPagImposto, setNovoPagImposto] = useState({ tipo: 'SS', data: new Date().toISOString().split('T')[0], valor: '', referencia: '', notas: '' });
+  const pagImpostoTipoRef = useRef('SS');
+  const pagImpostoDataRef = useRef(null);
+  const pagImpostoValorRef = useRef(null);
+  const pagImpostoRefRef = useRef(null);
   
   // Sistema de Toast (substitui alert())
   const [toasts, setToasts] = useState([]);
@@ -1841,14 +1844,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssMesAtual || previsaoImpostos.ssProximoMes)}</p>
        <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
        <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
+       {(() => {
+         const mesRef = `${meses[new Date().getMonth()].substring(0,3)}/${anoAtualSistema.toString().substring(2)}`;
+         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && p.referencia === mesRef);
+         return <p className="text-[10px] mt-0.5">{ssPago ? <span className="text-emerald-400">✓ Pago {fmt(ssPago.valor)}</span> : <span className="text-amber-400">⏳ Por pagar</span>}</p>;
+       })()}
      </div>
      
-     {/* IVA a Pagar (trimestre anterior) */}
+     {/* IVA a Pagar - Previsão do trimestre anterior */}
      <div className={`p-3 rounded-xl ${previsaoImpostos.diasParaIva <= 7 ? 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30' : 'bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30'}`}>
        <div className="flex items-center justify-between mb-1">
          <div className="flex items-center gap-2">
            <span className="text-orange-400">💶</span>
-           <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior} a pagar</span>
+           <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior}</span>
          </div>
          {previsaoImpostos.diasParaIva > 0 && (
            <span className={`text-[10px] px-1.5 py-0.5 rounded ${previsaoImpostos.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-400'}`}>
@@ -1856,27 +1864,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </span>
          )}
        </div>
-       <div className="flex items-center gap-2">
-         <span className="text-slate-500">€</span>
-         <input
-           type="number"
-           className="w-24 bg-slate-700/50 border border-orange-500/30 rounded px-2 py-1 text-orange-400 font-bold text-right text-lg focus:outline-none focus:border-orange-400"
-           placeholder={previsaoImpostos.ivaTrimestreAnterior.toFixed(0)}
-           defaultValue={previsaoImpostos.ivaPagoAnterior || ''}
-           onBlur={e => {
-             const val = parseFloat(e.target.value);
-             if (!isNaN(val) && val > 0) {
-               uG('ivaPago', { ...G.ivaPago, [previsaoImpostos.chaveIvaAnterior]: val });
-             } else if (e.target.value === '') {
-               const newIvaPago = { ...G.ivaPago };
-               delete newIvaPago[previsaoImpostos.chaveIvaAnterior];
-               uG('ivaPago', newIvaPago);
-             }
-           }}
-         />
-       </div>
+       <p className="text-xl font-bold text-orange-400">{fmt(previsaoImpostos.ivaTrimestreAnterior)}</p>
        <p className="text-[10px] text-slate-500 mt-1">
-         Previsão: {fmt(previsaoImpostos.ivaTrimestreAnterior)} | Prazo: 25/{previsaoImpostos.dataLimiteIva.getMonth() + 1}
+         Prazo: 25/{previsaoImpostos.dataLimiteIva.getMonth() + 1}
+         {(() => {
+           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && p.referencia === `T${previsaoImpostos.trimestreAnterior}/${previsaoImpostos.anoTrimestreAnterior}`);
+           return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
+         })()}
        </p>
      </div>
      
@@ -1943,8 +1937,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <span className="text-[10px] text-slate-500">Tipo</span>
              <select 
                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}
-               value={novoPagImposto.tipo}
-               onChange={e => setNovoPagImposto({...novoPagImposto, tipo: e.target.value})}
+               defaultValue="SS"
+               ref={el => { pagImpostoTipoRef.current = el; }}
              >
                <option value="SS">🏛️ SS</option>
                <option value="IVA">💶 IVA</option>
@@ -1954,33 +1948,35 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="flex flex-col gap-1">
              <span className="text-[10px] text-slate-500">Data</span>
              <input type="date" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`}
-               value={novoPagImposto.data}
-               onChange={e => setNovoPagImposto({...novoPagImposto, data: e.target.value})}
+               defaultValue={new Date().toISOString().split('T')[0]}
+               ref={el => { pagImpostoDataRef.current = el; }}
              />
            </div>
            <div className="flex flex-col gap-1">
              <span className="text-[10px] text-slate-500">Valor (€)</span>
              <input type="number" step="0.01" placeholder="0.00" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
-               value={novoPagImposto.valor}
-               onChange={e => setNovoPagImposto({...novoPagImposto, valor: e.target.value})}
+               ref={el => { pagImpostoValorRef.current = el; }}
              />
            </div>
            <div className="flex flex-col gap-1">
              <span className="text-[10px] text-slate-500">Ref. (ex: Jan/26, T4/25)</span>
              <input type="text" placeholder="Jan/26" className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`}
-               value={novoPagImposto.referencia}
-               onChange={e => setNovoPagImposto({...novoPagImposto, referencia: e.target.value})}
+               ref={el => { pagImpostoRefRef.current = el; }}
              />
            </div>
            <button 
              onClick={() => {
-               const val = parseFloat(novoPagImposto.valor);
+               const tipo = pagImpostoTipoRef.current?.value || 'SS';
+               const data = pagImpostoDataRef.current?.value || new Date().toISOString().split('T')[0];
+               const val = parseFloat(pagImpostoValorRef.current?.value);
+               const referencia = pagImpostoRefRef.current?.value || '';
                if (!val || val <= 0) { showToast('Insere um valor válido', 'warning'); return; }
                saveUndo();
-               const novo = { id: Date.now(), tipo: novoPagImposto.tipo, data: novoPagImposto.data, valor: val, referencia: novoPagImposto.referencia, notas: novoPagImposto.notas };
+               const novo = { id: Date.now(), tipo, data, valor: val, referencia, notas: '' };
                uG('impostosPagos', [...(G.impostosPagos || []), novo]);
-               setNovoPagImposto({ tipo: novoPagImposto.tipo, data: new Date().toISOString().split('T')[0], valor: '', referencia: '', notas: '' });
-               showToast(`Pagamento ${novoPagImposto.tipo} de ${fmt(val)} registado`);
+               if (pagImpostoValorRef.current) pagImpostoValorRef.current.value = '';
+               if (pagImpostoRefRef.current) pagImpostoRefRef.current.value = '';
+               showToast(`Pagamento ${tipo} de ${fmt(val)} registado`);
              }}
              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
            >+ Adicionar</button>
