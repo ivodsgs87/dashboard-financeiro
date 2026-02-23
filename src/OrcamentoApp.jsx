@@ -10333,113 +10333,60 @@ ${transacoesOrdenadas.map(t => `<tr>
          </>)}
          
          {/* ===== IMPOSTOS CONSOLIDADO ===== */}
-         {sidebarTab === 'impostos' && (() => {
-           const pi = previsaoImpostos || {};
-           const cal = pi.calibracao || {};
-           const pagos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
-           const totalP = pagos.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
-           const totalR = pagos.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
-           const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
-           const irsVal = pi.irsAPagarReceber || 0;
-           
-           return (<>
-             {/* Resumo Anual */}
-             <div>
-               <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Resumo Anual {anoAtualSistema}</h4>
-               <div className={`p-4 rounded-xl space-y-4 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                 <div className="flex items-center justify-between">
-                   <span className="text-sm font-medium">Total impostos estimado</span>
-                   <span className="text-lg font-bold text-orange-400">{fmt(pi.totalImpostos || 0)}</span>
+         {sidebarTab === 'impostos' && (
+           <div className="space-y-4">
+             <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <h4 className="font-semibold mb-3">Resumo Anual {anoAtualSistema}</h4>
+               <div className="space-y-3 text-sm">
+                 <div className="flex justify-between">
+                   <span className="text-blue-400">🏛️ SS</span>
+                   <span className="font-bold">{fmt((previsaoImpostos || {}).ssAnual || 0)}/ano</span>
                  </div>
-                 <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
-                 
-                 {/* SS */}
-                 <div>
-                   <div className="flex items-center justify-between mb-1">
-                     <span className="text-sm text-blue-400">🏛️ Segurança Social</span>
-                     <span className="font-bold">{fmt(pi.ssAnual || 0)}/ano</span>
-                   </div>
-                   <p className="text-xs text-slate-500">Mensal: {fmt(pi.ssMensal || 0)} · Próx. trim: ~{fmt(pi.ssProximoTrimestre || 0)}/mês</p>
-                   {cal.SS && <p className="text-[10px] text-purple-400 mt-1">🎯 ×{(cal.SS.fator || 1).toFixed(2)} (fórmula: {fmt(cal.SS.original || 0)})</p>}
+                 <div className="flex justify-between">
+                   <span className="text-orange-400">💶 IVA</span>
+                   <span className="font-bold">{fmt((previsaoImpostos || {}).ivaAPagar || 0)}/ano</span>
                  </div>
-                 <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
-                 
-                 {/* IVA */}
-                 <div>
-                   <div className="flex items-center justify-between mb-1">
-                     <span className="text-sm text-orange-400">💶 IVA</span>
-                     <span className="font-bold">{fmt(pi.ivaAPagar || 0)}/ano</span>
-                   </div>
-                   <p className="text-xs text-slate-500">T{pi.trimestreAnterior || '?'}/{pi.anoTrimestreAnterior || '?'}: {fmt(pi.ivaTrimestreAnterior || 0)} · T{pi.trimestreAtual || '?'}/{anoAtualSistema}: {fmt(pi.ivaTrimestreAtual || 0)}</p>
-                   {cal.IVA && <p className="text-[10px] text-purple-400 mt-1">🎯 ×{(cal.IVA.fator || 1).toFixed(2)} (fórmula: {fmt(cal.IVA.original || 0)})</p>}
+                 <div className="flex justify-between">
+                   <span className={(((previsaoImpostos || {}).irsAPagarReceber || 0) >= 0) ? 'text-emerald-400' : 'text-red-400'}>📋 IRS</span>
+                   <span className={`font-bold ${(((previsaoImpostos || {}).irsAPagarReceber || 0) >= 0) ? 'text-emerald-400' : 'text-red-400'}`}>
+                     {fmt(Math.abs((previsaoImpostos || {}).irsAPagarReceber || 0))}
+                   </span>
                  </div>
-                 <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
-                 
-                 {/* IRS */}
-                 <div>
-                   <div className="flex items-center justify-between mb-1">
-                     <span className={`text-sm ${irsVal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>📋 IRS</span>
-                     <span className={`font-bold ${irsVal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                       {irsVal >= 0 ? 'Reembolso ' : 'A pagar '}{fmt(Math.abs(irsVal))}
-                     </span>
+                 <div className={`border-t pt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                   <div className="flex justify-between font-bold">
+                     <span>Total</span>
+                     <span className="text-orange-400">{fmt((previsaoImpostos || {}).totalImpostos || 0)}</span>
                    </div>
-                   <p className="text-xs text-slate-500">Est: {fmt(pi.irsEstimado || 0)} · Ret: {fmt(pi.irsRetencoes || 0)} · Taxa: {(pi.irsTaxaEfetiva || 0).toFixed(1)}%</p>
-                   <p className="text-xs text-slate-500">Rend. coletável: {fmt((pi.totalIliquido || 0) * 0.75)}</p>
-                   {cal.IRS && <p className="text-[10px] text-purple-400 mt-1">🎯 Ajuste: {(cal.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(cal.IRS.desvio || 0)}</p>}
                  </div>
                </div>
              </div>
-             
-             {/* Pagamentos */}
-             <div>
-               <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Pagamentos {anoAtualSistema}</h4>
-               <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                 {pagos.length === 0 ? (
-                   <p className="text-xs text-slate-500 text-center">Sem pagamentos registados</p>
-                 ) : (
-                   <div className="space-y-2">
-                     <div className="flex gap-4 text-sm">
-                       {totalP > 0 && <span className="text-red-400">↑ Pago: {fmt(totalP)}</span>}
-                       {totalR > 0 && <span className="text-emerald-400">↓ Recebido: {fmt(totalR)}</span>}
-                     </div>
-                     <div className="space-y-1 max-h-60 overflow-y-auto">
-                       {pagos.map(p => (
-                         <div key={p.id} className={`flex items-center gap-2 text-xs py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
-                           <span>{tiposIcons[p.tipo] || '📄'}</span>
-                           <span className="text-slate-500 w-20">{p.data}</span>
-                           <span className={`px-1.5 py-0.5 rounded text-[10px] ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{p.referencia || '—'}</span>
-                           <div className="flex-1" />
-                           <span className={`font-bold ${p.valor < 0 ? 'text-emerald-400' : ''}`}>{p.valor < 0 ? '↓' : '↑'} {fmt(Math.abs(p.valor))}</span>
-                         </div>
-                       ))}
-                     </div>
+             <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <h4 className="font-semibold mb-3">Pagamentos {anoAtualSistema}</h4>
+               <div className="space-y-1 text-xs">
+                 {(G.impostosPagos || []).filter(p => (p.data || '').startsWith(String(anoAtualSistema))).sort((a, b) => (b.data || '').localeCompare(a.data || '')).map(p => (
+                   <div key={p.id} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                     <span>{p.tipo === 'SS' ? '🏛️' : p.tipo === 'IVA' ? '💶' : '📋'}</span>
+                     <span className="text-slate-500">{p.data}</span>
+                     <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{p.referencia || '—'}</span>
+                     <span className="flex-1" />
+                     <span className={`font-bold ${p.valor < 0 ? 'text-emerald-400' : ''}`}>{fmt(Math.abs(p.valor || 0))}</span>
                    </div>
+                 ))}
+                 {(G.impostosPagos || []).filter(p => (p.data || '').startsWith(String(anoAtualSistema))).length === 0 && (
+                   <p className="text-slate-500 text-center py-2">Sem pagamentos</p>
                  )}
                </div>
              </div>
-             
-             {/* Calibração */}
-             <div>
-               <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Calibração</h4>
-               <div className={`p-4 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                 {cal.ativa ? (
-                   <div className="space-y-2">
-                     <p className="text-purple-400 text-xs">🎯 Calibrado com dados de {(cal.anosBase || []).join(', ')}</p>
-                     <p className="text-xs text-slate-500">Previsões ajustadas com base no histórico real vs estimado.</p>
-                     {cal.SS && <p className="text-xs">SS: fator ×{(cal.SS.fator || 1).toFixed(3)}</p>}
-                     {cal.IVA && <p className="text-xs">IVA: fator ×{(cal.IVA.fator || 1).toFixed(3)}</p>}
-                     {cal.IRS && <p className="text-xs">IRS: desvio {(cal.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(cal.IRS.desvio || 0)}</p>}
-                   </div>
-                 ) : (
-                   <div className="text-xs text-slate-500 space-y-2">
-                     <p>A calibração ativa-se quando registares pagamentos de anos anteriores.</p>
-                     <p>Ex: regista SS e IVA de 2025 → a app ajusta as previsões de 2026.</p>
-                   </div>
-                 )}
-               </div>
+             <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <h4 className="font-semibold mb-2">Calibração</h4>
+               <p className="text-xs text-slate-500">
+                 {(previsaoImpostos || {}).calibracao && (previsaoImpostos || {}).calibracao.ativa
+                   ? '🎯 Calibração ativa com base no histórico.'
+                   : 'Regista pagamentos de anos anteriores para ativar.'}
+               </p>
              </div>
-           </>);
-         })()}
+           </div>
+         )}
          
          {/* ===== SOBRE ===== */}
          {sidebarTab === 'sobre' && (<>
