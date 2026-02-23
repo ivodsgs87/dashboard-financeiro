@@ -10236,8 +10236,8 @@ ${transacoesOrdenadas.map(t => `<tr>
            </div>
            <button onClick={() => setShowSidebar(false)} className={`p-2 rounded-lg ${theme === 'light' ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'}`}>✕</button>
          </div>
-         {/* Sidebar tabs */}
-         <div className="flex gap-1 mt-4 overflow-x-auto scrollbar-hide pb-1">
+         {/* Sidebar tabs - vertical */}
+         <div className="flex flex-col gap-0.5 mt-4">
            {[
              { id: 'settings', icon: '⚙️', label: 'Definições' },
              { id: 'impostos', icon: '🏛️', label: 'Impostos' },
@@ -10246,7 +10246,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              { id: 'sobre', icon: 'ℹ️', label: 'Sobre' },
            ].map(t => (
              <button key={t.id} onClick={() => setSidebarTab(t.id)}
-               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${sidebarTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}>
+               className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all w-full text-left ${sidebarTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}>
                <span>{t.icon}</span>{t.label}
              </button>
            ))}
@@ -10343,31 +10343,62 @@ ${transacoesOrdenadas.map(t => `<tr>
          </>)}
          
          {/* ===== IMPOSTOS CONSOLIDADO ===== */}
-         {sidebarTab === 'impostos' && (
+         {sidebarTab === 'impostos' && (() => {
+           const pi = previsaoImpostos || {};
+           const irsVal = pi.irsAPagarReceber || 0;
+           return (
            <div className="space-y-4">
              <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                <h4 className="font-semibold mb-3">Resumo Anual {anoAtualSistema}</h4>
                <div className="space-y-3 text-sm">
-                 <div className="flex justify-between">
-                   <span className="text-blue-400">🏛️ SS</span>
-                   <span className="font-bold">{fmt((previsaoImpostos || {}).ssAnual || 0)}/ano</span>
+                 {/* SS */}
+                 <div>
+                   <div className="flex justify-between">
+                     <span className="text-blue-400">🏛️ Segurança Social</span>
+                     <span className="font-bold">{fmt(pi.ssAnual || 0)}/ano</span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 mt-0.5">Mensal: {fmt(pi.ssMensal || 0)} · Base: {fmt(pi.rendimentoRelevanteSS || 0)} (70% receitas declaradas)</p>
                  </div>
-                 <div className="flex justify-between">
-                   <span className="text-orange-400">💶 IVA</span>
-                   <span className="font-bold">{fmt((previsaoImpostos || {}).ivaAPagar || 0)}/ano</span>
+                 {/* IVA */}
+                 <div>
+                   <div className="flex justify-between">
+                     <span className="text-orange-400">💶 IVA</span>
+                     <span className="font-bold">{fmt(pi.ivaAPagar || 0)}/ano</span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 mt-0.5">Soma IVA cobrado em todas as faturas {anoAtualSistema}</p>
                  </div>
-                 <div className="flex justify-between">
-                   <span className={(((previsaoImpostos || {}).irsAPagarReceber || 0) >= 0) ? 'text-emerald-400' : 'text-red-400'}>📋 IRS</span>
-                   <span className={`font-bold ${(((previsaoImpostos || {}).irsAPagarReceber || 0) >= 0) ? 'text-emerald-400' : 'text-red-400'}`}>
-                     {fmt(Math.abs((previsaoImpostos || {}).irsAPagarReceber || 0))}
-                   </span>
+                 {/* IRS */}
+                 <div>
+                   <div className="flex justify-between">
+                     <span className={irsVal >= 0 ? 'text-emerald-400' : 'text-red-400'}>📋 IRS</span>
+                     <span className={`font-bold ${irsVal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                       {irsVal >= 0 ? '+' : ''}{fmt(irsVal)}
+                     </span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 mt-0.5">
+                     Estimado: {fmt(pi.irsEstimado || 0)} · Retenções: {fmt(pi.irsRetencoes || 0)} · Taxa: {(pi.irsTaxaEfetiva || 0).toFixed(1)}%
+                   </p>
+                   <p className="text-[10px] text-slate-500">{irsVal >= 0 ? 'Reembolso previsto' : 'A pagar na declaração'} · Rend. coletável: {fmt((pi.totalIliquido || 0) * 0.75)}</p>
                  </div>
                  <div className={`border-t pt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
                    <div className="flex justify-between font-bold">
-                     <span>Total</span>
-                     <span className="text-orange-400">{fmt((previsaoImpostos || {}).totalImpostos || 0)}</span>
+                     <span>Total impostos</span>
+                     <span className="text-orange-400">{fmt(pi.totalImpostos || 0)}</span>
                    </div>
+                   <p className="text-[10px] text-slate-500 mt-0.5">SS anual + IVA anual + IRS estimado (s/ retenções)</p>
                  </div>
+                 {pi.totalIliquido > 0 && (
+                   <div className={`border-t pt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                     <div className="flex justify-between text-xs text-slate-500">
+                       <span>Receitas {anoAtualSistema}</span>
+                       <span>{fmt(pi.totalIliquido)}</span>
+                     </div>
+                     <div className="flex justify-between text-xs text-slate-500">
+                       <span>Carga fiscal efetiva</span>
+                       <span>{((pi.totalImpostos || 0) / pi.totalIliquido * 100).toFixed(1)}%</span>
+                     </div>
+                   </div>
+                 )}
                </div>
              </div>
              <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
@@ -10390,13 +10421,14 @@ ${transacoesOrdenadas.map(t => `<tr>
              <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                <h4 className="font-semibold mb-2">Calibração</h4>
                <p className="text-xs text-slate-500">
-                 {(previsaoImpostos || {}).calibracao && (previsaoImpostos || {}).calibracao.ativa
+                 {pi.calibracao?.ativa
                    ? '🎯 Calibração ativa com base no histórico.'
                    : 'Regista pagamentos de anos anteriores para ativar.'}
                </p>
              </div>
            </div>
-         )}
+           );
+         })()}
          
          {/* ===== CLIENTES ===== */}
          {sidebarTab === 'clientes' && (
@@ -10528,12 +10560,12 @@ ${transacoesOrdenadas.map(t => `<tr>
                    </div>
                  </div>
                  <div className="flex items-center justify-between">
-                   <span className="text-sm">💵 Contribuição SS</span>
+                   <span className="text-sm">💑 Contribuição casal</span>
                    <div className="flex items-center gap-1">
-                     <input type="number" defaultValue={G.contrib || 0}
+                     <input type="number" defaultValue={G.contrib || 50} min={0} max={100}
                        className={`w-20 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
                        onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { saveUndo(); uG('contrib', v); }}} />
-                     <span className="text-xs text-slate-500">€</span>
+                     <span className="text-xs text-slate-500">%</span>
                    </div>
                  </div>
                </div>
