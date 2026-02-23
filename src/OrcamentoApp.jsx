@@ -787,6 +787,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   const [draggedWidget, setDraggedWidget] = useState(null);
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState('settings');
   
   // Guardar layouts no localStorage
   useEffect(() => {
@@ -10120,9 +10122,10 @@ ${transacoesOrdenadas.map(t => `<tr>
               
               {/* User */}
               <div className={`flex items-center gap-2 pl-2 border-l ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
-                {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full"/>}
-                <span className={`hidden sm:inline text-sm ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{user?.displayName?.split(' ')[0]}</span>
-                <button onClick={onLogout} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400">Sair</button>
+                <button onClick={() => setShowSidebar(true)} className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Menu">
+                  {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full ring-2 ring-transparent hover:ring-blue-400/50 transition-all"/>}
+                  <span className={`hidden sm:inline text-sm ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{user?.displayName?.split(' ')[0]}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -10207,6 +10210,262 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='agenda' && <Agenda/>}
         </div>
  </main>
+
+ {/* SIDEBAR MENU */}
+ {showSidebar && (
+   <div className="fixed inset-0 z-50" onClick={e => { if (e.target === e.currentTarget) setShowSidebar(false); }}>
+     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+     <div className={`absolute right-0 top-0 bottom-0 w-full max-w-md ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl overflow-y-auto animate-slideInRight`}>
+       {/* Header */}
+       <div className={`sticky top-0 z-10 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'} border-b backdrop-blur-sm px-6 py-4`}>
+         <div className="flex items-center justify-between">
+           <div className="flex items-center gap-3">
+             {user?.photoURL && <img src={user.photoURL} alt="" className="w-10 h-10 rounded-full"/>}
+             <div>
+               <p className={`font-semibold ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>{user?.displayName || 'Utilizador'}</p>
+               <p className="text-xs text-slate-500">{user?.email}</p>
+             </div>
+           </div>
+           <button onClick={() => setShowSidebar(false)} className={`p-2 rounded-lg ${theme === 'light' ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-slate-800 text-slate-400'}`}>✕</button>
+         </div>
+         {/* Sidebar tabs */}
+         <div className="flex gap-1 mt-4">
+           {[
+             { id: 'settings', icon: '⚙️', label: 'Definições' },
+             { id: 'impostos', icon: '🏛️', label: 'Impostos' },
+             { id: 'sobre', icon: 'ℹ️', label: 'Sobre' },
+           ].map(t => (
+             <button key={t.id} onClick={() => setSidebarTab(t.id)}
+               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${sidebarTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}>
+               <span>{t.icon}</span>{t.label}
+             </button>
+           ))}
+         </div>
+       </div>
+       
+       <div className="px-6 py-4 space-y-4">
+         {/* ===== DEFINIÇÕES ===== */}
+         {sidebarTab === 'settings' && (<>
+           {/* Taxa de retenção */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Fiscal</h4>
+             <div className={`p-4 rounded-xl space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <div className="flex items-center justify-between">
+                 <span className="text-sm">Taxa retenção IRS</span>
+                 <div className="flex items-center gap-1">
+                   <input type="number" defaultValue={taxa} step="0.5" min="0" max="100"
+                     className={`w-16 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
+                     onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== taxa) { saveUndo(); uG('taxa', v); }}} />
+                   <span className="text-xs text-slate-500">%</span>
+                 </div>
+               </div>
+               <div className="flex items-center justify-between">
+                 <span className="text-sm">Contribuição SS</span>
+                 <span className="text-sm text-slate-500">21.4% (automático)</span>
+               </div>
+               <div className="flex items-center justify-between">
+                 <span className="text-sm">Regime IVA</span>
+                 <span className="text-sm text-slate-500">Trimestral</span>
+               </div>
+             </div>
+           </div>
+           
+           {/* Aparência */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Aparência</h4>
+             <div className={`p-4 rounded-xl space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <div className="flex items-center justify-between">
+                 <span className="text-sm">Tema</span>
+                 <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                   className={`px-3 py-1.5 text-xs rounded-lg ${theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-700 text-slate-300'}`}>
+                   {theme === 'dark' ? '☀️ Claro' : '🌙 Escuro'}
+                 </button>
+               </div>
+             </div>
+           </div>
+           
+           {/* Dados */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Dados</h4>
+             <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>💾</span> Exportar backup JSON
+               </button>
+               <button onClick={() => { setBackupData(''); setBackupMode('import'); setBackupStatus(''); setShowBackupModal(true); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>📥</span> Importar backup
+               </button>
+               <button onClick={() => { setShowImportCSV(true); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>📄</span> Importar CSV
+               </button>
+               <button onClick={() => { exportTransacoesPDF(ano); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>📈</span> Exportar transações PDF
+               </button>
+               <button onClick={() => { exportTransacoesExcel(ano); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>📊</span> Exportar transações Excel
+               </button>
+               <div className={`border-t my-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
+               <button onClick={() => { setShowShortcuts(true); setShowSidebar(false); }}
+                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
+                 <span>⌨️</span> Atalhos de teclado
+               </button>
+             </div>
+           </div>
+           
+           {/* Zona perigosa */}
+           <div>
+             <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 text-red-400">Zona perigosa</h4>
+             <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-red-50' : 'bg-red-900/10'}`}>
+               <button onClick={() => { handleResetAll(); setShowSidebar(false); }}
+                 className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left text-red-400 hover:bg-red-500/10">
+                 <span>🗑️</span> Apagar todos os dados
+               </button>
+               <button onClick={onLogout}
+                 className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left text-red-400 hover:bg-red-500/10">
+                 <span>🚪</span> Terminar sessão
+               </button>
+             </div>
+           </div>
+         </>)}
+         
+         {/* ===== IMPOSTOS CONSOLIDADO ===== */}
+         {sidebarTab === 'impostos' && (<>
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Resumo Anual {anoAtualSistema}</h4>
+             <div className={`p-4 rounded-xl space-y-4 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               {/* Totais */}
+               <div className="flex items-center justify-between">
+                 <span className="text-sm font-medium">Total impostos estimado</span>
+                 <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos)}</span>
+               </div>
+               <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
+               
+               {/* SS */}
+               <div>
+                 <div className="flex items-center justify-between mb-1">
+                   <span className="text-sm text-blue-400">🏛️ Segurança Social</span>
+                   <span className="font-bold">{fmt(previsaoImpostos.ssAnual)}/ano</span>
+                 </div>
+                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                   <span>Mensal atual: {fmt(previsaoImpostos.ssMensal)}</span>
+                   <span>Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</span>
+                 </div>
+                 {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.SS.fator.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.SS.original)})</p>}
+               </div>
+               
+               <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
+               
+               {/* IVA */}
+               <div>
+                 <div className="flex items-center justify-between mb-1">
+                   <span className="text-sm text-orange-400">💶 IVA</span>
+                   <span className="font-bold">{fmt(previsaoImpostos.ivaAPagar)}/ano</span>
+                 </div>
+                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                   <span>T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior}: {fmt(previsaoImpostos.ivaTrimestreAnterior)}</span>
+                   <span>T{previsaoImpostos.trimestreAtual}/{anoAtualSistema}: {fmt(previsaoImpostos.ivaTrimestreAtual)} (acumular)</span>
+                 </div>
+                 {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.IVA.fator.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.IVA.original)})</p>}
+               </div>
+               
+               <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
+               
+               {/* IRS */}
+               <div>
+                 <div className="flex items-center justify-between mb-1">
+                   <span className={`text-sm ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>📋 IRS</span>
+                   <span className={`font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                     {previsaoImpostos.irsAPagarReceber >= 0 ? 'Reembolso ' : 'A pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber))}
+                   </span>
+                 </div>
+                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                   <span>Imposto estimado: {fmt(previsaoImpostos.irsEstimado)}</span>
+                   <span>Retenções: {fmt(previsaoImpostos.irsRetencoes)}</span>
+                   <span>Taxa efetiva: {previsaoImpostos.irsTaxaEfetiva?.toFixed(1)}%</span>
+                   <span>Rendimento coletável: {fmt(previsaoImpostos.totalIliquido * 0.75)}</span>
+                 </div>
+                 {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400 mt-1">🎯 Ajuste: {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)}</p>}
+               </div>
+             </div>
+           </div>
+           
+           {/* Pagamentos registados */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Pagamentos {anoAtualSistema}</h4>
+             <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               {(() => {
+                 const pagos = (G.impostosPagos || []).filter(p => p.data?.startsWith(anoAtualSistema.toString())).sort((a, b) => b.data.localeCompare(a.data));
+                 if (pagos.length === 0) return <p className="text-xs text-slate-500 text-center">Sem pagamentos registados</p>;
+                 const totalP = pagos.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
+                 const totalR = pagos.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
+                 const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
+                 return (
+                   <div className="space-y-2">
+                     <div className="flex gap-4 text-sm">
+                       {totalP > 0 && <span className="text-red-400">↑ Pago: {fmt(totalP)}</span>}
+                       {totalR > 0 && <span className="text-emerald-400">↓ Recebido: {fmt(totalR)}</span>}
+                     </div>
+                     <div className="space-y-1 max-h-60 overflow-y-auto">
+                       {pagos.map(p => (
+                         <div key={p.id} className={`flex items-center gap-2 text-xs py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                           <span>{tiposIcons[p.tipo]}</span>
+                           <span className="text-slate-500 w-20">{p.data}</span>
+                           <span className={`px-1.5 py-0.5 rounded text-[10px] ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{p.referencia || '—'}</span>
+                           <div className="flex-1" />
+                           <span className={`font-bold ${p.valor < 0 ? 'text-emerald-400' : ''}`}>{p.valor < 0 ? '↓' : '↑'} {fmt(Math.abs(p.valor))}</span>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 );
+               })()}
+             </div>
+           </div>
+           
+           {/* Calibração */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Calibração</h4>
+             <div className={`p-4 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               {previsaoImpostos.calibracao?.ativa ? (
+                 <div className="space-y-2">
+                   <p className="text-purple-400 text-xs">🎯 Calibrado com dados de {previsaoImpostos.calibracao.anosBase.join(', ')}</p>
+                   <p className="text-xs text-slate-500">As previsões são ajustadas automaticamente com base na diferença entre o que a fórmula estimou e o que realmente pagaste nos anos anteriores.</p>
+                   {previsaoImpostos.calibracao.SS && <p className="text-xs">SS: fator ×{previsaoImpostos.calibracao.SS.fator.toFixed(3)}</p>}
+                   {previsaoImpostos.calibracao.IVA && <p className="text-xs">IVA: fator ×{previsaoImpostos.calibracao.IVA.fator.toFixed(3)}</p>}
+                   {previsaoImpostos.calibracao.IRS && <p className="text-xs">IRS: desvio médio {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)}</p>}
+                 </div>
+               ) : (
+                 <div className="text-xs text-slate-500 space-y-2">
+                   <p>A calibração será ativada automaticamente quando registares pagamentos de anos anteriores.</p>
+                   <p>Exemplo: se registares os pagamentos de SS e IVA de 2025, a app compara com o que a fórmula teria estimado e ajusta as previsões de 2026.</p>
+                 </div>
+               )}
+             </div>
+           </div>
+         </>)}
+         
+         {/* ===== SOBRE ===== */}
+         {sidebarTab === 'sobre' && (<>
+           <div className={`p-4 rounded-xl text-sm space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+             <h4 className="font-semibold">OrcamentoApp</h4>
+             <p className="text-xs text-slate-500">Gestão financeira pessoal para freelancers em Portugal. Controlo de receitas, despesas, impostos (SS, IVA, IRS), investimentos e património.</p>
+             <div className="text-xs text-slate-500 space-y-1">
+               <p>📊 {Object.keys(M).length} meses com dados</p>
+               <p>🧾 {Object.values(M).reduce((a, m) => a + (m.regCom?.length || 0) + (m.regSem?.length || 0), 0)} transações registadas</p>
+               <p>💳 {(G.impostosPagos || []).length} pagamentos de impostos</p>
+               <p>📋 {(G.tarefas || []).length} tarefas fiscais</p>
+             </div>
+           </div>
+         </>)}
+       </div>
+     </div>
+   </div>
+ )}
+
  </div>
  );
 };
