@@ -816,25 +816,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [compareYear, setCompareYear] = useState(null);
   // Nota: estado offline gerido por isOnline acima
   
-  // Pagamentos de impostos - callbacks estáveis para o componente memo
-  const handleAddPagamento = useCallback(({ tipo, data, valor, referencia }) => {
-    saveUndo();
-    const novo = { id: Date.now(), tipo, data, valor, referencia, notas: '' };
-    uG('impostosPagos', [...(G.impostosPagos || []), novo]);
-    showToast(`${valor < 0 ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(Math.abs(valor))} registado`);
-  }, [G.impostosPagos]);
-  const handleUpdatePagamento = useCallback((id, field, value) => {
-    saveUndo();
-    uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
-  }, [G.impostosPagos]);
-  const handleDeletePagamento = useCallback((p) => {
-    confirmDelete(`Apagar ${p.valor < 0 ? 'reembolso' : 'pagamento'} ${p.tipo} de ${fmt(Math.abs(p.valor))}?`, () => {
-      saveUndo();
-      uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
-      showToast('Registo removido');
-    });
-  }, [G.impostosPagos]);
-  
   // Sistema de Toast (substitui alert())
   const [toasts, setToasts] = useState([]);
   const toastIdRef = useRef(0);
@@ -1385,6 +1366,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const fmt = v => new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR'}).format(v);
  const fmtP = v => Math.round(v)+'%';
+
+ // Pagamentos de impostos - callbacks estáveis para o componente memo
+ const handleAddPagamento = useCallback(({ tipo, data, valor, referencia }) => {
+   saveUndo();
+   const novo = { id: Date.now(), tipo, data, valor, referencia, notas: '' };
+   uG('impostosPagos', [...(G.impostosPagos || []), novo]);
+   showToast(`${valor < 0 ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(Math.abs(valor))} registado`);
+ }, [G.impostosPagos]);
+ const handleUpdatePagamento = useCallback((id, field, value) => {
+   saveUndo();
+   uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
+ }, [G.impostosPagos]);
+ const handleDeletePagamento = useCallback((p) => {
+   confirmDelete(`Apagar ${p.valor < 0 ? 'reembolso' : 'pagamento'} ${p.tipo} de ${fmt(Math.abs(p.valor))}?`, () => {
+     saveUndo();
+     uG('impostosPagos', (G.impostosPagos || []).filter(x => x.id !== p.id));
+     showToast('Registo removido');
+   });
+ }, [G.impostosPagos]);
 
  const getHist = useCallback(() => {
  const h = [];
