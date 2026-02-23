@@ -10334,13 +10334,14 @@ ${transacoesOrdenadas.map(t => `<tr>
          
          {/* ===== IMPOSTOS CONSOLIDADO ===== */}
          {sidebarTab === 'impostos' && (<>
+           {previsaoImpostos ? (<>
            <div>
              <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Resumo Anual {anoAtualSistema}</h4>
              <div className={`p-4 rounded-xl space-y-4 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                {/* Totais */}
                <div className="flex items-center justify-between">
                  <span className="text-sm font-medium">Total impostos estimado</span>
-                 <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos)}</span>
+                 <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos || 0)}</span>
                </div>
                <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
                
@@ -10348,13 +10349,13 @@ ${transacoesOrdenadas.map(t => `<tr>
                <div>
                  <div className="flex items-center justify-between mb-1">
                    <span className="text-sm text-blue-400">🏛️ Segurança Social</span>
-                   <span className="font-bold">{fmt(previsaoImpostos.ssAnual)}/ano</span>
+                   <span className="font-bold">{fmt(previsaoImpostos.ssAnual || 0)}/ano</span>
                  </div>
                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                   <span>Mensal atual: {fmt(previsaoImpostos.ssMensal)}</span>
-                   <span>Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</span>
+                   <span>Mensal atual: {fmt(previsaoImpostos.ssMensal || 0)}</span>
+                   <span>Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre || 0)}/mês</span>
                  </div>
-                 {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.SS.fator.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.SS.original)})</p>}
+                 {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.SS.fator?.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.SS.original || 0)})</p>}
                </div>
                
                <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
@@ -10363,13 +10364,13 @@ ${transacoesOrdenadas.map(t => `<tr>
                <div>
                  <div className="flex items-center justify-between mb-1">
                    <span className="text-sm text-orange-400">💶 IVA</span>
-                   <span className="font-bold">{fmt(previsaoImpostos.ivaAPagar)}/ano</span>
+                   <span className="font-bold">{fmt(previsaoImpostos.ivaAPagar || 0)}/ano</span>
                  </div>
                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                   <span>T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior}: {fmt(previsaoImpostos.ivaTrimestreAnterior)}</span>
-                   <span>T{previsaoImpostos.trimestreAtual}/{anoAtualSistema}: {fmt(previsaoImpostos.ivaTrimestreAtual)} (acumular)</span>
+                   <span>T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior}: {fmt(previsaoImpostos.ivaTrimestreAnterior || 0)}</span>
+                   <span>T{previsaoImpostos.trimestreAtual}/{anoAtualSistema}: {fmt(previsaoImpostos.ivaTrimestreAtual || 0)} (acumular)</span>
                  </div>
-                 {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.IVA.fator.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.IVA.original)})</p>}
+                 {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400 mt-1">🎯 Calibrado ×{previsaoImpostos.calibracao.IVA.fator?.toFixed(2)} (fórmula: {fmt(previsaoImpostos.calibracao.IVA.original || 0)})</p>}
                </div>
                
                <div className={`border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
@@ -10377,18 +10378,18 @@ ${transacoesOrdenadas.map(t => `<tr>
                {/* IRS */}
                <div>
                  <div className="flex items-center justify-between mb-1">
-                   <span className={`text-sm ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>📋 IRS</span>
-                   <span className={`font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                     {previsaoImpostos.irsAPagarReceber >= 0 ? 'Reembolso ' : 'A pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber))}
+                   <span className={`text-sm ${(previsaoImpostos.irsAPagarReceber || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>📋 IRS</span>
+                   <span className={`font-bold ${(previsaoImpostos.irsAPagarReceber || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                     {(previsaoImpostos.irsAPagarReceber || 0) >= 0 ? 'Reembolso ' : 'A pagar '}{fmt(Math.abs(previsaoImpostos.irsAPagarReceber || 0))}
                    </span>
                  </div>
                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                   <span>Imposto estimado: {fmt(previsaoImpostos.irsEstimado)}</span>
-                   <span>Retenções: {fmt(previsaoImpostos.irsRetencoes)}</span>
-                   <span>Taxa efetiva: {previsaoImpostos.irsTaxaEfetiva?.toFixed(1)}%</span>
-                   <span>Rendimento coletável: {fmt(previsaoImpostos.totalIliquido * 0.75)}</span>
+                   <span>Imposto estimado: {fmt(previsaoImpostos.irsEstimado || 0)}</span>
+                   <span>Retenções: {fmt(previsaoImpostos.irsRetencoes || 0)}</span>
+                   <span>Taxa efetiva: {(previsaoImpostos.irsTaxaEfetiva || 0).toFixed(1)}%</span>
+                   <span>Rendimento coletável: {fmt((previsaoImpostos.totalIliquido || 0) * 0.75)}</span>
                  </div>
-                 {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400 mt-1">🎯 Ajuste: {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)}</p>}
+                 {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400 mt-1">🎯 Ajuste: {(previsaoImpostos.calibracao.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio || 0)}</p>}
                </div>
              </div>
            </div>
@@ -10434,9 +10435,9 @@ ${transacoesOrdenadas.map(t => `<tr>
                  <div className="space-y-2">
                    <p className="text-purple-400 text-xs">🎯 Calibrado com dados de {previsaoImpostos.calibracao.anosBase.join(', ')}</p>
                    <p className="text-xs text-slate-500">As previsões são ajustadas automaticamente com base na diferença entre o que a fórmula estimou e o que realmente pagaste nos anos anteriores.</p>
-                   {previsaoImpostos.calibracao.SS && <p className="text-xs">SS: fator ×{previsaoImpostos.calibracao.SS.fator.toFixed(3)}</p>}
-                   {previsaoImpostos.calibracao.IVA && <p className="text-xs">IVA: fator ×{previsaoImpostos.calibracao.IVA.fator.toFixed(3)}</p>}
-                   {previsaoImpostos.calibracao.IRS && <p className="text-xs">IRS: desvio médio {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)}</p>}
+                   {previsaoImpostos.calibracao?.SS && <p className="text-xs">SS: fator ×{previsaoImpostos.calibracao.SS.fator?.toFixed(3)}</p>}
+                   {previsaoImpostos.calibracao?.IVA && <p className="text-xs">IVA: fator ×{previsaoImpostos.calibracao.IVA.fator?.toFixed(3)}</p>}
+                   {previsaoImpostos.calibracao?.IRS && <p className="text-xs">IRS: desvio médio {(previsaoImpostos.calibracao.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio || 0)}</p>}
                  </div>
                ) : (
                  <div className="text-xs text-slate-500 space-y-2">
@@ -10446,6 +10447,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                )}
              </div>
            </div>
+         </>) : <p className="text-xs text-slate-500 text-center">A carregar previsões...</p>}
          </>)}
          
          {/* ===== SOBRE ===== */}
