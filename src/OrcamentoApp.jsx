@@ -1959,7 +1959,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
    };
  };
- const previsaoImpostos = calcPrevisaoImpostos();
+ let previsaoImpostos;
+ try {
+   previsaoImpostos = calcPrevisaoImpostos();
+ } catch(e) {
+   console.error('calcPrevisaoImpostos error:', e);
+   previsaoImpostos = { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } };
+ }
  
  const compDespesas = getComparacaoDespesas();
  const patrimonio = getPatrimonioLiquido();
@@ -2129,7 +2135,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <div className="flex items-center gap-2">
        <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
        {previsaoImpostos.calibracao?.ativa && (
-         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title={`Calibrado com dados de ${previsaoImpostos.calibracao.anosBase.join(', ')}`}>
+         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title={`Calibrado com dados de ${(previsaoImpostos.calibracao?.anosBase || []).join(', ')}`}>
            🎯 Calibrado
          </span>
        )}
@@ -2151,7 +2157,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssMesAtual || previsaoImpostos.ssProximoMes)}</p>
        <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
        <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
-       {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.SS.original)} (×{previsaoImpostos.calibracao.SS.fator.toFixed(2)})</p>}
+       {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.SS.original || 0)} (×{(previsaoImpostos.calibracao.SS.fator || 1).toFixed(2)})</p>}
        {(() => {
          const mesNome = meses[new Date().getMonth()].substring(0,3);
          const anoShort = anoAtualSistema.toString().substring(2);
@@ -2176,7 +2182,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </div>
        <p className="text-xl font-bold text-orange-400">{fmt(previsaoImpostos.ivaTrimestreAnterior)}</p>
        <p className="text-[10px] text-slate-500 mt-1">
-         Prazo: 25/{previsaoImpostos.dataLimiteIva.getMonth() + 1}
+         Prazo: 25/{(previsaoImpostos.dataLimiteIva || new Date()).getMonth() + 1}
          {(() => {
            const tAnt = previsaoImpostos.trimestreAnterior;
            const aAnt = previsaoImpostos.anoTrimestreAnterior;
@@ -2184,7 +2190,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
          })()}
        </p>
-       {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.IVA.original)} (×{previsaoImpostos.calibracao.IVA.fator.toFixed(2)})</p>}
+       {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.IVA.original || 0)} (×{(previsaoImpostos.calibracao.IVA.fator || 1).toFixed(2)})</p>}
      </div>
      
      {/* Previsão IVA (trimestre atual) */}
@@ -2207,7 +2213,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {previsaoImpostos.irsAPagarReceber >= 0 ? '+' : ''}{fmt(previsaoImpostos.irsAPagarReceber)}
        </p>
        <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
-       {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400/70">🎯 Ajuste: {previsaoImpostos.calibracao.IRS.desvio >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio)} (s/ ajuste: {fmt(previsaoImpostos.calibracao.IRS.original)})</p>}
+       {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400/70">🎯 Ajuste: {(previsaoImpostos.calibracao.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio || 0)} (s/ ajuste: {fmt(previsaoImpostos.calibracao.IRS.original || 0)})</p>}
      </div>
    </div>
    
