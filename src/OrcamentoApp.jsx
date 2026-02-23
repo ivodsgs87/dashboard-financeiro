@@ -1632,71 +1632,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const totaisAnuais = calcularTotaisAnuais();
 
  // RESUMO
- const Resumo = () => {
- const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
- const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
- const projecao = getProjecaoAnual();
- const previsaoIRS = getPrevisaoIRS();
- 
- // Drag and Drop handlers
- const handleDragStart = (e, widgetId) => {
-   setDraggedWidget(widgetId);
-   e.dataTransfer.effectAllowed = 'move';
- };
- 
- const handleDragOver = (e) => {
-   e.preventDefault();
-   e.dataTransfer.dropEffect = 'move';
- };
- 
- const handleDrop = (e, targetId) => {
-   e.preventDefault();
-   if (!draggedWidget || draggedWidget === targetId) return;
-   
-   const newLayout = [...dashboardLayout];
-   const dragIdx = newLayout.indexOf(draggedWidget);
-   const targetIdx = newLayout.indexOf(targetId);
-   
-   newLayout.splice(dragIdx, 1);
-   newLayout.splice(targetIdx, 0, draggedWidget);
-   
-   setDashboardLayout(newLayout);
-   setDraggedWidget(null);
- };
- 
- const handleDragEnd = () => {
-   setDraggedWidget(null);
- };
- 
- // Widget wrapper com drag-and-drop
- const DraggableWidget = ({ id, children }) => {
-   if (!showLayoutEditor) return children;
-   
-   return (
-     <div
-       draggable
-       onDragStart={(e) => handleDragStart(e, id)}
-       onDragOver={handleDragOver}
-       onDrop={(e) => handleDrop(e, id)}
-       onDragEnd={handleDragEnd}
-       className={`relative transition-all duration-200 ${draggedWidget === id ? 'opacity-50 scale-95' : ''} ${showLayoutEditor ? 'cursor-move' : ''}`}
-     >
-       {showLayoutEditor && (
-         <div className="absolute -top-2 -left-2 z-10 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full shadow-lg">
-           ⋮⋮ {id}
-         </div>
-       )}
-       <div className={showLayoutEditor ? 'ring-2 ring-purple-500/50 ring-dashed rounded-2xl' : ''}>
-         {children}
-       </div>
-     </div>
-   );
- };
- 
- // Calcular previsão de impostos inline
- 
- // Calcular previsão de impostos inline
+
  const calcPrevisaoImpostos = () => {
+   const previsaoIRS = getPrevisaoIRS();
    let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0;
    const mesAtualNum = meses.indexOf(mesAtualSistema) + 1; // Converter para número (1-12)
    
@@ -1960,6 +1898,70 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
  };
  const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
+
+ const Resumo = () => {
+ const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
+ const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
+ const projecao = getProjecaoAnual();
+ 
+ // Drag and Drop handlers
+ const handleDragStart = (e, widgetId) => {
+   setDraggedWidget(widgetId);
+   e.dataTransfer.effectAllowed = 'move';
+ };
+ 
+ const handleDragOver = (e) => {
+   e.preventDefault();
+   e.dataTransfer.dropEffect = 'move';
+ };
+ 
+ const handleDrop = (e, targetId) => {
+   e.preventDefault();
+   if (!draggedWidget || draggedWidget === targetId) return;
+   
+   const newLayout = [...dashboardLayout];
+   const dragIdx = newLayout.indexOf(draggedWidget);
+   const targetIdx = newLayout.indexOf(targetId);
+   
+   newLayout.splice(dragIdx, 1);
+   newLayout.splice(targetIdx, 0, draggedWidget);
+   
+   setDashboardLayout(newLayout);
+   setDraggedWidget(null);
+ };
+ 
+ const handleDragEnd = () => {
+   setDraggedWidget(null);
+ };
+ 
+ // Widget wrapper com drag-and-drop
+ const DraggableWidget = ({ id, children }) => {
+   if (!showLayoutEditor) return children;
+   
+   return (
+     <div
+       draggable
+       onDragStart={(e) => handleDragStart(e, id)}
+       onDragOver={handleDragOver}
+       onDrop={(e) => handleDrop(e, id)}
+       onDragEnd={handleDragEnd}
+       className={`relative transition-all duration-200 ${draggedWidget === id ? 'opacity-50 scale-95' : ''} ${showLayoutEditor ? 'cursor-move' : ''}`}
+     >
+       {showLayoutEditor && (
+         <div className="absolute -top-2 -left-2 z-10 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full shadow-lg">
+           ⋮⋮ {id}
+         </div>
+       )}
+       <div className={showLayoutEditor ? 'ring-2 ring-purple-500/50 ring-dashed rounded-2xl' : ''}>
+         {children}
+       </div>
+     </div>
+   );
+ };
+ 
+ // Calcular previsão de impostos inline
+ 
+ // Calcular previsão de impostos inline
  
  const compDespesas = getComparacaoDespesas();
  const patrimonio = getPatrimonioLiquido();
