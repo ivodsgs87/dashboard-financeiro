@@ -5948,7 +5948,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'montanteInicial', v) : uC('montanteInicial',v)}/>
  </div>
  <div className="flex justify-between items-center p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
- <span className="text-slate-300 text-sm">Data Fim</span>
+ <div>
+   <span className="text-slate-300 text-sm">Data Fim</span>
+   {dataFim && (() => {
+     const hoje = new Date();
+     const fim = new Date(dataFim);
+     const diffMs = fim.getTime() - hoje.getTime();
+     const totalMeses = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.44)));
+     const anos = Math.floor(totalMeses / 12);
+     const meses = totalMeses % 12;
+     return <p className="text-[11px] text-purple-400 mt-0.5 font-medium">{totalMeses > 0 ? `⏱️ ${anos > 0 ? `${anos}a ` : ''}${meses}m restantes (${totalMeses} meses)` : '✅ Terminado'}</p>;
+   })()}
+ </div>
  <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dataFim', e.target.value) : uC('dataFim',e.target.value)} key={`dataFim-${creditoSelecionado}`}/>
  </div>
  </div>
