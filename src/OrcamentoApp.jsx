@@ -11028,20 +11028,16 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
             <div key={t.id} className="relative flex-shrink-0"
-              onMouseEnter={(e) => {
+              onMouseEnter={() => {
                 clearTimeout(submenuTimeoutRef.current);
-                const rect = e.currentTarget.getBoundingClientRect();
-                setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
                 setHoveredTab(t.id);
               }}
               onMouseLeave={() => {
-                submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 300);
+                submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 150);
               }}
             >
               <button 
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
+                onClick={() => {
                   setHoveredTab(hoveredTab === t.id ? null : t.id);
                 }}
                 className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
@@ -11056,6 +11052,29 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <span className="hidden sm:inline">{t.label}</span>
                 <span className="ml-1 text-xs">▾</span>
               </button>
+              {/* Inline dropdown */}
+              {hoveredTab === t.id && (
+                <div className={`absolute left-0 top-full pt-1 z-50`}>
+                  <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[160px]`}>
+                    {t.submenu.map(sub => (
+                      <button 
+                        key={sub.id} 
+                        onClick={() => { setTab(sub.id); setHoveredTab(null); }}
+                        className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
+                          tab === sub.id 
+                            ? 'bg-blue-500/20 text-blue-400' 
+                            : theme === 'light'
+                              ? 'text-slate-700 hover:bg-slate-100'
+                              : 'text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>{sub.icon}</span>
+                        <span>{sub.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
@@ -11063,34 +11082,9 @@ ${transacoesOrdenadas.map(t => `<tr>
         })}
       </nav>
       
-      {/* Dropdown genérico para qualquer submenu */}
-      {hoveredTab && tabs.find(t => t.id === hoveredTab)?.submenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setHoveredTab(null)} />
-          <div 
-            className={`fixed ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 shadow-xl z-50 min-w-[160px]`}
-            style={{ left: submenuPos.left, top: submenuPos.top }}
-            onMouseEnter={() => clearTimeout(submenuTimeoutRef.current)}
-            onMouseLeave={() => { submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 300); }}
-          >
-            {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
-              <button 
-                key={sub.id} 
-                onClick={() => { setTab(sub.id); setHoveredTab(null); }}
-                className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
-                  tab === sub.id 
-                    ? 'bg-blue-500/20 text-blue-400' 
-                    : theme === 'light'
-                      ? 'text-slate-700 hover:bg-slate-100'
-                      : 'text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <span>{sub.icon}</span>
-                <span>{sub.label}</span>
-              </button>
-            ))}
-          </div>
-        </>
+      {/* Backdrop para fechar submenus em mobile */}
+      {hoveredTab && (
+        <div className="fixed inset-0 z-40 sm:hidden" onClick={() => setHoveredTab(null)} />
       )}
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
