@@ -5495,6 +5495,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
      const [simRetornoFire, setSimRetornoFire] = useState(4);
      const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
+     const [flamingoIdade, setFlamingoIdade] = useState(35);
+     const [flamingoReforma, setFlamingoReforma] = useState(60);
+     const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
+     const [flamingoRetorno, setFlamingoRetorno] = useState(7);
      const fireTarget = simDespMensal * 12 * simMetodoFire;
      const calcFire = () => {
        const r = simRetornoInv / 100 / 12;
@@ -5762,10 +5766,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
          {/* FLAMINGO FIRE */}
          {simTab === 'flamingo' && (() => {
-           const [flamingoIdade, setFlamingoIdade] = useState(35);
-           const [flamingoReforma, setFlamingoReforma] = useState(60);
-           const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
-           const [flamingoRetorno, setFlamingoRetorno] = useState(7);
 
            // Flamingo FIRE: atingir metade do FIRE number, depois trabalhar part-time
            // O portfolio cresce sozinho (sem aportes) durante a fase part-time
