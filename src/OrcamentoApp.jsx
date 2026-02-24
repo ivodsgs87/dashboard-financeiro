@@ -5522,6 +5522,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              { id: 'projecao', label: '📈 Projeção', desc: 'Juros compostos' },
              { id: 'amortizar', label: '⚖️ Amortizar vs Investir', desc: '' },
              { id: 'fire', label: '🔥 FIRE', desc: 'Independência' },
+             { id: 'flamingo', label: '🦩 Flamingo', desc: 'Semi-reforma' },
            ].map(t => (
              <button key={t.id} onClick={() => setSimTab(t.id)}
                className={`px-3 py-2 text-xs font-medium rounded-lg transition-all ${simTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-700/50'}`}>
@@ -5758,6 +5759,166 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
            </div>
          )}
+
+         {/* FLAMINGO FIRE */}
+         {simTab === 'flamingo' && (() => {
+           const [flamingoIdade, setFlamingoIdade] = useState(35);
+           const [flamingoReforma, setFlamingoReforma] = useState(60);
+           const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
+           const [flamingoRetorno, setFlamingoRetorno] = useState(7);
+
+           // Flamingo FIRE: atingir metade do FIRE number, depois trabalhar part-time
+           // O portfolio cresce sozinho (sem aportes) durante a fase part-time
+           // O trabalho part-time cobre as despesas correntes
+           const despAnual = simDespMensal * 12;
+           const flamingoTarget = fireTarget / 2; // 50% do FIRE number
+           const anosAteCrescer = flamingoReforma - flamingoIdade;
+           
+           // Fase 1: Acumular até Flamingo Number
+           const calcFlamingoAcum = () => {
+             const r = flamingoRetorno / 100 / 12;
+             let saldo = totPortfolio;
+             let mesesAcum = 0;
+             const maxM = 600;
+             while (saldo < flamingoTarget && mesesAcum < maxM) {
+               saldo = saldo * (1 + r) + simAporteMensal;
+               mesesAcum++;
+             }
+             return { meses: mesesAcum, saldo: Math.round(saldo), atingido: mesesAcum < maxM };
+           };
+           const fase1 = calcFlamingoAcum();
+           const anoFlamingoAtingido = anoAtualSistema + Math.floor(fase1.meses / 12);
+           const idadeFlamingoAtingido = flamingoIdade + Math.floor(fase1.meses / 12);
+
+           // Fase 2: Portfolio cresce sozinho até idade de reforma
+           const anosCresc = Math.max(0, flamingoReforma - idadeFlamingoAtingido);
+           const portfolioReforma = fase1.saldo * Math.pow(1 + flamingoRetorno / 100, anosCresc);
+           
+           // Rendimento part-time necessário
+           const rendPartTime = despAnual * (flamingoPctTrabalho / 100);
+           const horasPartTime = rendPartTime > 0 ? Math.round(rendPartTime / 60) : 0; // ~60€/h rate
+
+           // Quanto o portfolio vale na reforma vs FIRE number
+           const pctDoFire = fireTarget > 0 ? (portfolioReforma / fireTarget * 100) : 0;
+           
+           // Timeline data
+           const timeline = [];
+           let saldoT = totPortfolio;
+           const rM = flamingoRetorno / 100 / 12;
+           for (let i = 0; i <= Math.min(40, flamingoReforma - flamingoIdade + 5); i++) {
+             const idade = flamingoIdade + i;
+             const fase = saldoT >= flamingoTarget ? (idade >= flamingoReforma ? 'reforma' : 'flamingo') : 'acumular';
+             timeline.push({ idade, saldo: Math.round(saldoT), fase });
+             // Next year
+             for (let m = 0; m < 12; m++) {
+               if (fase === 'acumular') {
+                 saldoT = saldoT * (1 + rM) + simAporteMensal;
+               } else {
+                 saldoT = saldoT * (1 + rM); // Cresce sozinho
+               }
+             }
+           }
+           const maxTimeline = Math.max(...timeline.map(t => t.saldo), 1);
+
+           return (
+           <div className="space-y-4">
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Idade atual</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={flamingoIdade} onChange={e => setFlamingoIdade(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Reforma total aos</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={flamingoReforma} onChange={e => setFlamingoReforma(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">% despesas part-time</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={flamingoPctTrabalho} onChange={e => setFlamingoPctTrabalho(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Retorno anual (%)</label>
+                 <input type="number" step="0.5" className={simInputClass + ' w-full'} value={flamingoRetorno} onChange={e => setFlamingoRetorno(+e.target.value)} />
+               </div>
+             </div>
+
+             {/* Targets */}
+             <div className="grid grid-cols-2 gap-3">
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-pink-50' : 'bg-pink-500/10 border border-pink-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">🦩 Flamingo Number (50% FIRE)</p>
+                 <p className="text-xl font-bold text-pink-400">{fmt(flamingoTarget)}</p>
+                 <p className="text-[10px] text-slate-500 mt-1">Atinges em ~{Math.floor(fase1.meses / 12)}a {fase1.meses % 12}m ({anoFlamingoAtingido})</p>
+               </div>
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-orange-50' : 'bg-orange-500/10 border border-orange-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">🔥 FIRE Number</p>
+                 <p className="text-xl font-bold text-orange-400">{fmt(fireTarget)}</p>
+                 <p className="text-[10px] text-slate-500 mt-1">Portfolio aos {flamingoReforma}: {fmt(Math.round(portfolioReforma))} ({pctDoFire.toFixed(0)}%)</p>
+               </div>
+             </div>
+
+             {/* Fases */}
+             <div className={`p-4 rounded-xl space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
+               <div className="flex items-start gap-3">
+                 <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-sm flex-shrink-0">1</div>
+                 <div>
+                   <p className="text-sm font-semibold">Fase Acumulação <span className="text-blue-400 text-xs">({flamingoIdade}-{idadeFlamingoAtingido} anos)</span></p>
+                   <p className="text-xs text-slate-500">Trabalhar full-time, investir {fmt(simAporteMensal)}/mês até atingir {fmt(flamingoTarget)}</p>
+                 </div>
+               </div>
+               <div className="flex items-start gap-3">
+                 <div className="w-8 h-8 rounded-full bg-pink-500/20 flex items-center justify-center text-sm flex-shrink-0">2</div>
+                 <div>
+                   <p className="text-sm font-semibold">Fase Flamingo <span className="text-pink-400 text-xs">({idadeFlamingoAtingido}-{flamingoReforma} anos)</span></p>
+                   <p className="text-xs text-slate-500">Part-time: ganhar ~{fmt(Math.round(rendPartTime/12))}/mês ({flamingoPctTrabalho}% despesas ≈ {horasPartTime}h/ano a ~60€/h). Portfolio cresce sozinho.</p>
+                 </div>
+               </div>
+               <div className="flex items-start gap-3">
+                 <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-sm flex-shrink-0">3</div>
+                 <div>
+                   <p className="text-sm font-semibold">Reforma Total <span className="text-orange-400 text-xs">(a partir dos {flamingoReforma})</span></p>
+                   <p className="text-xs text-slate-500">Portfolio estimado: {fmt(Math.round(portfolioReforma))} — {pctDoFire >= 100 ? 'Excede o FIRE number! ✅' : `${pctDoFire.toFixed(0)}% do FIRE target`}</p>
+                 </div>
+               </div>
+             </div>
+
+             {/* Gráfico timeline */}
+             <div>
+               <p className="text-[10px] text-slate-500 mb-2">Evolução do portfolio por idade</p>
+               <div className="flex items-end gap-[2px] h-28">
+                 {timeline.map((t, i) => {
+                   const h = (t.saldo / maxTimeline) * 100;
+                   const cor = t.fase === 'acumular' ? 'rgba(59,130,246,0.5)' : t.fase === 'flamingo' ? 'rgba(236,72,153,0.4)' : 'rgba(249,115,22,0.4)';
+                   return (
+                     <div key={i} className="flex-1 relative group" title={`${t.idade} anos: ${fmt(t.saldo)}`}>
+                       <div className="absolute bottom-0 w-full rounded-t transition-all" style={{ height: h + '%', background: cor }} />
+                       {t.saldo >= flamingoTarget && timeline[i-1]?.saldo < flamingoTarget && (
+                         <div className="absolute -top-4 left-0 text-[8px] text-pink-400 whitespace-nowrap">🦩{t.idade}a</div>
+                       )}
+                       {t.idade === flamingoReforma && (
+                         <div className="absolute -top-4 right-0 text-[8px] text-orange-400 whitespace-nowrap">🔥{t.idade}a</div>
+                       )}
+                     </div>
+                   );
+                 })}
+               </div>
+               <div className="flex justify-between text-[9px] text-slate-500 mt-1">
+                 <span>{timeline[0]?.idade || flamingoIdade}a</span>
+                 <div className="flex gap-3">
+                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{background:'rgba(59,130,246,0.5)'}} />Acumular</span>
+                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{background:'rgba(236,72,153,0.4)'}} />Flamingo</span>
+                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{background:'rgba(249,115,22,0.4)'}} />Reforma</span>
+                 </div>
+                 <span>{timeline[timeline.length-1]?.idade || flamingoReforma}a</span>
+               </div>
+             </div>
+
+             <div className={`p-3 rounded-xl text-xs space-y-1 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/20'}`}>
+               <p className="text-slate-500">🦩 <strong>Flamingo FIRE</strong> = atingir metade do FIRE number, depois reduzir trabalho.</p>
+               <p className="text-slate-500">O portfolio cresce sozinho durante a fase Flamingo (sem novos aportes). Tu trabalhas apenas o suficiente para cobrir {flamingoPctTrabalho}% das despesas correntes.</p>
+               <p className="text-slate-500">Ideal para freelancers: reduz horas em vez de parar totalmente.</p>
+             </div>
+           </div>
+           );
+         })()}
        </div>
      );
    })()}
