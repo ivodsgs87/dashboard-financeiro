@@ -5393,6 +5393,376 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="mt-1">Clica em "Guardar Snapshot" no final de cada mês para registar os valores e ver a performance no mês seguinte.</p>
  </div>
  </Card>
+
+ {/* ===== SIMULADORES ===== */}
+ <Card>
+   <h3 className="font-semibold mb-4">🔮 Simuladores</h3>
+   {(() => {
+     const [simTab, setSimTab] = useState('projecao');
+     const totPortfolio = portfolio.reduce((a, p) => a + p.val, 0);
+     // Calc avg monthly investment from last 6 months
+     const avgInvMensal = (() => {
+       let total = 0, count = 0;
+       for (let i = 0; i < 6; i++) {
+         const mIdx = meses.indexOf(mes) - i;
+         const a2 = mIdx < 0 ? ano - 1 : ano;
+         const m2 = mIdx < 0 ? mIdx + 12 : mIdx;
+         const k = `${a2}-${m2 + 1}`;
+         const inv = (M[k]?.inv || []).filter(p => p.cat !== 'CREDITO').reduce((a3, p) => a3 + (p.val || 0), 0);
+         if (inv > 0) { total += inv; count++; }
+       }
+       return count > 0 ? Math.round(total / count) : 500;
+     })();
+
+     // Simulador 1: Projeção Portfolio
+     const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
+     const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
+     const [simRetorno, setSimRetorno] = useState(7);
+     const [simAnos, setSimAnos] = useState(20);
+
+     const calcProjecao = () => {
+       const r = simRetorno / 100 / 12;
+       const n = simAnos * 12;
+       let saldo = simCapInicial;
+       const pontos = [{ ano: 0, total: saldo, investido: simCapInicial, juros: 0 }];
+       let totalInvestido = simCapInicial;
+       for (let i = 1; i <= n; i++) {
+         saldo = saldo * (1 + r) + simAporteMensal;
+         totalInvestido += simAporteMensal;
+         if (i % 12 === 0) {
+           pontos.push({ ano: i / 12, total: Math.round(saldo), investido: Math.round(totalInvestido), juros: Math.round(saldo - totalInvestido) });
+         }
+       }
+       return pontos;
+     };
+     const proj = calcProjecao();
+     const projFinal = proj[proj.length - 1] || { total: 0, investido: 0, juros: 0 };
+     const maxProj = Math.max(...proj.map(p => p.total), 1);
+
+     // Simulador 2: Amortizar vs Investir
+     const [simExtra, setSimExtra] = useState(200);
+     const [simRetornoInv, setSimRetornoInv] = useState(7);
+     const taxaCredito = credito.taxaJuro || 2;
+     const dividaCredito = credito.dividaAtual || 229693;
+     const prestacaoCredito = credito.prestacao || 971;
+
+     const calcAmortVsInvest = () => {
+       const meses2 = simAnos * 12;
+       // Cenário A: Amortizar extra
+       let dividaA = dividaCredito;
+       const juroMensal = taxaCredito / 100 / 12;
+       let totalJurosA = 0, mesesPoupados = 0;
+       for (let i = 0; i < meses2; i++) {
+         if (dividaA <= 0) break;
+         const juros = dividaA * juroMensal;
+         totalJurosA += juros;
+         const capital = prestacaoCredito - juros + simExtra;
+         dividaA = Math.max(0, dividaA - capital);
+       }
+       // Cenário B: Sem amortização extra (referência)
+       let dividaB = dividaCredito;
+       let totalJurosB = 0;
+       for (let i = 0; i < meses2; i++) {
+         if (dividaB <= 0) break;
+         const juros = dividaB * juroMensal;
+         totalJurosB += juros;
+         const capital = prestacaoCredito - juros;
+         dividaB = Math.max(0, dividaB - capital);
+       }
+       const poupancaJuros = totalJurosB - totalJurosA;
+       // Cenário C: Investir em vez de amortizar
+       const rInv = simRetornoInv / 100 / 12;
+       let portfolioC = 0;
+       for (let i = 0; i < meses2; i++) {
+         portfolioC = portfolioC * (1 + rInv) + simExtra;
+       }
+       const ganhoInvestir = portfolioC - (simExtra * meses2);
+       return {
+         poupancaJuros: Math.round(poupancaJuros),
+         totalAmortExtra: simExtra * meses2,
+         portfolioFinal: Math.round(portfolioC),
+         totalInvestido: simExtra * meses2,
+         ganhoInvestir: Math.round(ganhoInvestir),
+         dividaFinalA: Math.round(dividaA),
+         dividaFinalB: Math.round(dividaB),
+         melhor: ganhoInvestir > poupancaJuros ? 'investir' : 'amortizar',
+         diferenca: Math.abs(Math.round(ganhoInvestir - poupancaJuros))
+       };
+     };
+     const avi = calcAmortVsInvest();
+
+     // Simulador 3: FIRE
+     const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
+     const [simRetornoFire, setSimRetornoFire] = useState(4);
+     const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
+     const fireTarget = simDespMensal * 12 * simMetodoFire;
+     const calcFire = () => {
+       const r = simRetornoInv / 100 / 12;
+       let saldo = totPortfolio;
+       let mesesFire = 0;
+       const maxMeses = 600; // 50 anos max
+       while (saldo < fireTarget && mesesFire < maxMeses) {
+         saldo = saldo * (1 + r) + simAporteMensal;
+         mesesFire++;
+       }
+       const anosFire = Math.floor(mesesFire / 12);
+       const mesesRest = mesesFire % 12;
+       const anoAlvo = anoAtualSistema + anosFire;
+       return { mesesFire, anosFire, mesesRest, anoAlvo, saldoFinal: Math.round(saldo), atingido: mesesFire < maxMeses };
+     };
+     const fire = calcFire();
+
+     const simInputClass = `w-24 text-right text-sm font-mono px-2 py-1.5 rounded-lg ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700/50 border border-slate-600'} focus:outline-none focus:ring-1 focus:ring-blue-500`;
+
+     return (
+       <div>
+         {/* Sim tabs */}
+         <div className="flex gap-1 mb-4">
+           {[
+             { id: 'projecao', label: '📈 Projeção', desc: 'Juros compostos' },
+             { id: 'amortizar', label: '⚖️ Amortizar vs Investir', desc: '' },
+             { id: 'fire', label: '🔥 FIRE', desc: 'Independência' },
+           ].map(t => (
+             <button key={t.id} onClick={() => setSimTab(t.id)}
+               className={`px-3 py-2 text-xs font-medium rounded-lg transition-all ${simTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+               {t.label}
+             </button>
+           ))}
+         </div>
+
+         {/* PROJEÇÃO PORTFOLIO */}
+         {simTab === 'projecao' && (
+           <div className="space-y-4">
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Capital inicial</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simCapInicial} onChange={e => setSimCapInicial(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Aporte mensal</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simAporteMensal} onChange={e => setSimAporteMensal(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Retorno anual (%)</label>
+                 <input type="number" step="0.5" className={simInputClass + ' w-full'} value={simRetorno} onChange={e => setSimRetorno(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Horizonte (anos)</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simAnos} onChange={e => setSimAnos(Math.max(1, +e.target.value))} />
+               </div>
+             </div>
+
+             {/* Resultado */}
+             <div className="grid grid-cols-3 gap-3">
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10 border border-blue-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Total investido</p>
+                 <p className="text-lg font-bold text-blue-400">{fmt(projFinal.investido)}</p>
+               </div>
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Juros ganhos</p>
+                 <p className="text-lg font-bold text-emerald-400">{fmt(projFinal.juros)}</p>
+               </div>
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-purple-50' : 'bg-purple-500/10 border border-purple-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Valor final</p>
+                 <p className="text-lg font-bold text-purple-400">{fmt(projFinal.total)}</p>
+               </div>
+             </div>
+
+             {/* Gráfico barras */}
+             <div className="flex items-end gap-[2px] h-32 mt-2">
+               {proj.map((p, i) => {
+                 const hTotal = (p.total / maxProj) * 100;
+                 const hInv = (p.investido / maxProj) * 100;
+                 return (
+                   <div key={i} className="flex-1 relative group" title={`Ano ${p.ano}: ${fmt(p.total)} (inv: ${fmt(p.investido)}, juros: ${fmt(p.juros)})`}>
+                     <div className="absolute bottom-0 w-full rounded-t" style={{ height: hTotal + '%', background: 'rgba(139,92,246,0.3)' }} />
+                     <div className="absolute bottom-0 w-full rounded-t" style={{ height: hInv + '%', background: 'rgba(59,130,246,0.5)' }} />
+                     {i === proj.length - 1 && <div className="absolute -top-5 right-0 text-[9px] text-purple-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
+                     {i === 0 && proj.length > 1 && <div className="absolute -top-5 left-0 text-[9px] text-blue-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
+                   </div>
+                 );
+               })}
+             </div>
+             <div className="flex justify-between text-[9px] text-slate-500 -mt-1">
+               <span>Ano 0</span>
+               <div className="flex gap-3">
+                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500/50" />Investido</span>
+                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-purple-500/30" />Juros</span>
+               </div>
+               <span>Ano {simAnos}</span>
+             </div>
+           </div>
+         )}
+
+         {/* AMORTIZAR VS INVESTIR */}
+         {simTab === 'amortizar' && (
+           <div className="space-y-4">
+             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Valor extra mensal</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simExtra} onChange={e => setSimExtra(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Retorno investimento (%)</label>
+                 <input type="number" step="0.5" className={simInputClass + ' w-full'} value={simRetornoInv} onChange={e => setSimRetornoInv(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Horizonte (anos)</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simAnos} onChange={e => setSimAnos(Math.max(1, +e.target.value))} />
+               </div>
+             </div>
+
+             <div className={`p-3 rounded-xl text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
+               <p className="text-slate-500 mb-2">Dados do crédito: dívida {fmt(dividaCredito)} · taxa {taxaCredito}% · prestação {fmt(prestacaoCredito)}/mês</p>
+             </div>
+
+             {/* Comparação lado a lado */}
+             <div className="grid grid-cols-2 gap-3">
+               <div className={`p-4 rounded-xl border ${avi.melhor === 'amortizar' ? 'border-emerald-500/50 bg-emerald-500/5' : theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                 <div className="flex items-center gap-2 mb-3">
+                   <span className="text-lg">🏠</span>
+                   <h4 className="font-semibold text-sm">Amortizar</h4>
+                   {avi.melhor === 'amortizar' && <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">Melhor</span>}
+                 </div>
+                 <div className="space-y-2 text-xs">
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Total amortizado</span>
+                     <span className="font-mono">{fmt(avi.totalAmortExtra)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Juros poupados</span>
+                     <span className="font-mono text-emerald-400 font-bold">{fmt(avi.poupancaJuros)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Dívida final</span>
+                     <span className="font-mono text-red-400">{fmt(avi.dividaFinalA)}</span>
+                   </div>
+                   <div className={`border-t pt-2 mt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-600'}`}>
+                     <div className="flex justify-between font-bold">
+                       <span>Ganho líquido</span>
+                       <span className="text-emerald-400">{fmt(avi.poupancaJuros)}</span>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+
+               <div className={`p-4 rounded-xl border ${avi.melhor === 'investir' ? 'border-purple-500/50 bg-purple-500/5' : theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                 <div className="flex items-center gap-2 mb-3">
+                   <span className="text-lg">📈</span>
+                   <h4 className="font-semibold text-sm">Investir</h4>
+                   {avi.melhor === 'investir' && <span className="text-[9px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">Melhor</span>}
+                 </div>
+                 <div className="space-y-2 text-xs">
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Total investido</span>
+                     <span className="font-mono">{fmt(avi.totalInvestido)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Retorno ({simRetornoInv}%)</span>
+                     <span className="font-mono text-purple-400 font-bold">{fmt(avi.ganhoInvestir)}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-slate-500">Portfolio final</span>
+                     <span className="font-mono">{fmt(avi.portfolioFinal)}</span>
+                   </div>
+                   <div className={`border-t pt-2 mt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-600'}`}>
+                     <div className="flex justify-between font-bold">
+                       <span>Ganho líquido</span>
+                       <span className="text-purple-400">{fmt(avi.ganhoInvestir)}</span>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+
+             <div className={`p-3 rounded-xl text-center ${avi.melhor === 'investir' ? 'bg-purple-500/10 border border-purple-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
+               <p className="text-sm font-bold">
+                 {avi.melhor === 'investir' ? '📈' : '🏠'} {avi.melhor === 'investir' ? 'Investir' : 'Amortizar'} compensa mais
+                 <span className={`ml-1 ${avi.melhor === 'investir' ? 'text-purple-400' : 'text-emerald-400'}`}>+{fmt(avi.diferenca)}</span>
+               </p>
+               <p className="text-[10px] text-slate-500 mt-1">
+                 Com {simExtra}€/mês durante {simAnos} anos · Crédito a {taxaCredito}% vs investimento a {simRetornoInv}%
+               </p>
+             </div>
+
+             <p className="text-[10px] text-slate-500">⚠️ Simulação simplificada. Não considera impostos sobre mais-valias (~28%), inflação, variação de taxas, ou o benefício fiscal da amortização antecipada.</p>
+           </div>
+         )}
+
+         {/* FIRE */}
+         {simTab === 'fire' && (
+           <div className="space-y-4">
+             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Despesas mensais</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simDespMensal} onChange={e => setSimDespMensal(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Aporte mensal</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simAporteMensal} onChange={e => setSimAporteMensal(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Retorno anual (%)</label>
+                 <input type="number" step="0.5" className={simInputClass + ' w-full'} value={simRetornoInv} onChange={e => setSimRetornoInv(+e.target.value)} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-slate-500 block mb-1">Regra (× despesas)</label>
+                 <input type="number" className={simInputClass + ' w-full'} value={simMetodoFire} onChange={e => setSimMetodoFire(+e.target.value)} />
+               </div>
+             </div>
+
+             {/* Target e progresso */}
+             <div className={`p-4 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
+               <div className="flex justify-between items-center mb-3">
+                 <div>
+                   <p className="text-xs text-slate-500">Objetivo FIRE ({simMetodoFire}× despesas anuais)</p>
+                   <p className="text-2xl font-bold text-orange-400">{fmt(fireTarget)}</p>
+                 </div>
+                 <div className="text-right">
+                   <p className="text-xs text-slate-500">Portfolio atual</p>
+                   <p className="text-2xl font-bold text-purple-400">{fmt(totPortfolio)}</p>
+                 </div>
+               </div>
+               
+               {/* Barra de progresso */}
+               <div className={`w-full h-4 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                 <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-red-500 transition-all relative"
+                   style={{ width: Math.min(100, (totPortfolio / fireTarget * 100)) + '%' }}>
+                   <span className="absolute right-1 top-0 text-[9px] text-white font-bold leading-4">{(totPortfolio / fireTarget * 100).toFixed(1)}%</span>
+                 </div>
+               </div>
+             </div>
+
+             {/* Resultado */}
+             <div className="grid grid-cols-3 gap-3">
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-orange-50' : 'bg-orange-500/10 border border-orange-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Tempo até FIRE</p>
+                 <p className="text-lg font-bold text-orange-400">{fire.atingido ? `${fire.anosFire}a ${fire.mesesRest}m` : '50+ anos'}</p>
+               </div>
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-red-50' : 'bg-red-500/10 border border-red-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Ano alvo</p>
+                 <p className="text-lg font-bold text-red-400">{fire.atingido ? fire.anoAlvo : '—'}</p>
+               </div>
+               <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-purple-50' : 'bg-purple-500/10 border border-purple-500/20'}`}>
+                 <p className="text-[10px] text-slate-500">Valor final</p>
+                 <p className="text-lg font-bold text-purple-400">{fmt(fire.saldoFinal)}</p>
+               </div>
+             </div>
+
+             {/* Explicação */}
+             <div className={`p-3 rounded-xl text-xs space-y-1 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/20'}`}>
+               <p className="text-slate-500">🔥 <strong>FIRE</strong> = Financial Independence, Retire Early</p>
+               <p className="text-slate-500">Com despesas de {fmt(simDespMensal)}/mês ({fmt(simDespMensal * 12)}/ano), precisas de {fmt(fireTarget)} investidos.</p>
+               <p className="text-slate-500">Isto permite retirar ~{(100 / simMetodoFire).toFixed(1)}%/ano do portfolio sem esgotar o capital (regra dos {simMetodoFire}×).</p>
+               <p className="text-slate-500">Investindo {fmt(simAporteMensal)}/mês a {simRetornoInv}%, partindo de {fmt(totPortfolio)}.</p>
+             </div>
+           </div>
+         )}
+       </div>
+     );
+   })()}
+ </Card>
+
  </div>
  );
  };
