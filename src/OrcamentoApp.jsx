@@ -4714,6 +4714,250 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <p className="text-[10px] text-slate-500 mt-3">Impostos baseados em pagamentos reais. Ano atual usa estimativas (est.) se não há registos. IRS ↓ = reembolso.</p>
  </Card>
 
+ {/* TABELA DESPESAS & POUPANÇA */}
+ <Card className="overflow-hidden">
+   <h3 className="font-semibold mb-4">💰 Despesas & Poupança Anual</h3>
+   <div className="overflow-x-auto">
+     <table className="w-full text-xs">
+       <thead>
+         <tr className={`${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+           <th className="px-3 py-2 text-left font-semibold">Ano</th>
+           <th className="px-3 py-2 text-right font-semibold">Receitas</th>
+           <th className="px-3 py-2 text-right font-semibold text-red-400">Impostos</th>
+           <th className="px-3 py-2 text-right font-semibold text-pink-400">Desp. Casal</th>
+           <th className="px-3 py-2 text-right font-semibold text-orange-400">Desp. Pessoais</th>
+           <th className="px-3 py-2 text-right font-semibold text-emerald-400">Investido</th>
+           <th className="px-3 py-2 text-right font-semibold text-blue-400">Amortizado</th>
+           <th className="px-3 py-2 text-right font-semibold">Poupança</th>
+         </tr>
+       </thead>
+       <tbody>
+         {(() => {
+           const allH = getHist();
+           const anos = [...new Set(allH.map(x => x.ano))].sort((a, b) => b - a);
+           let tRec=0,tImp=0,tDC=0,tDP=0,tInv=0,tAmort=0;
+           
+           const rows = anos.map(a => {
+             const rec = allH.filter(x => x.ano === a).reduce((acc, x) => acc + x.tot, 0);
+             
+             // Despesas anuais do casal e pessoais
+             let despCasal = 0, despPessoal = 0, investido = 0, amortizado = 0;
+             Object.entries(M).forEach(([key, md]) => {
+               if (!key.startsWith(a.toString())) return;
+               despCasal += (md.despABanca || despABanca).reduce((a2, d) => a2 + (d.val || 0), 0);
+               despPessoal += (md.despPess || despPess).reduce((a2, d) => a2 + (d.val || 0), 0);
+               // Investimentos e amortização do mês
+               const port = md.portfolio || [];
+               investido += port.filter(p => p.cat !== 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
+               amortizado += port.filter(p => p.cat === 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
+             });
+             // Contribuição casal (%)
+             const minhaParte = despCasal * (contrib / 100);
+             
+             // Impostos (usar pagamentos reais ou estimar)
+             const pagos = (G.impostosPagos || []).filter(p => (p.data || '').startsWith(a.toString()));
+             const impPagos = pagos.filter(p => p.valor > 0).reduce((acc, p) => acc + p.valor, 0);
+             const imp = impPagos > 0 ? impPagos : (a === anoAtualSistema ? (previsaoImpostos.totalImpostos || 0) : 0);
+             
+             const poupanca = rec - imp - minhaParte - despPessoal;
+             const taxaPoup = rec > 0 ? (poupanca / rec * 100) : 0;
+             
+             tRec+=rec; tImp+=imp; tDC+=minhaParte; tDP+=despPessoal; tInv+=investido; tAmort+=amortizado;
+             
+             return (
+               <tr key={a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
+                 <td className="px-3 py-2.5 font-bold">{a}</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{fmt(rec)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-red-400">{imp > 0 ? fmt(imp) : '—'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-pink-400">{fmt(minhaParte)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-orange-400">{fmt(despPessoal)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{investido > 0 ? fmt(investido) : '—'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-blue-400">{amortizado > 0 ? fmt(amortizado) : '—'}</td>
+                 <td className={`px-3 py-2.5 text-right font-mono font-bold ${taxaPoup >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{taxaPoup.toFixed(0)}%</td>
+               </tr>
+             );
+           });
+           
+           const tPoup = tRec - tImp - tDC - tDP;
+           return (<>
+             {rows}
+             {anos.length > 1 && (
+               <tr className={`border-t-2 ${theme === 'light' ? 'border-slate-300 bg-slate-50' : 'border-slate-600 bg-slate-700/30'} font-bold`}>
+                 <td className="px-3 py-2.5">Total</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{fmt(tRec)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-red-400">{fmt(tImp)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-pink-400">{fmt(tDC)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-orange-400">{fmt(tDP)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{fmt(tInv)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-blue-400">{fmt(tAmort)}</td>
+                 <td className={`px-3 py-2.5 text-right font-mono ${tPoup >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{tRec > 0 ? (tPoup / tRec * 100).toFixed(0) : 0}%</td>
+               </tr>
+             )}
+           </>);
+         })()}
+       </tbody>
+     </table>
+   </div>
+   <p className="text-[10px] text-slate-500 mt-3">Desp. casal = parte do user ({contrib}%). Poupança = receitas - impostos - despesas casal - pessoais.</p>
+ </Card>
+
+ {/* TABELA CRÉDITO */}
+ {credito && credito.montanteInicial > 0 && (
+ <Card className="overflow-hidden">
+   <h3 className="font-semibold mb-4">🏦 Evolução do Crédito Habitação</h3>
+   <div className="overflow-x-auto">
+     <table className="w-full text-xs">
+       <thead>
+         <tr className={`${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+           <th className="px-3 py-2 text-left font-semibold">Ano</th>
+           <th className="px-3 py-2 text-right font-semibold">Dívida Início</th>
+           <th className="px-3 py-2 text-right font-semibold text-blue-400">Prestações</th>
+           <th className="px-3 py-2 text-right font-semibold text-emerald-400">Amort. Extra</th>
+           <th className="px-3 py-2 text-right font-semibold text-orange-400">Juros Est.</th>
+           <th className="px-3 py-2 text-right font-semibold text-red-400">Dívida Fim</th>
+           <th className="px-3 py-2 text-right font-semibold">Progresso</th>
+         </tr>
+       </thead>
+       <tbody>
+         {(() => {
+           const allH = getHist();
+           const anos = [...new Set(allH.map(x => x.ano))].sort((a, b) => a - b);
+           const taxaJuro = (credito.taxaJuro || 2) / 100;
+           const prestacaoMensal = credito.prestacao || 0;
+           const montanteInicial = credito.montanteInicial || 0;
+           
+           // Build historic divida data from patrimonioHist
+           const patrimonioH = G.patrimonioHist || [];
+           
+           return anos.map((a, idx) => {
+             // Dívida no início do ano
+             const registoAnterior = patrimonioH.filter(p => {
+               const pAno = parseInt((p.data || '').split('-')[0]);
+               return pAno < a;
+             }).sort((x, y) => (y.data || '').localeCompare(x.data || ''));
+             
+             const dividaInicio = idx === 0 ? montanteInicial 
+               : registoAnterior.length > 0 ? (registoAnterior[0].divida || montanteInicial) 
+               : montanteInicial;
+             
+             // Contar meses com dados neste ano
+             const mesesAno = Object.keys(M).filter(k => k.startsWith(a.toString())).length;
+             const prestacaoAnual = prestacaoMensal * Math.max(mesesAno, a < anoAtualSistema ? 12 : new Date().getMonth() + 1);
+             
+             // Amortização extra do portfolio
+             let amortExtra = 0;
+             Object.entries(M).forEach(([key, md]) => {
+               if (!key.startsWith(a.toString())) return;
+               amortExtra += (md.portfolio || []).filter(p => p.cat === 'CREDITO').reduce((acc, p) => acc + (p.val || 0), 0);
+             });
+             
+             // Estimativa juros
+             const jurosMedio = dividaInicio * taxaJuro;
+             
+             // Dívida fim do ano
+             const registosFimAno = patrimonioH.filter(p => (p.data || '').startsWith(a.toString()))
+               .sort((x, y) => (y.data || '').localeCompare(x.data || ''));
+             const dividaFim = registosFimAno.length > 0 ? registosFimAno[0].divida 
+               : (a === anoAtualSistema ? (credito.dividaAtual || dividaInicio) : dividaInicio);
+             
+             const progresso = montanteInicial > 0 ? ((montanteInicial - dividaFim) / montanteInicial * 100) : 0;
+             
+             return (
+               <tr key={a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
+                 <td className="px-3 py-2.5 font-bold">{a}</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{fmt(dividaInicio)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-blue-400">{fmt(prestacaoAnual)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{amortExtra > 0 ? fmt(amortExtra) : '—'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-orange-400">~{fmt(jurosMedio)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-red-400 font-bold">{fmt(dividaFim)}</td>
+                 <td className="px-3 py-2.5 text-right">
+                   <div className="flex items-center justify-end gap-2">
+                     <div className={`w-16 h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                       <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500" style={{ width: Math.min(100, progresso) + '%' }} />
+                     </div>
+                     <span className="font-mono">{progresso.toFixed(1)}%</span>
+                   </div>
+                 </td>
+               </tr>
+             );
+           });
+         })()}
+       </tbody>
+     </table>
+   </div>
+   <p className="text-[10px] text-slate-500 mt-3">Juros estimados com base na taxa {((credito.taxaJuro || 2))}% sobre dívida em início de ano. Progresso = % do capital inicial amortizado.</p>
+ </Card>
+ )}
+
+ {/* TABELA PATRIMÓNIO */}
+ <Card className="overflow-hidden">
+   <h3 className="font-semibold mb-4">🏠 Evolução do Património</h3>
+   <div className="overflow-x-auto">
+     <table className="w-full text-xs">
+       <thead>
+         <tr className={`${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+           <th className="px-3 py-2 text-left font-semibold">Ano</th>
+           <th className="px-3 py-2 text-right font-semibold text-blue-400">Imóvel</th>
+           <th className="px-3 py-2 text-right font-semibold text-red-400">Dívida</th>
+           <th className="px-3 py-2 text-right font-semibold text-emerald-400">Equity Casa</th>
+           <th className="px-3 py-2 text-right font-semibold text-purple-400">Investimentos</th>
+           <th className="px-3 py-2 text-right font-semibold font-bold">Pat. Líquido</th>
+           <th className="px-3 py-2 text-right font-semibold">Δ YoY</th>
+         </tr>
+       </thead>
+       <tbody>
+         {(() => {
+           const allH = getHist();
+           const anos = [...new Set(allH.map(x => x.ano))].sort((a, b) => b - a);
+           const patrimonioH = G.patrimonioHist || [];
+           let prevPatrimonio = null;
+           
+           // Process in chronological order for YoY, then reverse for display
+           const rowsChron = [...anos].sort((a, b) => a - b).map(a => {
+             // Valor imóvel
+             const valorCasa = credito.valorCasa || 0;
+             
+             // Dívida fim do ano
+             const registosFimAno = patrimonioH.filter(p => (p.data || '').startsWith(a.toString()))
+               .sort((x, y) => (y.data || '').localeCompare(x.data || ''));
+             const divida = registosFimAno.length > 0 ? (registosFimAno[0].divida || 0)
+               : (a === anoAtualSistema ? (credito.dividaAtual || 0) : 0);
+             
+             const equityCasa = valorCasa - divida;
+             
+             // Portfolio fim do ano
+             const regPortfolio = patrimonioH.filter(p => (p.data || '').startsWith(a.toString()))
+               .sort((x, y) => (y.data || '').localeCompare(x.data || ''));
+             const investimentos = regPortfolio.length > 0 ? (regPortfolio[0].portfolio || 0)
+               : (a === anoAtualSistema ? portfolio.reduce((acc, p) => acc + p.val, 0) : 0);
+             
+             const patrimonioLiq = equityCasa + investimentos;
+             const yoy = prevPatrimonio !== null ? patrimonioLiq - prevPatrimonio : null;
+             prevPatrimonio = patrimonioLiq;
+             
+             return { a, valorCasa, divida, equityCasa, investimentos, patrimonioLiq, yoy };
+           });
+           
+           return rowsChron.reverse().map(r => (
+             <tr key={r.a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${r.a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
+               <td className="px-3 py-2.5 font-bold">{r.a}</td>
+               <td className="px-3 py-2.5 text-right font-mono text-blue-400">{r.valorCasa > 0 ? fmt(r.valorCasa) : '—'}</td>
+               <td className="px-3 py-2.5 text-right font-mono text-red-400">{r.divida > 0 ? fmt(r.divida) : '—'}</td>
+               <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{r.equityCasa > 0 ? fmt(r.equityCasa) : '—'}</td>
+               <td className="px-3 py-2.5 text-right font-mono text-purple-400">{r.investimentos > 0 ? fmt(r.investimentos) : '—'}</td>
+               <td className="px-3 py-2.5 text-right font-mono font-bold">{r.patrimonioLiq > 0 ? fmt(r.patrimonioLiq) : '—'}</td>
+               <td className={`px-3 py-2.5 text-right font-mono ${r.yoy === null ? 'text-slate-500' : r.yoy >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                 {r.yoy === null ? '—' : `${r.yoy >= 0 ? '+' : ''}${fmt(r.yoy)}`}
+               </td>
+             </tr>
+           ));
+         })()}
+       </tbody>
+     </table>
+   </div>
+   <p className="text-[10px] text-slate-500 mt-3">Pat. líquido = equity imóvel + investimentos. Δ YoY = variação face ao ano anterior. Valores de fim de ano.</p>
+ </Card>
+
  </div>
  );
  };
