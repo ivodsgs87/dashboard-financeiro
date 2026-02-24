@@ -4621,6 +4621,99 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    })()}
  </Card>
  )}
+
+ {/* TABELA CONSOLIDADA ANUAL */}
+ <Card className="overflow-hidden">
+   <h3 className="font-semibold mb-4">📊 Resumo Anual Consolidado</h3>
+   <div className="overflow-x-auto">
+     <table className="w-full text-xs">
+       <thead>
+         <tr className={`${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+           <th className="px-3 py-2 text-left font-semibold">Ano</th>
+           <th className="px-3 py-2 text-right font-semibold">Receitas</th>
+           <th className="px-3 py-2 text-right font-semibold text-blue-400">SS</th>
+           <th className="px-3 py-2 text-right font-semibold text-orange-400">IVA</th>
+           <th className="px-3 py-2 text-right font-semibold text-purple-400">IRS</th>
+           <th className="px-3 py-2 text-right font-semibold text-red-400">Impostos</th>
+           <th className="px-3 py-2 text-right font-semibold text-emerald-400">Líquido</th>
+           <th className="px-3 py-2 text-right font-semibold">Carga</th>
+         </tr>
+       </thead>
+       <tbody>
+         {(() => {
+           const allH = getHist();
+           const anos = [...new Set(allH.map(x => x.ano))].sort((a, b) => b - a);
+           const pagamentos = G.impostosPagos || [];
+           let totRec = 0, totSS = 0, totIVA = 0, totIRS = 0;
+           
+           const rows = anos.map(a => {
+             const hAnoT = allH.filter(x => x.ano === a);
+             const receitas = hAnoT.reduce((acc, x) => acc + x.tot, 0);
+             
+             // IVA cobrado nesse ano
+             let ivaAno = 0;
+             Object.entries(M).forEach(([key, mesData]) => {
+               if (!key.startsWith(a.toString())) return;
+               (mesData.regCom || []).forEach(r => { ivaAno += r.iva || 0; });
+             });
+             
+             // Pagamentos reais de impostos nesse ano
+             const pagosAno = pagamentos.filter(p => (p.data || '').startsWith(a.toString()));
+             const ssPago = pagosAno.filter(p => p.tipo === 'SS' && p.valor > 0).reduce((acc, p) => acc + p.valor, 0);
+             const ivaPago = pagosAno.filter(p => p.tipo === 'IVA' && p.valor > 0).reduce((acc, p) => acc + p.valor, 0);
+             const irsPago = pagosAno.filter(p => p.tipo === 'IRS').reduce((acc, p) => acc + p.valor, 0);
+             
+             // Se não há pagamentos reais, estimar
+             const ssVal = ssPago > 0 ? ssPago : (a === anoAtualSistema ? (previsaoImpostos.ssAnual || 0) : 0);
+             const ivaVal = ivaPago > 0 ? ivaPago : (ivaAno > 0 ? ivaAno : (a === anoAtualSistema ? (previsaoImpostos.ivaAPagar || 0) : 0));
+             const irsVal = irsPago !== 0 ? irsPago : (a === anoAtualSistema ? Math.max(0, (previsaoImpostos.irsEstimado || 0)) : 0);
+             
+             const totalImp = ssVal + ivaVal + Math.max(0, irsVal);
+             const liquido = receitas - totalImp;
+             const carga = receitas > 0 ? (totalImp / receitas * 100) : 0;
+             
+             totRec += receitas; totSS += ssVal; totIVA += ivaVal; totIRS += Math.max(0, irsVal);
+             
+             const isEst = ssPago === 0 && a === anoAtualSistema;
+             
+             return (
+               <tr key={a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
+                 <td className="px-3 py-2.5 font-bold">{a}{isEst && <span className="text-[9px] text-slate-500 ml-1">est.</span>}</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{fmt(receitas)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-blue-400">{ssVal > 0 ? fmt(ssVal) : '—'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-orange-400">{ivaVal > 0 ? fmt(ivaVal) : '—'}</td>
+                 <td className={`px-3 py-2.5 text-right font-mono ${irsPago < 0 ? 'text-emerald-400' : 'text-purple-400'}`}>{irsVal !== 0 ? fmt(Math.abs(irsVal)) : '—'}{irsPago < 0 && ' ↓'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-red-400 font-bold">{totalImp > 0 ? fmt(totalImp) : '—'}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-emerald-400 font-bold">{fmt(liquido)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{carga > 0 ? carga.toFixed(1) + '%' : '—'}</td>
+               </tr>
+             );
+           });
+           
+           const totImpT = totSS + totIVA + totIRS;
+           
+           return (<>
+             {rows}
+             {anos.length > 1 && (
+               <tr className={`border-t-2 ${theme === 'light' ? 'border-slate-300 bg-slate-50' : 'border-slate-600 bg-slate-700/30'} font-bold`}>
+                 <td className="px-3 py-2.5">Total</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{fmt(totRec)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-blue-400">{fmt(totSS)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-orange-400">{fmt(totIVA)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-purple-400">{fmt(totIRS)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-red-400">{fmt(totImpT)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{fmt(totRec - totImpT)}</td>
+                 <td className="px-3 py-2.5 text-right font-mono">{totRec > 0 ? (totImpT / totRec * 100).toFixed(1) : 0}%</td>
+               </tr>
+             )}
+           </>);
+         })()}
+       </tbody>
+     </table>
+   </div>
+   <p className="text-[10px] text-slate-500 mt-3">Impostos baseados em pagamentos reais. Ano atual usa estimativas (est.) se não há registos. IRS ↓ = reembolso.</p>
+ </Card>
+
  </div>
  );
  };
