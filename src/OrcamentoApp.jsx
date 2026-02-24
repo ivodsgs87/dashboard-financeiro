@@ -4746,10 +4746,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                if (!key.startsWith(a.toString())) return;
                despCasal += (md.despABanca || despABanca).reduce((a2, d) => a2 + (d.val || 0), 0);
                despPessoal += (md.despPess || despPess).reduce((a2, d) => a2 + (d.val || 0), 0);
-               // Investimentos e amortização do mês
-               const port = md.portfolio || [];
-               investido += port.filter(p => p.cat !== 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
-               amortizado += port.filter(p => p.cat === 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
+               // Investimentos mensais (alocação) - excluir CREDITO
+               const inv = md.inv || [];
+               investido += inv.filter(p => p.cat !== 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
+               amortizado += inv.filter(p => p.cat === 'CREDITO').reduce((a2, p) => a2 + (p.val || 0), 0);
              });
              // Contribuição casal (%)
              const minhaParte = despCasal * (contrib / 100);
@@ -4848,7 +4848,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              let amortExtra = 0;
              Object.entries(M).forEach(([key, md]) => {
                if (!key.startsWith(a.toString())) return;
-               amortExtra += (md.portfolio || []).filter(p => p.cat === 'CREDITO').reduce((acc, p) => acc + (p.val || 0), 0);
+               amortExtra += (md.inv || []).filter(p => p.cat === 'CREDITO').reduce((acc, p) => acc + (p.val || 0), 0);
              });
              
              // Estimativa juros
