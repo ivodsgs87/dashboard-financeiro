@@ -11026,9 +11026,19 @@ ${transacoesOrdenadas.map(t => `<tr>
           return t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
-            <div key={t.id} className="relative flex-shrink-0">
+            <div key={t.id} className="relative flex-shrink-0"
+              onMouseEnter={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
+                setHoveredTab(t.id);
+              }}
+              onMouseLeave={() => {
+                setTimeout(() => setHoveredTab(prev => prev === t.id ? null : prev), 200);
+              }}
+            >
               <button 
                 onClick={(e) => {
+                  // Em mobile, toggle com click
                   const rect = e.currentTarget.getBoundingClientRect();
                   setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
                   setHoveredTab(hoveredTab === t.id ? null : t.id);
@@ -11059,6 +11069,8 @@ ${transacoesOrdenadas.map(t => `<tr>
           <div 
             className={`fixed ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 shadow-xl z-50 min-w-[160px]`}
             style={{ left: submenuPos.left, top: submenuPos.top }}
+            onMouseEnter={() => setHoveredTab(hoveredTab)}
+            onMouseLeave={() => setHoveredTab(null)}
           >
             {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
               <button 
