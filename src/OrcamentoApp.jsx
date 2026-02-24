@@ -8606,6 +8606,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
+ const submenuTimeoutRef = useRef(null);
  const [submenuPos, setSubmenuPos] = useState({ left: 0, top: 0 });
 
  // Função para exportar PDF mensal
@@ -11028,17 +11029,17 @@ ${transacoesOrdenadas.map(t => `<tr>
           ) : t.submenu ? (
             <div key={t.id} className="relative flex-shrink-0"
               onMouseEnter={(e) => {
+                clearTimeout(submenuTimeoutRef.current);
                 const rect = e.currentTarget.getBoundingClientRect();
                 setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
                 setHoveredTab(t.id);
               }}
               onMouseLeave={() => {
-                setTimeout(() => setHoveredTab(prev => prev === t.id ? null : prev), 200);
+                submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 300);
               }}
             >
               <button 
                 onClick={(e) => {
-                  // Em mobile, toggle com click
                   const rect = e.currentTarget.getBoundingClientRect();
                   setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 160), top: rect.bottom + 4 });
                   setHoveredTab(hoveredTab === t.id ? null : t.id);
@@ -11069,8 +11070,8 @@ ${transacoesOrdenadas.map(t => `<tr>
           <div 
             className={`fixed ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 shadow-xl z-50 min-w-[160px]`}
             style={{ left: submenuPos.left, top: submenuPos.top }}
-            onMouseEnter={() => setHoveredTab(hoveredTab)}
-            onMouseLeave={() => setHoveredTab(null)}
+            onMouseEnter={() => clearTimeout(submenuTimeoutRef.current)}
+            onMouseLeave={() => { submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 300); }}
           >
             {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
               <button 
