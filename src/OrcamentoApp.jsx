@@ -9003,21 +9003,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Toolbar */}
          <Card className="!p-3">
            <div className="flex flex-wrap gap-2 items-center">
-             <select value={extratoMes} onChange={e => setExtratoMes(e.target.value); setPagina(0)}
+             <select value={extratoMes} onChange={e => { setExtratoMes(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
              </select>
-             <select value={filtroConta} onChange={e => setFiltroConta(e.target.value); setPagina(0)}
+             <select value={filtroConta} onChange={e => { setFiltroConta(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                <option value="todas">Todas as contas</option>
                {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
              </select>
-             <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value); setPagina(0)}
+             <select value={filtroCategoria} onChange={e => { setFiltroCategoria(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                <option value="todas">Todas categorias</option>
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
              </select>
-             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => setFiltroTexto(e.target.value); setPagina(0)}
+             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => { setFiltroTexto(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
              <div className="flex gap-1 ml-auto">
                <button type="button" onClick={() => setShowImport(true)}
