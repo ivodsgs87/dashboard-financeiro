@@ -8660,16 +8660,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    });
    
    // Totais
-   const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(t.valor), 0);
+   // Helper: valor efectivo (usa valorReal se definido, senão valor)
+   const valEfectivo = (t) => t.valorReal != null ? t.valorReal : t.valor;
+   
+   const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
    const receitasMes = txMes.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
    const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
-   // Despesas por categoria (excluindo transferências)
+   // Despesas por categoria (excluindo transferências) - usa valor efectivo
    const porCategoria = {};
    txMes.filter(t => t.tipo === 'despesa').forEach(t => {
      const cat = t.categoria || 'outros';
      if (!porCategoria[cat]) porCategoria[cat] = 0;
-     porCategoria[cat] += Math.abs(t.valor);
+     porCategoria[cat] += Math.abs(valEfectivo(t));
    });
    
    // IBANs das minhas contas (para detectar transferências)
@@ -8864,12 +8867,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Importar transações
    const importarTxs = (txs) => {
      saveUndo();
-     const existing = new Set(extrato.map(t => `${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
-     const novas = txs.filter(t => !existing.has(`${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
+     // Deduplicação robusta: data + valor (arredondado) + descrição normalizada
+     const normalizeKey = (t) => {
+       const d = (t.data || '').slice(0, 10);
+       const v = Math.round((t.valor || 0) * 100); // centimos para evitar float issues
+       const desc = (t.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 30).toLowerCase();
+       return `${d}|${v}|${desc}`;
+     };
+     const existing = new Set(extrato.map(normalizeKey));
+     const novas = txs.filter(t => !existing.has(normalizeKey(t)));
+     if (novas.length === 0 && txs.length > 0) {
+       alert(`Todas as ${txs.length} transações já foram importadas anteriormente.`);
+       return;
+     }
      setLastImportIds(novas.map(t => t.id));
      uG('extrato', [...extrato, ...novas]);
      setImportPreview(null);
      setShowImport(false);
+     if (novas.length < txs.length) {
+       alert(`Importadas ${novas.length} novas transações. ${txs.length - novas.length} duplicados ignorados.`);
+     }
    };
    
    // Batch delete
@@ -9066,29 +9083,55 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      </select>
                      {/* Data */}
                      <span className="text-[11px] text-slate-500 w-14 flex-shrink-0">{tx.data?.slice(5)}</span>
-                     {/* Descrição + transfer label */}
+                     {/* Descrição + transfer label + reembolso */}
                      <div className="flex-1 min-w-0">
                        <span className="text-xs truncate block">{tx.descricao}</span>
                        {transfLabel && (
                          <span className={`text-[10px] ${theme === 'light' ? 'text-blue-500' : 'text-blue-400'}`}>{transfLabel}</span>
                        )}
+                       {tx.valorReal != null && tx.valorReal !== tx.valor && (
+                         <span className="text-[10px] text-orange-400">💰 Custo real: {fmt(Math.abs(tx.valorReal))} (reembolso parcial)</span>
+                       )}
                      </div>
                      {/* Conta */}
                      <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{contaNome}</span>
-                     {/* Valor */}
-                     <span className={`font-mono text-sm font-bold flex-shrink-0 w-24 text-right ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
-                       {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
-                     </span>
+                     {/* Valor + edit valor real */}
+                     <div className="flex-shrink-0 w-24 text-right">
+                       <span className={`font-mono text-sm font-bold ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
+                         {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
+                       </span>
+                     </div>
                      {/* Delete */}
                      {/* Select similar */}
                      <button type="button" title="Selecionar semelhantes" onClick={() => {
-                       // Extrair palavras-chave da descrição (>3 chars)
-                       const keywords = (tx.descricao || '').split(/\s+/).filter(w => w.length > 3).slice(0, 2);
-                       if (keywords.length === 0) return;
-                       const pattern = keywords[0].toLowerCase();
-                       const similar = txFiltradas.filter(t => (t.descricao || '').toLowerCase().includes(pattern)).map(t => t.id);
+                       // Extrair entidade principal da descrição
+                       const desc = (tx.descricao || '').toUpperCase();
+                       // Remove palavras genéricas comuns em extratos bancários
+                       const stopWords = ['COMPRA','PAGAMENTO','PAG','TRF','TRANSFERENCIA','MB','WAY','MULTIBANCO','PARA','DEBITO','CREDITO','SERVICO','PAGSERV','REF','NR','NUMERO','COM','SEM','POR','DOS','DAS','DEL','CARTAO','CONTACTLESS','VISA','MASTERCARD','P/','P/O','DE','DO','DA','EM'];
+                       const words = desc.split(/[\s\/\-.,;:]+/).filter(w => w.length > 2 && !stopWords.includes(w));
+                       // Usar a primeira palavra significativa como padrão
+                       if (words.length === 0) return;
+                       const pattern = words[0];
+                       const similar = txFiltradas.filter(t => {
+                         const d = (t.descricao || '').toUpperCase();
+                         return d.includes(pattern);
+                       }).map(t => t.id);
                        setSelectedTxs(new Set([...selectedTxs, ...similar]));
                      }} className="text-blue-400/50 hover:text-blue-400 text-xs flex-shrink-0">⊕</button>
+                     {/* Valor real (reembolso parcial) */}
+                     {tx.tipo === 'despesa' && (
+                       <button type="button" title="Definir custo real (ex: paguei jantar mas recebi reembolso)" onClick={() => {
+                         const atual = tx.valorReal != null ? Math.abs(tx.valorReal) : Math.abs(tx.valor);
+                         const input = prompt(`Custo real para "${tx.descricao?.slice(0,30)}":\n\nValor total: ${fmt(Math.abs(tx.valor))}\nInsere o valor que realmente gastaste (a tua parte):`, atual);
+                         if (input !== null) {
+                           const v = parseFloat(input);
+                           if (!isNaN(v)) {
+                             saveUndo();
+                             uG('extrato', extrato.map(t => t.id === tx.id ? {...t, valorReal: -Math.abs(v)} : t));
+                           }
+                         }
+                       }} className={`text-xs flex-shrink-0 ${tx.valorReal != null ? 'text-orange-400' : 'text-slate-500/50 hover:text-orange-400'}`}>💰</button>
+                     )}
                      <button type="button" onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                    </div>
                  </div>
@@ -9162,7 +9205,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      return extrato.filter(t => {
                        const [a, m] = (t.data || '').split('-').map(Number);
                        return a === extratoAno && m === i + 1 && t.tipo === 'despesa' && t.categoria === cat.id;
-                     }).reduce((acc, t) => acc + Math.abs(t.valor), 0);
+                     }).reduce((acc, t) => acc + Math.abs(valEfectivo(t)), 0);
                    });
                    const total = mesTotais.reduce((a, v) => a + v, 0);
                    if (total === 0) return null;
@@ -9236,7 +9279,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  t.tipo === 'despesa' && 
                  (grupo.categorias || []).includes(t.categoria) &&
                  (!grupo.contaId || grupo.contaId === 'todas' || t.contaId === grupo.contaId)
-               ).reduce((a, t) => a + Math.abs(t.valor), 0);
+               ).reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
                const pctG = grupo.limite > 0 ? (gastoGrupo / grupo.limite * 100) : 0;
                
                return (
@@ -9472,7 +9515,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
              <div>
                <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
-               <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={e => {
+               <input type="file" accept=".csv,.txt,.xlsx,.xls" onClick={e => {
+                 if (!importConta) { alert('Seleciona uma conta primeiro.'); e.preventDefault(); }
+               }} onChange={e => {
                  const file = e.target.files?.[0];
                  if (!file || !importConta) return;
                  const isExcel = /\.xlsx?$/i.test(file.name);
@@ -11834,16 +11879,13 @@ ${transacoesOrdenadas.map(t => `<tr>
    .smooth-colors { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
    
    /* Hover effects melhorados */
-   .hover-lift { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; }
+   .hover-lift { transition: box-shadow 0.2s ease-out; }
    .hover-lift:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-   .hover-lift:focus-within { transform: none !important; }
    
    .hover-glow { transition: box-shadow 0.2s ease-out; }
    .hover-glow:hover { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
    
-   .hover-scale { transition: transform 0.15s ease-out; }
-   .hover-scale:hover { transform: scale(1.02); }
-   .hover-scale:active { transform: scale(0.98); }
+   .hover-scale { }
    
    /* Tab transition */
    .tab-content { animation: fadeIn 0.3s ease-out; }
