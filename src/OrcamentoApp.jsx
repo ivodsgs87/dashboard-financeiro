@@ -8738,15 +8738,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const sampleLines = lines.slice(0, 15).join('\n');
      const sep = (sampleLines.match(/;/g) || []).length > (sampleLines.match(/,/g) || []).length ? ';' : ',';
      
-     // Encontrar linha de headers - procurar linha que contém palavras-chave
+     // Encontrar linha de headers - procurar linha com MÚLTIPLAS keywords de colunas
      let headerIdx = -1;
      for (let i = 0; i < Math.min(15, lines.length); i++) {
        const lower = lines[i].toLowerCase();
-       if (/(data|date|descri|movimento|valor|amount|montante|saldo|balance|débito|credito)/.test(lower)) {
-         // Verificar se tem pelo menos 3 colunas
-         const cols = lines[i].split(sep);
-         if (cols.length >= 3) { headerIdx = i; break; }
+       const cols = lines[i].split(sep);
+       if (cols.length < 3) continue;
+       // Contar quantas keywords de header existem nesta linha
+       const keywords = ['data','date','descri','valor','amount','montante','saldo','balance','d[eé]bito','cr[eé]dito','debit','credit','movimento','refer'];
+       let matches = 0;
+       for (const kw of keywords) {
+         if (new RegExp(kw).test(lower)) matches++;
        }
+       // Pelo menos 2 keywords diferentes numa linha = provável header
+       if (matches >= 2) { headerIdx = i; break; }
      }
      if (headerIdx < 0) {
        // Fallback: testar se a 1ª linha com >3 colunas é header
@@ -8805,7 +8810,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        // Parse valor - suportar vírgula decimal e notação PT
        const parseValorPT = (str) => {
          if (!str) return 0;
-         let s = str.replace(/\s/g, '');
+         // Remove ALL whitespace including NBSP (\u00A0), thin space, etc.
+         let s = str.replace(/[\s\u00A0\u202F\u2009]+/g, '');
          if (s.includes('.') && s.includes(',')) {
            const lastComma = s.lastIndexOf(',');
            const lastDot = s.lastIndexOf('.');
@@ -8886,37 +8892,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Importar transações
    const importarTxs = (txs) => {
-     saveUndo();
+     if (txs.length === 0) return;
+     
+     // Se extrato vazio, importar tudo sem dedup
+     if (extrato.length === 0) {
+       setLastImportIds(txs.map(t => t.id));
+       uG('extrato', txs);
+       setImportPreview(null);
+       setShowImport(false);
+       return;
+     }
+     
      // Deduplicação: usar data + valor + desc + saldo como chave
-     // Saldo é único para cada transação mesmo quando data+valor+desc são iguais
      const normalizeKey = (t) => {
        const d = (t.data || '').slice(0, 10);
        const v = Math.round((t.valor || 0) * 100);
        const s = t.saldo != null ? Math.round(t.saldo * 100) : 'x';
-       const desc = (t.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 30).toLowerCase();
+       const desc = (t.descricao || '').replace(/[\s\u00A0]+/g, ' ').trim().slice(0, 30).toLowerCase();
        return `${d}|${v}|${s}|${desc}`;
      };
      
-     // Contar ocorrências de cada chave no extrato existente
+     // Contar ocorrências no extrato existente
      const existingCounts = {};
      extrato.forEach(t => {
        const k = normalizeKey(t);
        existingCounts[k] = (existingCounts[k] || 0) + 1;
      });
      
-     // Para cada nova tx, verificar se já existe (contando duplicados legítimos)
      const importCounts = {};
      const novas = [];
      for (const t of txs) {
        const k = normalizeKey(t);
        importCounts[k] = (importCounts[k] || 0) + 1;
-       // Aceitar se o número de ocorrências no import ainda não excede o existente
-       if (importCounts[k] <= (existingCounts[k] || 0)) continue; // já existe
+       if (importCounts[k] <= (existingCounts[k] || 0)) continue;
        novas.push(t);
      }
      
-     if (novas.length === 0 && txs.length > 0) {
-       alert(`Todas as ${txs.length} transações já foram importadas anteriormente.`);
+     if (novas.length === 0) {
+       alert(`Todas as ${txs.length} transações já foram importadas.`);
        return;
      }
      setLastImportIds(novas.map(t => t.id));
@@ -8977,7 +8990,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    if (!mesesDisp.includes(extratoMes)) mesesDisp.unshift(extratoMes);
    
    const getCatInfo = (catId) => categorias.find(c => c.id === catId) || { nome: catId, icon: '📦', cor: '#78716c' };
-   const getContaNome = (contaId) => contas.find(c => c.id === contaId)?.nome || '—';
+   const getContaInfo = (contaId) => contas.find(c => c.id === contaId) || { nome: '—', cor: '#64748b' };
+   const getContaNome = (contaId) => getContaInfo(contaId).nome;
    
    return (<>
    <div className="space-y-4">
@@ -9085,7 +9099,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div className="space-y-0">
              {txPaginadas.map(tx => {
                const cat = getCatInfo(tx.categoria);
-               const contaNome = getContaNome(tx.contaId);
                // Detectar destino/origem de transferências
                const descLower = (tx.descricao || '').toLowerCase();
                const transfLabel = tx.tipo === 'transferencia' || tx.categoria === 'transferencia' ? (() => {
@@ -9138,8 +9151,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          <span className="text-[10px] text-orange-400">↩️ Reembolso vinculado</span>
                        )}
                      </div>
-                     {/* Conta */}
-                     <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{contaNome}</span>
+                     {/* Conta (colored) */}
+                     {(() => { const ci = getContaInfo(tx.contaId); return (
+                       <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 font-medium" style={{background: ci.cor + '22', color: ci.cor, borderLeft: `2px solid ${ci.cor}`}}>{ci.nome}</span>
+                     ); })()}
                      {/* Valor + edit valor real */}
                      <div className="flex-shrink-0 w-24 text-right">
                        <span className={`font-mono text-sm font-bold ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? 'text-orange-400' : 'text-red-400'}`}>
@@ -9147,21 +9162,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        </span>
                      </div>
                      {/* Delete */}
-                     {/* Select similar */}
-                     <button type="button" title="Selecionar semelhantes" onClick={() => {
+                     {/* Select similar (toggle) */}
+                     <button type="button" title="Selecionar/desselecionar semelhantes" onClick={() => {
                        const desc = (tx.descricao || '').toUpperCase();
                        const stopWords = ['COMPRA','PAGAMENTO','PAG','TRF','TRANSFERENCIA','TRANSFERÊNCIA','MB','WAY','MULTIBANCO','PARA','DEBITO','CREDITO','SERVICO','PAGSERV','REF','NR','NUMERO','COM','SEM','POR','DOS','DAS','DEL','CARTAO','CONTACTLESS','VISA','MASTERCARD','EUROPAY','INTERAC','P/','P/O','DE','DO','DA','EM','PT','LISBOA','LISB','PORT','CARN'];
                        const words = desc.split(/[\s\/\-.,;:]+/).filter(w => 
                          w.length > 3 && !stopWords.includes(w) && !/^\d+$/.test(w)
                        );
-                       // Usar a palavra mais longa (mais provável de ser entidade)
                        if (words.length === 0) return;
                        const pattern = words.sort((a, b) => b.length - a.length)[0];
-                       const similar = txFiltradas.filter(t => 
+                       const similarIds = txFiltradas.filter(t => 
                          (t.descricao || '').toUpperCase().includes(pattern)
                        ).map(t => t.id);
-                       setSelectedTxs(new Set([...selectedTxs, ...similar]));
-                     }} className="text-blue-400/50 hover:text-blue-400 text-xs flex-shrink-0">⊕</button>
+                       
+                       // Toggle: se já estão selecionados, desselecionar
+                       const allSelected = similarIds.every(id => selectedTxs.has(id));
+                       const next = new Set(selectedTxs);
+                       if (allSelected) {
+                         similarIds.forEach(id => next.delete(id));
+                       } else {
+                         similarIds.forEach(id => next.add(id));
+                       }
+                       setSelectedTxs(next);
+                     }} className={`text-xs flex-shrink-0 ${selectedTxs.has(tx.id) ? 'text-blue-400' : 'text-blue-400/50 hover:text-blue-400'}`}>⊕</button>
                      {/* Reembolso linking */}
                      {tx.tipo === 'despesa' && (
                        <button type="button" title={tx.reembolsos?.length ? `${tx.reembolsos.length} reembolso(s) vinculado(s)` : 'Vincular reembolso'} onClick={() => {
@@ -9451,7 +9474,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {contas.map(c => (
                <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
                  <div className="flex items-center gap-3">
-                   <input type="color" value={c.cor || '#3b82f6'} onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
+                   <input type="color" value={c.cor || '#3b82f6'}
+                     onInput={e => { setG(p => ({...p, contas: contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)})); }}
+                     onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
                      className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
                    <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
                      <input type="text" defaultValue={c.nome} placeholder="Nome"
@@ -9526,7 +9551,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <input type="color" value={c.cor || '#78716c'}
                    className="w-7 h-7 rounded cursor-pointer border-0 flex-shrink-0"
-                   onChange={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
+                   onInput={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; setG(p => ({...p, categoriasExtrato: novos})); }}
+                   onChange={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
                    <button type="button" onClick={() => { uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
@@ -9624,9 +9650,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    {/* === MODALS (fora das tabs) === */}
    {showImport && (
-     <div className="fixed inset-0 z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
-       <div className="absolute inset-0 bg-black/60" />
-       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto`} onMouseDown={e => e.stopPropagation()}>
+     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-8 overflow-y-auto" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onMouseDown={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
+       <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} />
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto mb-8`} onMouseDown={e => e.stopPropagation()}>
          <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
          {contas.length === 0 ? (
            <div className="text-center py-4">
@@ -9647,7 +9673,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div>
                <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
                <input type="file" accept=".csv,.txt,.xlsx,.xls" onClick={e => {
-                 if (!importConta) { alert('Seleciona uma conta primeiro.'); e.preventDefault(); }
+                 if (!importConta) { alert('Seleciona uma conta primeiro.'); e.preventDefault(); return; }
+                 e.target.value = ''; // Reset para permitir reimportar mesmo ficheiro
                }} onChange={e => {
                  const file = e.target.files?.[0];
                  if (!file || !importConta) return;
@@ -9713,9 +9740,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    )}
 
    {showAddManual && (
-     <div className="fixed inset-0 z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
-       <div className="absolute inset-0 bg-black/60" />
-       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
+     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-8 overflow-y-auto" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onMouseDown={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
+       <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} />
+       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl mb-8`} onMouseDown={e => e.stopPropagation()}>
          <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
          <div className="space-y-3">
            <div className="grid grid-cols-2 gap-3">
