@@ -8611,7 +8611,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // EXTRATO BANCÁRIO - Controlo de Despesas
  const Extrato = () => {
-   const [extratoTab, setExtratoTab] = useState('transacoes');
+   const [extratoTab, setExtratoTab_local] = useState(G._extratoTab || 'transacoes');
+   const setExtratoTab = (v) => { setExtratoTab_local(v); setG(p => ({...p, _extratoTab: v})); };
    const [extratoMes, setExtratoMes] = useState(`${anoAtualSistema}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
    const [filtroCategoria, setFiltroCategoria] = useState('todas');
    const [filtroConta, setFiltroConta] = useState('todas');
@@ -8660,14 +8661,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    });
    
    // Totais
-   // Helper: valor efectivo (usa valorReal se definido, senão valor)
+   // Helper: valor efectivo (usa valorReal se definido para despesas com reembolso)
    const valEfectivo = (t) => t.valorReal != null ? t.valorReal : t.valor;
    
    const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
    const receitasMes = txMes.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const reembolsosMes = txMes.filter(t => t.tipo === 'reembolso' || t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0);
    const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
-   // Despesas por categoria (excluindo transferências) - usa valor efectivo
+   // Despesas por categoria - usa valor efectivo (já com reembolsos deduzidos)
    const porCategoria = {};
    txMes.filter(t => t.tipo === 'despesa').forEach(t => {
      const cat = t.categoria || 'outros';
@@ -8867,15 +8869,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Importar transações
    const importarTxs = (txs) => {
      saveUndo();
-     // Deduplicação robusta: data + valor (arredondado) + descrição normalizada
+     // Deduplicação: usar data + valor + desc + saldo como chave
+     // Saldo é único para cada transação mesmo quando data+valor+desc são iguais
      const normalizeKey = (t) => {
        const d = (t.data || '').slice(0, 10);
-       const v = Math.round((t.valor || 0) * 100); // centimos para evitar float issues
+       const v = Math.round((t.valor || 0) * 100);
+       const s = t.saldo != null ? Math.round(t.saldo * 100) : 'x';
        const desc = (t.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 30).toLowerCase();
-       return `${d}|${v}|${desc}`;
+       return `${d}|${v}|${s}|${desc}`;
      };
-     const existing = new Set(extrato.map(normalizeKey));
-     const novas = txs.filter(t => !existing.has(normalizeKey(t)));
+     
+     // Contar ocorrências de cada chave no extrato existente
+     const existingCounts = {};
+     extrato.forEach(t => {
+       const k = normalizeKey(t);
+       existingCounts[k] = (existingCounts[k] || 0) + 1;
+     });
+     
+     // Para cada nova tx, verificar se já existe (contando duplicados legítimos)
+     const importCounts = {};
+     const novas = [];
+     for (const t of txs) {
+       const k = normalizeKey(t);
+       importCounts[k] = (importCounts[k] || 0) + 1;
+       // Aceitar se o número de ocorrências no import ainda não excede o existente
+       if (importCounts[k] <= (existingCounts[k] || 0)) continue; // já existe
+       novas.push(t);
+     }
+     
      if (novas.length === 0 && txs.length > 0) {
        alert(`Todas as ${txs.length} transações já foram importadas anteriormente.`);
        return;
@@ -9058,7 +9079,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                })() : null;
                
                return (
-                 <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''} ${selectedTxs.has(tx.id) ? (theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10') : ''}`}>
+                 <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' || tx._usadoComoReembolso ? 'opacity-50' : ''} ${selectedTxs.has(tx.id) ? (theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10') : ''}`}>
                    <div className="flex items-center gap-2">
                      {/* Checkbox */}
                      <input type="checkbox" checked={selectedTxs.has(tx.id)}
@@ -9090,15 +9111,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          <span className={`text-[10px] ${theme === 'light' ? 'text-blue-500' : 'text-blue-400'}`}>{transfLabel}</span>
                        )}
                        {tx.valorReal != null && tx.valorReal !== tx.valor && (
-                         <span className="text-[10px] text-orange-400">💰 Custo real: {fmt(Math.abs(tx.valorReal))} (reembolso parcial)</span>
+                         <span className="text-[10px] text-orange-400">🔗 Custo real: {fmt(Math.abs(tx.valorReal))} ({tx.reembolsos?.length || 0} reembolso{tx.reembolsos?.length !== 1 ? 's' : ''})</span>
+                       )}
+                       {tx._usadoComoReembolso && (
+                         <span className="text-[10px] text-orange-400">↩️ Reembolso vinculado</span>
                        )}
                      </div>
                      {/* Conta */}
                      <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{contaNome}</span>
                      {/* Valor + edit valor real */}
                      <div className="flex-shrink-0 w-24 text-right">
-                       <span className={`font-mono text-sm font-bold ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
-                         {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
+                       <span className={`font-mono text-sm font-bold ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? 'text-orange-400' : 'text-red-400'}`}>
+                         {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? '↩' : '↔'}{fmt(Math.abs(tx.valor))}
                        </span>
                      </div>
                      {/* Delete */}
@@ -9118,19 +9142,48 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        }).map(t => t.id);
                        setSelectedTxs(new Set([...selectedTxs, ...similar]));
                      }} className="text-blue-400/50 hover:text-blue-400 text-xs flex-shrink-0">⊕</button>
-                     {/* Valor real (reembolso parcial) */}
+                     {/* Reembolso linking */}
                      {tx.tipo === 'despesa' && (
-                       <button type="button" title="Definir custo real (ex: paguei jantar mas recebi reembolso)" onClick={() => {
-                         const atual = tx.valorReal != null ? Math.abs(tx.valorReal) : Math.abs(tx.valor);
-                         const input = prompt(`Custo real para "${tx.descricao?.slice(0,30)}":\n\nValor total: ${fmt(Math.abs(tx.valor))}\nInsere o valor que realmente gastaste (a tua parte):`, atual);
-                         if (input !== null) {
-                           const v = parseFloat(input);
-                           if (!isNaN(v)) {
-                             saveUndo();
-                             uG('extrato', extrato.map(t => t.id === tx.id ? {...t, valorReal: -Math.abs(v)} : t));
-                           }
+                       <button type="button" title={tx.reembolsos?.length ? `${tx.reembolsos.length} reembolso(s) vinculado(s)` : 'Vincular reembolso'} onClick={() => {
+                         // Encontrar receitas do mesmo mês que podem ser reembolsos
+                         const mesAtual = (tx.data || '').slice(0, 7);
+                         const candidatas = extrato.filter(t => 
+                           t.id !== tx.id && 
+                           t.valor > 0 && 
+                           !t._usadoComoReembolso &&
+                           (t.data || '').slice(0, 7) === mesAtual
+                         ).sort((a, b) => new Date(b.data) - new Date(a.data));
+                         
+                         if (candidatas.length === 0) {
+                           alert('Sem receitas disponíveis neste mês para vincular como reembolso.');
+                           return;
                          }
-                       }} className={`text-xs flex-shrink-0 ${tx.valorReal != null ? 'text-orange-400' : 'text-slate-500/50 hover:text-orange-400'}`}>💰</button>
+                         
+                         const lista = candidatas.slice(0, 15).map((c, i) => 
+                           `${i + 1}. ${c.data?.slice(5)} | ${c.descricao?.slice(0, 30)} | +${fmt(c.valor)}`
+                         ).join('\n');
+                         
+                         const escolha = prompt(
+                           `Vincular reembolso a "${tx.descricao?.slice(0, 30)}" (${fmt(Math.abs(tx.valor))})\n\n` +
+                           `Receitas disponíveis:\n${lista}\n\n` +
+                           `Insere o(s) número(s) separados por vírgula (ex: 1,3):`,
+                           ''
+                         );
+                         if (!escolha) return;
+                         
+                         const indices = escolha.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < candidatas.length);
+                         if (indices.length === 0) return;
+                         
+                         const reembolsosIds = indices.map(i => candidatas[i].id);
+                         const totalReembolso = indices.reduce((a, i) => a + candidatas[i].valor, 0);
+                         const valorReal = tx.valor + totalReembolso; // tx.valor é negativo, totalReembolso é positivo
+                         
+                         uG('extrato', extrato.map(t => {
+                           if (t.id === tx.id) return {...t, reembolsos: reembolsosIds, valorReal};
+                           if (reembolsosIds.includes(t.id)) return {...t, _usadoComoReembolso: tx.id, tipo: 'reembolso'};
+                           return t;
+                         }));
+                       }} className={`text-xs flex-shrink-0 ${tx.reembolsos?.length ? 'text-orange-400' : 'text-slate-500/40 hover:text-orange-400'}`}>🔗</button>
                      )}
                      <button type="button" onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                    </div>
@@ -9254,7 +9307,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <span className="text-[10px] text-slate-600">/</span>
                      <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
                        className={`w-16 text-right text-[11px] font-mono px-1.5 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { const v = parseFloat(e.target.value) || 0; saveUndo(); uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
+                       onBlur={e => { const v = parseFloat(e.target.value) || 0; uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
                    </div>
                  </div>
                );
@@ -9291,7 +9344,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <input type="number" step="10" defaultValue={grupo.limite || ''} placeholder="Limite €"
                        className={`w-20 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                        onBlur={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, limite: parseFloat(e.target.value) || 0}; uG('orcamentosGrupos', g); }} />
-                     <button type="button" onClick={() => { saveUndo(); uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
+                     <button type="button" onClick={() => { uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
                        className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
                    </div>
                    {/* Conta filter */}
@@ -9356,21 +9409,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {contas.map(c => (
                <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
                  <div className="flex items-center gap-3">
-                   <input type="color" value={c.cor || '#3b82f6'} onChange={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
+                   <input type="color" value={c.cor || '#3b82f6'} onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
                      className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
                    <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
                      <input type="text" defaultValue={c.nome} placeholder="Nome"
                        className={`text-sm font-semibold px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, nome: e.target.value} : x)); }} />
+                       onBlur={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, nome: e.target.value} : x)); }} />
                      <input type="text" defaultValue={c.banco} placeholder="Banco"
                        className={`text-xs px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, banco: e.target.value} : x)); }} />
+                       onBlur={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, banco: e.target.value} : x)); }} />
                      <input type="text" defaultValue={c.iban} placeholder="IBAN"
                        className={`text-xs px-2 py-1 rounded font-mono ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, iban: e.target.value} : x)); }} />
+                       onBlur={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, iban: e.target.value} : x)); }} />
                    </div>
                    <span className="text-[10px] text-slate-500 flex-shrink-0">{extrato.filter(t => t.contaId === c.id).length} movs.</span>
-                   <button type="button" onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
+                   <button type="button" onClick={() => { uG('contas', contas.filter(x => x.id !== c.id)); }}
                      className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  </div>
                </div>
@@ -9434,7 +9487,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onChange={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
-                   <button type="button" onClick={() => { saveUndo(); uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
+                   <button type="button" onClick={() => { uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
                      className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  )}
                </div>
@@ -9480,7 +9533,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      className={`text-[10px] px-1 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>
                      {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
                    </select>
-                   <button type="button" onClick={() => { saveUndo(); uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
+                   <button type="button" onClick={() => { uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
                      className="text-red-400/50 hover:text-red-400">✕</button>
                  </div>
                );
