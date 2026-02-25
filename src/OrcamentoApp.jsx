@@ -8617,6 +8617,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [filtroCategoria, setFiltroCategoria] = useState('todas');
    const [filtroConta, setFiltroConta] = useState('todas');
    const [filtroTexto, setFiltroTexto] = useState('');
+   const [pagina, setPagina] = useState(0);
+   const POR_PAGINA = 200;
    const [showImport, setShowImport] = useState(false);
    const [showAddConta, setShowAddConta] = useState(false);
    const [showAddManual, setShowAddManual] = useState(false);
@@ -8760,9 +8762,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const headers = lines[headerIdx].split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
      
      // Map columns - mais flexível
-     const colData = headers.findIndex(h => /^data|date/.test(h));
+     const colData = headers.findIndex(h => /^data|^d\.\s*valor|^d\.\s*contab|date|data\s*lanc|data\s*mov/.test(h));
      const colDesc = headers.findIndex(h => /descri|description|detalhe|movimento/.test(h));
-     const colValor = headers.findIndex(h => /^valor$|amount|montante|quantia/.test(h));
+     // colValor: match "valor" but NOT "d. valor" (which is a date column)
+     const colValor = headers.findIndex(h => /^valor$|^valor\b(?!.*d\.)|amount|montante|quantia/.test(h) && !/^d\.\s*valor/.test(h));
      const colDebito = headers.findIndex(h => /d[eé]bito|debit/.test(h));
      const colCredito = headers.findIndex(h => /cr[eé]dito|credit/.test(h));
      const colSaldo = headers.findIndex(h => /saldo|balance/.test(h));
@@ -8803,23 +8806,38 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const parseValorPT = (str) => {
          if (!str) return 0;
          let s = str.replace(/\s/g, '');
-         // Se tem ponto E vírgula: 1.234,56 → 1234.56
          if (s.includes('.') && s.includes(',')) {
-           s = s.replace(/\./g, '').replace(',', '.');
+           const lastComma = s.lastIndexOf(',');
+           const lastDot = s.lastIndexOf('.');
+           if (lastComma > lastDot) {
+             // EU: 1.234,56 → vírgula é decimal, pontos são milhares
+             s = s.replace(/\./g, '').replace(',', '.');
+           } else {
+             // US: 1,234.56 → ponto é decimal, vírgulas são milhares
+             s = s.replace(/,/g, '');
+           }
          }
-         // Se só tem vírgula: 1234,56 → 1234.56 
          else if (s.includes(',')) {
+           // Só vírgula: 1234,56 → decimal
            s = s.replace(',', '.');
          }
-         // Se só tem ponto: verificar se é separador de milhares (1.402) ou decimal (1.40)
-         // Regra: se depois do ponto tem exactamente 3 dígitos, é milhares
          else if (s.includes('.')) {
+           // Só ponto: verificar contexto
            const parts = s.replace(/^-/, '').split('.');
-           if (parts.length === 2 && parts[1].length === 3) {
-             // 1.402 → 1402 (milhares), -1.402 → -1402
-             s = s.replace('.', '');
+           // Múltiplos pontos = milhares: 1.234.567 → 1234567
+           if (parts.length > 2) {
+             s = s.replace(/\./g, '');
            }
-           // 1.40 → 1.40 (decimal) - deixar como está
+           // Exactamente 3 dígitos após ponto sem decimais = milhares: 1.402 → 1402
+           else if (parts.length === 2 && parts[1].length === 3 && !parts[1].includes('0') === false) {
+             // Ambíguo: 1.402 pode ser 1402 ou 1.402
+             // Se o valor é "razoável" como decimal (<10), tratar como decimal
+             // Se não, tratar como milhares
+             const asDecimal = parseFloat(s);
+             if (parts[0].length >= 1 && parseInt(parts[0]) > 0) {
+               s = s.replace('.', ''); // milhares
+             }
+           }
          }
          return parseFloat(s) || 0;
        };
@@ -8969,6 +8987,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          { id: 'transacoes', label: '📋 Transações' },
          { id: 'categorias', label: '📊 Resumo' },
          { id: 'orcamentos', label: '🎯 Orçamentos' },
+         { id: 'regras', label: '🤖 Regras' },
          { id: 'contas', label: '🏦 Contas' },
        ].map(t => (
        <button type="button" key={t.id} onClick={() => setExtratoTab(t.id)}
@@ -8984,21 +9003,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Toolbar */}
          <Card className="!p-3">
            <div className="flex flex-wrap gap-2 items-center">
-             <select value={extratoMes} onChange={e => setExtratoMes(e.target.value)}
+             <select value={extratoMes} onChange={e => setExtratoMes(e.target.value); setPagina(0)}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
              </select>
-             <select value={filtroConta} onChange={e => setFiltroConta(e.target.value)}
+             <select value={filtroConta} onChange={e => setFiltroConta(e.target.value); setPagina(0)}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                <option value="todas">Todas as contas</option>
                {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
              </select>
-             <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}
+             <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value); setPagina(0)}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                <option value="todas">Todas categorias</option>
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
              </select>
-             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => setFiltroTexto(e.target.value)}
+             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => setFiltroTexto(e.target.value); setPagina(0)}
                className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
              <div className="flex gap-1 ml-auto">
                <button type="button" onClick={() => setShowImport(true)}
@@ -9044,25 +9063,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Lista de transações */}
          <Card>
-           {/* Select all */}
-           {txFiltradas.length > 0 && (
+           {/* Select all + pagination info */}
+           {txFiltradas.length > 0 && (() => {
+             const totalPags = Math.ceil(txFiltradas.length / POR_PAGINA);
+             const paginaAtual = Math.min(pagina, totalPags - 1);
+             const txPaginadas = txFiltradas.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA);
+             return (<>
              <div className={`flex items-center gap-2 pb-2 mb-1 text-xs ${theme === 'light' ? 'border-b border-slate-200' : 'border-b border-slate-700'}`}>
-               <input type="checkbox" checked={txFiltradas.length > 0 && txFiltradas.every(t => selectedTxs.has(t.id))}
+               <input type="checkbox" checked={txPaginadas.every(t => selectedTxs.has(t.id))}
                  onChange={e => {
-                   if (e.target.checked) setSelectedTxs(new Set([...selectedTxs, ...txFiltradas.map(t => t.id)]));
-                   else setSelectedTxs(new Set([...selectedTxs].filter(id => !txFiltradas.some(t => t.id === id))));
+                   if (e.target.checked) setSelectedTxs(new Set([...selectedTxs, ...txPaginadas.map(t => t.id)]));
+                   else setSelectedTxs(new Set([...selectedTxs].filter(id => !txPaginadas.some(t => t.id === id))));
                  }} className="rounded" />
-               <span className="text-slate-500">Selecionar todos ({txFiltradas.length})</span>
+               <span className="text-slate-500">Selecionar página ({txPaginadas.length})</span>
+               {totalPags > 1 && (
+                 <span className="ml-auto text-slate-500">
+                   {paginaAtual * POR_PAGINA + 1}–{Math.min((paginaAtual + 1) * POR_PAGINA, txFiltradas.length)} de {txFiltradas.length}
+                 </span>
+               )}
              </div>
-           )}
-           <div className="space-y-0">
-             {txFiltradas.length === 0 ? (
-               <div className="text-center py-8 text-slate-500">
-                 <p className="text-2xl mb-2">🏦</p>
-                 <p className="text-sm">{extrato.length === 0 ? 'Sem transações. Importa um CSV ou adiciona manualmente.' : 'Sem transações neste mês com estes filtros.'}</p>
-                 {contas.length === 0 && <p className="text-xs mt-2 text-blue-400 cursor-pointer" onClick={() => setExtratoTab('contas')}>Começa por adicionar as tuas contas bancárias →</p>}
-               </div>
-             ) : txFiltradas.map(tx => {
+             <div className="space-y-0">
+             {txPaginadas.map(tx => {
                const cat = getCatInfo(tx.categoria);
                const contaNome = getContaNome(tx.contaId);
                // Detectar destino/origem de transferências
@@ -9128,18 +9149,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      {/* Delete */}
                      {/* Select similar */}
                      <button type="button" title="Selecionar semelhantes" onClick={() => {
-                       // Extrair entidade principal da descrição
                        const desc = (tx.descricao || '').toUpperCase();
-                       // Remove palavras genéricas comuns em extratos bancários
-                       const stopWords = ['COMPRA','PAGAMENTO','PAG','TRF','TRANSFERENCIA','MB','WAY','MULTIBANCO','PARA','DEBITO','CREDITO','SERVICO','PAGSERV','REF','NR','NUMERO','COM','SEM','POR','DOS','DAS','DEL','CARTAO','CONTACTLESS','VISA','MASTERCARD','P/','P/O','DE','DO','DA','EM'];
-                       const words = desc.split(/[\s\/\-.,;:]+/).filter(w => w.length > 2 && !stopWords.includes(w));
-                       // Usar a primeira palavra significativa como padrão
+                       const stopWords = ['COMPRA','PAGAMENTO','PAG','TRF','TRANSFERENCIA','TRANSFERÊNCIA','MB','WAY','MULTIBANCO','PARA','DEBITO','CREDITO','SERVICO','PAGSERV','REF','NR','NUMERO','COM','SEM','POR','DOS','DAS','DEL','CARTAO','CONTACTLESS','VISA','MASTERCARD','EUROPAY','INTERAC','P/','P/O','DE','DO','DA','EM','PT','LISBOA','LISB','PORT','CARN'];
+                       const words = desc.split(/[\s\/\-.,;:]+/).filter(w => 
+                         w.length > 3 && !stopWords.includes(w) && !/^\d+$/.test(w)
+                       );
+                       // Usar a palavra mais longa (mais provável de ser entidade)
                        if (words.length === 0) return;
-                       const pattern = words[0];
-                       const similar = txFiltradas.filter(t => {
-                         const d = (t.descricao || '').toUpperCase();
-                         return d.includes(pattern);
-                       }).map(t => t.id);
+                       const pattern = words.sort((a, b) => b.length - a.length)[0];
+                       const similar = txFiltradas.filter(t => 
+                         (t.descricao || '').toUpperCase().includes(pattern)
+                       ).map(t => t.id);
                        setSelectedTxs(new Set([...selectedTxs, ...similar]));
                      }} className="text-blue-400/50 hover:text-blue-400 text-xs flex-shrink-0">⊕</button>
                      {/* Reembolso linking */}
@@ -9191,6 +9211,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                );
              })}
            </div>
+           {/* Paginação */}
+           {totalPags > 1 && (
+             <div className={`flex items-center justify-center gap-2 pt-3 mt-2 ${theme === 'light' ? 'border-t border-slate-200' : 'border-t border-slate-700'}`}>
+               <button type="button" disabled={paginaAtual === 0} onClick={() => setPagina(paginaAtual - 1)}
+                 className={`px-3 py-1 text-xs rounded ${paginaAtual === 0 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>← Anterior</button>
+               {Array.from({length: totalPags}, (_, i) => (
+                 <button type="button" key={i} onClick={() => setPagina(i)}
+                   className={`w-7 h-7 text-xs rounded ${i === paginaAtual ? 'bg-blue-500/20 text-blue-400 font-bold' : 'hover:bg-slate-700/50 text-slate-500'}`}>{i + 1}</button>
+               )).slice(Math.max(0, paginaAtual - 2), paginaAtual + 3)}
+               <button type="button" disabled={paginaAtual >= totalPags - 1} onClick={() => setPagina(paginaAtual + 1)}
+                 className={`px-3 py-1 text-xs rounded ${paginaAtual >= totalPags - 1 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>Seguinte →</button>
+             </div>
+           )}
+           </>);
+           })()}
+           {txFiltradas.length === 0 && (
+             <div className="text-center py-8 text-slate-500">
+               <p className="text-2xl mb-2">🏦</p>
+               <p className="text-sm">{extrato.length === 0 ? 'Sem transações. Importa um CSV ou adiciona manualmente.' : 'Sem transações neste mês com estes filtros.'}</p>
+               {contas.length === 0 && <p className="text-xs mt-2 text-blue-400 cursor-pointer" onClick={() => setExtratoTab('contas')}>Começa por adicionar as tuas contas bancárias →</p>}
+             </div>
+           )}
          </Card>
        </div>
      )}
@@ -9502,25 +9544,57 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              + Adicionar categoria
            </button>
          </Card>
+       </div>
+     )}
 
-         {/* Regras de categorização */}
+     {/* REGRAS AUTOMÁTICAS */}
+     {extratoTab === 'regras' && (
+       <div className="space-y-4">
          <Card>
-           <h4 className="font-semibold mb-3">🤖 Regras Automáticas</h4>
-           <p className="text-xs text-slate-500 mb-3">Ao categorizar transações, a app memoriza. Edita ou remove regras aqui.</p>
+           <h4 className="font-semibold mb-3">🤖 Regras de Categorização Automática</h4>
+           <p className="text-xs text-slate-500 mb-4">Quando categorizas uma transação, a app cria uma regra automática. Ao mudar a categoria aqui, todas as transações com essa descrição são actualizadas.</p>
+           
+           {/* Add manual rule */}
+           <div className={`flex gap-2 mb-4 p-3 rounded-lg ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
+             <input type="text" placeholder="Padrão (ex: continente)" id="novaRegraInput"
+               className={`flex-1 text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+             <select id="novaRegraCat" defaultValue="outros"
+               className={`text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+             </select>
+             <button type="button" onClick={() => {
+               const input = document.getElementById('novaRegraInput');
+               const sel = document.getElementById('novaRegraCat');
+               if (!input?.value) return;
+               const novaRegra = { id: `r-${Date.now()}`, padrao: input.value.toLowerCase(), categoria: sel.value };
+               uG('regrasCategoria', [...regras, novaRegra]);
+               // Aplicar a todas as transações existentes
+               const padrao = novaRegra.padrao;
+               uG('extrato', extrato.map(t => {
+                 if ((t.descricao || '').toLowerCase().includes(padrao) && (t.categoria === 'outros' || !t.categoria)) {
+                   return {...t, categoria: novaRegra.categoria, tipo: novaRegra.categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita'};
+                 }
+                 return t;
+               }));
+               input.value = '';
+             }}
+               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">+ Adicionar</button>
+           </div>
+
            <div className="space-y-1">
              {regras.length === 0 ? (
-               <p className="text-sm text-slate-500 text-center py-3">Sem regras. Categoriza transações na lista e as regras aparecem aqui.</p>
+               <p className="text-sm text-slate-500 text-center py-4">Sem regras. Categoriza transações na lista ou adiciona regras acima.</p>
              ) : regras.map(r => {
-               const cat = getCatInfo(r.categoria);
+               const rCat = getCatInfo(r.categoria);
+               const matchCount = extrato.filter(t => (t.descricao || '').toLowerCase().includes((r.padrao || '').toLowerCase())).length;
                return (
-                 <div key={r.id} className={`flex items-center gap-2 py-1.5 text-xs ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
-                   <span className="font-mono text-slate-400 flex-1 truncate">"{r.padrao}"</span>
-                   <span className="text-slate-500">→</span>
+                 <div key={r.id} className={`flex items-center gap-2 py-2 px-2 rounded-lg ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'}`}>
+                   <span className="font-mono text-xs text-slate-400 flex-1 truncate">"{r.padrao}"</span>
+                   <span className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>{matchCount} tx</span>
+                   <span className="text-slate-500 text-xs">→</span>
                    <select value={r.categoria} onChange={e => { 
-                     saveUndo(); 
                      const newCat = e.target.value;
                      uG('regrasCategoria', regras.map(x => x.id === r.id ? {...x, categoria: newCat} : x));
-                     // Re-categorizar transações existentes que correspondem a esta regra
                      const padrao = (r.padrao || '').toLowerCase();
                      uG('extrato', extrato.map(t => {
                        if ((t.descricao || '').toLowerCase().includes(padrao)) {
@@ -9530,18 +9604,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        return t;
                      }));
                    }}
-                     className={`text-[10px] px-1 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>
+                     className={`text-xs px-2 py-1 rounded ${theme === 'light' ? 'bg-slate-100 border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
                      {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
                    </select>
-                   <button type="button" onClick={() => { uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
-                     className="text-red-400/50 hover:text-red-400">✕</button>
+                   <button type="button" onClick={() => uG('regrasCategoria', regras.filter(x => x.id !== r.id))}
+                     className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
                  </div>
                );
              })}
            </div>
+           {regras.length > 0 && (
+             <p className="text-[10px] text-slate-500 mt-3 text-right">{regras.length} regra{regras.length !== 1 ? 's' : ''} · {extrato.filter(t => regras.some(r => (t.descricao || '').toLowerCase().includes((r.padrao || '').toLowerCase()))).length} transações abrangidas</p>
+           )}
          </Card>
        </div>
      )}
+
    </div>
 
    {/* === MODALS (fora das tabs) === */}
