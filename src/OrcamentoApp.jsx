@@ -8622,6 +8622,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [editingTx, setEditingTx] = useState(null);
    const [importPreview, setImportPreview] = useState(null);
    const [importConta, setImportConta] = useState('');
+   const [lastImportIds, setLastImportIds] = useState([]);
+   const [selectedTxs, setSelectedTxs] = useState(new Set());
    // Add manual states
    const [mData, setMData] = useState(new Date().toISOString().slice(0, 10));
    const [mDesc, setMDesc] = useState('');
@@ -8853,12 +8855,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Importar transações
    const importarTxs = (txs) => {
      saveUndo();
-     // Deduplicação: evitar importar duplicados (mesma data + valor + descrição)
      const existing = new Set(extrato.map(t => `${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
      const novas = txs.filter(t => !existing.has(`${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
+     setLastImportIds(novas.map(t => t.id));
      uG('extrato', [...extrato, ...novas]);
      setImportPreview(null);
      setShowImport(false);
+   };
+   
+   // Batch delete
+   const removeBatch = (ids) => {
+     saveUndo();
+     const idSet = new Set(ids);
+     uG('extrato', extrato.filter(t => !idSet.has(t.id)));
+     setSelectedTxs(new Set());
+     setLastImportIds(prev => prev.filter(id => !idSet.has(id)));
    };
    
    // Editar transação
@@ -8903,7 +8914,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const getCatInfo = (catId) => categorias.find(c => c.id === catId) || { nome: catId, icon: '📦', cor: '#78716c' };
    const getContaNome = (contaId) => contas.find(c => c.id === contaId)?.nome || '—';
    
-   return (
+   return (<>
    <div className="space-y-4">
      {/* Sub-tabs */}
      <div className="flex gap-1 flex-wrap">
@@ -8943,13 +8954,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => setFiltroTexto(e.target.value)}
                className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
              <div className="flex gap-1 ml-auto">
-               <button onClick={() => setShowImport(true)}
-                 className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">📤 Importar CSV</button>
-               <button onClick={() => setShowAddManual(true)}
+               <button type="button" onClick={() => setShowImport(true)}
+                 className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">📤 Importar</button>
+               <button type="button" onClick={() => setShowAddManual(true)}
                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">+ Manual</button>
              </div>
            </div>
          </Card>
+         
+         {/* Batch actions */}
+         {(selectedTxs.size > 0 || lastImportIds.length > 0) && (
+           <div className={`flex flex-wrap items-center gap-2 p-2 rounded-lg text-xs ${theme === 'light' ? 'bg-orange-50 border border-orange-200' : 'bg-orange-500/10 border border-orange-500/20'}`}>
+             {selectedTxs.size > 0 && (
+               <>
+                 <span className="text-orange-400 font-semibold">{selectedTxs.size} selecionados</span>
+                 <button type="button" onClick={() => removeBatch([...selectedTxs])}
+                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ Apagar selecionados</button>
+                 <button type="button" onClick={() => setSelectedTxs(new Set())}
+                   className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">Limpar seleção</button>
+               </>
+             )}
+             {lastImportIds.length > 0 && selectedTxs.size === 0 && (
+               <>
+                 <span className="text-orange-400">Último import: {lastImportIds.length} registos</span>
+                 <button type="button" onClick={() => setSelectedTxs(new Set(lastImportIds))}
+                   className="px-2 py-1 rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30">Selecionar</button>
+                 <button type="button" onClick={() => { if (confirm(`Apagar ${lastImportIds.length} registos do último import?`)) removeBatch(lastImportIds); }}
+                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ Apagar último import</button>
+                 <button type="button" onClick={() => setLastImportIds([])}
+                   className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">✕</button>
+               </>
+             )}
+           </div>
+         )}
          
          {/* Resumo do mês */}
          <div className="grid grid-cols-3 gap-3">
@@ -8960,6 +8997,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Lista de transações */}
          <Card>
+           {/* Select all */}
+           {txFiltradas.length > 0 && (
+             <div className={`flex items-center gap-2 pb-2 mb-1 text-xs ${theme === 'light' ? 'border-b border-slate-200' : 'border-b border-slate-700'}`}>
+               <input type="checkbox" checked={txFiltradas.length > 0 && txFiltradas.every(t => selectedTxs.has(t.id))}
+                 onChange={e => {
+                   if (e.target.checked) setSelectedTxs(new Set([...selectedTxs, ...txFiltradas.map(t => t.id)]));
+                   else setSelectedTxs(new Set([...selectedTxs].filter(id => !txFiltradas.some(t => t.id === id))));
+                 }} className="rounded" />
+               <span className="text-slate-500">Selecionar todos ({txFiltradas.length})</span>
+             </div>
+           )}
            <div className="space-y-0">
              {txFiltradas.length === 0 ? (
                <div className="text-center py-8 text-slate-500">
@@ -8984,8 +9032,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                })() : null;
                
                return (
-                 <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''}`}>
+                 <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''} ${selectedTxs.has(tx.id) ? (theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10') : ''}`}>
                    <div className="flex items-center gap-2">
+                     {/* Checkbox */}
+                     <input type="checkbox" checked={selectedTxs.has(tx.id)}
+                       onChange={e => {
+                         const next = new Set(selectedTxs);
+                         e.target.checked ? next.add(tx.id) : next.delete(tx.id);
+                         setSelectedTxs(next);
+                       }} className="rounded flex-shrink-0" />
                      {/* Categoria - inline dropdown with icon+text */}
                      <select value={tx.categoria || 'outros'} 
                        onMouseDown={e => e.stopPropagation()}
@@ -9023,156 +9078,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              })}
            </div>
          </Card>
-         
-         {/* Modal Import CSV */}
-         {showImport && (
-           <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
-             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-             <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto`}>
-               <h3 className="font-semibold mb-4">📤 Importar Extrato CSV</h3>
-               {contas.length === 0 ? (
-                 <div className="text-center py-4">
-                   <p className="text-sm text-slate-500 mb-2">Adiciona primeiro uma conta bancária.</p>
-                   <button onClick={() => { setShowImport(false); setExtratoTab('contas'); }}
-                     className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/20 text-blue-400">Ir para Contas →</button>
-                 </div>
-               ) : (<>
-                 <div className="space-y-3">
-                   <div>
-                     <label className="text-xs text-slate-500 block mb-1">Conta</label>
-                     <select value={importConta} onChange={e => setImportConta(e.target.value)}
-                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
-                       <option value="">Selecionar conta...</option>
-                       {contas.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.banco})</option>)}
-                     </select>
-                   </div>
-                   <div>
-                     <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
-                     <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={e => {
-                       const file = e.target.files?.[0];
-                       if (!file || !importConta) return;
-                       const isExcel = /\.xlsx?$/i.test(file.name);
-                       if (isExcel) {
-                         const reader = new FileReader();
-                         reader.onload = async (ev) => {
-                           try {
-                             const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
-                             const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
-                             const ws = wb.Sheets[wb.SheetNames[0]];
-                             const csvText = XLSX.utils.sheet_to_csv(ws, { FS: ';' });
-                             const txs = processarCSV(csvText, importConta);
-                             setImportPreview(txs);
-                           } catch (err) {
-                             console.error('Erro ao ler Excel:', err);
-                             alert('Erro ao ler ficheiro Excel. Tenta exportar como CSV.');
-                           }
-                         };
-                         reader.readAsArrayBuffer(file);
-                       } else {
-                         const reader = new FileReader();
-                         reader.onload = (ev) => {
-                           const txs = processarCSV(ev.target.result, importConta);
-                           setImportPreview(txs);
-                         };
-                         reader.readAsText(file, 'UTF-8');
-                       }
-                     }} className="text-sm" />
-                     <p className="text-[10px] text-slate-500 mt-1">Formatos: .csv, .txt, .xlsx, .xls</p>
-                   </div>
-                 </div>
-                 {importPreview && (
-                   <div className="mt-4">
-                     <p className="text-sm font-semibold mb-2">{importPreview.length} transações detectadas</p>
-                     <div className="max-h-48 overflow-y-auto space-y-1 text-xs">
-                       {importPreview.slice(0, 20).map((tx, i) => {
-                         const cat = getCatInfo(tx.categoria);
-                         return (
-                           <div key={i} className={`flex items-center gap-2 py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
-                             <span>{cat.icon}</span>
-                             <span className="text-slate-500">{tx.data?.slice(5)}</span>
-                             <span className="flex-1 truncate">{tx.descricao}</span>
-                             <span className={`font-mono ${tx.valor < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(tx.valor)}</span>
-                           </div>
-                         );
-                       })}
-                       {importPreview.length > 20 && <p className="text-slate-500 text-center">... e mais {importPreview.length - 20}</p>}
-                     </div>
-                     <div className="flex gap-2 mt-3">
-                       <button onClick={() => importarTxs(importPreview)}
-                         className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Importar {importPreview.length} transações</button>
-                       <button onClick={() => setImportPreview(null)}
-                         className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
-                     </div>
-                   </div>
-                 )}
-               </>)}
-               <button onClick={() => { setShowImport(false); setImportPreview(null); }}
-                 className="absolute top-4 right-4 text-slate-500 hover:text-slate-300">✕</button>
-             </div>
-           </div>
-         )}
-         
-         {/* Modal Add Manual */}
-         {showAddManual && (() => {
-           return (
-             <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
-               <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-               <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`}>
-                 <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
-                 <div className="space-y-3">
-                   <div className="grid grid-cols-2 gap-3">
-                     <div>
-                       <label className="text-xs text-slate-500 block mb-1">Data</label>
-                       <input type="date" value={mData} onChange={e => setMData(e.target.value)}
-                         className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
-                     </div>
-                     <div>
-                       <label className="text-xs text-slate-500 block mb-1">Valor (€)</label>
-                       <input type="number" step="0.01" value={mValor} onChange={e => setMValor(e.target.value)}
-                         className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
-                     </div>
-                   </div>
-                   <div>
-                     <label className="text-xs text-slate-500 block mb-1">Descrição</label>
-                     <input type="text" value={mDesc} onChange={e => setMDesc(e.target.value)}
-                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
-                   </div>
-                   <div className="grid grid-cols-3 gap-3">
-                     <div>
-                       <label className="text-xs text-slate-500 block mb-1">Tipo</label>
-                       <select value={mTipo} onChange={e => setMTipo(e.target.value)}
-                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
-                         <option value="despesa">Despesa</option>
-                         <option value="receita">Receita</option>
-                         <option value="transferencia">Transferência</option>
-                       </select>
-                     </div>
-                     <div>
-                       <label className="text-xs text-slate-500 block mb-1">Categoria</label>
-                       <select value={mCat} onChange={e => setMCat(e.target.value)}
-                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
-                         {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
-                       </select>
-                     </div>
-                     <div>
-                       <label className="text-xs text-slate-500 block mb-1">Conta</label>
-                       <select value={mConta} onChange={e => setMConta(e.target.value)}
-                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
-                         {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                       </select>
-                     </div>
-                   </div>
-                 </div>
-                 <div className="flex gap-2 mt-4">
-                   <button onClick={() => { addManual(mData, mDesc, mTipo === 'despesa' ? -Math.abs(parseFloat(mValor)) : Math.abs(parseFloat(mValor)), mConta, mCat, mTipo); }}
-                     className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Adicionar</button>
-                   <button onClick={() => setShowAddManual(false)}
-                     className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
-                 </div>
-               </div>
-             </div>
-           );
-         })()}
        </div>
      )}
 
@@ -9511,10 +9416,157 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </div>
      )}
    </div>
-   );
+
+   {/* === MODALS (fora das tabs) === */}
+   {showImport && (
+     <div className="fixed inset-0 z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
+       <div className="absolute inset-0 bg-black/60" />
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto`} onMouseDown={e => e.stopPropagation()}>
+         <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
+         {contas.length === 0 ? (
+           <div className="text-center py-4">
+             <p className="text-sm text-slate-500 mb-2">Adiciona primeiro uma conta bancária.</p>
+             <button type="button" onClick={() => { setShowImport(false); setExtratoTab('contas'); }}
+               className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/20 text-blue-400">Ir para Contas →</button>
+           </div>
+         ) : (<>
+           <div className="space-y-3">
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Conta</label>
+               <select value={importConta} onChange={e => setImportConta(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                 <option value="">Selecionar conta...</option>
+                 {contas.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.banco})</option>)}
+               </select>
+             </div>
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
+               <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={e => {
+                 const file = e.target.files?.[0];
+                 if (!file || !importConta) return;
+                 const isExcel = /\.xlsx?$/i.test(file.name);
+                 if (isExcel) {
+                   const reader = new FileReader();
+                   reader.onload = async (ev) => {
+                     try {
+                       const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+                       const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+                       const ws = wb.Sheets[wb.SheetNames[0]];
+                       const csvText = XLSX.utils.sheet_to_csv(ws, { FS: ';' });
+                       const txs = processarCSV(csvText, importConta);
+                       setImportPreview(txs);
+                     } catch (err) {
+                       console.error('Erro ao ler Excel:', err);
+                       alert('Erro ao ler ficheiro Excel. Tenta exportar como CSV.');
+                     }
+                   };
+                   reader.readAsArrayBuffer(file);
+                 } else {
+                   const reader = new FileReader();
+                   reader.onload = (ev) => {
+                     const txs = processarCSV(ev.target.result, importConta);
+                     setImportPreview(txs);
+                   };
+                   reader.readAsText(file, 'UTF-8');
+                 }
+               }} className="text-sm" />
+               <p className="text-[10px] text-slate-500 mt-1">Formatos: .csv, .txt, .xlsx, .xls</p>
+             </div>
+           </div>
+           {importPreview && (
+             <div className="mt-4">
+               <p className="text-sm font-semibold mb-2">{importPreview.length} transações detectadas</p>
+               <div className="max-h-48 overflow-y-auto space-y-1 text-xs">
+                 {importPreview.slice(0, 20).map((tx, i) => {
+                   const cat2 = getCatInfo(tx.categoria);
+                   return (
+                     <div key={i} className={`flex items-center gap-2 py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                       <span>{cat2.icon}</span>
+                       <span className="text-slate-500">{tx.data?.slice(5)}</span>
+                       <span className="flex-1 truncate">{tx.descricao}</span>
+                       <span className={`font-mono ${tx.valor < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(tx.valor)}</span>
+                     </div>
+                   );
+                 })}
+                 {importPreview.length > 20 && <p className="text-slate-500 text-center">... e mais {importPreview.length - 20}</p>}
+               </div>
+               <div className="flex gap-2 mt-3">
+                 <button type="button" onClick={() => importarTxs(importPreview)}
+                   className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Importar {importPreview.length} transações</button>
+                 <button type="button" onClick={() => setImportPreview(null)}
+                   className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
+               </div>
+             </div>
+           )}
+         </>)}
+         <button type="button" onClick={() => { setShowImport(false); setImportPreview(null); }}
+           className="absolute top-4 right-4 text-slate-500 hover:text-slate-300 text-lg">✕</button>
+       </div>
+     </div>
+   )}
+
+   {showAddManual && (
+     <div className="fixed inset-0 z-50 flex items-center justify-center" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
+       <div className="absolute inset-0 bg-black/60" />
+       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
+         <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
+         <div className="space-y-3">
+           <div className="grid grid-cols-2 gap-3">
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Data</label>
+               <input type="date" value={mData} onChange={e => setMData(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+             </div>
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Valor (€)</label>
+               <input type="number" step="0.01" value={mValor} onChange={e => setMValor(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+             </div>
+           </div>
+           <div>
+             <label className="text-xs text-slate-500 block mb-1">Descrição</label>
+             <input type="text" value={mDesc} onChange={e => setMDesc(e.target.value)}
+               className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+           </div>
+           <div className="grid grid-cols-3 gap-3">
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Tipo</label>
+               <select value={mTipo} onChange={e => setMTipo(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                 <option value="despesa">Despesa</option>
+                 <option value="receita">Receita</option>
+                 <option value="transferencia">Transferência</option>
+               </select>
+             </div>
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Categoria</label>
+               <select value={mCat} onChange={e => setMCat(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                 {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+               </select>
+             </div>
+             <div>
+               <label className="text-xs text-slate-500 block mb-1">Conta</label>
+               <select value={mConta} onChange={e => setMConta(e.target.value)}
+                 className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                 {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+               </select>
+             </div>
+           </div>
+         </div>
+         <div className="flex gap-2 mt-4">
+           <button type="button" onClick={() => { addManual(mData, mDesc, mTipo === 'despesa' ? -Math.abs(parseFloat(mValor)) : Math.abs(parseFloat(mValor)), mConta, mCat, mTipo); }}
+             className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Adicionar</button>
+           <button type="button" onClick={() => setShowAddManual(false)}
+             className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
+         </div>
+       </div>
+     </div>
+   )}
+
+   </>);
  };
 
- // Tabs reorganizadas por função:
  // 1. Visão Geral: Resumo, Performance
  // 2. Entradas: Receitas
  // 3. Saídas: Despesas (Casal, Pessoais)
