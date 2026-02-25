@@ -836,7 +836,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','performance','historico','receitas','abanca','pessoais','credito','sara','invest','portfolio','transacoes','calendario','agenda'];
+  const tabOrder = ['resumo','performance','historico','receitas','abanca','pessoais','credito','sara','invest','portfolio','transacoes','calendario','agenda','extrato'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -991,6 +991,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       {id:33, desc:'Pagamento IRS (se aplicável)', dia:31, freq:'anual', meses:[7], cat:'IRS', ativo:true}
     ],
     tarefasConcluidas: {}, // {'2025-12-1': true, '2025-12-2': true}
+    // Sistema de Extrato Bancário
+    contas: [], // {id, nome, banco, iban, cor, ativo}
+    extrato: [], // {id, contaId, data, descricao, valor, saldo, categoria, tipo:'despesa'|'receita'|'transferencia', contaDestinoId?, notas, regra?}
+    categoriasExtrato: [
+      {id:'alimentacao',nome:'Alimentação',icon:'🛒',cor:'#f59e0b'},
+      {id:'habitacao',nome:'Habitação',icon:'🏠',cor:'#3b82f6'},
+      {id:'transporte',nome:'Transporte',icon:'🚗',cor:'#ef4444'},
+      {id:'saude',nome:'Saúde',icon:'💊',cor:'#10b981'},
+      {id:'lazer',nome:'Lazer',icon:'🎭',cor:'#8b5cf6'},
+      {id:'restauracao',nome:'Restauração',icon:'🍽️',cor:'#ec4899'},
+      {id:'subscricoes',nome:'Subscrições',icon:'📱',cor:'#06b6d4'},
+      {id:'educacao',nome:'Educação',icon:'📚',cor:'#f97316'},
+      {id:'vestuario',nome:'Vestuário',icon:'👕',cor:'#a855f7'},
+      {id:'servicos',nome:'Serviços',icon:'🔧',cor:'#64748b'},
+      {id:'impostos',nome:'Impostos',icon:'🏛️',cor:'#dc2626'},
+      {id:'investimentos',nome:'Investimentos',icon:'📈',cor:'#059669'},
+      {id:'transferencia',nome:'Transferência',icon:'🔄',cor:'#94a3b8'},
+      {id:'outros',nome:'Outros',icon:'📦',cor:'#78716c'}
+    ],
+    regrasCategoria: [], // {id, padrao, categoria, banco?} - auto-categorização
+    orcamentos: {}, // {categoriaId: valorMensal} ex: {alimentacao: 500, lazer: 200}
     credito: {
       valorCasa: 365000,
       entradaInicial: 36500,
@@ -8587,6 +8608,701 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
+ // EXTRATO BANCÁRIO - Controlo de Despesas
+ const Extrato = () => {
+   const [extratoTab, setExtratoTab] = useState('transacoes');
+   const [extratoMes, setExtratoMes] = useState(`${anoAtualSistema}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
+   const [filtroCategoria, setFiltroCategoria] = useState('todas');
+   const [filtroConta, setFiltroConta] = useState('todas');
+   const [filtroTexto, setFiltroTexto] = useState('');
+   const [showImport, setShowImport] = useState(false);
+   const [showAddConta, setShowAddConta] = useState(false);
+   const [showAddManual, setShowAddManual] = useState(false);
+   const [editingTx, setEditingTx] = useState(null);
+   const [importPreview, setImportPreview] = useState(null);
+   const [importConta, setImportConta] = useState('');
+   
+   const contas = G.contas || [];
+   const extrato = G.extrato || [];
+   const categorias = G.categoriasExtrato || defG.categoriasExtrato;
+   const regras = G.regrasCategoria || [];
+   const orcamentos = G.orcamentos || {};
+   
+   // Parse mes/ano do filtro
+   const [extratoAno, extratoMesNum] = extratoMes.split('-').map(Number);
+   
+   // Filtrar transações do mês
+   const txMes = extrato.filter(tx => {
+     const [a, m] = (tx.data || '').split('-').map(Number);
+     return a === extratoAno && m === extratoMesNum;
+   }).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+   
+   const txFiltradas = txMes.filter(tx => {
+     if (filtroCategoria !== 'todas' && tx.categoria !== filtroCategoria) return false;
+     if (filtroConta !== 'todas' && tx.contaId !== filtroConta) return false;
+     if (filtroTexto && !(tx.descricao || '').toLowerCase().includes(filtroTexto.toLowerCase())) return false;
+     return true;
+   });
+   
+   // Totais
+   const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const receitasMes = txMes.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
+   
+   // Despesas por categoria (excluindo transferências)
+   const porCategoria = {};
+   txMes.filter(t => t.tipo === 'despesa').forEach(t => {
+     const cat = t.categoria || 'outros';
+     if (!porCategoria[cat]) porCategoria[cat] = 0;
+     porCategoria[cat] += Math.abs(t.valor);
+   });
+   
+   // IBANs das minhas contas (para detectar transferências)
+   const meusIbans = contas.map(c => (c.iban || '').replace(/\s/g, '').toUpperCase()).filter(Boolean);
+   
+   // Auto-categorizar uma transação
+   const autoCategoria = (descricao, valor) => {
+     const desc = (descricao || '').toLowerCase();
+     // Regras do user primeiro
+     for (const r of regras) {
+       if (desc.includes((r.padrao || '').toLowerCase())) return r.categoria;
+     }
+     // Regras built-in para PT
+     const autoRules = [
+       {p:['continente','pingo doce','lidl','aldi','minipreco','mercadona','intermarche'],c:'alimentacao'},
+       {p:['uber eats','glovo','bolt food','just eat','mcdonald','burger king','kfc','pizza'],c:'restauracao'},
+       {p:['restaurante','cafe','pastelaria','padaria','taberna','cervejaria'],c:'restauracao'},
+       {p:['galp','bp','repsol','cepsa','uber','bolt','cp ','metro ','viva viagem','via verde'],c:'transporte'},
+       {p:['farmacia','droga','hospital','clinica','medic','dentist','optic'],c:'saude'},
+       {p:['netflix','spotify','disney','hbo','youtube','apple','google','amazon prime','playstation'],c:'subscricoes'},
+       {p:['zara','h&m','primark','bershka','pull&bear','worten','fnac','ikea'],c:'vestuario'},
+       {p:['cinema','bilhet','teatro','museu','parque'],c:'lazer'},
+       {p:['seg social','finanças','at ','irs','iva'],c:'impostos'},
+       {p:['agua ','edp ','meo ','nos ','vodafone','galp energia','condomin','renda'],c:'habitacao'},
+       {p:['degiro','trade republic','xtb','etoro','binance','coinbase','revolut savings'],c:'investimentos'},
+     ];
+     for (const rule of autoRules) {
+       if (rule.p.some(p => desc.includes(p))) return rule.c;
+     }
+     return null;
+   };
+   
+   // Detectar se é transferência interna
+   const isTransferenciaInterna = (descricao, valor) => {
+     if (contas.length < 2) return false;
+     const desc = (descricao || '').toUpperCase();
+     // Verificar se menciona IBAN de outra conta minha
+     return meusIbans.some(iban => iban && desc.includes(iban.slice(-8)));
+   };
+   
+   // Processar CSV import
+   const processarCSV = (text, contaId) => {
+     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+     if (lines.length < 2) return [];
+     
+     // Detectar separador
+     const sep = lines[0].includes(';') ? ';' : ',';
+     const headers = lines[0].split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
+     
+     // Map columns
+     const colData = headers.findIndex(h => /data|date/.test(h));
+     const colDesc = headers.findIndex(h => /descri|description|detalhe|movimento/.test(h));
+     const colValor = headers.findIndex(h => /valor|amount|montante|quantia/.test(h));
+     const colDebito = headers.findIndex(h => /debito|débit/.test(h));
+     const colCredito = headers.findIndex(h => /credito|crédit/.test(h));
+     const colSaldo = headers.findIndex(h => /saldo|balance/.test(h));
+     
+     const txs = [];
+     for (let i = 1; i < lines.length; i++) {
+       const cols = lines[i].split(sep).map(c => c.replace(/"/g, '').trim());
+       if (cols.length < 2) continue;
+       
+       // Parse data (DD/MM/YYYY ou DD-MM-YYYY ou YYYY-MM-DD)
+       let dataRaw = cols[colData] || '';
+       let data;
+       if (/^\d{4}-\d{2}-\d{2}/.test(dataRaw)) {
+         data = dataRaw.slice(0, 10);
+       } else if (/^\d{2}[/-]\d{2}[/-]\d{4}/.test(dataRaw)) {
+         const parts = dataRaw.split(/[/-]/);
+         data = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+       } else continue;
+       
+       const descricao = cols[colDesc] || '';
+       
+       // Parse valor
+       let valor = 0;
+       if (colDebito >= 0 && colCredito >= 0) {
+         const deb = parseFloat((cols[colDebito] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+         const cred = parseFloat((cols[colCredito] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+         valor = cred > 0 ? cred : -deb;
+       } else if (colValor >= 0) {
+         valor = parseFloat((cols[colValor] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+       }
+       
+       const saldo = colSaldo >= 0 ? parseFloat((cols[colSaldo] || '0').replace(/\s/g, '').replace(',', '.')) || 0 : null;
+       
+       if (!data || valor === 0) continue;
+       
+       // Auto-classificar
+       const isTransf = isTransferenciaInterna(descricao, valor);
+       const tipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
+       const categoria = isTransf ? 'transferencia' : autoCategoria(descricao, valor) || 'outros';
+       
+       txs.push({
+         id: `imp-${Date.now()}-${i}`,
+         contaId,
+         data,
+         descricao,
+         valor,
+         saldo,
+         tipo,
+         categoria,
+       });
+     }
+     return txs;
+   };
+   
+   // Adicionar conta
+   const addConta = (nome, banco, iban, cor) => {
+     saveUndo();
+     const nova = { id: `c-${Date.now()}`, nome, banco, iban, cor: cor || '#3b82f6', ativo: true };
+     uG('contas', [...contas, nova]);
+     setShowAddConta(false);
+   };
+   
+   // Importar transações
+   const importarTxs = (txs) => {
+     saveUndo();
+     // Deduplicação: evitar importar duplicados (mesma data + valor + descrição)
+     const existing = new Set(extrato.map(t => `${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
+     const novas = txs.filter(t => !existing.has(`${t.data}|${t.valor}|${t.descricao?.slice(0,20)}`));
+     uG('extrato', [...extrato, ...novas]);
+     setImportPreview(null);
+     setShowImport(false);
+   };
+   
+   // Editar transação
+   const updateTx = (id, field, value) => {
+     saveUndo();
+     uG('extrato', extrato.map(t => t.id === id ? { ...t, [field]: value } : t));
+   };
+   
+   // Remover transação
+   const removeTx = (id) => {
+     saveUndo();
+     uG('extrato', extrato.filter(t => t.id !== id));
+   };
+   
+   // Guardar regra de categorização
+   const guardarRegra = (descricao, categoria) => {
+     // Extrair palavras-chave da descrição
+     const palavras = (descricao || '').split(/\s+/).filter(p => p.length > 3).slice(0, 3).join(' ').toLowerCase();
+     if (!palavras) return;
+     saveUndo();
+     const novaRegra = { id: `r-${Date.now()}`, padrao: palavras, categoria };
+     uG('regrasCategoria', [...regras.filter(r => r.padrao !== palavras), novaRegra]);
+   };
+   
+   // Adicionar tx manual
+   const addManual = (data, descricao, valor, contaId, categoria, tipo) => {
+     saveUndo();
+     const nova = {
+       id: `m-${Date.now()}`,
+       contaId: contaId || contas[0]?.id || '',
+       data, descricao, valor: parseFloat(valor), tipo, categoria,
+     };
+     uG('extrato', [...extrato, nova]);
+     setShowAddManual(false);
+   };
+   
+   // Meses disponíveis
+   const mesesDisp = [...new Set(extrato.map(t => (t.data || '').slice(0, 7)))].sort().reverse();
+   if (!mesesDisp.includes(extratoMes)) mesesDisp.unshift(extratoMes);
+   
+   const getCatInfo = (catId) => categorias.find(c => c.id === catId) || { nome: catId, icon: '📦', cor: '#78716c' };
+   const getContaNome = (contaId) => contas.find(c => c.id === contaId)?.nome || '—';
+   
+   return (
+   <div className="space-y-4">
+     {/* Sub-tabs */}
+     <div className="flex gap-1 flex-wrap">
+       {[
+         { id: 'transacoes', label: '📋 Transações' },
+         { id: 'categorias', label: '📊 Resumo' },
+         { id: 'orcamentos', label: '🎯 Orçamentos' },
+         { id: 'contas', label: '🏦 Contas' },
+       ].map(t => (
+         <button key={t.id} onClick={() => setExtratoTab(t.id)}
+           className={`px-3 py-2 text-xs font-medium rounded-lg transition-all ${extratoTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-700/50'}`}>
+           {t.label}
+         </button>
+       ))}
+     </div>
+
+     {/* TRANSAÇÕES */}
+     {extratoTab === 'transacoes' && (
+       <div className="space-y-4">
+         {/* Toolbar */}
+         <Card className="!p-3">
+           <div className="flex flex-wrap gap-2 items-center">
+             <select value={extratoMes} onChange={e => setExtratoMes(e.target.value)}
+               className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
+             </select>
+             <select value={filtroConta} onChange={e => setFiltroConta(e.target.value)}
+               className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               <option value="todas">Todas as contas</option>
+               {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+             </select>
+             <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}
+               className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               <option value="todas">Todas categorias</option>
+               {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+             </select>
+             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => setFiltroTexto(e.target.value)}
+               className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+             <div className="flex gap-1 ml-auto">
+               <button onClick={() => setShowImport(true)}
+                 className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">📤 Importar CSV</button>
+               <button onClick={() => setShowAddManual(true)}
+                 className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">+ Manual</button>
+             </div>
+           </div>
+         </Card>
+         
+         {/* Resumo do mês */}
+         <div className="grid grid-cols-3 gap-3">
+           <StatCard label="Despesas" value={fmt(despesasMes)} color="text-red-400" icon="📉" sub={`${txMes.filter(t=>t.tipo==='despesa').length} movimentos`} />
+           <StatCard label="Receitas" value={fmt(receitasMes)} color="text-emerald-400" icon="📈" sub={`${txMes.filter(t=>t.tipo==='receita').length} movimentos`} />
+           <StatCard label="Balanço" value={fmt(receitasMes - despesasMes)} color={receitasMes-despesasMes >= 0 ? 'text-emerald-400' : 'text-red-400'} icon="💰" sub={transferenciasMes > 0 ? `${fmt(transferenciasMes)} transf.` : ''} />
+         </div>
+         
+         {/* Lista de transações */}
+         <Card>
+           <div className="space-y-0">
+             {txFiltradas.length === 0 ? (
+               <div className="text-center py-8 text-slate-500">
+                 <p className="text-2xl mb-2">🏦</p>
+                 <p className="text-sm">{extrato.length === 0 ? 'Sem transações. Importa um CSV ou adiciona manualmente.' : 'Sem transações neste mês com estes filtros.'}</p>
+                 {contas.length === 0 && <p className="text-xs mt-2 text-blue-400 cursor-pointer" onClick={() => setExtratoTab('contas')}>Começa por adicionar as tuas contas bancárias →</p>}
+               </div>
+             ) : txFiltradas.map(tx => {
+               const cat = getCatInfo(tx.categoria);
+               const isEditing = editingTx === tx.id;
+               return (
+                 <div key={tx.id} className={`flex items-center gap-2 py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''}`}>
+                   {/* Categoria icon */}
+                   <span className="text-base flex-shrink-0 cursor-pointer" title="Mudar categoria"
+                     onClick={() => setEditingTx(isEditing ? null : tx.id)}>{cat.icon}</span>
+                   {/* Data */}
+                   <span className="text-xs text-slate-500 w-20 flex-shrink-0">{tx.data?.slice(5)}</span>
+                   {/* Descrição */}
+                   <span className="flex-1 truncate text-xs">{tx.descricao}</span>
+                   {/* Conta */}
+                   <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{getContaNome(tx.contaId)}</span>
+                   {/* Valor */}
+                   <span className={`font-mono text-sm font-bold flex-shrink-0 w-24 text-right ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
+                     {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
+                   </span>
+                   {/* Actions */}
+                   <button onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
+                 </div>
+               );
+             })}
+             {/* Inline category editor */}
+             {editingTx && (() => {
+               const tx = extrato.find(t => t.id === editingTx);
+               if (!tx) return null;
+               return (
+                 <div className={`p-3 rounded-lg mt-1 mb-2 ${theme === 'light' ? 'bg-blue-50 border border-blue-200' : 'bg-blue-500/10 border border-blue-500/20'}`}>
+                   <p className="text-xs text-slate-500 mb-2">Categorizar: <strong>{tx.descricao?.slice(0, 40)}</strong></p>
+                   <div className="flex flex-wrap gap-1">
+                     {categorias.filter(c => c.id !== 'transferencia').map(c => (
+                       <button key={c.id} onClick={() => {
+                         updateTx(tx.id, 'categoria', c.id);
+                         updateTx(tx.id, 'tipo', c.id === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita');
+                         guardarRegra(tx.descricao, c.id);
+                         setEditingTx(null);
+                       }}
+                         className={`px-2 py-1 text-[10px] rounded-md transition-all ${tx.categoria === c.id ? 'ring-2 ring-blue-500' : ''} ${theme === 'light' ? 'bg-white border border-slate-200 hover:bg-slate-50' : 'bg-slate-700 border border-slate-600 hover:bg-slate-600'}`}>
+                         {c.icon} {c.nome}
+                       </button>
+                     ))}
+                   </div>
+                   <div className="flex gap-2 mt-2">
+                     <button onClick={() => { updateTx(tx.id, 'tipo', 'transferencia'); updateTx(tx.id, 'categoria', 'transferencia'); setEditingTx(null); }}
+                       className="text-[10px] text-blue-400 hover:underline">🔄 Marcar como transferência</button>
+                   </div>
+                 </div>
+               );
+             })()}
+           </div>
+         </Card>
+         
+         {/* Modal Import CSV */}
+         {showImport && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
+             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+             <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto`}>
+               <h3 className="font-semibold mb-4">📤 Importar Extrato CSV</h3>
+               {contas.length === 0 ? (
+                 <div className="text-center py-4">
+                   <p className="text-sm text-slate-500 mb-2">Adiciona primeiro uma conta bancária.</p>
+                   <button onClick={() => { setShowImport(false); setExtratoTab('contas'); }}
+                     className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/20 text-blue-400">Ir para Contas →</button>
+                 </div>
+               ) : (<>
+                 <div className="space-y-3">
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Conta</label>
+                     <select value={importConta} onChange={e => setImportConta(e.target.value)}
+                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                       <option value="">Selecionar conta...</option>
+                       {contas.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.banco})</option>)}
+                     </select>
+                   </div>
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Ficheiro CSV</label>
+                     <input type="file" accept=".csv,.txt" onChange={e => {
+                       const file = e.target.files?.[0];
+                       if (!file || !importConta) return;
+                       const reader = new FileReader();
+                       reader.onload = (ev) => {
+                         const txs = processarCSV(ev.target.result, importConta);
+                         setImportPreview(txs);
+                       };
+                       reader.readAsText(file, 'UTF-8');
+                     }} className="text-sm" />
+                   </div>
+                 </div>
+                 {importPreview && (
+                   <div className="mt-4">
+                     <p className="text-sm font-semibold mb-2">{importPreview.length} transações detectadas</p>
+                     <div className="max-h-48 overflow-y-auto space-y-1 text-xs">
+                       {importPreview.slice(0, 20).map((tx, i) => {
+                         const cat = getCatInfo(tx.categoria);
+                         return (
+                           <div key={i} className={`flex items-center gap-2 py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                             <span>{cat.icon}</span>
+                             <span className="text-slate-500">{tx.data?.slice(5)}</span>
+                             <span className="flex-1 truncate">{tx.descricao}</span>
+                             <span className={`font-mono ${tx.valor < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(tx.valor)}</span>
+                           </div>
+                         );
+                       })}
+                       {importPreview.length > 20 && <p className="text-slate-500 text-center">... e mais {importPreview.length - 20}</p>}
+                     </div>
+                     <div className="flex gap-2 mt-3">
+                       <button onClick={() => importarTxs(importPreview)}
+                         className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Importar {importPreview.length} transações</button>
+                       <button onClick={() => setImportPreview(null)}
+                         className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
+                     </div>
+                   </div>
+                 )}
+               </>)}
+               <button onClick={() => { setShowImport(false); setImportPreview(null); }}
+                 className="absolute top-4 right-4 text-slate-500 hover:text-slate-300">✕</button>
+             </div>
+           </div>
+         )}
+         
+         {/* Modal Add Manual */}
+         {showAddManual && (() => {
+           const [mData, setMData] = useState(new Date().toISOString().slice(0, 10));
+           const [mDesc, setMDesc] = useState('');
+           const [mValor, setMValor] = useState('');
+           const [mConta, setMConta] = useState(contas[0]?.id || '');
+           const [mCat, setMCat] = useState('outros');
+           const [mTipo, setMTipo] = useState('despesa');
+           return (
+             <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
+               <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+               <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`}>
+                 <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
+                 <div className="space-y-3">
+                   <div className="grid grid-cols-2 gap-3">
+                     <div>
+                       <label className="text-xs text-slate-500 block mb-1">Data</label>
+                       <input type="date" value={mData} onChange={e => setMData(e.target.value)}
+                         className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                     </div>
+                     <div>
+                       <label className="text-xs text-slate-500 block mb-1">Valor (€)</label>
+                       <input type="number" step="0.01" value={mValor} onChange={e => setMValor(e.target.value)}
+                         className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                     </div>
+                   </div>
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Descrição</label>
+                     <input type="text" value={mDesc} onChange={e => setMDesc(e.target.value)}
+                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                   </div>
+                   <div className="grid grid-cols-3 gap-3">
+                     <div>
+                       <label className="text-xs text-slate-500 block mb-1">Tipo</label>
+                       <select value={mTipo} onChange={e => setMTipo(e.target.value)}
+                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                         <option value="despesa">Despesa</option>
+                         <option value="receita">Receita</option>
+                         <option value="transferencia">Transferência</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-xs text-slate-500 block mb-1">Categoria</label>
+                       <select value={mCat} onChange={e => setMCat(e.target.value)}
+                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                         {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-xs text-slate-500 block mb-1">Conta</label>
+                       <select value={mConta} onChange={e => setMConta(e.target.value)}
+                         className={`w-full text-sm rounded-lg px-2 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+                         {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                       </select>
+                     </div>
+                   </div>
+                 </div>
+                 <div className="flex gap-2 mt-4">
+                   <button onClick={() => { addManual(mData, mDesc, mTipo === 'despesa' ? -Math.abs(parseFloat(mValor)) : Math.abs(parseFloat(mValor)), mConta, mCat, mTipo); }}
+                     className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Adicionar</button>
+                   <button onClick={() => setShowAddManual(false)}
+                     className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
+                 </div>
+               </div>
+             </div>
+           );
+         })()}
+       </div>
+     )}
+
+     {/* RESUMO POR CATEGORIA */}
+     {extratoTab === 'categorias' && (
+       <div className="space-y-4">
+         <Card className="!p-3">
+           <div className="flex gap-2 items-center">
+             <select value={extratoMes} onChange={e => setExtratoMes(e.target.value)}
+               className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
+             </select>
+             <span className="text-sm text-slate-500 ml-auto">Total despesas: <strong className="text-red-400">{fmt(despesasMes)}</strong></span>
+           </div>
+         </Card>
+         
+         {/* Barras por categoria */}
+         <Card>
+           <div className="space-y-3">
+             {Object.entries(porCategoria).sort((a, b) => b[1] - a[1]).map(([catId, total]) => {
+               const cat = getCatInfo(catId);
+               const pct = despesasMes > 0 ? (total / despesasMes * 100) : 0;
+               const orc = orcamentos[catId];
+               const pctOrc = orc ? (total / orc * 100) : null;
+               return (
+                 <div key={catId}>
+                   <div className="flex items-center justify-between mb-1">
+                     <span className="text-sm">{cat.icon} {cat.nome}</span>
+                     <div className="flex items-center gap-2">
+                       <span className="text-sm font-mono font-bold">{fmt(total)}</span>
+                       <span className="text-[10px] text-slate-500">{pct.toFixed(0)}%</span>
+                       {orc && <span className={`text-[10px] px-1 py-0.5 rounded ${pctOrc > 100 ? 'bg-red-500/20 text-red-400' : pctOrc > 80 ? 'bg-orange-500/20 text-orange-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{pctOrc.toFixed(0)}% orç.</span>}
+                     </div>
+                   </div>
+                   <div className={`w-full h-2 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                     <div className="h-full rounded-full transition-all duration-500" style={{ width: Math.min(100, pct) + '%', background: cat.cor }} />
+                   </div>
+                 </div>
+               );
+             })}
+             {Object.keys(porCategoria).length === 0 && (
+               <p className="text-sm text-slate-500 text-center py-4">Sem despesas categorizadas neste mês.</p>
+             )}
+           </div>
+         </Card>
+         
+         {/* Resumo anual */}
+         <Card>
+           <h4 className="font-semibold mb-3">📅 Resumo Anual {extratoAno}</h4>
+           <div className="overflow-x-auto">
+             <table className="w-full text-xs">
+               <thead>
+                 <tr className={`${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/50'}`}>
+                   <th className="px-2 py-1.5 text-left">Categoria</th>
+                   {Array.from({length: 12}, (_, i) => (
+                     <th key={i} className="px-2 py-1.5 text-right">{meses[i]?.slice(0, 3)}</th>
+                   ))}
+                   <th className="px-2 py-1.5 text-right font-bold">Total</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {categorias.filter(c => c.id !== 'transferencia').map(cat => {
+                   const mesTotais = Array.from({length: 12}, (_, i) => {
+                     return extrato.filter(t => {
+                       const [a, m] = (t.data || '').split('-').map(Number);
+                       return a === extratoAno && m === i + 1 && t.tipo === 'despesa' && t.categoria === cat.id;
+                     }).reduce((acc, t) => acc + Math.abs(t.valor), 0);
+                   });
+                   const total = mesTotais.reduce((a, v) => a + v, 0);
+                   if (total === 0) return null;
+                   return (
+                     <tr key={cat.id} className={`border-t ${theme === 'light' ? 'border-slate-100' : 'border-slate-700/50'}`}>
+                       <td className="px-2 py-1.5">{cat.icon} {cat.nome}</td>
+                       {mesTotais.map((v, i) => (
+                         <td key={i} className="px-2 py-1.5 text-right font-mono">{v > 0 ? fmt(v) : <span className="text-slate-600">—</span>}</td>
+                       ))}
+                       <td className="px-2 py-1.5 text-right font-mono font-bold">{fmt(total)}</td>
+                     </tr>
+                   );
+                 }).filter(Boolean)}
+               </tbody>
+             </table>
+           </div>
+         </Card>
+       </div>
+     )}
+
+     {/* ORÇAMENTOS */}
+     {extratoTab === 'orcamentos' && (
+       <div className="space-y-4">
+         <Card>
+           <h4 className="font-semibold mb-3">🎯 Orçamento Mensal por Categoria</h4>
+           <p className="text-xs text-slate-500 mb-4">Define limites mensais. A barra mostra o gasto actual de {extratoMes}.</p>
+           <div className="space-y-3">
+             {categorias.filter(c => c.id !== 'transferencia').map(cat => {
+               const gasto = porCategoria[cat.id] || 0;
+               const limite = orcamentos[cat.id] || 0;
+               const pct = limite > 0 ? (gasto / limite * 100) : 0;
+               return (
+                 <div key={cat.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                   <div className="flex items-center justify-between mb-2">
+                     <span className="text-sm">{cat.icon} {cat.nome}</span>
+                     <div className="flex items-center gap-2">
+                       <span className={`text-xs font-mono ${pct > 100 ? 'text-red-400' : pct > 80 ? 'text-orange-400' : 'text-slate-400'}`}>
+                         {gasto > 0 ? fmt(gasto) : '—'}
+                       </span>
+                       <span className="text-xs text-slate-500">/</span>
+                       <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
+                         className={`w-20 text-right text-xs font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
+                         onBlur={e => {
+                           const v = parseFloat(e.target.value) || 0;
+                           saveUndo();
+                           uG('orcamentos', { ...orcamentos, [cat.id]: v });
+                         }} />
+                       <span className="text-[10px] text-slate-500">€</span>
+                     </div>
+                   </div>
+                   {limite > 0 && (
+                     <div className={`w-full h-2 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                       <div className={`h-full rounded-full transition-all duration-500 ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                         style={{ width: Math.min(120, pct) + '%' }} />
+                     </div>
+                   )}
+                 </div>
+               );
+             })}
+           </div>
+           {Object.values(orcamentos).some(v => v > 0) && (
+             <div className={`mt-4 pt-4 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between font-bold`}>
+               <span>Total orçamento</span>
+               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
+             </div>
+           )}
+         </Card>
+       </div>
+     )}
+
+     {/* CONTAS BANCÁRIAS */}
+     {extratoTab === 'contas' && (
+       <div className="space-y-4">
+         <Card>
+           <h4 className="font-semibold mb-3">🏦 As Minhas Contas</h4>
+           <p className="text-xs text-slate-500 mb-4">Adiciona as tuas contas para a app detectar transferências internas automaticamente.</p>
+           <div className="space-y-2">
+             {contas.map(c => (
+               <div key={c.id} className={`flex items-center gap-3 p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                 <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
+                 <div className="flex-1 min-w-0">
+                   <p className="font-semibold text-sm">{c.nome}</p>
+                   <p className="text-[10px] text-slate-500">{c.banco} {c.iban ? `· ${c.iban.slice(0, 4)}...${c.iban.slice(-4)}` : ''}</p>
+                 </div>
+                 <span className="text-xs text-slate-500">{extrato.filter(t => t.contaId === c.id).length} movs.</span>
+                 <button onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
+                   className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
+               </div>
+             ))}
+           </div>
+           
+           {showAddConta ? (() => {
+             const [cNome, setCNome] = useState('');
+             const [cBanco, setCBanco] = useState('');
+             const [cIban, setCIban] = useState('');
+             const [cCor, setCCor] = useState('#3b82f6');
+             return (
+               <div className={`mt-3 p-4 rounded-xl ${theme === 'light' ? 'bg-blue-50 border border-blue-200' : 'bg-blue-500/10 border border-blue-500/20'}`}>
+                 <div className="grid grid-cols-2 gap-3">
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Nome da conta</label>
+                     <input type="text" placeholder="Ex: Conta Moey" value={cNome} onChange={e => setCNome(e.target.value)}
+                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                   </div>
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Banco</label>
+                     <input type="text" placeholder="Ex: Moey" value={cBanco} onChange={e => setCBanco(e.target.value)}
+                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                   </div>
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">IBAN (opcional)</label>
+                     <input type="text" placeholder="PT50..." value={cIban} onChange={e => setCIban(e.target.value)}
+                       className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+                   </div>
+                   <div>
+                     <label className="text-xs text-slate-500 block mb-1">Cor</label>
+                     <input type="color" value={cCor} onChange={e => setCCor(e.target.value)} className="w-full h-9 rounded-lg cursor-pointer" />
+                   </div>
+                 </div>
+                 <div className="flex gap-2 mt-3">
+                   <button onClick={() => { if (cNome) addConta(cNome, cBanco, cIban, cCor); }}
+                     className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600" disabled={!cNome}>Adicionar</button>
+                   <button onClick={() => setShowAddConta(false)}
+                     className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
+                 </div>
+               </div>
+             );
+           })() : (
+             <button onClick={() => setShowAddConta(true)}
+               className={`w-full mt-3 py-3 text-sm rounded-xl border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
+               + Adicionar conta bancária
+             </button>
+           )}
+         </Card>
+
+         {/* Regras de categorização */}
+         <Card>
+           <h4 className="font-semibold mb-3">🤖 Regras de Categorização</h4>
+           <p className="text-xs text-slate-500 mb-3">Quando categorizas uma transação, a app memoriza. Aqui podes gerir as regras.</p>
+           <div className="space-y-1">
+             {regras.length === 0 ? (
+               <p className="text-sm text-slate-500 text-center py-3">Sem regras. Categoriza transações na lista e as regras aparecem aqui.</p>
+             ) : regras.map(r => {
+               const cat = getCatInfo(r.categoria);
+               return (
+                 <div key={r.id} className={`flex items-center gap-2 py-1.5 text-xs ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                   <span className="font-mono text-slate-400 flex-1 truncate">"{r.padrao}"</span>
+                   <span className="text-slate-500">→</span>
+                   <span>{cat.icon} {cat.nome}</span>
+                   <button onClick={() => { saveUndo(); uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
+                     className="text-red-400/50 hover:text-red-400">✕</button>
+                 </div>
+               );
+             })}
+           </div>
+         </Card>
+       </div>
+     )}
+   </div>
+   );
+ };
+
  // Tabs reorganizadas por função:
  // 1. Visão Geral: Resumo, Performance
  // 2. Entradas: Receitas
@@ -8603,7 +9319,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
-   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
+   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]},
+   {id:'sep3',separator:true},
+   {id:'extrato',icon:'🏦',label:'Extrato'}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const submenuTimeoutRef = useRef(null);
@@ -11110,6 +11828,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <Credito/>}
  {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
+ {tab==='extrato' && <Extrato/>}
         </div>
  </main>
 
