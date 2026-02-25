@@ -8956,54 +8956,60 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
              ) : txFiltradas.map(tx => {
                const cat = getCatInfo(tx.categoria);
-               const isEditing = editingTx === tx.id;
+               const contaNome = getContaNome(tx.contaId);
+               // Detectar destino/origem de transferências
+               const descLower = (tx.descricao || '').toLowerCase();
+               const transfLabel = tx.tipo === 'transferencia' || tx.categoria === 'transferencia' ? (() => {
+                 // Tentar encontrar conta destino pelo nome ou IBAN
+                 const outraConta = contas.find(c => c.id !== tx.contaId && (
+                   descLower.includes((c.nome || '').toLowerCase()) ||
+                   descLower.includes((c.banco || '').toLowerCase()) ||
+                   (c.iban && descLower.includes((c.iban || '').slice(-8).toLowerCase()))
+                 ));
+                 if (outraConta) return tx.valor < 0 ? `→ ${outraConta.nome}` : `← ${outraConta.nome}`;
+                 return tx.valor < 0 ? '→ Externa' : '← Externa';
+               })() : null;
+               
                return (
-                 <div key={tx.id} className={`flex items-center gap-2 py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''}`}>
-                   {/* Categoria icon */}
-                   <span className="text-base flex-shrink-0 cursor-pointer" title="Mudar categoria"
-                     onClick={() => setEditingTx(isEditing ? null : tx.id)}>{cat.icon}</span>
-                   {/* Data */}
-                   <span className="text-xs text-slate-500 w-20 flex-shrink-0">{tx.data?.slice(5)}</span>
-                   {/* Descrição */}
-                   <span className="flex-1 truncate text-xs">{tx.descricao}</span>
-                   {/* Conta */}
-                   <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{getContaNome(tx.contaId)}</span>
-                   {/* Valor */}
-                   <span className={`font-mono text-sm font-bold flex-shrink-0 w-24 text-right ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
-                     {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
-                   </span>
-                   {/* Actions */}
-                   <button onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
+                 <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''}`}>
+                   <div className="flex items-center gap-2">
+                     {/* Categoria - inline dropdown */}
+                     <div className="relative flex-shrink-0">
+                       <select value={tx.categoria || 'outros'} 
+                         onChange={e => {
+                           const newCat = e.target.value;
+                           const newTipo = newCat === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita';
+                           updateTx(tx.id, 'categoria', newCat);
+                           updateTx(tx.id, 'tipo', newTipo);
+                           guardarRegra(tx.descricao, newCat);
+                         }}
+                         className={`appearance-none w-8 h-8 text-center text-base cursor-pointer rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-700'}`}
+                         title={cat.nome}
+                         style={{ textAlignLast: 'center' }}>
+                         {categorias.map(c => <option key={c.id} value={c.id}>{c.icon}</option>)}
+                       </select>
+                     </div>
+                     {/* Data */}
+                     <span className="text-[11px] text-slate-500 w-14 flex-shrink-0">{tx.data?.slice(5)}</span>
+                     {/* Descrição + transfer label */}
+                     <div className="flex-1 min-w-0">
+                       <span className="text-xs truncate block">{tx.descricao}</span>
+                       {transfLabel && (
+                         <span className={`text-[10px] ${theme === 'light' ? 'text-blue-500' : 'text-blue-400'}`}>{transfLabel}</span>
+                       )}
+                     </div>
+                     {/* Conta */}
+                     <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-400'}`}>{contaNome}</span>
+                     {/* Valor */}
+                     <span className={`font-mono text-sm font-bold flex-shrink-0 w-24 text-right ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : 'text-red-400'}`}>
+                       {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
+                     </span>
+                     {/* Delete */}
+                     <button onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
+                   </div>
                  </div>
                );
              })}
-             {/* Inline category editor */}
-             {editingTx && (() => {
-               const tx = extrato.find(t => t.id === editingTx);
-               if (!tx) return null;
-               return (
-                 <div className={`p-3 rounded-lg mt-1 mb-2 ${theme === 'light' ? 'bg-blue-50 border border-blue-200' : 'bg-blue-500/10 border border-blue-500/20'}`}>
-                   <p className="text-xs text-slate-500 mb-2">Categorizar: <strong>{tx.descricao?.slice(0, 40)}</strong></p>
-                   <div className="flex flex-wrap gap-1">
-                     {categorias.filter(c => c.id !== 'transferencia').map(c => (
-                       <button key={c.id} onClick={() => {
-                         updateTx(tx.id, 'categoria', c.id);
-                         updateTx(tx.id, 'tipo', c.id === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita');
-                         guardarRegra(tx.descricao, c.id);
-                         setEditingTx(null);
-                       }}
-                         className={`px-2 py-1 text-[10px] rounded-md transition-all ${tx.categoria === c.id ? 'ring-2 ring-blue-500' : ''} ${theme === 'light' ? 'bg-white border border-slate-200 hover:bg-slate-50' : 'bg-slate-700 border border-slate-600 hover:bg-slate-600'}`}>
-                         {c.icon} {c.nome}
-                       </button>
-                     ))}
-                   </div>
-                   <div className="flex gap-2 mt-2">
-                     <button onClick={() => { updateTx(tx.id, 'tipo', 'transferencia'); updateTx(tx.id, 'categoria', 'transferencia'); setEditingTx(null); }}
-                       className="text-[10px] text-blue-400 hover:underline">🔄 Marcar como transferência</button>
-                   </div>
-                 </div>
-               );
-             })()}
            </div>
          </Card>
          
@@ -9246,49 +9252,119 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {/* ORÇAMENTOS */}
      {extratoTab === 'orcamentos' && (
        <div className="space-y-4">
+         {/* Simple per-category budgets */}
          <Card>
-           <h4 className="font-semibold mb-3">🎯 Orçamento Mensal por Categoria</h4>
-           <p className="text-xs text-slate-500 mb-4">Define limites mensais. A barra mostra o gasto actual de {extratoMes}.</p>
-           <div className="space-y-3">
+           <h4 className="font-semibold mb-3">🎯 Orçamento por Categoria</h4>
+           <p className="text-xs text-slate-500 mb-4">Limites mensais individuais. Gasto de {extratoMes}.</p>
+           <div className="space-y-2">
              {categorias.filter(c => c.id !== 'transferencia').map(cat => {
                const gasto = porCategoria[cat.id] || 0;
                const limite = orcamentos[cat.id] || 0;
                const pct = limite > 0 ? (gasto / limite * 100) : 0;
                return (
-                 <div key={cat.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                   <div className="flex items-center justify-between mb-2">
-                     <span className="text-sm">{cat.icon} {cat.nome}</span>
-                     <div className="flex items-center gap-2">
-                       <span className={`text-xs font-mono ${pct > 100 ? 'text-red-400' : pct > 80 ? 'text-orange-400' : 'text-slate-400'}`}>
-                         {gasto > 0 ? fmt(gasto) : '—'}
-                       </span>
-                       <span className="text-xs text-slate-500">/</span>
-                       <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
-                         className={`w-20 text-right text-xs font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
-                         onBlur={e => {
-                           const v = parseFloat(e.target.value) || 0;
-                           saveUndo();
-                           uG('orcamentos', { ...orcamentos, [cat.id]: v });
-                         }} />
-                       <span className="text-[10px] text-slate-500">€</span>
+                 <div key={cat.id} className={`p-2.5 rounded-lg ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                   <div className="flex items-center gap-2">
+                     <span className="text-sm w-36 truncate">{cat.icon} {cat.nome}</span>
+                     <div className="flex-1">
+                       {limite > 0 && (
+                         <div className={`w-full h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                           <div className={`h-full rounded-full transition-all ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                             style={{ width: Math.min(100, pct) + '%' }} />
+                         </div>
+                       )}
                      </div>
+                     <span className={`text-[11px] font-mono w-16 text-right ${pct > 100 ? 'text-red-400' : 'text-slate-400'}`}>{gasto > 0 ? fmt(gasto) : '—'}</span>
+                     <span className="text-[10px] text-slate-600">/</span>
+                     <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
+                       className={`w-16 text-right text-[11px] font-mono px-1.5 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { const v = parseFloat(e.target.value) || 0; saveUndo(); uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
                    </div>
-                   {limite > 0 && (
-                     <div className={`w-full h-2 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                       <div className={`h-full rounded-full transition-all duration-500 ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                         style={{ width: Math.min(120, pct) + '%' }} />
+                 </div>
+               );
+             })}
+           </div>
+           {Object.values(orcamentos).some(v => v > 0) && (
+             <div className={`mt-3 pt-3 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between text-sm font-bold`}>
+               <span>Total</span>
+               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
+             </div>
+           )}
+         </Card>
+
+         {/* Grouped budgets */}
+         <Card>
+           <h4 className="font-semibold mb-3">📦 Orçamentos Agrupados</h4>
+           <p className="text-xs text-slate-500 mb-4">Agrupa categorias num orçamento só. Opcionalmente filtra por conta.</p>
+           <div className="space-y-3">
+             {(G.orcamentosGrupos || []).map((grupo, gi) => {
+               // Calc gasto do grupo
+               const gastoGrupo = txMes.filter(t => 
+                 t.tipo === 'despesa' && 
+                 (grupo.categorias || []).includes(t.categoria) &&
+                 (!grupo.contaId || grupo.contaId === 'todas' || t.contaId === grupo.contaId)
+               ).reduce((a, t) => a + Math.abs(t.valor), 0);
+               const pctG = grupo.limite > 0 ? (gastoGrupo / grupo.limite * 100) : 0;
+               
+               return (
+                 <div key={grupo.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50 border border-slate-200' : 'bg-slate-800/30 border border-slate-700'}`}>
+                   <div className="flex items-center gap-2 mb-2">
+                     <input type="text" defaultValue={grupo.nome} placeholder="Nome do grupo"
+                       className={`flex-1 text-sm font-semibold px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, nome: e.target.value}; uG('orcamentosGrupos', g); }} />
+                     <input type="number" step="10" defaultValue={grupo.limite || ''} placeholder="Limite €"
+                       className={`w-20 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, limite: parseFloat(e.target.value) || 0}; uG('orcamentosGrupos', g); }} />
+                     <button onClick={() => { saveUndo(); uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
+                       className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
+                   </div>
+                   {/* Conta filter */}
+                   <div className="flex items-center gap-2 mb-2">
+                     <span className="text-[10px] text-slate-500">Conta:</span>
+                     <select value={grupo.contaId || 'todas'} onChange={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, contaId: e.target.value}; uG('orcamentosGrupos', g); }}
+                       className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
+                       <option value="todas">Todas</option>
+                       {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                     </select>
+                   </div>
+                   {/* Category pills */}
+                   <div className="flex flex-wrap gap-1 mb-2">
+                     {categorias.filter(c => c.id !== 'transferencia').map(c => {
+                       const sel = (grupo.categorias || []).includes(c.id);
+                       return (
+                         <button key={c.id} onClick={() => {
+                           saveUndo();
+                           const g = [...(G.orcamentosGrupos || [])];
+                           const cats = sel ? (grupo.categorias || []).filter(x => x !== c.id) : [...(grupo.categorias || []), c.id];
+                           g[gi] = {...grupo, categorias: cats};
+                           uG('orcamentosGrupos', g);
+                         }}
+                           className={`px-1.5 py-0.5 text-[10px] rounded transition-all ${sel ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/50' : theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>
+                           {c.icon} {c.nome}
+                         </button>
+                       );
+                     })}
+                   </div>
+                   {/* Progress */}
+                   {grupo.limite > 0 && (
+                     <div className="flex items-center gap-2">
+                       <div className={`flex-1 h-2 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                         <div className={`h-full rounded-full transition-all ${pctG > 100 ? 'bg-red-500' : pctG > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                           style={{ width: Math.min(100, pctG) + '%' }} />
+                       </div>
+                       <span className={`text-xs font-mono ${pctG > 100 ? 'text-red-400' : 'text-slate-400'}`}>{fmt(gastoGrupo)} / {fmt(grupo.limite)}</span>
                      </div>
                    )}
                  </div>
                );
              })}
            </div>
-           {Object.values(orcamentos).some(v => v > 0) && (
-             <div className={`mt-4 pt-4 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between font-bold`}>
-               <span>Total orçamento</span>
-               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
-             </div>
-           )}
+           <button onClick={() => {
+             saveUndo();
+             uG('orcamentosGrupos', [...(G.orcamentosGrupos || []), { id: `og-${Date.now()}`, nome: 'Novo Grupo', categorias: [], contaId: 'todas', limite: 0 }]);
+           }}
+             className={`w-full mt-3 py-2.5 text-xs rounded-lg border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
+             + Adicionar orçamento agrupado
+           </button>
          </Card>
        </div>
      )}
@@ -9298,18 +9374,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="space-y-4">
          <Card>
            <h4 className="font-semibold mb-3">🏦 As Minhas Contas</h4>
-           <p className="text-xs text-slate-500 mb-4">Adiciona as tuas contas para a app detectar transferências internas automaticamente.</p>
+           <p className="text-xs text-slate-500 mb-4">Transferências entre estas contas são detectadas automaticamente.</p>
            <div className="space-y-2">
              {contas.map(c => (
-               <div key={c.id} className={`flex items-center gap-3 p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                 <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
-                 <div className="flex-1 min-w-0">
-                   <p className="font-semibold text-sm">{c.nome}</p>
-                   <p className="text-[10px] text-slate-500">{c.banco} {c.iban ? `· ${c.iban.slice(0, 4)}...${c.iban.slice(-4)}` : ''}</p>
+               <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                 <div className="flex items-center gap-3">
+                   <input type="color" value={c.cor || '#3b82f6'} onChange={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
+                     className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
+                   <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
+                     <input type="text" defaultValue={c.nome} placeholder="Nome"
+                       className={`text-sm font-semibold px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, nome: e.target.value} : x)); }} />
+                     <input type="text" defaultValue={c.banco} placeholder="Banco"
+                       className={`text-xs px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, banco: e.target.value} : x)); }} />
+                     <input type="text" defaultValue={c.iban} placeholder="IBAN"
+                       className={`text-xs px-2 py-1 rounded font-mono ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, iban: e.target.value} : x)); }} />
+                   </div>
+                   <span className="text-[10px] text-slate-500 flex-shrink-0">{extrato.filter(t => t.contaId === c.id).length} movs.</span>
+                   <button onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
+                     className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  </div>
-                 <span className="text-xs text-slate-500">{extrato.filter(t => t.contaId === c.id).length} movs.</span>
-                 <button onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
-                   className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
                </div>
              ))}
            </div>
@@ -9319,7 +9405,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div className={`mt-3 p-4 rounded-xl ${theme === 'light' ? 'bg-blue-50 border border-blue-200' : 'bg-blue-500/10 border border-blue-500/20'}`}>
                  <div className="grid grid-cols-2 gap-3">
                    <div>
-                     <label className="text-xs text-slate-500 block mb-1">Nome da conta</label>
+                     <label className="text-xs text-slate-500 block mb-1">Nome</label>
                      <input type="text" placeholder="Ex: Conta Moey" value={cNome} onChange={e => setCNome(e.target.value)}
                        className={`w-full text-sm rounded-lg px-3 py-2 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
                    </div>
@@ -9340,7 +9426,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                  <div className="flex gap-2 mt-3">
                    <button onClick={() => { if (cNome) addConta(cNome, cBanco, cIban, cCor); }}
-                     className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600" disabled={!cNome}>Adicionar</button>
+                     className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Adicionar</button>
                    <button onClick={() => setShowAddConta(false)}
                      className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
                  </div>
@@ -9349,15 +9435,47 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            })() : (
              <button onClick={() => setShowAddConta(true)}
                className={`w-full mt-3 py-3 text-sm rounded-xl border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
-               + Adicionar conta bancária
+               + Adicionar conta
              </button>
            )}
          </Card>
 
+         {/* Categorias editáveis */}
+         <Card>
+           <h4 className="font-semibold mb-3">🏷️ Categorias</h4>
+           <div className="space-y-1">
+             {categorias.map((c, i) => (
+               <div key={c.id} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                 <input type="text" defaultValue={c.icon} 
+                   className={`w-8 text-center text-base bg-transparent border-none focus:outline-none`}
+                   onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, icon: e.target.value}; uG('categoriasExtrato', novos); }} />
+                 <input type="text" defaultValue={c.nome}
+                   className={`flex-1 text-sm px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700/50 border border-slate-600'}`}
+                   onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
+                 <input type="color" value={c.cor || '#78716c'}
+                   className="w-6 h-6 rounded cursor-pointer border-0"
+                   onChange={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
+                 {!['transferencia'].includes(c.id) && (
+                   <button onClick={() => { saveUndo(); uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
+                     className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
+                 )}
+               </div>
+             ))}
+           </div>
+           <button onClick={() => { 
+             saveUndo(); 
+             const novaId = `cat-${Date.now()}`;
+             uG('categoriasExtrato', [...categorias, {id: novaId, nome: 'Nova Categoria', icon: '📌', cor: '#64748b'}]); 
+           }}
+             className={`w-full mt-2 py-2 text-xs rounded-lg border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
+             + Adicionar categoria
+           </button>
+         </Card>
+
          {/* Regras de categorização */}
          <Card>
-           <h4 className="font-semibold mb-3">🤖 Regras de Categorização</h4>
-           <p className="text-xs text-slate-500 mb-3">Quando categorizas uma transação, a app memoriza. Aqui podes gerir as regras.</p>
+           <h4 className="font-semibold mb-3">🤖 Regras Automáticas</h4>
+           <p className="text-xs text-slate-500 mb-3">Ao categorizar transações, a app memoriza. Edita ou remove regras aqui.</p>
            <div className="space-y-1">
              {regras.length === 0 ? (
                <p className="text-sm text-slate-500 text-center py-3">Sem regras. Categoriza transações na lista e as regras aparecem aqui.</p>
@@ -9367,7 +9485,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <div key={r.id} className={`flex items-center gap-2 py-1.5 text-xs ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
                    <span className="font-mono text-slate-400 flex-1 truncate">"{r.padrao}"</span>
                    <span className="text-slate-500">→</span>
-                   <span>{cat.icon} {cat.nome}</span>
+                   <select value={r.categoria} onChange={e => { saveUndo(); uG('regrasCategoria', regras.map(x => x.id === r.id ? {...x, categoria: e.target.value} : x)); }}
+                     className={`text-[10px] px-1 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>
+                     {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+                   </select>
                    <button onClick={() => { saveUndo(); uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
                      className="text-red-400/50 hover:text-red-400">✕</button>
                  </div>
