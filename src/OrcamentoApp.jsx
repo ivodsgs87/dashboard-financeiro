@@ -8976,17 +8976,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      </select>
                    </div>
                    <div>
-                     <label className="text-xs text-slate-500 block mb-1">Ficheiro CSV</label>
-                     <input type="file" accept=".csv,.txt" onChange={e => {
+                     <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
+                     <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={e => {
                        const file = e.target.files?.[0];
                        if (!file || !importConta) return;
-                       const reader = new FileReader();
-                       reader.onload = (ev) => {
-                         const txs = processarCSV(ev.target.result, importConta);
-                         setImportPreview(txs);
-                       };
-                       reader.readAsText(file, 'UTF-8');
+                       const isExcel = /\.xlsx?$/i.test(file.name);
+                       if (isExcel) {
+                         const reader = new FileReader();
+                         reader.onload = async (ev) => {
+                           try {
+                             const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+                             const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+                             const ws = wb.Sheets[wb.SheetNames[0]];
+                             const csvText = XLSX.utils.sheet_to_csv(ws, { FS: ';' });
+                             const txs = processarCSV(csvText, importConta);
+                             setImportPreview(txs);
+                           } catch (err) {
+                             console.error('Erro ao ler Excel:', err);
+                             alert('Erro ao ler ficheiro Excel. Tenta exportar como CSV.');
+                           }
+                         };
+                         reader.readAsArrayBuffer(file);
+                       } else {
+                         const reader = new FileReader();
+                         reader.onload = (ev) => {
+                           const txs = processarCSV(ev.target.result, importConta);
+                           setImportPreview(txs);
+                         };
+                         reader.readAsText(file, 'UTF-8');
+                       }
                      }} className="text-sm" />
+                     <p className="text-[10px] text-slate-500 mt-1">Formatos: .csv, .txt, .xlsx, .xls</p>
                    </div>
                  </div>
                  {importPreview && (
