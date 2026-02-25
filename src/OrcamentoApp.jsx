@@ -8797,7 +8797,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        // Parse valor - suportar vírgula decimal e notação PT
        const parseValorPT = (str) => {
          if (!str) return 0;
-         // Remove espaços, pontos de milhar, substitui vírgula por ponto
          let s = str.replace(/\s/g, '');
          // Se tem ponto E vírgula: 1.234,56 → 1234.56
          if (s.includes('.') && s.includes(',')) {
@@ -8806,6 +8805,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          // Se só tem vírgula: 1234,56 → 1234.56 
          else if (s.includes(',')) {
            s = s.replace(',', '.');
+         }
+         // Se só tem ponto: verificar se é separador de milhares (1.402) ou decimal (1.40)
+         // Regra: se depois do ponto tem exactamente 3 dígitos, é milhares
+         else if (s.includes('.')) {
+           const parts = s.replace(/^-/, '').split('.');
+           if (parts.length === 2 && parts[1].length === 3) {
+             // 1.402 → 1402 (milhares), -1.402 → -1402
+             s = s.replace('.', '');
+           }
+           // 1.40 → 1.40 (decimal) - deixar como está
          }
          return parseFloat(s) || 0;
        };
@@ -8924,7 +8933,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          { id: 'orcamentos', label: '🎯 Orçamentos' },
          { id: 'contas', label: '🏦 Contas' },
        ].map(t => (
-         <button key={t.id} onClick={() => setExtratoTab(t.id)}
+       <button type="button" key={t.id} onClick={() => setExtratoTab(t.id)}
            className={`px-3 py-2 text-xs font-medium rounded-lg transition-all ${extratoTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-700/50'}`}>
            {t.label}
          </button>
@@ -9071,7 +9080,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : '↔'}{fmt(Math.abs(tx.valor))}
                      </span>
                      {/* Delete */}
-                     <button onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
+                     {/* Select similar */}
+                     <button type="button" title="Selecionar semelhantes" onClick={() => {
+                       // Extrair palavras-chave da descrição (>3 chars)
+                       const keywords = (tx.descricao || '').split(/\s+/).filter(w => w.length > 3).slice(0, 2);
+                       if (keywords.length === 0) return;
+                       const pattern = keywords[0].toLowerCase();
+                       const similar = txFiltradas.filter(t => (t.descricao || '').toLowerCase().includes(pattern)).map(t => t.id);
+                       setSelectedTxs(new Set([...selectedTxs, ...similar]));
+                     }} className="text-blue-400/50 hover:text-blue-400 text-xs flex-shrink-0">⊕</button>
+                     <button type="button" onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                    </div>
                  </div>
                );
@@ -9230,7 +9248,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <input type="number" step="10" defaultValue={grupo.limite || ''} placeholder="Limite €"
                        className={`w-20 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                        onBlur={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, limite: parseFloat(e.target.value) || 0}; uG('orcamentosGrupos', g); }} />
-                     <button onClick={() => { saveUndo(); uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
+                     <button type="button" onClick={() => { saveUndo(); uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
                        className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
                    </div>
                    {/* Conta filter */}
@@ -9247,7 +9265,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      {categorias.filter(c => c.id !== 'transferencia').map(c => {
                        const sel = (grupo.categorias || []).includes(c.id);
                        return (
-                         <button key={c.id} onClick={() => {
+                         <button type="button" key={c.id} onClick={() => {
                            saveUndo();
                            const g = [...(G.orcamentosGrupos || [])];
                            const cats = sel ? (grupo.categorias || []).filter(x => x !== c.id) : [...(grupo.categorias || []), c.id];
@@ -9274,7 +9292,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                );
              })}
            </div>
-           <button onClick={() => {
+           <button type="button" onClick={() => {
              saveUndo();
              uG('orcamentosGrupos', [...(G.orcamentosGrupos || []), { id: `og-${Date.now()}`, nome: 'Novo Grupo', categorias: [], contaId: 'todas', limite: 0 }]);
            }}
@@ -9309,7 +9327,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        onBlur={e => { saveUndo(); uG('contas', contas.map(x => x.id === c.id ? {...x, iban: e.target.value} : x)); }} />
                    </div>
                    <span className="text-[10px] text-slate-500 flex-shrink-0">{extrato.filter(t => t.contaId === c.id).length} movs.</span>
-                   <button onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
+                   <button type="button" onClick={() => { saveUndo(); uG('contas', contas.filter(x => x.id !== c.id)); }}
                      className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  </div>
                </div>
@@ -9341,15 +9359,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                  </div>
                  <div className="flex gap-2 mt-3">
-                   <button onClick={() => { if (cNome) addConta(cNome, cBanco, cIban, cCor); }}
+                   <button type="button" onClick={() => { if (cNome) addConta(cNome, cBanco, cIban, cCor); }}
                      className="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">Adicionar</button>
-                   <button onClick={() => setShowAddConta(false)}
+                   <button type="button" onClick={() => setShowAddConta(false)}
                      className={`px-4 py-2 text-sm rounded-lg ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>Cancelar</button>
                  </div>
                </div>
              );
            })() : (
-             <button onClick={() => setShowAddConta(true)}
+             <button type="button" onClick={() => setShowAddConta(true)}
                className={`w-full mt-3 py-3 text-sm rounded-xl border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
                + Adicionar conta
              </button>
@@ -9373,13 +9391,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onChange={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
-                   <button onClick={() => { saveUndo(); uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
+                   <button type="button" onClick={() => { saveUndo(); uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
                      className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  )}
                </div>
              ))}
            </div>
-           <button onClick={() => { 
+           <button type="button" onClick={() => { 
              saveUndo(); 
              const novaId = `cat-${Date.now()}`;
              uG('categoriasExtrato', [...categorias, {id: novaId, nome: 'Nova Categoria', icon: '📌', cor: '#64748b'}]); 
@@ -9402,11 +9420,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <div key={r.id} className={`flex items-center gap-2 py-1.5 text-xs ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
                    <span className="font-mono text-slate-400 flex-1 truncate">"{r.padrao}"</span>
                    <span className="text-slate-500">→</span>
-                   <select value={r.categoria} onChange={e => { saveUndo(); uG('regrasCategoria', regras.map(x => x.id === r.id ? {...x, categoria: e.target.value} : x)); }}
+                   <select value={r.categoria} onChange={e => { 
+                     saveUndo(); 
+                     const newCat = e.target.value;
+                     uG('regrasCategoria', regras.map(x => x.id === r.id ? {...x, categoria: newCat} : x));
+                     // Re-categorizar transações existentes que correspondem a esta regra
+                     const padrao = (r.padrao || '').toLowerCase();
+                     uG('extrato', extrato.map(t => {
+                       if ((t.descricao || '').toLowerCase().includes(padrao)) {
+                         const newTipo = newCat === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
+                         return {...t, categoria: newCat, tipo: newTipo};
+                       }
+                       return t;
+                     }));
+                   }}
                      className={`text-[10px] px-1 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>
                      {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
                    </select>
-                   <button onClick={() => { saveUndo(); uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
+                   <button type="button" onClick={() => { saveUndo(); uG('regrasCategoria', regras.filter(x => x.id !== r.id)); }}
                      className="text-red-400/50 hover:text-red-400">✕</button>
                  </div>
                );
