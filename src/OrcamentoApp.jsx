@@ -8621,6 +8621,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [editingTx, setEditingTx] = useState(null);
    const [importPreview, setImportPreview] = useState(null);
    const [importConta, setImportConta] = useState('');
+   // Add manual states
+   const [mData, setMData] = useState(new Date().toISOString().slice(0, 10));
+   const [mDesc, setMDesc] = useState('');
+   const [mValor, setMValor] = useState('');
+   const [mConta, setMConta] = useState('');
+   const [mCat, setMCat] = useState('outros');
+   const [mTipo, setMTipo] = useState('despesa');
+   // Add conta states
+   const [cNome, setCNome] = useState('');
+   const [cBanco, setCBanco] = useState('');
+   const [cIban, setCIban] = useState('');
+   const [cCor, setCCor] = useState('#3b82f6');
    
    const contas = G.contas || [];
    const extrato = G.extrato || [];
@@ -8768,6 +8780,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const nova = { id: `c-${Date.now()}`, nome, banco, iban, cor: cor || '#3b82f6', ativo: true };
      uG('contas', [...contas, nova]);
      setShowAddConta(false);
+     setCNome(''); setCBanco(''); setCIban(''); setCCor('#3b82f6');
    };
    
    // Importar transações
@@ -8813,6 +8826,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      };
      uG('extrato', [...extrato, nova]);
      setShowAddManual(false);
+     setMDesc(''); setMValor(''); setMCat('outros'); setMTipo('despesa');
    };
    
    // Meses disponíveis
@@ -9009,12 +9023,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Modal Add Manual */}
          {showAddManual && (() => {
-           const [mData, setMData] = useState(new Date().toISOString().slice(0, 10));
-           const [mDesc, setMDesc] = useState('');
-           const [mValor, setMValor] = useState('');
-           const [mConta, setMConta] = useState(contas[0]?.id || '');
-           const [mCat, setMCat] = useState('outros');
-           const [mTipo, setMTipo] = useState('despesa');
            return (
              <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) setShowAddManual(false); }}>
                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
@@ -9233,10 +9241,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
            
            {showAddConta ? (() => {
-             const [cNome, setCNome] = useState('');
-             const [cBanco, setCBanco] = useState('');
-             const [cIban, setCIban] = useState('');
-             const [cCor, setCCor] = useState('#3b82f6');
              return (
                <div className={`mt-3 p-4 rounded-xl ${theme === 'light' ? 'bg-blue-50 border border-blue-200' : 'bg-blue-500/10 border border-blue-500/20'}`}>
                  <div className="grid grid-cols-2 gap-3">
@@ -9314,14 +9318,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const tabs = [
    {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
-   {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
+   {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'extrato',icon:'🏦',label:'Reais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
-   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]},
-   {id:'sep3',separator:true},
-   {id:'extrato',icon:'🏦',label:'Extrato'}
+   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
  const [hoveredTab, setHoveredTab] = useState(null);
  const submenuTimeoutRef = useRef(null);
