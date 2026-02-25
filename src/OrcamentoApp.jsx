@@ -1012,6 +1012,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     ],
     regrasCategoria: [], // {id, padrao, categoria, banco?} - auto-categorização
     orcamentos: {}, // {categoriaId: valorMensal} ex: {alimentacao: 500, lazer: 200}
+    orcamentosGrupos: [], // [{id, nome, categorias: [catId], contaId?, limite}]
     credito: {
       valorCasa: 365000,
       entradaInicial: 36500,
@@ -8704,7 +8705,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (contas.length < 2) return false;
      const desc = (descricao || '').toUpperCase();
      // Verificar se menciona IBAN de outra conta minha
-     return meusIbans.some(iban => iban && desc.includes(iban.slice(-8)));
+     if (meusIbans.some(iban => iban && desc.includes(iban.slice(-8)))) return true;
+     // Verificar se é TRF e menciona nome de uma conta ou banco meu
+     if (/TRF/.test(desc)) {
+       return contas.some(c => {
+         const nome = (c.nome || '').toUpperCase();
+         const banco = (c.banco || '').toUpperCase();
+         // Verificar se nome da conta ou banco aparece na descrição
+         if (nome && nome.length > 2 && desc.includes(nome)) return true;
+         if (banco && banco.length > 2 && desc.includes(banco)) return true;
+         return false;
+       });
+     }
+     return false;
    };
    
    // Processar CSV import
@@ -8973,22 +8986,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                return (
                  <div key={tx.id} className={`py-2 px-2 -mx-2 rounded-lg text-sm ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'} ${tx.tipo === 'transferencia' ? 'opacity-50' : ''}`}>
                    <div className="flex items-center gap-2">
-                     {/* Categoria - inline dropdown */}
-                     <div className="relative flex-shrink-0">
-                       <select value={tx.categoria || 'outros'} 
-                         onChange={e => {
-                           const newCat = e.target.value;
-                           const newTipo = newCat === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita';
-                           updateTx(tx.id, 'categoria', newCat);
-                           updateTx(tx.id, 'tipo', newTipo);
-                           guardarRegra(tx.descricao, newCat);
-                         }}
-                         className={`appearance-none w-8 h-8 text-center text-base cursor-pointer rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-700'}`}
-                         title={cat.nome}
-                         style={{ textAlignLast: 'center' }}>
-                         {categorias.map(c => <option key={c.id} value={c.id}>{c.icon}</option>)}
-                       </select>
-                     </div>
+                     {/* Categoria - inline dropdown with icon+text */}
+                     <select value={tx.categoria || 'outros'} 
+                       onMouseDown={e => e.stopPropagation()}
+                       onChange={e => {
+                         const newCat = e.target.value;
+                         const newTipo = newCat === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita';
+                         saveUndo();
+                         uG('extrato', extrato.map(t => t.id === tx.id ? {...t, categoria: newCat, tipo: newTipo} : t));
+                         guardarRegra(tx.descricao, newCat);
+                       }}
+                       className={`flex-shrink-0 text-[11px] w-28 cursor-pointer rounded-lg px-1.5 py-1 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 border border-slate-200' : 'bg-slate-700/50 hover:bg-slate-700 border border-slate-600'}`}
+                       title={cat.nome}>
+                       {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+                     </select>
                      {/* Data */}
                      <span className="text-[11px] text-slate-500 w-14 flex-shrink-0">{tx.data?.slice(5)}</span>
                      {/* Descrição + transfer label */}
@@ -9443,21 +9454,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Categorias editáveis */}
          <Card>
            <h4 className="font-semibold mb-3">🏷️ Categorias</h4>
-           <div className="space-y-1">
+           <div className="space-y-1.5">
              {categorias.map((c, i) => (
-               <div key={c.id} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+               <div key={c.id} className={`flex items-center gap-2 p-2 rounded-lg ${theme === 'light' ? 'bg-slate-50 hover:bg-slate-100' : 'bg-slate-800/30 hover:bg-slate-800/50'}`}>
                  <input type="text" defaultValue={c.icon} 
-                   className={`w-8 text-center text-base bg-transparent border-none focus:outline-none`}
+                   className={`w-10 text-center text-lg rounded px-1 py-0.5 ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, icon: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <input type="text" defaultValue={c.nome}
-                   className={`flex-1 text-sm px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700/50 border border-slate-600'}`}
+                   className={`flex-1 text-sm px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <input type="color" value={c.cor || '#78716c'}
-                   className="w-6 h-6 rounded cursor-pointer border-0"
+                   className="w-7 h-7 rounded cursor-pointer border-0 flex-shrink-0"
                    onChange={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
+                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
                    <button onClick={() => { saveUndo(); uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
-                     className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
+                     className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
                  )}
                </div>
              ))}
@@ -11740,7 +11752,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    /* Hover effects melhorados */
    .hover-lift { transition: transform 0.2s ease-out, box-shadow 0.2s ease-out; }
-   .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+   .hover-lift:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+   .hover-lift:focus-within { transform: none !important; }
    
    .hover-glow { transition: box-shadow 0.2s ease-out; }
    .hover-glow:hover { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
