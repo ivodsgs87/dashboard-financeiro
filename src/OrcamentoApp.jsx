@@ -8712,46 +8712,100 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
      if (lines.length < 2) return [];
      
-     // Detectar separador
-     const sep = lines[0].includes(';') ? ';' : ',';
-     const headers = lines[0].split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
+     // Detectar separador (testar nas primeiras 15 linhas)
+     const sampleLines = lines.slice(0, 15).join('\n');
+     const sep = (sampleLines.match(/;/g) || []).length > (sampleLines.match(/,/g) || []).length ? ';' : ',';
      
-     // Map columns
-     const colData = headers.findIndex(h => /data|date/.test(h));
+     // Encontrar linha de headers - procurar linha que contém palavras-chave
+     let headerIdx = -1;
+     for (let i = 0; i < Math.min(15, lines.length); i++) {
+       const lower = lines[i].toLowerCase();
+       if (/(data|date|descri|movimento|valor|amount|montante|saldo|balance|débito|credito)/.test(lower)) {
+         // Verificar se tem pelo menos 3 colunas
+         const cols = lines[i].split(sep);
+         if (cols.length >= 3) { headerIdx = i; break; }
+       }
+     }
+     if (headerIdx < 0) {
+       // Fallback: testar se a 1ª linha com >3 colunas é header
+       for (let i = 0; i < Math.min(10, lines.length); i++) {
+         const cols = lines[i].split(sep);
+         if (cols.length >= 3 && isNaN(parseFloat(cols[0]?.replace(/"/g, '').replace(',','.')))) {
+           headerIdx = i; break;
+         }
+       }
+     }
+     if (headerIdx < 0) return [];
+     
+     const headers = lines[headerIdx].split(sep).map(h => h.replace(/"/g, '').trim().toLowerCase());
+     
+     // Map columns - mais flexível
+     const colData = headers.findIndex(h => /^data|date/.test(h));
      const colDesc = headers.findIndex(h => /descri|description|detalhe|movimento/.test(h));
-     const colValor = headers.findIndex(h => /valor|amount|montante|quantia/.test(h));
-     const colDebito = headers.findIndex(h => /debito|débit/.test(h));
-     const colCredito = headers.findIndex(h => /credito|crédit/.test(h));
+     const colValor = headers.findIndex(h => /^valor$|amount|montante|quantia/.test(h));
+     const colDebito = headers.findIndex(h => /d[eé]bito|debit/.test(h));
+     const colCredito = headers.findIndex(h => /cr[eé]dito|credit/.test(h));
      const colSaldo = headers.findIndex(h => /saldo|balance/.test(h));
      
+     // Se não encontrou colunas essenciais, tentar mapeamento posicional para formato moey/activobank
+     const usePosicional = colData < 0 || (colDesc < 0 && colValor < 0);
+     
      const txs = [];
-     for (let i = 1; i < lines.length; i++) {
+     for (let i = headerIdx + 1; i < lines.length; i++) {
        const cols = lines[i].split(sep).map(c => c.replace(/"/g, '').trim());
-       if (cols.length < 2) continue;
+       if (cols.length < 3) continue;
        
-       // Parse data (DD/MM/YYYY ou DD-MM-YYYY ou YYYY-MM-DD)
-       let dataRaw = cols[colData] || '';
+       // Parse data - suportar múltiplos formatos
+       let dataRaw = cols[usePosicional ? 0 : colData] || '';
        let data;
-       if (/^\d{4}-\d{2}-\d{2}/.test(dataRaw)) {
-         data = dataRaw.slice(0, 10);
-       } else if (/^\d{2}[/-]\d{2}[/-]\d{4}/.test(dataRaw)) {
+       // YYYY-MM-DD HH:MM:SS ou YYYY-MM-DD
+       if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(dataRaw)) {
+         const m = dataRaw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+         if (m) data = `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+       }
+       // DD/MM/YYYY ou DD-MM-YYYY
+       else if (/^\d{1,2}[/-]\d{1,2}[/-]\d{4}/.test(dataRaw)) {
          const parts = dataRaw.split(/[/-]/);
          data = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-       } else continue;
+       }
+       // DD/MM/YY
+       else if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2}$/.test(dataRaw)) {
+         const parts = dataRaw.split(/[/-]/);
+         data = `20${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+       }
+       if (!data) continue;
        
-       const descricao = cols[colDesc] || '';
+       const descIdx = usePosicional ? 2 : colDesc;
+       const valIdx = usePosicional ? 3 : colValor;
+       const descricao = cols[descIdx >= 0 ? descIdx : 2] || '';
        
-       // Parse valor
+       // Parse valor - suportar vírgula decimal e notação PT
+       const parseValorPT = (str) => {
+         if (!str) return 0;
+         // Remove espaços, pontos de milhar, substitui vírgula por ponto
+         let s = str.replace(/\s/g, '');
+         // Se tem ponto E vírgula: 1.234,56 → 1234.56
+         if (s.includes('.') && s.includes(',')) {
+           s = s.replace(/\./g, '').replace(',', '.');
+         }
+         // Se só tem vírgula: 1234,56 → 1234.56 
+         else if (s.includes(',')) {
+           s = s.replace(',', '.');
+         }
+         return parseFloat(s) || 0;
+       };
+       
        let valor = 0;
        if (colDebito >= 0 && colCredito >= 0) {
-         const deb = parseFloat((cols[colDebito] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
-         const cred = parseFloat((cols[colCredito] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
-         valor = cred > 0 ? cred : -deb;
-       } else if (colValor >= 0) {
-         valor = parseFloat((cols[colValor] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+         const deb = parseValorPT(cols[colDebito]);
+         const cred = parseValorPT(cols[colCredito]);
+         valor = cred > 0 ? cred : -Math.abs(deb);
+       } else {
+         valor = parseValorPT(cols[valIdx >= 0 ? valIdx : 3]);
        }
        
-       const saldo = colSaldo >= 0 ? parseFloat((cols[colSaldo] || '0').replace(/\s/g, '').replace(',', '.')) || 0 : null;
+       const saldoIdx = usePosicional ? 4 : colSaldo;
+       const saldo = saldoIdx >= 0 && cols[saldoIdx] ? parseValorPT(cols[saldoIdx]) : null;
        
        if (!data || valor === 0) continue;
        
