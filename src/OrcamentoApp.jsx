@@ -1114,42 +1114,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     // Se initialData === undefined, ainda está a carregar
   }, [initialData, dataLoaded]);
 
-  // Auto-save para Firebase - só guarda após 5 segundos de INATIVIDADE
+  // Auto-save para Firebase - só guarda após 10 segundos de INATIVIDADE
   const saveTimeoutRef = useRef(null);
   const isFirstLoadRef = useRef(true);
   const lastSavedDataRef = useRef(null);
   const pendingChangesRef = useRef(false);
+  const gRef = useRef(G);
+  const mRef = useRef(M);
+  gRef.current = G;
+  mRef.current = M;
   
-  // Atualizar indicador visual de "não guardado" com menos frequência
   useEffect(() => {
     if (!dataLoaded) return;
     
-    // Ignorar o primeiro render após carregar dados
     if (isFirstLoadRef.current) {
       isFirstLoadRef.current = false;
       lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
       return;
     }
     
-    // Verificar se os dados realmente mudaram
-    const currentData = JSON.stringify({ g: G, m: M });
-    if (currentData === lastSavedDataRef.current) {
-      return; // Nada mudou
-    }
-    
-    // Marcar que há alterações pendentes (sem re-render)
     pendingChangesRef.current = true;
     
-    // SEMPRE limpar o timeout anterior - isto faz o debounce real
-    // Cada nova alteração "reinicia" o contador de 5 segundos
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
-    // Só guardar após 5 segundos SEM nenhuma alteração
+    // 10 segundos de inatividade antes de guardar
     saveTimeoutRef.current = setTimeout(async () => {
-      // Verificar novamente se os dados mudaram
-      const dataToSave = JSON.stringify({ g: G, m: M });
+      const dataToSave = JSON.stringify({ g: gRef.current, m: mRef.current });
       if (dataToSave === lastSavedDataRef.current) {
         pendingChangesRef.current = false;
         return;
@@ -1159,14 +1151,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       isSavingRef.current = true;
       
       try {
-        await onSaveData({ g: G, m: M });
+        await onSaveData({ g: gRef.current, m: mRef.current });
         lastSavedDataRef.current = dataToSave;
         pendingChangesRef.current = false;
       } catch (e) {
         console.error('Erro ao guardar:', e);
       }
       isSavingRef.current = false;
-    }, 5000); // 5 segundos de inatividade
+    }, 10000);
     
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -8609,15 +8601,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // EXTRATO BANCÁRIO - Controlo de Despesas
- const Extrato = () => {
+ const ExtratoInner = () => {
    const [extratoTab, setExtratoTab_local] = useState(G._extratoTab || 'transacoes');
    const setExtratoTab = (v) => { setExtratoTab_local(v); setG(p => ({...p, _extratoTab: v})); };
    const [extratoMes, setExtratoMes] = useState(`${anoAtualSistema}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
    const [filtroCategoria, setFiltroCategoria] = useState('todas');
    const [filtroConta, setFiltroConta] = useState('todas');
    const [filtroTexto, setFiltroTexto] = useState('');
+   const filtroTextoRef = useRef(null);
+   const filtroTextoTimerRef = useRef(null);
    const [filtroTipo, setFiltroTipo] = useState('todos');
-   const [novaRegraTexto, setNovaRegraTexto] = useState('');
+   const novaRegraInputRef = useRef(null);
+   const [novaRegraPreview, setNovaRegraPreview] = useState(0);
+   const novaRegraTimerRef = useRef(null);
    const [pagina, setPagina] = useState(0);
    const POR_PAGINA = 200;
    const [showImport, setShowImport] = useState(false);
@@ -9270,7 +9266,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <option value="receita">🟢 Receitas</option>
                <option value="transferencia">🔄 Transferências</option>
              </select>
-             <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => { setFiltroTexto(e.target.value); setPagina(0); }}
+             <input type="text" placeholder="Pesquisar..." ref={filtroTextoRef} defaultValue={filtroTexto}
+               onInput={e => {
+                 if (filtroTextoTimerRef.current) clearTimeout(filtroTextoTimerRef.current);
+                 const val = e.target.value;
+                 filtroTextoTimerRef.current = setTimeout(() => { setFiltroTexto(val); setPagina(0); }, 300);
+               }}
                className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
              <div className="flex gap-1 ml-auto">
                <button type="button" onClick={() => setShowImport(true)}
@@ -9376,7 +9377,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          setSelectedTxs(next);
                        }} className="rounded flex-shrink-0" />
                      {/* Categoria - inline dropdown with icon+text */}
-                     <select value={tx.categoria || 'outros'} 
+                     <select key={`cat-${tx.id}-${tx.categoria}`} defaultValue={tx.categoria || 'outros'} 
                        onMouseDown={e => e.stopPropagation()}
                        onChange={e => {
                          const newCat = e.target.value;
@@ -9820,12 +9821,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {/* Add manual rule */}
            <div className={`flex gap-2 mb-4 p-3 rounded-lg ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
              <div className="flex-1">
-               <input type="text" placeholder="Padrão (ex: continente)" value={novaRegraTexto}
-                 onChange={e => setNovaRegraTexto(e.target.value)}
+               <input type="text" placeholder="Padrão (ex: continente)" ref={novaRegraInputRef}
+                 onInput={e => {
+                   if (novaRegraTimerRef.current) clearTimeout(novaRegraTimerRef.current);
+                   const val = e.target.value;
+                   novaRegraTimerRef.current = setTimeout(() => {
+                     if (val.length >= 2) {
+                       const p = val.toLowerCase().replace(/\s+/g,' ').trim();
+                       setNovaRegraPreview(extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(p)).length);
+                     } else {
+                       setNovaRegraPreview(-1);
+                     }
+                   }, 400);
+                 }}
                  className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
-               {novaRegraTexto.length >= 2 && (
-                 <p className={`text-[10px] mt-1 ${extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(novaRegraTexto.toLowerCase().replace(/\s+/g,' ').trim())).length > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                   {extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(novaRegraTexto.toLowerCase().replace(/\s+/g,' ').trim())).length} transações encontradas
+               {novaRegraPreview >= 0 && (
+                 <p className={`text-[10px] mt-1 ${novaRegraPreview > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                   {novaRegraPreview} transações encontradas
                  </p>
                )}
              </div>
@@ -9834,9 +9846,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
              </select>
              <button type="button" onClick={() => {
-               if (!novaRegraTexto.trim()) return;
+               const val = novaRegraInputRef.current?.value;
+               if (!val?.trim()) return;
                const sel = document.getElementById('novaRegraCat');
-               const padrao = novaRegraTexto.toLowerCase().replace(/\s+/g, ' ').trim();
+               const padrao = val.toLowerCase().replace(/\s+/g, ' ').trim();
                const novaRegra = { id: `r-${Date.now()}`, padrao, categoria: sel.value };
                saveUndo();
                setG(prev => {
@@ -9849,7 +9862,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  });
                  return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
                });
-               setNovaRegraTexto('');
+               if (novaRegraInputRef.current) novaRegraInputRef.current.value = '';
+               setNovaRegraPreview(-1);
              }}
                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 self-start">+ Adicionar</button>
            </div>
@@ -10067,6 +10081,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    </>);
  };
+ // Stable component: useRef ensures same reference across parent re-renders
+ // so React doesn't unmount/remount (which closes dropdowns and loses state)
+ const ExtratoStableRef = useRef(ExtratoInner);
+ ExtratoStableRef.current = ExtratoInner;
+ const Extrato = useRef(React.forwardRef((props, ref) => {
+   const Comp = ExtratoStableRef.current;
+   return <Comp {...props} />;
+ })).current;
 
  // 1. Visão Geral: Resumo, Performance
  // 2. Entradas: Receitas
