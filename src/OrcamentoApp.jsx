@@ -8600,42 +8600,68 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- // EXTRATO BANCÁRIO - Controlo de Despesas
- const ExtratoInner = () => {
-   const [extratoTab, setExtratoTab_local] = useState(G._extratoTab || 'transacoes');
-   const setExtratoTab = (v) => { setExtratoTab_local(v); setG(p => ({...p, _extratoTab: v})); };
-   const [extratoMes, setExtratoMes] = useState(`${anoAtualSistema}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
-   const [filtroCategoria, setFiltroCategoria] = useState('todas');
-   const [filtroConta, setFiltroConta] = useState('todas');
-   const [filtroTexto, setFiltroTexto] = useState('');
-   const filtroTextoRef = useRef(null);
-   const filtroTextoTimerRef = useRef(null);
-   const [filtroTipo, setFiltroTipo] = useState('todos');
-   const novaRegraInputRef = useRef(null);
-   const [novaRegraPreview, setNovaRegraPreview] = useState(0);
-   const novaRegraTimerRef = useRef(null);
-   const [pagina, setPagina] = useState(0);
-   const POR_PAGINA = 200;
-   const [showImport, setShowImport] = useState(false);
-   const [showAddConta, setShowAddConta] = useState(false);
-   const [showAddManual, setShowAddManual] = useState(false);
-   const [editingTx, setEditingTx] = useState(null);
-   const [importPreview, setImportPreview] = useState(null);
-   const [importConta, setImportConta] = useState('');
-   const [lastImportIds, setLastImportIds] = useState([]);
-   const [selectedTxs, setSelectedTxs] = useState(new Set());
-   // Add manual states
-   const [mData, setMData] = useState(new Date().toISOString().slice(0, 10));
-   const [mDesc, setMDesc] = useState('');
-   const [mValor, setMValor] = useState('');
-   const [mConta, setMConta] = useState('');
-   const [mCat, setMCat] = useState('outros');
-   const [mTipo, setMTipo] = useState('despesa');
-   // Add conta states
-   const [cNome, setCNome] = useState('');
-   const [cBanco, setCBanco] = useState('');
-   const [cIban, setCIban] = useState('');
-   const [cCor, setCCor] = useState('#3b82f6');
+ // EXTRATO BANCÁRIO - State (no parent scope para sobreviver re-renders)
+ const [extratoTab, setExtratoTab_local] = useState(G._extratoTab || 'transacoes');
+ const setExtratoTab = (v) => { setExtratoTab_local(v); setG(p => ({...p, _extratoTab: v})); };
+ const [extratoMes, setExtratoMes] = useState(`${anoAtualSistema}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
+ const [extFiltroCategoria, setExtFiltroCategoria] = useState('todas');
+ const [extFiltroConta, setExtFiltroConta] = useState('todas');
+ const [extFiltroTexto, setExtFiltroTexto] = useState('');
+ const extFiltroTextoRef = useRef(null);
+ const extFiltroTextoTimerRef = useRef(null);
+ const [extFiltroTipo, setExtFiltroTipo] = useState('todos');
+ const [extNovaRegraTexto, setExtNovaRegraTexto] = useState('');
+ const [extPagina, setExtPagina] = useState(0);
+ const EXT_POR_PAGINA = 200;
+ const [extShowImport, setExtShowImport] = useState(false);
+ const [extShowAddConta, setExtShowAddConta] = useState(false);
+ const [extShowAddManual, setExtShowAddManual] = useState(false);
+ const [extEditingTx, setExtEditingTx] = useState(null);
+ const [extImportPreview, setExtImportPreview] = useState(null);
+ const [extImportConta, setExtImportConta] = useState('');
+ const [extLastImportIds, setExtLastImportIds] = useState([]);
+ const [extSelectedTxs, setExtSelectedTxs] = useState(new Set());
+ const [extMData, setExtMData] = useState(new Date().toISOString().slice(0, 10));
+ const [extMDesc, setExtMDesc] = useState('');
+ const [extMValor, setExtMValor] = useState('');
+ const [extMConta, setExtMConta] = useState('');
+ const [extMCat, setExtMCat] = useState('outros');
+ const [extMTipo, setExtMTipo] = useState('despesa');
+ const [extCNome, setExtCNome] = useState('');
+ const [extCBanco, setExtCBanco] = useState('');
+ const [extCIban, setExtCIban] = useState('');
+ const [extCCor, setExtCCor] = useState('#3b82f6');
+ 
+ // EXTRATO BANCÁRIO - Rendering
+ const renderExtrato = () => {
+   // Aliases for backward compatibility
+   const filtroCategoria = extFiltroCategoria, setFiltroCategoria = setExtFiltroCategoria;
+   const filtroConta = extFiltroConta, setFiltroConta = setExtFiltroConta;
+   const filtroTexto = extFiltroTexto, setFiltroTexto = setExtFiltroTexto;
+   const filtroTextoRef = extFiltroTextoRef, filtroTextoTimerRef = extFiltroTextoTimerRef;
+   const filtroTipo = extFiltroTipo, setFiltroTipo = setExtFiltroTipo;
+   const novaRegraTexto = extNovaRegraTexto, setNovaRegraTexto = setExtNovaRegraTexto;
+   const pagina = extPagina, setPagina = setExtPagina;
+   const paginaAtual = extPagina;
+   const POR_PAGINA = EXT_POR_PAGINA;
+   const showImport = extShowImport, setShowImport = setExtShowImport;
+   const showAddConta = extShowAddConta, setShowAddConta = setExtShowAddConta;
+   const showAddManual = extShowAddManual, setShowAddManual = setExtShowAddManual;
+   const editingTx = extEditingTx, setEditingTx = setExtEditingTx;
+   const importPreview = extImportPreview, setImportPreview = setExtImportPreview;
+   const importConta = extImportConta, setImportConta = setExtImportConta;
+   const lastImportIds = extLastImportIds, setLastImportIds = setExtLastImportIds;
+   const selectedTxs = extSelectedTxs, setSelectedTxs = setExtSelectedTxs;
+   const mData = extMData, setMData = setExtMData;
+   const mDesc = extMDesc, setMDesc = setExtMDesc;
+   const mValor = extMValor, setMValor = setExtMValor;
+   const mConta = extMConta, setMConta = setExtMConta;
+   const mCat = extMCat, setMCat = setExtMCat;
+   const mTipo = extMTipo, setMTipo = setExtMTipo;
+   const cNome = extCNome, setCNome = setExtCNome;
+   const cBanco = extCBanco, setCBanco = setExtCBanco;
+   const cIban = extCIban, setCIban = setExtCIban;
+   const cCor = extCCor, setCCor = setExtCCor;
    
    const contas = G.contas || [];
    const extrato = G.extrato || [];
@@ -9821,35 +9847,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {/* Add manual rule */}
            <div className={`flex gap-2 mb-4 p-3 rounded-lg ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
              <div className="flex-1">
-               <input type="text" placeholder="Padrão (ex: continente)" ref={novaRegraInputRef}
-                 onInput={e => {
-                   if (novaRegraTimerRef.current) clearTimeout(novaRegraTimerRef.current);
-                   const val = e.target.value;
-                   novaRegraTimerRef.current = setTimeout(() => {
-                     if (val.length >= 2) {
-                       const p = val.toLowerCase().replace(/\s+/g,' ').trim();
-                       setNovaRegraPreview(extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(p)).length);
-                     } else {
-                       setNovaRegraPreview(-1);
-                     }
-                   }, 400);
-                 }}
+               <input type="text" placeholder="Padrão (ex: continente)" value={novaRegraTexto}
+                 onChange={e => setNovaRegraTexto(e.target.value)}
                  className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
-               {novaRegraPreview >= 0 && (
-                 <p className={`text-[10px] mt-1 ${novaRegraPreview > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                   {novaRegraPreview} transações encontradas
-                 </p>
-               )}
+               {novaRegraTexto.length >= 2 && (() => {
+                 const p = novaRegraTexto.toLowerCase().replace(/\s+/g,' ').trim();
+                 const cnt = extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(p)).length;
+                 return <p className={`text-[10px] mt-1 ${cnt > 0 ? 'text-green-400' : 'text-red-400'}`}>{cnt} transações encontradas</p>;
+               })()}
              </div>
              <select id="novaRegraCat" defaultValue="outros"
                className={`text-sm px-2 py-1.5 rounded self-start ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
              </select>
              <button type="button" onClick={() => {
-               const val = novaRegraInputRef.current?.value;
-               if (!val?.trim()) return;
+               if (!novaRegraTexto.trim()) return;
                const sel = document.getElementById('novaRegraCat');
-               const padrao = val.toLowerCase().replace(/\s+/g, ' ').trim();
+               const padrao = novaRegraTexto.toLowerCase().replace(/\s+/g, ' ').trim();
                const novaRegra = { id: `r-${Date.now()}`, padrao, categoria: sel.value };
                saveUndo();
                setG(prev => {
@@ -9862,8 +9876,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  });
                  return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
                });
-               if (novaRegraInputRef.current) novaRegraInputRef.current.value = '';
-               setNovaRegraPreview(-1);
+               setNovaRegraTexto('');
              }}
                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 self-start">+ Adicionar</button>
            </div>
@@ -10081,14 +10094,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    </>);
  };
- // Stable component: useRef ensures same reference across parent re-renders
- // so React doesn't unmount/remount (which closes dropdowns and loses state)
- const ExtratoStableRef = useRef(ExtratoInner);
- ExtratoStableRef.current = ExtratoInner;
- const Extrato = useRef(React.forwardRef((props, ref) => {
-   const Comp = ExtratoStableRef.current;
-   return <Comp {...props} />;
- })).current;
 
  // 1. Visão Geral: Resumo, Performance
  // 2. Entradas: Receitas
@@ -12610,7 +12615,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <Credito/>}
  {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
- {tab==='extrato' && <Extrato/>}
+ {tab==='extrato' && renderExtrato()}
         </div>
  </main>
 
