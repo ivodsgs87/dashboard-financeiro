@@ -8740,141 +8740,133 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Processar PDF (ex: Trade Republic, extratos bancários em PDF)
    const processarPDF = async (arrayBuffer, contaId) => {
      try {
-       const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/+esm');
-       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+       // Load pdf.js via script tag if not already loaded
+       if (!window.pdfjsLib) {
+         await new Promise((resolve, reject) => {
+           const script = document.createElement('script');
+           script.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+           script.onload = resolve;
+           script.onerror = reject;
+           document.head.appendChild(script);
+         });
+         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+       }
        
-       const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+       const pdf = await window.pdfjsLib.getDocument({data: arrayBuffer}).promise;
        let fullText = '';
+       
        for (let p = 1; p <= pdf.numPages; p++) {
          const page = await pdf.getPage(p);
          const tc = await page.getTextContent();
-         // Group items by Y position to reconstruct rows
-         const items = tc.items.map(it => ({text: it.str, x: it.transform[4], y: Math.round(it.transform[5])}));
-         const rows = {};
-         items.forEach(it => {
-           if (!it.text.trim()) return;
-           const yKey = it.y;
-           if (!rows[yKey]) rows[yKey] = [];
-           rows[yKey].push(it);
-         });
-         // Sort rows by Y (descending = top to bottom in PDF)
-         const sortedRows = Object.entries(rows).sort(([a],[b]) => Number(b) - Number(a));
-         sortedRows.forEach(([, cols]) => {
-           cols.sort((a, b) => a.x - b.x);
-           fullText += cols.map(c => c.text).join('\t') + '\n';
-         });
+         const text = tc.items.map(it => it.str).join('\n');
+         fullText += text + '\n';
        }
        
-       // Parse transactions from extracted text
+       // Month map
+       const MM = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+       
+       // Merge split dates: "01 Nov \n2025" → "01 Nov 2025"  
+       fullText = fullText.replace(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\s*\n\s*(\d{4})/gi, '$1 $2');
+       
+       // Also merge "Card \nTransaction" → "Card Transaction"
+       fullText = fullText.replace(/Card\s*\n\s*Transaction/gi, 'Card Transaction');
+       
+       // Split text into transaction blocks by date pattern
+       const dateRegex = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/gi;
+       const blocks = [];
+       let lastIdx = 0;
+       let match;
+       const datePositions = [];
+       
+       // Reset regex
+       dateRegex.lastIndex = 0;
+       while ((match = dateRegex.exec(fullText)) !== null) {
+         datePositions.push({ index: match.index, day: match[1], mon: match[2], year: match[3] });
+       }
+       
+       for (let i = 0; i < datePositions.length; i++) {
+         const start = datePositions[i].index;
+         const end = i + 1 < datePositions.length ? datePositions[i + 1].index : fullText.length;
+         const blockText = fullText.slice(start, end).trim();
+         const dp = datePositions[i];
+         const mon = MM[dp.mon.charAt(0).toUpperCase() + dp.mon.slice(1).toLowerCase()];
+         if (!mon) continue;
+         const dateStr = `${dp.year}-${mon}-${dp.day.padStart(2, '0')}`;
+         blocks.push({ date: dateStr, text: blockText });
+       }
+       
+       // Parse each block to extract transaction data
        const txs = [];
-       const lines = fullText.split('\n');
+       const types = ['Interest', 'Transfer', 'Trade', 'Card Transaction', 'Savings Plan', 'Dividend'];
        
-       // Month name to number mapping
-       const monthMap = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12',
-         Janeiro:'01',Fevereiro:'02',Março:'03',Abril:'04',Maio:'05',Junho:'06',Julho:'07',Agosto:'08',Setembro:'09',Outubro:'10',Novembro:'11',Dezembro:'12'};
-       
-       // Detect Trade Republic format: "DD Mon YYYY" dates and €values
-       // Also detect generic PT bank PDF formats
-       let currentDate = '';
-       
-       for (let i = 0; i < lines.length; i++) {
-         const line = lines[i].trim();
-         if (!line) continue;
+       for (const block of blocks) {
+         const lines = block.text.split('\n').map(l => l.trim()).filter(Boolean);
+         if (lines.length < 2) continue;
          
-         // Skip header/footer lines
-         if (/TRADE REPUBLIC|ACCOUNT STATEMENT|ACCOUNT TRANSACTIONS|Page \d|Generated on|Headquarters|Directors|BALANCE OVERVIEW|NOTES ON|ESCROW|PRODUCT|OPENING BALANCE|Checking Account|Please check/i.test(line)) continue;
-         if (/^DATE\s+TYPE/i.test(line)) continue;
-         
-         // Try to extract date: "01 Nov 2025" or "01 Nov\n2025"
-         const dateMatch = line.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro)\s*(\d{4})?/i);
-         if (dateMatch) {
-           const day = dateMatch[1].padStart(2, '0');
-           const mon = monthMap[dateMatch[2]] || monthMap[dateMatch[2].charAt(0).toUpperCase() + dateMatch[2].slice(1).toLowerCase()];
-           let year = dateMatch[3];
-           // If year is on next line
-           if (!year && i + 1 < lines.length) {
-             const nextLine = lines[i + 1].trim();
-             if (/^\d{4}$/.test(nextLine)) {
-               year = nextLine;
-               i++;
-             }
-           }
-           if (year && mon) {
-             currentDate = `${year}-${mon}-${day}`;
-           }
+         // Skip non-transaction blocks (headers, footers)
+         if (/ACCOUNT STATEMENT|ACCOUNT TRANSACTIONS|^DATE|BALANCE OVERVIEW|NOTES ON|ESCROW|Please check|Headquarters|Directors|Generated on|Page \d|PRODUCT|OPENING BALANCE|Checking Account|TRADE REPUBLIC/i.test(block.text)) {
+           // But still parse if it also contains €amounts (could be a tx that mentions these words)
+           const euroCount = (block.text.match(/€[\d,]+\.\d{2}/g) || []).length;
+           if (euroCount < 2) continue;
          }
          
-         // Extract €values from the line
+         // Find type
+         let tipo = '';
+         let descStartIdx = 1; // skip date line
+         for (let i = 0; i < Math.min(3, lines.length); i++) {
+           const found = types.find(t => lines[i].toLowerCase().startsWith(t.toLowerCase()) || lines[i].toLowerCase() === t.toLowerCase());
+           if (found) { tipo = found; descStartIdx = i + 1; break; }
+         }
+         
+         // Collect all €values from the block
          const euroValues = [];
-         const euroRegex = /€([\d,]+\.?\d*)/g;
-         let m;
-         while ((m = euroRegex.exec(line)) !== null) {
-           const val = parseFloat(m[1].replace(/,/g, ''));
-           if (!isNaN(val)) euroValues.push(val);
+         const euroRe = /€([\d,]+\.\d{2})/g;
+         let em;
+         while ((em = euroRe.exec(block.text)) !== null) {
+           euroValues.push(parseFloat(em[1].replace(/,/g, '')));
          }
          
-         if (currentDate && euroValues.length >= 2) {
-           // Last value is balance, others are money in/out
-           const saldo = euroValues[euroValues.length - 1];
-           
-           // Extract description - everything between type and first €
-           const descMatch = line.match(/(?:Interest|Transfer|Trade|Card\s*Transaction|Savings?\s*Plan|Dividend)\s+(.*?)€/i);
-           const typeMatch = line.match(/(Interest|Transfer|Trade|Card\s*Transaction|Savings?\s*Plan|Dividend)/i);
-           
-           let desc = '';
-           let tipo = typeMatch ? typeMatch[1].replace(/\s+/g, ' ') : '';
-           
-           if (descMatch) {
-             desc = descMatch[1].replace(/null/g, '').trim();
-           } else {
-             // Try to get description from text before €
-             const beforeEuro = line.split('€')[0].trim();
-             desc = beforeEuro.replace(/^\d{1,2}\s+\w+\s+\d{4}\s*/, '').replace(/^(Interest|Transfer|Trade|Card\s*Transaction)\s*/i, '').trim();
-           }
-           
-           if (!desc && tipo) desc = tipo;
-           
-           // Determine if money in or money out
-           // If 2 €values: one is amount, other is balance
-           // If 3 €values: money in, money out, balance (one of first two might be in wrong column)
-           let valor = 0;
-           if (euroValues.length === 3) {
-             // money in, money out, balance
-             valor = euroValues[0] > 0 ? euroValues[0] : -euroValues[1];
-             // Verify with balance change
-           } else if (euroValues.length === 2) {
-             const amount = euroValues[0];
-             // Check if it's incoming or outgoing from type/description
-             const isOutgoing = /outgoing|buy trade|card transaction/i.test(line) || /^(?!.*incoming).*transfer.*for\b/i.test(line);
-             valor = isOutgoing ? -amount : amount;
-           }
-           
-           if (valor === 0 || !currentDate) continue;
-           
-           // Clean description
-           desc = (desc || tipo || 'Transaction').replace(/null/g, '').replace(/\s+/g, ' ').trim();
-           if (desc.length > 120) desc = desc.slice(0, 120);
-           
-           const isTransf = isTransferenciaInterna(desc, valor);
-           const txTipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
-           const categoria = isTransf ? 'transferencia' : autoCategoria(desc, valor) || 'outros';
-           
-           txs.push({
-             id: `imp-${Date.now()}-${txs.length}`,
-             contaId,
-             data: currentDate,
-             descricao: desc,
-             valor,
-             saldo,
-             tipo: txTipo,
-             categoria,
-           });
+         if (euroValues.length < 2) continue; // Need at least amount + balance
+         
+         // Balance is always the last €value
+         const saldo = euroValues[euroValues.length - 1];
+         
+         // Build description from lines between type and first €
+         let desc = '';
+         for (let i = descStartIdx; i < lines.length; i++) {
+           if (lines[i].includes('€')) break;
+           desc += (desc ? ' ' : '') + lines[i];
          }
+         desc = desc.replace(/null/g, '').replace(/\s+/g, ' ').trim();
+         if (!desc) desc = tipo || 'Transaction';
+         
+         // Determine valor (positive = in, negative = out)
+         const amount = euroValues.length >= 3 ? euroValues[0] : euroValues[0]; // First non-balance value
+         const isOutgoing = /outgoing|buy trade|card transaction/i.test(block.text) && !/incoming/i.test(block.text);
+         const valor = isOutgoing ? -amount : amount;
+         
+         // Auto-classify
+         const fullDesc = (tipo ? tipo + ' ' : '') + desc;
+         const isTransf = isTransferenciaInterna(fullDesc, valor);
+         const txTipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
+         const categoria = isTransf ? 'transferencia' : autoCategoria(fullDesc, valor) || 'outros';
+         
+         txs.push({
+           id: `imp-${Date.now()}-${txs.length}`,
+           contaId,
+           data: block.date,
+           descricao: desc.length > 120 ? desc.slice(0, 120) : desc,
+           valor,
+           saldo,
+           tipo: txTipo,
+           categoria,
+         });
        }
        
        return txs;
      } catch (err) {
        console.error('Erro ao processar PDF:', err);
+       alert('Erro técnico: ' + (err.message || err));
        return [];
      }
    };
