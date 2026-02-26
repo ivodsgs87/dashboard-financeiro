@@ -8664,18 +8664,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return true;
    });
    
-   // Totais
+   // Totais - baseados nos filtros activos (conta, categoria, pesquisa)
    // Helper: valor efectivo (usa valorReal se definido para despesas com reembolso)
    const valEfectivo = (t) => t.valorReal != null ? t.valorReal : t.valor;
    
+   // Totais usam txFiltradas para reagir a todos os filtros
+   const despesasFiltradas = txFiltradas.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
+   const receitasFiltradas = txFiltradas.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const reembolsosFiltrados = txFiltradas.filter(t => t.tipo === 'reembolso' || t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0);
+   const transferenciasFiltradas = txFiltradas.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
+   
+   // Manter txMes totais para uso no resumo anual
    const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
    const receitasMes = txMes.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
-   const reembolsosMes = txMes.filter(t => t.tipo === 'reembolso' || t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0);
    const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
-   // Despesas por categoria - usa valor efectivo (já com reembolsos deduzidos)
+   // Despesas por categoria - usa filtros activos
    const porCategoria = {};
-   txMes.filter(t => t.tipo === 'despesa').forEach(t => {
+   txFiltradas.filter(t => t.tipo === 'despesa').forEach(t => {
      const cat = t.categoria || 'outros';
      if (!porCategoria[cat]) porCategoria[cat] = 0;
      porCategoria[cat] += Math.abs(valEfectivo(t));
@@ -9083,9 +9089,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Resumo do mês */}
          <div className="grid grid-cols-3 gap-3">
-           <StatCard label="Despesas" value={fmt(despesasMes)} color="text-red-400" icon="📉" sub={`${txMes.filter(t=>t.tipo==='despesa').length} movimentos`} />
-           <StatCard label="Receitas" value={fmt(receitasMes)} color="text-emerald-400" icon="📈" sub={`${txMes.filter(t=>t.tipo==='receita').length} movimentos`} />
-           <StatCard label="Balanço" value={fmt(receitasMes - despesasMes)} color={receitasMes-despesasMes >= 0 ? 'text-emerald-400' : 'text-red-400'} icon="💰" sub={transferenciasMes > 0 ? `${fmt(transferenciasMes)} transf.` : ''} />
+           <StatCard label="Despesas" value={fmt(despesasFiltradas)} color="text-red-400" icon="📉" sub={`${txFiltradas.filter(t=>t.tipo==='despesa').length} movimentos`} />
+           <StatCard label="Receitas" value={fmt(receitasFiltradas)} color="text-emerald-400" icon="📈" sub={`${txFiltradas.filter(t=>t.tipo==='receita').length} movimentos`} />
+           <StatCard label="Balanço" value={fmt(receitasFiltradas - despesasFiltradas)} color={receitasFiltradas-despesasFiltradas >= 0 ? 'text-emerald-400' : 'text-red-400'} icon="💰" sub={transferenciasFiltradas > 0 ? `${fmt(transferenciasFiltradas)} transf.` : ''} />
          </div>
          
          {/* Lista de transações */}
@@ -9095,7 +9101,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const totalPags = Math.ceil(txFiltradas.length / POR_PAGINA);
              const paginaAtual = Math.min(pagina, totalPags - 1);
              const txPaginadas = txFiltradas.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA);
+             const PaginacaoControls = () => totalPags > 1 ? (
+               <div className={`flex items-center justify-center gap-2 py-2 text-xs`}>
+                 <button type="button" disabled={paginaAtual === 0} onClick={() => setPagina(paginaAtual - 1)}
+                   className={`px-3 py-1 rounded ${paginaAtual === 0 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>← Anterior</button>
+                 {Array.from({length: totalPags}, (_, i) => (
+                   <button type="button" key={i} onClick={() => setPagina(i)}
+                     className={`w-7 h-7 rounded ${i === paginaAtual ? 'bg-blue-500/20 text-blue-400 font-bold' : 'hover:bg-slate-700/50 text-slate-500'}`}>{i + 1}</button>
+                 )).slice(Math.max(0, paginaAtual - 2), paginaAtual + 3)}
+                 <button type="button" disabled={paginaAtual >= totalPags - 1} onClick={() => setPagina(paginaAtual + 1)}
+                   className={`px-3 py-1 rounded ${paginaAtual >= totalPags - 1 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>Seguinte →</button>
+                 <span className="text-slate-500 ml-2">{paginaAtual * POR_PAGINA + 1}–{Math.min((paginaAtual + 1) * POR_PAGINA, txFiltradas.length)} de {txFiltradas.length}</span>
+               </div>
+             ) : null;
              return (<>
+             {/* Top pagination */}
+             <PaginacaoControls />
              <div className={`flex items-center gap-2 pb-2 mb-1 text-xs ${theme === 'light' ? 'border-b border-slate-200' : 'border-b border-slate-700'}`}>
                <input type="checkbox" checked={txPaginadas.every(t => selectedTxs.has(t.id))}
                  onChange={e => {
@@ -9103,11 +9124,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    else setSelectedTxs(new Set([...selectedTxs].filter(id => !txPaginadas.some(t => t.id === id))));
                  }} className="rounded" />
                <span className="text-slate-500">Selecionar página ({txPaginadas.length})</span>
-               {totalPags > 1 && (
-                 <span className="ml-auto text-slate-500">
-                   {paginaAtual * POR_PAGINA + 1}–{Math.min((paginaAtual + 1) * POR_PAGINA, txFiltradas.length)} de {txFiltradas.length}
-                 </span>
-               )}
              </div>
              <div className="space-y-0">
              {txPaginadas.map(tx => {
@@ -9247,19 +9263,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                );
              })}
            </div>
-           {/* Paginação */}
-           {totalPags > 1 && (
-             <div className={`flex items-center justify-center gap-2 pt-3 mt-2 ${theme === 'light' ? 'border-t border-slate-200' : 'border-t border-slate-700'}`}>
-               <button type="button" disabled={paginaAtual === 0} onClick={() => setPagina(paginaAtual - 1)}
-                 className={`px-3 py-1 text-xs rounded ${paginaAtual === 0 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>← Anterior</button>
-               {Array.from({length: totalPags}, (_, i) => (
-                 <button type="button" key={i} onClick={() => setPagina(i)}
-                   className={`w-7 h-7 text-xs rounded ${i === paginaAtual ? 'bg-blue-500/20 text-blue-400 font-bold' : 'hover:bg-slate-700/50 text-slate-500'}`}>{i + 1}</button>
-               )).slice(Math.max(0, paginaAtual - 2), paginaAtual + 3)}
-               <button type="button" disabled={paginaAtual >= totalPags - 1} onClick={() => setPagina(paginaAtual + 1)}
-                 className={`px-3 py-1 text-xs rounded ${paginaAtual >= totalPags - 1 ? 'opacity-30' : 'hover:bg-slate-700/50'}`}>Seguinte →</button>
-             </div>
-           )}
+           {/* Bottom pagination */}
+           <PaginacaoControls />
            </>);
            })()}
            {txFiltradas.length === 0 && (
@@ -9282,7 +9287,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
              </select>
-             <span className="text-sm text-slate-500 ml-auto">Total despesas: <strong className="text-red-400">{fmt(despesasMes)}</strong></span>
+             <span className="text-sm text-slate-500 ml-auto">Total despesas: <strong className="text-red-400">{fmt(despesasFiltradas)}</strong></span>
            </div>
          </Card>
          
