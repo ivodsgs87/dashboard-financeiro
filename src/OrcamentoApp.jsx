@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
@@ -8894,51 +8895,57 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const importarTxs = (txs) => {
      if (txs.length === 0) return;
      
-     // Se extrato vazio, importar tudo sem dedup
-     if (extrato.length === 0) {
-       setLastImportIds(txs.map(t => t.id));
-       uG('extrato', txs);
+     // Usar setG funcional para garantir estado actualizado
+     setG(prev => {
+       const currentExtrato = prev.extrato || [];
+       
+       // Se extrato vazio, importar tudo sem dedup
+       if (currentExtrato.length === 0) {
+         setLastImportIds(txs.map(t => t.id));
+         setImportPreview(null);
+         setShowImport(false);
+         return {...prev, extrato: txs};
+       }
+       
+       // Deduplicação
+       const normalizeKey = (t) => {
+         const d = (t.data || '').slice(0, 10);
+         const v = Math.round((t.valor || 0) * 100);
+         const s = t.saldo != null ? Math.round(t.saldo * 100) : 'x';
+         const desc = (t.descricao || '').replace(/[\s\u00A0]+/g, ' ').trim().slice(0, 30).toLowerCase();
+         return `${d}|${v}|${s}|${desc}`;
+       };
+       
+       const existingCounts = {};
+       currentExtrato.forEach(t => {
+         const k = normalizeKey(t);
+         existingCounts[k] = (existingCounts[k] || 0) + 1;
+       });
+       
+       const importCounts = {};
+       const novas = [];
+       for (const t of txs) {
+         const k = normalizeKey(t);
+         importCounts[k] = (importCounts[k] || 0) + 1;
+         if (importCounts[k] <= (existingCounts[k] || 0)) continue;
+         novas.push(t);
+       }
+       
+       if (novas.length === 0) {
+         setTimeout(() => alert(`Todas as ${txs.length} transações já foram importadas.`), 100);
+         return prev;
+       }
+       
+       setLastImportIds(novas.map(t => t.id));
        setImportPreview(null);
        setShowImport(false);
-       return;
-     }
-     
-     // Deduplicação: usar data + valor + desc + saldo como chave
-     const normalizeKey = (t) => {
-       const d = (t.data || '').slice(0, 10);
-       const v = Math.round((t.valor || 0) * 100);
-       const s = t.saldo != null ? Math.round(t.saldo * 100) : 'x';
-       const desc = (t.descricao || '').replace(/[\s\u00A0]+/g, ' ').trim().slice(0, 30).toLowerCase();
-       return `${d}|${v}|${s}|${desc}`;
-     };
-     
-     // Contar ocorrências no extrato existente
-     const existingCounts = {};
-     extrato.forEach(t => {
-       const k = normalizeKey(t);
-       existingCounts[k] = (existingCounts[k] || 0) + 1;
+       
+       if (novas.length < txs.length) {
+         setTimeout(() => alert(`Importadas ${novas.length} novas transações. ${txs.length - novas.length} duplicados ignorados.`), 100);
+       }
+       
+       return {...prev, extrato: [...currentExtrato, ...novas]};
      });
-     
-     const importCounts = {};
-     const novas = [];
-     for (const t of txs) {
-       const k = normalizeKey(t);
-       importCounts[k] = (importCounts[k] || 0) + 1;
-       if (importCounts[k] <= (existingCounts[k] || 0)) continue;
-       novas.push(t);
-     }
-     
-     if (novas.length === 0) {
-       alert(`Todas as ${txs.length} transações já foram importadas.`);
-       return;
-     }
-     setLastImportIds(novas.map(t => t.id));
-     uG('extrato', [...extrato, ...novas]);
-     setImportPreview(null);
-     setShowImport(false);
-     if (novas.length < txs.length) {
-       alert(`Importadas ${novas.length} novas transações. ${txs.length - novas.length} duplicados ignorados.`);
-     }
    };
    
    // Batch delete
@@ -9649,10 +9656,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
 
    {/* === MODALS (fora das tabs) === */}
-   {showImport && (
-     <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto py-4" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
-       <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} onClick={() => setShowImport(false)} />
-       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl my-auto max-h-[90vh] overflow-y-auto`}>
+   {showImport && createPortal(
+     <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
+       <div className="fixed inset-0 bg-black/60" onClick={() => setShowImport(false)} />
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[90vh] overflow-y-auto`}>
          <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
          {contas.length === 0 ? (
            <div className="text-center py-4">
@@ -9737,12 +9744,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            className="absolute top-4 right-4 text-slate-500 hover:text-slate-300 text-lg">✕</button>
        </div>
      </div>
-   )}
+   , document.body)}
 
-   {showAddManual && (
-     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-8 overflow-y-auto" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
-       <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} onClick={() => setShowAddManual(false)} />
-       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl mb-8`}>
+   {showAddManual && createPortal(
+     <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
+       <div className="fixed inset-0 bg-black/60" onClick={() => setShowAddManual(false)} />
+       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`}>
          <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
          <div className="space-y-3">
            <div className="grid grid-cols-2 gap-3">
@@ -9796,7 +9803,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        </div>
      </div>
-   )}
+   , document.body)}
 
    </>);
  };
