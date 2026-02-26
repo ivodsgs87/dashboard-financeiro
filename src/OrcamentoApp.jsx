@@ -8790,30 +8790,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const parsePdfRevolut = (fullText, contaId) => {
      const txs = [];
      // Revolut: two consecutive DD/MM/YYYY = transaction start
-     const dateRe = /(\d{2}\/\d{2}\/\d{4})\n(\d{2}\/\d{2}\/\d{4})\n/g;
+     // Use flexible whitespace instead of strict newline
+     const dateRe = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+/g;
      const positions = [];
      let dm;
      while ((dm = dateRe.exec(fullText)) !== null) {
        const before = fullText.slice(Math.max(0, dm.index - 80), dm.index);
-       if (/Resumo|Produto|Saldo disponível|Total\n|Data Lançamento/i.test(before)) continue;
-       positions.push({ idx: dm.index, dataLanc: dm[1], dataValor: dm[2] });
+       if (/Resumo|Produto|Saldo dispon|Total[\s\n]|Data Lan/i.test(before)) continue;
+       positions.push({ idx: dm.index, endIdx: dm.index + dm[0].length, dataLanc: dm[1], dataValor: dm[2] });
      }
+     
+     console.log('Revolut parser: found ' + positions.length + ' transaction starts');
      
      for (let i = 0; i < positions.length; i++) {
        const pos = positions[i];
-       const start = pos.idx;
+       const start = pos.endIdx;
        const end = i + 1 < positions.length ? positions[i + 1].idx : fullText.length;
        const block = fullText.slice(start, end).trim();
        const [d, m, y] = pos.dataLanc.split('/');
-       const dateStr = `${y}-${m}-${d}`;
-       const lines = block.split('\n');
+       const dateStr = y + '-' + m + '-' + d;
+       
+       const lines = block.split(/\n/).map(l => l.trim()).filter(Boolean);
        
        let descLines = [];
        let euroValues = [];
        let foundEuro = false;
        let detailLines = [];
        
-       for (let li = 2; li < lines.length; li++) {
+       for (let li = 0; li < lines.length; li++) {
          const line = lines[li].trim();
          if (!line) continue;
          if (/^(?:IBAN|BIC|PT\d{10,}|[A-Z]{6,11}$|Extrato de EUR|Gerado a|Revolut Bank|Fábrica|Página|©|Comunicar|Obter ajuda|Leia)/i.test(line)) break;
@@ -8830,6 +8834,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          }
        }
        
+       if (euroValues.length < 2) {
+         const allEuros = [...block.matchAll(/€([\d,.]+)/g)].map(m => parseFloat(m[1].replace(/,/g, '')));
+         if (allEuros.length >= 2) {
+           euroValues = allEuros;
+           descLines = block.split('€')[0].trim().split(/\n/).map(l => l.trim()).filter(Boolean);
+         }
+       }
+       
        if (euroValues.length < 2) continue;
        
        let desc = descLines.join(' ').replace(/\s+/g, ' ').trim();
@@ -8839,8 +8851,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const amount = euroValues[0];
        const saldo = euroValues[euroValues.length - 1];
        
-       // Direction: check for "De:" (incoming) vs "Para:" (outgoing) in details,
-       // or "Carregamento" (incoming) vs "Transferência...para" (outgoing)
        const isIncoming = /carregamento|reembolso/i.test(desc) || detailLines.some(l => /^De:/i.test(l));
        const isOutgoing = /transferência.*para\b/i.test(desc) || detailLines.some(l => /^Para:/i.test(l)) || detailLines.some(l => /^Cartão:/i.test(l));
        
@@ -8854,7 +8864,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const txTipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
        const categoria = isTransf ? 'transferencia' : autoCategoria(desc, valor) || 'outros';
        
-       txs.push({ id: `imp-${Date.now()}-${txs.length}`, contaId, data: dateStr, descricao: desc, valor, saldo, tipo: txTipo, categoria });
+       txs.push({ id: 'imp-' + Date.now() + '-' + txs.length, contaId, data: dateStr, descricao: desc, valor, saldo, tipo: txTipo, categoria });
      }
      return txs;
    };
