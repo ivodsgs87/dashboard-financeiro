@@ -9596,9 +9596,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    return (
                      <tr key={cat.id} className={`border-t ${theme === 'light' ? 'border-slate-100' : 'border-slate-700/50'}`}>
                        <td className="px-2 py-1.5">{cat.icon} {cat.nome}</td>
-                       {mesTotais.map((v, i) => (
-                         <td key={i} className="px-2 py-1.5 text-right font-mono">{v > 0 ? fmt(v) : <span className="text-slate-600">—</span>}</td>
-                       ))}
+                       {mesTotais.map((v, i) => {
+                         const prev = i > 0 ? mesTotais[i - 1] : 0;
+                         const diff = prev > 0 && v > 0 ? ((v - prev) / prev * 100) : 0;
+                         return (
+                           <td key={i} className="px-2 py-1.5 text-right font-mono">
+                             {v > 0 ? (<>
+                               {fmt(v)}
+                               {prev > 0 && Math.abs(diff) >= 1 && (
+                                 <span className={`text-[9px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                   {diff > 0 ? '▲' : '▼'}
+                                 </span>
+                               )}
+                             </>) : <span className="text-slate-600">—</span>}
+                           </td>
+                         );
+                       })}
                        <td className="px-2 py-1.5 text-right font-mono font-bold">{fmt(total)}</td>
                      </tr>
                    );
