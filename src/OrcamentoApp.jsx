@@ -8737,10 +8737,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return false;
    };
    
-   // Processar PDF (ex: Trade Republic, extratos bancários em PDF)
+   // Processar PDF (Trade Republic, Revolut, genérico)
    const processarPDF = async (arrayBuffer, contaId) => {
      try {
-       // Load pdf.js via script tag if not already loaded
+       // Load pdf.js
        if (!window.pdfjsLib) {
          await new Promise((resolve, reject) => {
            const s = document.createElement('script');
@@ -8760,148 +8760,179 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          fullText += tc.items.map(it => it.str).join('\n') + '\n';
        }
        
-       // Normalize: merge split dates "01 Nov \n2025" → "01 Nov 2025"
-       fullText = fullText.replace(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\s*\n\s*(\d{4})/gi, '$1 $2');
-       // Merge "Card \nTransaction" → "Card Transaction"
-       fullText = fullText.replace(/Card\s*\n\s*Transaction/gi, 'Card Transaction');
+       console.log('PDF text length:', fullText.length, 'First 200:', fullText.slice(0, 200));
        
-       const MM = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+       // Auto-detect format
+       const isRevolut = /revolut/i.test(fullText);
+       const isTradeRepublic = /trade republic/i.test(fullText);
        
-       // Find all date positions
-       const dateRe = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/gi;
-       const datePositions = [];
-       let dm;
-       while ((dm = dateRe.exec(fullText)) !== null) {
-         datePositions.push({ idx: dm.index, day: dm[1], mon: dm[2].toLowerCase(), year: dm[3] });
+       let txs = [];
+       if (isRevolut) {
+         txs = parsePdfRevolut(fullText, contaId);
+       } else if (isTradeRepublic) {
+         txs = parsePdfTradeRepublic(fullText, contaId);
+       } else {
+         const tr = parsePdfTradeRepublic(fullText, contaId);
+         const rv = parsePdfRevolut(fullText, contaId);
+         txs = tr.length >= rv.length ? tr : rv;
        }
        
-       // Extract blocks between consecutive dates
-       const txs = [];
-       for (let i = 0; i < datePositions.length; i++) {
-         const dp = datePositions[i];
-         const start = dp.idx;
-         const end = i + 1 < datePositions.length ? datePositions[i + 1].idx : fullText.length;
-         const block = fullText.slice(start, end).trim();
-         
-         // Skip tiny blocks and header-only blocks
-         if (block.length < 15) continue;
-         
-         // Must have at least 2 €values (amount + balance)
-         const euroMatches = [...block.matchAll(/€([\d,]+\.\d{2})/g)];
-         if (euroMatches.length < 2) continue;
-         
-         // Skip if this is the date range header "01 Nov 2025 - 31 Jan 2026"
-         if (/^\d{1,2}\s+\w+\s+\d{4}\s*-\s*\d{1,2}\s+\w+\s+\d{4}/.test(block)) continue;
-         
-         // Skip summary line "Checking Account €36,605.04 €15,756.16..."
-         if (/Checking Account|OPENING BALANCE|ENDING BALANCE/i.test(block)) continue;
-         
-         // Parse date
-         const monNum = MM[dp.mon];
-         if (!monNum) continue;
-         const dateStr = `${dp.year}-${monNum}-${dp.day.padStart(2, '0')}`;
-         
-         // Parse the block lines
-         const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-         
-         // Line 0 is the date line. Find the TYPE from lines after it.
-         const knownTypes = ['interest', 'transfer', 'trade', 'card transaction', 'savings plan', 'dividend'];
-         let tipo = '';
-         let descLines = [];
-         let typeFound = false;
-         
-         for (let li = 1; li < lines.length; li++) {
-           const lineLower = lines[li].toLowerCase();
-           // Check if this line IS a type
-           if (!typeFound) {
-             const foundType = knownTypes.find(t => lineLower === t || lineLower.startsWith(t));
-             if (foundType) {
-               tipo = foundType;
-               typeFound = true;
-               // If the line has more text after the type, it's part of description
-               const rest = lines[li].slice(foundType.length).trim();
-               if (rest) descLines.push(rest);
-               continue;
-             }
-           }
-           // Stop collecting desc when we hit a €value
-           if (lines[li].includes('€')) break;
-           descLines.push(lines[li]);
-         }
-         
-         let desc = descLines.join(' ').replace(/null/g, '').replace(/\s+/g, ' ').trim();
-         if (!desc) desc = tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : 'Transaction';
-         if (desc.length > 120) desc = desc.slice(0, 120);
-         
-         // Extract €values
-         const euros = euroMatches.map(m => parseFloat(m[1].replace(/,/g, '')));
-         // Last €value = balance, everything before = amounts
-         const saldo = euros[euros.length - 1];
-         const amount = euros[0]; // First €value is the transaction amount
-         
-         // Determine direction: money in vs money out
-         // Use type + description keywords
-         const blockLower = block.toLowerCase();
-         const isOutgoing = (
-           tipo === 'card transaction' ||
-           tipo === 'trade' ||
-           (tipo === 'transfer' && /outgoing/i.test(block)) ||
-           (tipo === 'transfer' && /depósito aceite/i.test(block) && false) // depósito aceite = incoming
-         );
-         const isIncoming = (
-           tipo === 'interest' ||
-           tipo === 'dividend' ||
-           (tipo === 'transfer' && /incoming|depósito aceite/i.test(block))
-         );
-         
-         let valor;
-         if (isOutgoing) {
-           valor = -amount;
-         } else if (isIncoming) {
-           valor = amount;
-         } else {
-           // Ambiguous transfer: check if "outgoing" or "for" without "incoming"/"from"
-           if (/outgoing|for\s/i.test(block) && !/incoming|from\s/i.test(block)) {
-             valor = -amount;
-           } else {
-             valor = amount;
-           }
-         }
-         
-         // Map Trade Republic types to categories
-         let categoria = 'outros';
-         if (tipo === 'interest' || tipo === 'dividend') categoria = 'rendimentos';
-         else if (tipo === 'trade') categoria = 'investimentos';
-         else if (tipo === 'card transaction') categoria = autoCategoria(desc, valor) || 'outros';
-         else if (tipo === 'transfer') {
-           if (isTransferenciaInterna(desc, valor)) categoria = 'transferencia';
-           else categoria = autoCategoria(desc, valor) || 'outros';
-         } else {
-           categoria = autoCategoria(desc, valor) || 'outros';
-         }
-         
-         const txTipo = categoria === 'transferencia' ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
-         
-         txs.push({
-           id: `imp-${Date.now()}-${txs.length}`,
-           contaId,
-           data: dateStr,
-           descricao: desc,
-           valor,
-           saldo,
-           tipo: txTipo,
-           categoria,
-         });
-       }
-       
-       console.log(`PDF parsed: ${txs.length} transactions found`);
+       console.log(`PDF parsed (${isRevolut ? 'Revolut' : isTradeRepublic ? 'Trade Republic' : 'genérico'}): ${txs.length} txs`);
        return txs;
      } catch (err) {
-       console.error('Erro ao processar PDF:', err);
-       alert('Erro técnico ao processar PDF: ' + (err.message || err));
+       console.error('Erro PDF:', err);
+       alert('Erro ao processar PDF: ' + (err.message || err));
        return [];
      }
    };
+   
+   // Parser Revolut (DD/MM/YYYY, PT)
+   const parsePdfRevolut = (fullText, contaId) => {
+     const txs = [];
+     // Revolut: two consecutive DD/MM/YYYY = transaction start
+     const dateRe = /(\d{2}\/\d{2}\/\d{4})\n(\d{2}\/\d{2}\/\d{4})\n/g;
+     const positions = [];
+     let dm;
+     while ((dm = dateRe.exec(fullText)) !== null) {
+       const before = fullText.slice(Math.max(0, dm.index - 80), dm.index);
+       if (/Resumo|Produto|Saldo disponível|Total\n|Data Lançamento/i.test(before)) continue;
+       positions.push({ idx: dm.index, dataLanc: dm[1], dataValor: dm[2] });
+     }
+     
+     for (let i = 0; i < positions.length; i++) {
+       const pos = positions[i];
+       const start = pos.idx;
+       const end = i + 1 < positions.length ? positions[i + 1].idx : fullText.length;
+       const block = fullText.slice(start, end).trim();
+       const [d, m, y] = pos.dataLanc.split('/');
+       const dateStr = `${y}-${m}-${d}`;
+       const lines = block.split('\n');
+       
+       let descLines = [];
+       let euroValues = [];
+       let foundEuro = false;
+       let detailLines = [];
+       
+       for (let li = 2; li < lines.length; li++) {
+         const line = lines[li].trim();
+         if (!line) continue;
+         if (/^(?:IBAN|BIC|PT\d{10,}|[A-Z]{6,11}$|Extrato de EUR|Gerado a|Revolut Bank|Fábrica|Página|©|Comunicar|Obter ajuda|Leia)/i.test(line)) break;
+         
+         const euroMatch = line.match(/^€([\d,.]+)$/);
+         if (euroMatch) {
+           const val = parseFloat(euroMatch[1].replace(/,/g, ''));
+           if (!isNaN(val)) euroValues.push(val);
+           foundEuro = true;
+         } else if (!foundEuro) {
+           descLines.push(line);
+         } else {
+           detailLines.push(line);
+         }
+       }
+       
+       if (euroValues.length < 2) continue;
+       
+       let desc = descLines.join(' ').replace(/\s+/g, ' ').trim();
+       if (!desc) continue;
+       if (desc.length > 120) desc = desc.slice(0, 120);
+       
+       const amount = euroValues[0];
+       const saldo = euroValues[euroValues.length - 1];
+       
+       // Direction: check for "De:" (incoming) vs "Para:" (outgoing) in details,
+       // or "Carregamento" (incoming) vs "Transferência...para" (outgoing)
+       const isIncoming = /carregamento|reembolso/i.test(desc) || detailLines.some(l => /^De:/i.test(l));
+       const isOutgoing = /transferência.*para\b/i.test(desc) || detailLines.some(l => /^Para:/i.test(l)) || detailLines.some(l => /^Cartão:/i.test(l));
+       
+       let valor;
+       if (isIncoming && !isOutgoing) valor = amount;
+       else if (isOutgoing && !isIncoming) valor = -amount;
+       else if (detailLines.some(l => /^De:/i.test(l))) valor = amount;
+       else valor = -amount;
+       
+       const isTransf = isTransferenciaInterna(desc, valor);
+       const txTipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
+       const categoria = isTransf ? 'transferencia' : autoCategoria(desc, valor) || 'outros';
+       
+       txs.push({ id: `imp-${Date.now()}-${txs.length}`, contaId, data: dateStr, descricao: desc, valor, saldo, tipo: txTipo, categoria });
+     }
+     return txs;
+   };
+   
+   // Parser Trade Republic (DD Mon YYYY, EN)
+   const parsePdfTradeRepublic = (fullText, contaId) => {
+     const MM = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+     fullText = fullText.replace(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\s*\n\s*(\d{4})/gi, '$1 $2');
+     fullText = fullText.replace(/Card\s*\n\s*Transaction/gi, 'Card Transaction');
+     
+     const dateRe = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/gi;
+     const datePositions = [];
+     let dm;
+     while ((dm = dateRe.exec(fullText)) !== null) {
+       datePositions.push({ idx: dm.index, day: dm[1], mon: dm[2].toLowerCase(), year: dm[3] });
+     }
+     
+     const txs = [];
+     const knownTypes = ['interest', 'transfer', 'trade', 'card transaction', 'savings plan', 'dividend'];
+     
+     for (let i = 0; i < datePositions.length; i++) {
+       const dp = datePositions[i];
+       const start = dp.idx;
+       const end = i + 1 < datePositions.length ? datePositions[i + 1].idx : fullText.length;
+       const block = fullText.slice(start, end).trim();
+       if (block.length < 15) continue;
+       
+       const euroMatches = [...block.matchAll(/€([\d,]+\.\d{2})/g)];
+       if (euroMatches.length < 2) continue;
+       if (/^\d{1,2}\s+\w+\s+\d{4}\s*-\s*\d{1,2}\s+\w+\s+\d{4}/.test(block)) continue;
+       if (/Checking Account|OPENING BALANCE|ENDING BALANCE/i.test(block)) continue;
+       
+       const monNum = MM[dp.mon];
+       if (!monNum) continue;
+       const dateStr = `${dp.year}-${monNum}-${dp.day.padStart(2, '0')}`;
+       const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+       
+       let tipo = '', descLines = [], typeFound = false;
+       for (let li = 1; li < lines.length; li++) {
+         const lineLower = lines[li].toLowerCase();
+         if (!typeFound) {
+           const foundType = knownTypes.find(t => lineLower === t || lineLower.startsWith(t));
+           if (foundType) { tipo = foundType; typeFound = true; const rest = lines[li].slice(foundType.length).trim(); if (rest) descLines.push(rest); continue; }
+         }
+         if (lines[li].includes('€')) break;
+         descLines.push(lines[li]);
+       }
+       
+       let desc = descLines.join(' ').replace(/null/g, '').replace(/\s+/g, ' ').trim();
+       if (!desc) desc = tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : 'Transaction';
+       if (desc.length > 120) desc = desc.slice(0, 120);
+       
+       const euros = euroMatches.map(m => parseFloat(m[1].replace(/,/g, '')));
+       const saldo = euros[euros.length - 1];
+       const amount = euros[0];
+       
+       const isOutgoing = tipo === 'card transaction' || tipo === 'trade' || (tipo === 'transfer' && /outgoing/i.test(block));
+       const isIncoming = tipo === 'interest' || tipo === 'dividend' || (tipo === 'transfer' && /incoming|depósito aceite/i.test(block));
+       
+       let valor;
+       if (isOutgoing) valor = -amount;
+       else if (isIncoming) valor = amount;
+       else if (/outgoing|for\s/i.test(block) && !/incoming|from\s/i.test(block)) valor = -amount;
+       else valor = amount;
+       
+       let categoria = 'outros';
+       if (tipo === 'interest' || tipo === 'dividend') categoria = 'rendimentos';
+       else if (tipo === 'trade') categoria = 'investimentos';
+       else if (tipo === 'card transaction') categoria = autoCategoria(desc, valor) || 'outros';
+       else if (tipo === 'transfer') { if (isTransferenciaInterna(desc, valor)) categoria = 'transferencia'; else categoria = autoCategoria(desc, valor) || 'outros'; }
+       else categoria = autoCategoria(desc, valor) || 'outros';
+       
+       const txTipo = categoria === 'transferencia' ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
+       txs.push({ id: `imp-${Date.now()}-${txs.length}`, contaId, data: dateStr, descricao: desc, valor, saldo, tipo: txTipo, categoria });
+     }
+     return txs;
+   };
+
    
    // Processar CSV import
    const processarCSV = (text, contaId) => {
