@@ -1063,33 +1063,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const isSavingRef = useRef(false);
   
   // Sistema de Undo - guarda últimos 20 estados
-  const [undoHistory, setUndoHistory] = useState([]);
-  const [redoHistory, setRedoHistory] = useState([]);
+  const undoRef = useRef([]);
+  const redoRef = useRef([]);
   const lastSavedState = useRef(null);
   
   // Função Undo
   const handleUndo = useCallback(() => {
-    if (undoHistory.length === 0) return;
-    
-    const prevState = undoHistory[undoHistory.length - 1];
-    setRedoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }]);
-    setUndoHistory(prev => prev.slice(0, -1));
+    if (undoRef.current.length === 0) return;
+    const prevState = undoRef.current[undoRef.current.length - 1];
+    redoRef.current = [...redoRef.current, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }];
+    undoRef.current = undoRef.current.slice(0, -1);
     setG(prevState.g);
     setM(prevState.m);
     lastSavedState.current = JSON.stringify(prevState);
-  }, [undoHistory, G, M]);
+  }, [G, M]);
   
   // Função Redo
   const handleRedo = useCallback(() => {
-    if (redoHistory.length === 0) return;
-    
-    const nextState = redoHistory[redoHistory.length - 1];
-    setUndoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }]);
-    setRedoHistory(prev => prev.slice(0, -1));
+    if (redoRef.current.length === 0) return;
+    const nextState = redoRef.current[redoRef.current.length - 1];
+    undoRef.current = [...undoRef.current, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }];
+    redoRef.current = redoRef.current.slice(0, -1);
     setG(nextState.g);
     setM(nextState.m);
     lastSavedState.current = JSON.stringify(nextState);
-  }, [redoHistory, G, M]);
+  }, [G, M]);
 
   // Carregar dados do Firebase UMA VEZ quando initialData chegar
   const initialDataRef = useRef(initialData);
@@ -1224,8 +1222,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // Funções de update que guardam estado para undo ANTES de alterar
  const saveUndo = useCallback(() => {
-   setUndoHistory(prev => [...prev, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }].slice(-20));
-   setRedoHistory([]);
+   undoRef.current = [...undoRef.current, { g: JSON.parse(JSON.stringify(G)), m: JSON.parse(JSON.stringify(M)) }].slice(-20);
+   redoRef.current = [];
  }, [G, M]);
 
  const uM = useCallback((f, v) => {
@@ -8618,6 +8616,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [filtroCategoria, setFiltroCategoria] = useState('todas');
    const [filtroConta, setFiltroConta] = useState('todas');
    const [filtroTexto, setFiltroTexto] = useState('');
+   const [filtroTipo, setFiltroTipo] = useState('todos');
+   const [novaRegraTexto, setNovaRegraTexto] = useState('');
    const [pagina, setPagina] = useState(0);
    const POR_PAGINA = 200;
    const [showImport, setShowImport] = useState(false);
@@ -8660,6 +8660,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const txFiltradas = txMes.filter(tx => {
      if (filtroCategoria !== 'todas' && tx.categoria !== filtroCategoria) return false;
      if (filtroConta !== 'todas' && tx.contaId !== filtroConta) return false;
+     if (filtroTipo !== 'todos' && tx.tipo !== filtroTipo) return false;
      if (filtroTexto && !(tx.descricao || '').toLowerCase().includes(filtroTexto.toLowerCase())) return false;
      return true;
    });
@@ -8692,10 +8693,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Auto-categorizar uma transação
    const autoCategoria = (descricao, valor) => {
-     const desc = (descricao || '').toLowerCase();
+     const desc = (descricao || '').toLowerCase().replace(/\s+/g, ' ').trim();
      // Regras do user primeiro
      for (const r of regras) {
-       if (desc.includes((r.padrao || '').toLowerCase())) return r.categoria;
+       if (desc.includes((r.padrao || '').toLowerCase().replace(/\s+/g, ' ').trim())) return r.categoria;
      }
      // Regras built-in para PT
      const autoRules = [
@@ -9185,15 +9186,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Guardar regra de categorização
    const guardarRegra = (descricao, categoria) => {
-     // Usar descrição completa (normalizada) como padrão
      const padrao = (descricao || '').replace(/\d{4,}/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
      if (!padrao || padrao.length < 3) return;
-     // Aplicar regra + re-categorizar existentes num único setG
+     saveUndo();
      setG(prev => {
        const novaRegra = { id: `r-${Date.now()}`, padrao, categoria };
        const novasRegras = [...(prev.regrasCategoria || []).filter(r => r.padrao !== padrao), novaRegra];
        const novoExtrato = (prev.extrato || []).map(t => {
-         if ((t.descricao || '').toLowerCase().includes(padrao)) {
+         if ((t.descricao || '').toLowerCase().replace(/\s+/g, ' ').trim().includes(padrao)) {
            const newTipo = categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
            return {...t, categoria, tipo: newTipo};
          }
@@ -9262,6 +9262,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                <option value="todas">Todas categorias</option>
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
+             </select>
+             <select value={filtroTipo} onChange={e => { setFiltroTipo(e.target.value); setPagina(0); }}
+               className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               <option value="todos">Todos os tipos</option>
+               <option value="despesa">🔴 Despesas</option>
+               <option value="receita">🟢 Receitas</option>
+               <option value="transferencia">🔄 Transferências</option>
              </select>
              <input type="text" placeholder="Pesquisar..." value={filtroTexto} onChange={e => { setFiltroTexto(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 flex-1 min-w-[120px] ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
@@ -9706,7 +9713,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {contas.map(c => (
                <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
                  <div className="flex items-center gap-3">
-                   <input type="color" value={c.cor || '#3b82f6'}
+                   <input key={`cor-${c.id}-${c.cor || '#3b82f6'}`} type="color" defaultValue={c.cor || '#3b82f6'}
                      onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
                      className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
                    <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
@@ -9780,7 +9787,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <input type="text" defaultValue={c.nome}
                    className={`flex-1 text-sm px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
-                 <input type="color" value={c.cor || '#78716c'}
+                 <input key={`catcor-${c.id}-${c.cor || '#78716c'}`} type="color" defaultValue={c.cor || '#78716c'}
                    className="w-7 h-7 rounded cursor-pointer border-0 flex-shrink-0"
                    onChange={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
@@ -9812,32 +9819,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            
            {/* Add manual rule */}
            <div className={`flex gap-2 mb-4 p-3 rounded-lg ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
-             <input type="text" placeholder="Padrão (ex: continente)" id="novaRegraInput"
-               className={`flex-1 text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+             <div className="flex-1">
+               <input type="text" placeholder="Padrão (ex: continente)" value={novaRegraTexto}
+                 onChange={e => setNovaRegraTexto(e.target.value)}
+                 className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`} />
+               {novaRegraTexto.length >= 2 && (
+                 <p className={`text-[10px] mt-1 ${extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(novaRegraTexto.toLowerCase().replace(/\s+/g,' ').trim())).length > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                   {extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes(novaRegraTexto.toLowerCase().replace(/\s+/g,' ').trim())).length} transações encontradas
+                 </p>
+               )}
+             </div>
              <select id="novaRegraCat" defaultValue="outros"
-               className={`text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               className={`text-sm px-2 py-1.5 rounded self-start ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
                {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
              </select>
              <button type="button" onClick={() => {
-               const input = document.getElementById('novaRegraInput');
+               if (!novaRegraTexto.trim()) return;
                const sel = document.getElementById('novaRegraCat');
-               if (!input?.value) return;
-               const novaRegra = { id: `r-${Date.now()}`, padrao: input.value.toLowerCase(), categoria: sel.value };
-               const padrao = novaRegra.padrao;
-               // Aplicar regra + actualizar extrato num único setG para evitar stale closure
+               const padrao = novaRegraTexto.toLowerCase().replace(/\s+/g, ' ').trim();
+               const novaRegra = { id: `r-${Date.now()}`, padrao, categoria: sel.value };
+               saveUndo();
                setG(prev => {
                  const novasRegras = [...(prev.regrasCategoria || []), novaRegra];
                  const novoExtrato = (prev.extrato || []).map(t => {
-                   if ((t.descricao || '').toLowerCase().includes(padrao)) {
+                   if ((t.descricao || '').toLowerCase().replace(/\s+/g, ' ').trim().includes(padrao)) {
                      return {...t, categoria: novaRegra.categoria, tipo: novaRegra.categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita'};
                    }
                    return t;
                  });
                  return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
                });
-               input.value = '';
+               setNovaRegraTexto('');
              }}
-               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">+ Adicionar</button>
+               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 self-start">+ Adicionar</button>
            </div>
 
            <div className="space-y-1">
@@ -9845,19 +9859,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <p className="text-sm text-slate-500 text-center py-4">Sem regras. Categoriza transações na lista ou adiciona regras acima.</p>
              ) : regras.map(r => {
                const rCat = getCatInfo(r.categoria);
-               const matchCount = extrato.filter(t => (t.descricao || '').toLowerCase().includes((r.padrao || '').toLowerCase())).length;
+               const rPadrao = (r.padrao || '').toLowerCase().replace(/\s+/g, ' ').trim();
+               const matchCount = extrato.filter(t => (t.descricao || '').toLowerCase().replace(/\s+/g, ' ').trim().includes(rPadrao)).length;
                return (
                  <div key={r.id} className={`flex items-center gap-2 py-2 px-2 rounded-lg ${theme === 'light' ? 'hover:bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-700/30 border-b border-slate-800'}`}>
                    <span className="font-mono text-xs text-slate-400 flex-1 truncate">"{r.padrao}"</span>
-                   <span className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>{matchCount} tx</span>
+                   <span className={`text-[10px] px-1.5 py-0.5 rounded ${matchCount > 0 ? 'bg-green-500/20 text-green-400' : theme === 'light' ? 'bg-slate-100' : 'bg-slate-700'}`}>{matchCount} tx</span>
                    <span className="text-slate-500 text-xs">→</span>
                    <select value={r.categoria} onChange={e => { 
                      const newCat = e.target.value;
-                     const padrao = (r.padrao || '').toLowerCase();
+                     saveUndo();
                      setG(prev => {
                        const novasRegras = (prev.regrasCategoria || []).map(x => x.id === r.id ? {...x, categoria: newCat} : x);
                        const novoExtrato = (prev.extrato || []).map(t => {
-                         if ((t.descricao || '').toLowerCase().includes(padrao)) {
+                         if ((t.descricao || '').toLowerCase().replace(/\s+/g, ' ').trim().includes(rPadrao)) {
                            const newTipo = newCat === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
                            return {...t, categoria: newCat, tipo: newTipo};
                          }
@@ -9876,7 +9891,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              })}
            </div>
            {regras.length > 0 && (
-             <p className="text-[10px] text-slate-500 mt-3 text-right">{regras.length} regra{regras.length !== 1 ? 's' : ''} · {extrato.filter(t => regras.some(r => (t.descricao || '').toLowerCase().includes((r.padrao || '').toLowerCase()))).length} transações abrangidas</p>
+             <p className="text-[10px] text-slate-500 mt-3 text-right">{regras.length} regra{regras.length !== 1 ? 's' : ''} · {extrato.filter(t => regras.some(r => (t.descricao || '').toLowerCase().replace(/\s+/g,' ').trim().includes((r.padrao || '').toLowerCase().replace(/\s+/g,' ').trim()))).length} transações abrangidas</p>
            )}
          </Card>
        </div>
@@ -12416,8 +12431,8 @@ ${transacoesOrdenadas.map(t => `<tr>
               <div className="flex gap-1 sm:gap-2 flex-wrap items-center">
                 {/* Undo/Redo */}
                 <div className="flex gap-0.5">
-                  <button onClick={handleUndo} disabled={undoHistory.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-l-lg ${undoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${undoHistory.length === 0 && 'cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️</button>
-                  <button onClick={handleRedo} disabled={redoHistory.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-r-lg ${redoHistory.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${redoHistory.length === 0 && 'cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
+                  <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-l-lg ${undoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${undoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️</button>
+                  <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-r-lg ${redoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${redoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
                 </div>
                 
                 {/* Pesquisa */}
@@ -12799,7 +12814,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
                      <input type="text" value={c.nome} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, nome: e.target.value}; uG('clientes', novos); }}
                        className={`flex-1 text-sm bg-transparent border-none outline-none ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
-                     <input type="color" value={c.cor} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, cor: e.target.value}; uG('clientes', novos); }}
+                     <input key={`clicor-${c.id || i}-${c.cor}`} type="color" defaultValue={c.cor} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, cor: e.target.value}; uG('clientes', novos); }}
                        className="w-6 h-6 rounded cursor-pointer border-0" />
                      {G.clientes.length > 1 && (
                        <button onClick={() => { saveUndo(); uG('clientes', G.clientes.filter(x => x.id !== c.id)); }}
