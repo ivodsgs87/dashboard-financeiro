@@ -9185,12 +9185,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Guardar regra de categorização
    const guardarRegra = (descricao, categoria) => {
-     // Extrair palavras-chave da descrição
-     const palavras = (descricao || '').split(/\s+/).filter(p => p.length > 3).slice(0, 3).join(' ').toLowerCase();
-     if (!palavras) return;
-     saveUndo();
-     const novaRegra = { id: `r-${Date.now()}`, padrao: palavras, categoria };
-     uG('regrasCategoria', [...regras.filter(r => r.padrao !== palavras), novaRegra]);
+     // Usar descrição completa (normalizada) como padrão
+     const padrao = (descricao || '').replace(/\d{4,}/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+     if (!padrao || padrao.length < 3) return;
+     // Aplicar regra + re-categorizar existentes num único setG
+     setG(prev => {
+       const novaRegra = { id: `r-${Date.now()}`, padrao, categoria };
+       const novasRegras = [...(prev.regrasCategoria || []).filter(r => r.padrao !== padrao), novaRegra];
+       const novoExtrato = (prev.extrato || []).map(t => {
+         if ((t.descricao || '').toLowerCase().includes(padrao)) {
+           const newTipo = categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
+           return {...t, categoria, tipo: newTipo};
+         }
+         return t;
+       });
+       return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
+     });
    };
    
    // Adicionar tx manual
@@ -9400,15 +9410,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      {/* Delete */}
                      {/* Select similar (toggle) */}
                      <button type="button" title="Selecionar/desselecionar semelhantes" onClick={() => {
-                       const desc = (tx.descricao || '').toUpperCase();
-                       const stopWords = ['COMPRA','PAGAMENTO','PAG','TRF','TRANSFERENCIA','TRANSFERÊNCIA','MB','WAY','MULTIBANCO','PARA','DEBITO','CREDITO','SERVICO','PAGSERV','REF','NR','NUMERO','COM','SEM','POR','DOS','DAS','DEL','CARTAO','CONTACTLESS','VISA','MASTERCARD','EUROPAY','INTERAC','P/','P/O','DE','DO','DA','EM','PT','LISBOA','LISB','PORT','CARN'];
-                       const words = desc.split(/[\s\/\-.,;:]+/).filter(w => 
-                         w.length > 3 && !stopWords.includes(w) && !/^\d+$/.test(w)
-                       );
-                       if (words.length === 0) return;
-                       const pattern = words.sort((a, b) => b.length - a.length)[0];
+                       // Normalizar: remover números, pontuação e espaços extra
+                       const normalize = (s) => (s || '').toUpperCase().replace(/\d+/g, '').replace(/[\/\-.,;:*#()]+/g, ' ').replace(/\s+/g, ' ').trim();
+                       const descNorm = normalize(tx.descricao);
+                       if (!descNorm) return;
                        const similarIds = txFiltradas.filter(t => 
-                         (t.descricao || '').toUpperCase().includes(pattern)
+                         normalize(t.descricao) === descNorm
                        ).map(t => t.id);
                        
                        // Toggle: se já estão selecionados, desselecionar
@@ -9700,7 +9707,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
                  <div className="flex items-center gap-3">
                    <input type="color" value={c.cor || '#3b82f6'}
-                     onInput={e => { setG(p => ({...p, contas: contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)})); }}
                      onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
                      className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
                    <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
@@ -9776,7 +9782,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <input type="color" value={c.cor || '#78716c'}
                    className="w-7 h-7 rounded cursor-pointer border-0 flex-shrink-0"
-                   onInput={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; setG(p => ({...p, categoriasExtrato: novos})); }}
                    onChange={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
@@ -9818,15 +9823,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                const sel = document.getElementById('novaRegraCat');
                if (!input?.value) return;
                const novaRegra = { id: `r-${Date.now()}`, padrao: input.value.toLowerCase(), categoria: sel.value };
-               uG('regrasCategoria', [...regras, novaRegra]);
-               // Aplicar a todas as transações existentes
                const padrao = novaRegra.padrao;
-               uG('extrato', extrato.map(t => {
-                 if ((t.descricao || '').toLowerCase().includes(padrao) && (t.categoria === 'outros' || !t.categoria)) {
-                   return {...t, categoria: novaRegra.categoria, tipo: novaRegra.categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita'};
-                 }
-                 return t;
-               }));
+               // Aplicar regra + actualizar extrato num único setG para evitar stale closure
+               setG(prev => {
+                 const novasRegras = [...(prev.regrasCategoria || []), novaRegra];
+                 const novoExtrato = (prev.extrato || []).map(t => {
+                   if ((t.descricao || '').toLowerCase().includes(padrao)) {
+                     return {...t, categoria: novaRegra.categoria, tipo: novaRegra.categoria === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita'};
+                   }
+                   return t;
+                 });
+                 return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
+               });
                input.value = '';
              }}
                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">+ Adicionar</button>
@@ -9845,15 +9853,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <span className="text-slate-500 text-xs">→</span>
                    <select value={r.categoria} onChange={e => { 
                      const newCat = e.target.value;
-                     uG('regrasCategoria', regras.map(x => x.id === r.id ? {...x, categoria: newCat} : x));
                      const padrao = (r.padrao || '').toLowerCase();
-                     uG('extrato', extrato.map(t => {
-                       if ((t.descricao || '').toLowerCase().includes(padrao)) {
-                         const newTipo = newCat === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
-                         return {...t, categoria: newCat, tipo: newTipo};
-                       }
-                       return t;
-                     }));
+                     setG(prev => {
+                       const novasRegras = (prev.regrasCategoria || []).map(x => x.id === r.id ? {...x, categoria: newCat} : x);
+                       const novoExtrato = (prev.extrato || []).map(t => {
+                         if ((t.descricao || '').toLowerCase().includes(padrao)) {
+                           const newTipo = newCat === 'transferencia' ? 'transferencia' : t.valor < 0 ? 'despesa' : 'receita';
+                           return {...t, categoria: newCat, tipo: newTipo};
+                         }
+                         return t;
+                       });
+                       return {...prev, regrasCategoria: novasRegras, extrato: novoExtrato};
+                     });
                    }}
                      className={`text-xs px-2 py-1 rounded ${theme === 'light' ? 'bg-slate-100 border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
                      {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
