@@ -8648,13 +8648,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const orcamentos = G.orcamentos || {};
    
    // Parse mes/ano do filtro
-   const [extratoAno, extratoMesNum] = extratoMes.split('-').map(Number);
+   const isTodosMeses = extratoMes === 'todos';
+   const [extratoAno, extratoMesNum] = isTodosMeses ? [0, 0] : extratoMes.split('-').map(Number);
    
    // Filtrar transações do mês
-   const txMes = extrato.filter(tx => {
+   const txMes = (isTodosMeses ? [...extrato] : extrato.filter(tx => {
      const [a, m] = (tx.data || '').split('-').map(Number);
      return a === extratoAno && m === extratoMesNum;
-   }).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+   })).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
    
    const txFiltradas = txMes.filter(tx => {
      if (filtroCategoria !== 'todas' && tx.categoria !== filtroCategoria) return false;
@@ -9026,6 +9027,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="flex flex-wrap gap-2 items-center">
              <select value={extratoMes} onChange={e => { setExtratoMes(e.target.value); setPagina(0); }}
                className={`text-sm rounded-lg px-2 py-1.5 ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}>
+               <option value="todos">Todos os meses</option>
                {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
              </select>
              <select value={filtroConta} onChange={e => { setFiltroConta(e.target.value); setPagina(0); }}
@@ -9662,8 +9664,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {/* === MODALS (fora das tabs) === */}
    {showImport && createPortal(
      <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
-       <div className="fixed inset-0 bg-black/60" onClick={() => setShowImport(false)} />
-       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[90vh] overflow-y-auto`}>
+       <div className="fixed inset-0 bg-black/60" />
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'} shadow-2xl max-h-[90vh] overflow-y-auto`}>
          <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
          {contas.length === 0 ? (
            <div className="text-center py-4">
@@ -9752,8 +9754,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    {showAddManual && createPortal(
      <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
-       <div className="fixed inset-0 bg-black/60" onClick={() => setShowAddManual(false)} />
-       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl`}>
+       <div className="fixed inset-0 bg-black/60" />
+       <div className={`relative w-full max-w-md mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'} shadow-2xl`}>
          <h3 className="font-semibold mb-4">+ Adicionar Transação</h3>
          <div className="space-y-3">
            <div className="grid grid-cols-2 gap-3">
