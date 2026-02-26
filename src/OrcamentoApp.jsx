@@ -9650,9 +9650,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    {/* === MODALS (fora das tabs) === */}
    {showImport && (
-     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-8 overflow-y-auto" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onMouseDown={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
+     <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto py-4" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onMouseDown={e => { if (e.target === e.currentTarget) setShowImport(false); }}>
        <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} />
-       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl max-h-[80vh] overflow-y-auto mb-8`} onMouseDown={e => e.stopPropagation()}>
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl my-auto`} onMouseDown={e => e.stopPropagation()}>
          <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
          {contas.length === 0 ? (
            <div className="text-center py-4">
@@ -9710,7 +9710,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {importPreview && (
              <div className="mt-4">
                <p className="text-sm font-semibold mb-2">{importPreview.length} transações detectadas</p>
-               <div className="max-h-48 overflow-y-auto space-y-1 text-xs">
+               <div className="max-h-[50vh] overflow-y-auto space-y-1 text-xs">
                  {importPreview.slice(0, 20).map((tx, i) => {
                    const cat2 = getCatInfo(tx.categoria);
                    return (
