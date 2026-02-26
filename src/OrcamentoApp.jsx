@@ -8737,6 +8737,148 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return false;
    };
    
+   // Processar PDF (ex: Trade Republic, extratos bancários em PDF)
+   const processarPDF = async (arrayBuffer, contaId) => {
+     try {
+       const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/+esm');
+       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+       
+       const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+       let fullText = '';
+       for (let p = 1; p <= pdf.numPages; p++) {
+         const page = await pdf.getPage(p);
+         const tc = await page.getTextContent();
+         // Group items by Y position to reconstruct rows
+         const items = tc.items.map(it => ({text: it.str, x: it.transform[4], y: Math.round(it.transform[5])}));
+         const rows = {};
+         items.forEach(it => {
+           if (!it.text.trim()) return;
+           const yKey = it.y;
+           if (!rows[yKey]) rows[yKey] = [];
+           rows[yKey].push(it);
+         });
+         // Sort rows by Y (descending = top to bottom in PDF)
+         const sortedRows = Object.entries(rows).sort(([a],[b]) => Number(b) - Number(a));
+         sortedRows.forEach(([, cols]) => {
+           cols.sort((a, b) => a.x - b.x);
+           fullText += cols.map(c => c.text).join('\t') + '\n';
+         });
+       }
+       
+       // Parse transactions from extracted text
+       const txs = [];
+       const lines = fullText.split('\n');
+       
+       // Month name to number mapping
+       const monthMap = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12',
+         Janeiro:'01',Fevereiro:'02',Março:'03',Abril:'04',Maio:'05',Junho:'06',Julho:'07',Agosto:'08',Setembro:'09',Outubro:'10',Novembro:'11',Dezembro:'12'};
+       
+       // Detect Trade Republic format: "DD Mon YYYY" dates and €values
+       // Also detect generic PT bank PDF formats
+       let currentDate = '';
+       
+       for (let i = 0; i < lines.length; i++) {
+         const line = lines[i].trim();
+         if (!line) continue;
+         
+         // Skip header/footer lines
+         if (/TRADE REPUBLIC|ACCOUNT STATEMENT|ACCOUNT TRANSACTIONS|Page \d|Generated on|Headquarters|Directors|BALANCE OVERVIEW|NOTES ON|ESCROW|PRODUCT|OPENING BALANCE|Checking Account|Please check/i.test(line)) continue;
+         if (/^DATE\s+TYPE/i.test(line)) continue;
+         
+         // Try to extract date: "01 Nov 2025" or "01 Nov\n2025"
+         const dateMatch = line.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro)\s*(\d{4})?/i);
+         if (dateMatch) {
+           const day = dateMatch[1].padStart(2, '0');
+           const mon = monthMap[dateMatch[2]] || monthMap[dateMatch[2].charAt(0).toUpperCase() + dateMatch[2].slice(1).toLowerCase()];
+           let year = dateMatch[3];
+           // If year is on next line
+           if (!year && i + 1 < lines.length) {
+             const nextLine = lines[i + 1].trim();
+             if (/^\d{4}$/.test(nextLine)) {
+               year = nextLine;
+               i++;
+             }
+           }
+           if (year && mon) {
+             currentDate = `${year}-${mon}-${day}`;
+           }
+         }
+         
+         // Extract €values from the line
+         const euroValues = [];
+         const euroRegex = /€([\d,]+\.?\d*)/g;
+         let m;
+         while ((m = euroRegex.exec(line)) !== null) {
+           const val = parseFloat(m[1].replace(/,/g, ''));
+           if (!isNaN(val)) euroValues.push(val);
+         }
+         
+         if (currentDate && euroValues.length >= 2) {
+           // Last value is balance, others are money in/out
+           const saldo = euroValues[euroValues.length - 1];
+           
+           // Extract description - everything between type and first €
+           const descMatch = line.match(/(?:Interest|Transfer|Trade|Card\s*Transaction|Savings?\s*Plan|Dividend)\s+(.*?)€/i);
+           const typeMatch = line.match(/(Interest|Transfer|Trade|Card\s*Transaction|Savings?\s*Plan|Dividend)/i);
+           
+           let desc = '';
+           let tipo = typeMatch ? typeMatch[1].replace(/\s+/g, ' ') : '';
+           
+           if (descMatch) {
+             desc = descMatch[1].replace(/null/g, '').trim();
+           } else {
+             // Try to get description from text before €
+             const beforeEuro = line.split('€')[0].trim();
+             desc = beforeEuro.replace(/^\d{1,2}\s+\w+\s+\d{4}\s*/, '').replace(/^(Interest|Transfer|Trade|Card\s*Transaction)\s*/i, '').trim();
+           }
+           
+           if (!desc && tipo) desc = tipo;
+           
+           // Determine if money in or money out
+           // If 2 €values: one is amount, other is balance
+           // If 3 €values: money in, money out, balance (one of first two might be in wrong column)
+           let valor = 0;
+           if (euroValues.length === 3) {
+             // money in, money out, balance
+             valor = euroValues[0] > 0 ? euroValues[0] : -euroValues[1];
+             // Verify with balance change
+           } else if (euroValues.length === 2) {
+             const amount = euroValues[0];
+             // Check if it's incoming or outgoing from type/description
+             const isOutgoing = /outgoing|buy trade|card transaction/i.test(line) || /^(?!.*incoming).*transfer.*for\b/i.test(line);
+             valor = isOutgoing ? -amount : amount;
+           }
+           
+           if (valor === 0 || !currentDate) continue;
+           
+           // Clean description
+           desc = (desc || tipo || 'Transaction').replace(/null/g, '').replace(/\s+/g, ' ').trim();
+           if (desc.length > 120) desc = desc.slice(0, 120);
+           
+           const isTransf = isTransferenciaInterna(desc, valor);
+           const txTipo = isTransf ? 'transferencia' : valor < 0 ? 'despesa' : 'receita';
+           const categoria = isTransf ? 'transferencia' : autoCategoria(desc, valor) || 'outros';
+           
+           txs.push({
+             id: `imp-${Date.now()}-${txs.length}`,
+             contaId,
+             data: currentDate,
+             descricao: desc,
+             valor,
+             saldo,
+             tipo: txTipo,
+             categoria,
+           });
+         }
+       }
+       
+       return txs;
+     } catch (err) {
+       console.error('Erro ao processar PDF:', err);
+       return [];
+     }
+   };
+   
    // Processar CSV import
    const processarCSV = (text, contaId) => {
      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -9690,14 +9832,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
              <div>
                <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
-               <input type="file" accept=".csv,.txt,.xlsx,.xls" onClick={e => {
+               <input type="file" accept=".csv,.txt,.xlsx,.xls,.pdf" onClick={e => {
                  if (!importConta) { alert('Seleciona uma conta primeiro.'); e.preventDefault(); return; }
-                 e.target.value = ''; // Reset para permitir reimportar mesmo ficheiro
+                 e.target.value = '';
                }} onChange={e => {
                  const file = e.target.files?.[0];
                  if (!file || !importConta) return;
                  const isExcel = /\.xlsx?$/i.test(file.name);
-                 if (isExcel) {
+                 const isPDF = /\.pdf$/i.test(file.name);
+                 if (isPDF) {
+                   const reader = new FileReader();
+                   reader.onload = async (ev) => {
+                     try {
+                       const txs = await processarPDF(ev.target.result, importConta);
+                       if (txs.length === 0) {
+                         alert('Não foi possível extrair transações do PDF. Verifica se o ficheiro contém um extrato com tabela de transações.');
+                       }
+                       setImportPreview(txs);
+                     } catch (err) {
+                       console.error('Erro PDF:', err);
+                       alert('Erro ao ler PDF.');
+                     }
+                   };
+                   reader.readAsArrayBuffer(file);
+                 } else if (isExcel) {
                    const reader = new FileReader();
                    reader.onload = async (ev) => {
                      try {
@@ -9722,7 +9880,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    reader.readAsText(file, 'UTF-8');
                  }
                }} className="text-sm" />
-               <p className="text-[10px] text-slate-500 mt-1">Formatos: .csv, .txt, .xlsx, .xls</p>
+               <p className="text-[10px] text-slate-500 mt-1">Formatos: .csv, .txt, .xlsx, .xls, .pdf</p>
              </div>
            </div>
            {importPreview && (
