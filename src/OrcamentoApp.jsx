@@ -9584,20 +9584,51 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </tr>
                </thead>
                <tbody>
-                 {categorias.filter(c => c.id !== 'transferencia').map(cat => {
-                   const mesTotais = Array.from({length: 12}, (_, i) => {
-                     return extrato.filter(t => {
-                       const [a, m] = (t.data || '').split('-').map(Number);
-                       return a === extratoAno && m === i + 1 && t.tipo === 'despesa' && t.categoria === cat.id;
-                     }).reduce((acc, t) => acc + Math.abs(valEfectivo(t)), 0);
-                   });
-                   const total = mesTotais.reduce((a, v) => a + v, 0);
-                   if (total === 0) return null;
-                   return (
-                     <tr key={cat.id} className={`border-t ${theme === 'light' ? 'border-slate-100' : 'border-slate-700/50'}`}>
-                       <td className="px-2 py-1.5">{cat.icon} {cat.nome}</td>
-                       {mesTotais.map((v, i) => {
-                         const prev = i > 0 ? mesTotais[i - 1] : 0;
+                 {(() => {
+                   // Filtrar extrato por conta se filtro activo (mesma lógica que barras)
+                   const extratoFiltrado = filtroConta !== 'todas' ? extrato.filter(t => t.contaId === filtroConta) : extrato;
+                   const mesTotaisGeral = Array.from({length: 12}, () => 0);
+                   
+                   const rows = categorias.filter(c => c.id !== 'transferencia').map(cat => {
+                     const mesTotais = Array.from({length: 12}, (_, i) => {
+                       return extratoFiltrado.filter(t => {
+                         const [a, m] = (t.data || '').split('-').map(Number);
+                         return a === extratoAno && m === i + 1 && t.tipo === 'despesa' && t.categoria === cat.id;
+                       }).reduce((acc, t) => acc + Math.abs(valEfectivo(t)), 0);
+                     });
+                     const total = mesTotais.reduce((a, v) => a + v, 0);
+                     if (total === 0) return null;
+                     mesTotais.forEach((v, i) => { mesTotaisGeral[i] += v; });
+                     return (
+                       <tr key={cat.id} className={`border-t ${theme === 'light' ? 'border-slate-100' : 'border-slate-700/50'}`}>
+                         <td className="px-2 py-1.5">{cat.icon} {cat.nome}</td>
+                         {mesTotais.map((v, i) => {
+                           const prev = i > 0 ? mesTotais[i - 1] : 0;
+                           const diff = prev > 0 && v > 0 ? ((v - prev) / prev * 100) : 0;
+                           return (
+                             <td key={i} className="px-2 py-1.5 text-right font-mono">
+                               {v > 0 ? (<>
+                                 {fmt(v)}
+                                 {prev > 0 && Math.abs(diff) >= 1 && (
+                                   <span className={`text-[9px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                     {diff > 0 ? '▲' : '▼'}
+                                   </span>
+                                 )}
+                               </>) : <span className="text-slate-600">—</span>}
+                             </td>
+                           );
+                         })}
+                         <td className="px-2 py-1.5 text-right font-mono font-bold">{fmt(total)}</td>
+                       </tr>
+                     );
+                   }).filter(Boolean);
+                   
+                   const totalGeral = mesTotaisGeral.reduce((a, v) => a + v, 0);
+                   rows.push(
+                     <tr key="total" className={`border-t-2 ${theme === 'light' ? 'border-slate-300 bg-slate-50' : 'border-slate-600 bg-slate-700/30'} font-bold`}>
+                       <td className="px-2 py-1.5">Total</td>
+                       {mesTotaisGeral.map((v, i) => {
+                         const prev = i > 0 ? mesTotaisGeral[i - 1] : 0;
                          const diff = prev > 0 && v > 0 ? ((v - prev) / prev * 100) : 0;
                          return (
                            <td key={i} className="px-2 py-1.5 text-right font-mono">
@@ -9612,10 +9643,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                            </td>
                          );
                        })}
-                       <td className="px-2 py-1.5 text-right font-mono font-bold">{fmt(total)}</td>
+                       <td className="px-2 py-1.5 text-right font-mono">{fmt(totalGeral)}</td>
                      </tr>
                    );
-                 }).filter(Boolean)}
+                   return rows;
+                 })()}
                </tbody>
              </table>
            </div>
@@ -9626,6 +9658,87 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {/* ORÇAMENTOS */}
      {extratoTab === 'orcamentos' && (
        <div className="space-y-4">
+         {/* Auto-generate from Casal + Pessoais */}
+         <Card>
+           <h4 className="font-semibold mb-2">⚡ Gerar Orçamentos do Planeamento</h4>
+           <p className="text-xs text-slate-500 mb-3">Calcula limites mensais a partir das Despesas de Casal (×{contrib}%) + Despesas Pessoais, mapeando categorias automaticamente.</p>
+           {(() => {
+             // Mapeamento: cat do planeamento → cat do extrato
+             const catMap = {
+               'Habitação': 'habitacao',
+               'Utilidades': 'habitacao', // água, luz, internet → habitação
+               'Alimentação': 'alimentacao',
+               'Saúde': 'saude',
+               'Lazer': 'lazer',
+               'Transporte': 'transporte',
+               'Subscrições': 'subscricoes',
+               'Bancário': 'outros',
+               'Serviços': 'servicos',
+               'Vários': 'outros',
+               'Outros': 'outros',
+               'Seguros': 'habitacao', // seguros casa/vida → habitação
+             };
+             // Calcular orçamento proposto
+             const proposto = {};
+             // Casal: cada despesa × contrib%
+             (despABanca || []).forEach(d => {
+               const extCat = catMap[d.cat] || 'outros';
+               proposto[extCat] = (proposto[extCat] || 0) + (d.val || 0) * (contrib / 100);
+             });
+             // Pessoais: 100%
+             (despPess || []).forEach(d => {
+               const extCat = catMap[d.cat] || 'outros';
+               proposto[extCat] = (proposto[extCat] || 0) + (d.val || 0);
+             });
+             const totalProposto = Object.values(proposto).reduce((a, v) => a + v, 0);
+             const totalActual = Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0);
+             
+             return (<>
+               <div className="space-y-1 mb-3">
+                 {categorias.filter(c => c.id !== 'transferencia' && (proposto[c.id] || orcamentos[c.id])).map(cat => {
+                   const prop = Math.round(proposto[cat.id] || 0);
+                   const actual = orcamentos[cat.id] || 0;
+                   const diff = prop - actual;
+                   return (
+                     <div key={cat.id} className={`flex items-center gap-2 py-1 px-2 rounded text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                       <span className="w-32 truncate">{cat.icon} {cat.nome}</span>
+                       <span className="font-mono text-slate-500 w-16 text-right">{actual > 0 ? fmt(actual) : '—'}</span>
+                       <span className="text-slate-600">→</span>
+                       <span className="font-mono font-bold w-16 text-right">{prop > 0 ? fmt(prop) : '—'}</span>
+                       {diff !== 0 && actual > 0 && <span className={`text-[10px] ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{diff > 0 ? '+' : ''}{fmt(diff)}</span>}
+                     </div>
+                   );
+                 })}
+               </div>
+               <div className="flex items-center gap-3">
+                 <button type="button" onClick={() => {
+                   saveUndo();
+                   uG('orcamentos', Object.fromEntries(
+                     Object.entries(proposto).map(([k, v]) => [k, Math.round(v)])
+                   ));
+                 }}
+                   className="px-4 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">
+                   Aplicar orçamentos ({fmt(totalProposto)}/mês)
+                 </button>
+                 {totalActual > 0 && (
+                   <span className="text-[10px] text-slate-500">Actual: {fmt(totalActual)}/mês</span>
+                 )}
+               </div>
+               <div className={`mt-3 pt-2 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                 <details className="text-[10px] text-slate-500">
+                   <summary className="cursor-pointer hover:text-slate-400">Mapeamento de categorias</summary>
+                   <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                     {Object.entries(catMap).map(([from, to]) => {
+                       const toCat = categorias.find(c => c.id === to);
+                       return <span key={from}>{from} → {toCat?.icon} {toCat?.nome}</span>;
+                     })}
+                   </div>
+                 </details>
+               </div>
+             </>);
+           })()}
+         </Card>
+
          {/* Simple per-category budgets */}
          <Card>
            <h4 className="font-semibold mb-3">🎯 Orçamento por Categoria</h4>
