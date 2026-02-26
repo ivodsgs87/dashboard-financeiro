@@ -9661,80 +9661,120 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Auto-generate from Casal + Pessoais */}
          <Card>
            <h4 className="font-semibold mb-2">⚡ Gerar Orçamentos do Planeamento</h4>
-           <p className="text-xs text-slate-500 mb-3">Calcula limites mensais a partir das Despesas de Casal (×{contrib}%) + Despesas Pessoais, mapeando categorias automaticamente.</p>
+           <p className="text-xs text-slate-500 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
            {(() => {
-             // Mapeamento: cat do planeamento → cat do extrato
+             // Mapeamento: cat planeamento → cat extrato
              const catMap = {
-               'Habitação': 'habitacao',
-               'Utilidades': 'habitacao', // água, luz, internet → habitação
+               'Habitação': 'habitacao', 'Utilidades': 'habitacao', 'Seguros': 'habitacao',
                'Alimentação': 'alimentacao',
-               'Saúde': 'saude',
-               'Lazer': 'lazer',
-               'Transporte': 'transporte',
-               'Subscrições': 'subscricoes',
-               'Bancário': 'outros',
-               'Serviços': 'servicos',
-               'Vários': 'outros',
-               'Outros': 'outros',
-               'Seguros': 'habitacao', // seguros casa/vida → habitação
+               'Saúde': 'saude', 'Lazer': 'lazer', 'Transporte': 'transporte',
+               'Subscrições': 'subscricoes', 'Serviços': 'servicos',
+               'Bancário': 'outros', 'Vários': 'outros', 'Outros': 'outros',
              };
-             // Calcular orçamento proposto
-             const proposto = {};
-             // Casal: cada despesa × contrib%
-             (despABanca || []).forEach(d => {
-               const extCat = catMap[d.cat] || 'outros';
-               proposto[extCat] = (proposto[extCat] || 0) + (d.val || 0) * (contrib / 100);
+             
+             // Find ABanca and Activo Bank conta IDs
+             const abancaConta = contas.find(c => (c.nome || '').toLowerCase().includes('abanca') || (c.banco || '').toLowerCase().includes('abanca'));
+             const activoConta = contas.find(c => (c.nome || '').toLowerCase().includes('activo') || (c.banco || '').toLowerCase().includes('activo'));
+             
+             // --- ABanca: 3 grupos (Mercado, Habitação, Resto) ---
+             const abMercado = (despABanca || []).filter(d => d.cat === 'Alimentação').reduce((a, d) => a + (d.val || 0), 0);
+             const abHabitacao = (despABanca || []).filter(d => ['Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).reduce((a, d) => a + (d.val || 0), 0);
+             const abResto = (despABanca || []).filter(d => !['Alimentação', 'Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).reduce((a, d) => a + (d.val || 0), 0);
+             
+             // Cats extrato que pertencem a cada grupo ABanca
+             const mercadoCats = ['alimentacao'];
+             const habitacaoCats = ['habitacao'];
+             const restoCatsSet = new Set();
+             (despABanca || []).filter(d => !['Alimentação', 'Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).forEach(d => {
+               restoCatsSet.add(catMap[d.cat] || 'outros');
              });
-             // Pessoais: 100%
+             const restoCats = [...restoCatsSet];
+             
+             // --- Activo Bank: por categoria ---
+             const activoCats = {};
              (despPess || []).forEach(d => {
                const extCat = catMap[d.cat] || 'outros';
-               proposto[extCat] = (proposto[extCat] || 0) + (d.val || 0);
+               activoCats[extCat] = (activoCats[extCat] || 0) + (d.val || 0);
              });
-             const totalProposto = Object.values(proposto).reduce((a, v) => a + v, 0);
-             const totalActual = Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0);
+             
+             // Build proposed groups
+             const proposedGroups = [];
+             if (abancaConta) {
+               proposedGroups.push({ nome: '🛒 ABanca — Mercado', contaId: abancaConta.id, categorias: mercadoCats, limite: Math.round(abMercado) });
+               proposedGroups.push({ nome: '🏠 ABanca — Habitação', contaId: abancaConta.id, categorias: habitacaoCats, limite: Math.round(abHabitacao) });
+               if (abResto > 0) proposedGroups.push({ nome: '📦 ABanca — Resto', contaId: abancaConta.id, categorias: restoCats, limite: Math.round(abResto) });
+             }
+             if (activoConta) {
+               Object.entries(activoCats).sort((a, b) => b[1] - a[1]).forEach(([catId, val]) => {
+                 const cat = categorias.find(c => c.id === catId);
+                 proposedGroups.push({ nome: `${cat?.icon || '📦'} Activo — ${cat?.nome || catId}`, contaId: activoConta.id, categorias: [catId], limite: Math.round(val) });
+               });
+             }
+             
+             const totalProposto = proposedGroups.reduce((a, g) => a + g.limite, 0);
+             const existingGroups = G.orcamentosGrupos || [];
              
              return (<>
-               <div className="space-y-1 mb-3">
-                 {categorias.filter(c => c.id !== 'transferencia' && (proposto[c.id] || orcamentos[c.id])).map(cat => {
-                   const prop = Math.round(proposto[cat.id] || 0);
-                   const actual = orcamentos[cat.id] || 0;
-                   const diff = prop - actual;
-                   return (
-                     <div key={cat.id} className={`flex items-center gap-2 py-1 px-2 rounded text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                       <span className="w-32 truncate">{cat.icon} {cat.nome}</span>
-                       <span className="font-mono text-slate-500 w-16 text-right">{actual > 0 ? fmt(actual) : '—'}</span>
-                       <span className="text-slate-600">→</span>
-                       <span className="font-mono font-bold w-16 text-right">{prop > 0 ? fmt(prop) : '—'}</span>
-                       {diff !== 0 && actual > 0 && <span className={`text-[10px] ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{diff > 0 ? '+' : ''}{fmt(diff)}</span>}
+               {!abancaConta && <p className="text-xs text-orange-400 mb-2">⚠️ Conta "ABanca" não encontrada. Adiciona-a nas Contas.</p>}
+               {!activoConta && <p className="text-xs text-orange-400 mb-2">⚠️ Conta "Activo Bank" não encontrada. Adiciona-a nas Contas.</p>}
+               
+               {/* ABanca groups */}
+               {abancaConta && (<>
+                 <p className="text-[10px] text-slate-500 font-bold mt-2 mb-1 uppercase tracking-wide" style={{color: abancaConta.cor}}>ABanca — Despesas Casal (100%)</p>
+                 <div className="space-y-1 mb-3">
+                   {proposedGroups.filter(g => g.contaId === abancaConta?.id).map((g, i) => (
+                     <div key={i} className={`flex items-center gap-2 py-1.5 px-2 rounded text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                       <span className="flex-1">{g.nome}</span>
+                       <span className="text-[10px] text-slate-500">{g.categorias.map(c => categorias.find(x => x.id === c)?.icon || c).join(' ')}</span>
+                       <span className="font-mono font-bold w-20 text-right">{fmt(g.limite)}</span>
                      </div>
-                   );
-                 })}
-               </div>
+                   ))}
+                 </div>
+               </>)}
+               
+               {/* Activo Bank groups */}
+               {activoConta && (<>
+                 <p className="text-[10px] text-slate-500 font-bold mt-2 mb-1 uppercase tracking-wide" style={{color: activoConta.cor}}>Activo Bank — Despesas Pessoais</p>
+                 <div className="space-y-1 mb-3">
+                   {proposedGroups.filter(g => g.contaId === activoConta?.id).map((g, i) => (
+                     <div key={i} className={`flex items-center gap-2 py-1.5 px-2 rounded text-xs ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                       <span className="flex-1">{g.nome}</span>
+                       <span className="font-mono font-bold w-20 text-right">{fmt(g.limite)}</span>
+                     </div>
+                   ))}
+                 </div>
+               </>)}
+               
                <div className="flex items-center gap-3">
                  <button type="button" onClick={() => {
                    saveUndo();
-                   uG('orcamentos', Object.fromEntries(
-                     Object.entries(proposto).map(([k, v]) => [k, Math.round(v)])
-                   ));
+                   const novosGrupos = proposedGroups.map((g, i) => ({
+                     id: `og-auto-${Date.now()}-${i}`,
+                     ...g,
+                   }));
+                   uG('orcamentosGrupos', novosGrupos);
                  }}
                    className="px-4 py-2 text-xs font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600">
-                   Aplicar orçamentos ({fmt(totalProposto)}/mês)
+                   {existingGroups.length > 0 ? 'Substituir' : 'Criar'} {proposedGroups.length} orçamentos ({fmt(totalProposto)}/mês)
                  </button>
-                 {totalActual > 0 && (
-                   <span className="text-[10px] text-slate-500">Actual: {fmt(totalActual)}/mês</span>
+                 {existingGroups.length > 0 && (
+                   <span className="text-[10px] text-slate-500">{existingGroups.length} grupos existentes serão substituídos</span>
                  )}
                </div>
-               <div className={`mt-3 pt-2 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
-                 <details className="text-[10px] text-slate-500">
-                   <summary className="cursor-pointer hover:text-slate-400">Mapeamento de categorias</summary>
-                   <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5">
-                     {Object.entries(catMap).map(([from, to]) => {
-                       const toCat = categorias.find(c => c.id === to);
-                       return <span key={from}>{from} → {toCat?.icon} {toCat?.nome}</span>;
-                     })}
+               
+               <details className={`mt-3 pt-2 border-t text-[10px] text-slate-500 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
+                 <summary className="cursor-pointer hover:text-slate-400">Detalhes do cálculo</summary>
+                 <div className="mt-2 space-y-2">
+                   <div>
+                     <p className="font-bold mb-1">ABanca (despesas de casal — valor total que sai da conta):</p>
+                     {(despABanca || []).map((d, i) => <p key={i} className="ml-2">{d.desc}: {fmt(d.val)} → {catMap[d.cat] || 'outros'}</p>)}
                    </div>
-                 </details>
-               </div>
+                   <div>
+                     <p className="font-bold mb-1">Activo Bank (despesas pessoais — 100%):</p>
+                     {(despPess || []).map((d, i) => <p key={i} className="ml-2">{d.desc}: {fmt(d.val)} → {catMap[d.cat] || 'outros'}</p>)}
+                   </div>
+                 </div>
+               </details>
              </>);
            })()}
          </Card>
