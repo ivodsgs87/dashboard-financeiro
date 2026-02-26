@@ -9652,7 +9652,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {showImport && (
      <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto py-4" style={{position:'fixed',top:0,left:0,right:0,bottom:0}}>
        <div className="fixed inset-0 bg-black/60" style={{position:'fixed'}} onClick={() => setShowImport(false)} />
-       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl my-auto`}>
+       <div className={`relative w-full max-w-lg mx-4 p-6 rounded-2xl ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl my-auto max-h-[90vh] overflow-y-auto`}>
          <h3 className="font-semibold mb-4">📤 Importar Extrato</h3>
          {contas.length === 0 ? (
            <div className="text-center py-4">
