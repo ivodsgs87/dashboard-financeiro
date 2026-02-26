@@ -9050,7 +9050,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
          
          {/* Batch actions */}
-         {(selectedTxs.size > 0 || lastImportIds.length > 0) && (
+         {(selectedTxs.size > 0 || lastImportIds.length > 0 || extrato.length > 0) && (
            <div className={`flex flex-wrap items-center gap-2 p-2 rounded-lg text-xs ${theme === 'light' ? 'bg-orange-50 border border-orange-200' : 'bg-orange-500/10 border border-orange-500/20'}`}>
              {selectedTxs.size > 0 && (
                <>
@@ -9071,6 +9071,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button type="button" onClick={() => setLastImportIds([])}
                    className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">✕</button>
                </>
+             )}
+             {selectedTxs.size === 0 && lastImportIds.length === 0 && extrato.length > 0 && (
+               <button type="button" onClick={() => { if (confirm(`Tens a certeza que queres apagar TODOS os ${extrato.length} registos de TODAS as contas e meses? Esta acção não pode ser desfeita.`)) { uG('extrato', []); setSelectedTxs(new Set()); setLastImportIds([]); }}}
+                 className="px-2 py-1 rounded bg-red-500/10 text-red-400/70 hover:bg-red-500/20 hover:text-red-400">🗑️ Apagar todos ({extrato.length})</button>
              )}
            </div>
          )}
@@ -9721,11 +9725,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  {importPreview.slice(0, 20).map((tx, i) => {
                    const cat2 = getCatInfo(tx.categoria);
                    return (
-                     <div key={i} className={`flex items-center gap-2 py-1 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
-                       <span>{cat2.icon}</span>
-                       <span className="text-slate-500">{tx.data?.slice(5)}</span>
-                       <span className="flex-1 truncate">{tx.descricao}</span>
-                       <span className={`font-mono ${tx.valor < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(tx.valor)}</span>
+                     <div key={i} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
+                       <span className="flex-shrink-0">{cat2.icon}</span>
+                       <span className="text-slate-500 flex-shrink-0">{tx.data?.slice(5)}</span>
+                       <span className={`flex-1 truncate ${theme === 'light' ? 'text-slate-700' : 'text-slate-200'}`}>{tx.descricao}</span>
+                       <span className={`font-mono flex-shrink-0 ${tx.valor < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(tx.valor)}</span>
                      </div>
                    );
                  })}
