@@ -9779,45 +9779,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            })()}
          </Card>
 
-         {/* Simple per-category budgets */}
-         <Card>
-           <h4 className="font-semibold mb-3">🎯 Orçamento por Categoria</h4>
-           <p className="text-xs text-slate-500 mb-4">Limites mensais individuais. Gasto de {extratoMes}.</p>
-           <div className="space-y-2">
-             {categorias.filter(c => c.id !== 'transferencia').map(cat => {
-               const gasto = porCategoria[cat.id] || 0;
-               const limite = orcamentos[cat.id] || 0;
-               const pct = limite > 0 ? (gasto / limite * 100) : 0;
-               return (
-                 <div key={cat.id} className={`p-2.5 rounded-lg ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                   <div className="flex items-center gap-2">
-                     <span className="text-sm w-36 truncate">{cat.icon} {cat.nome}</span>
-                     <div className="flex-1">
-                       {limite > 0 && (
-                         <div className={`w-full h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                           <div className={`h-full rounded-full transition-all ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                             style={{ width: Math.min(100, pct) + '%' }} />
-                         </div>
-                       )}
-                     </div>
-                     <span className={`text-[11px] font-mono w-16 text-right ${pct > 100 ? 'text-red-400' : 'text-slate-400'}`}>{gasto > 0 ? fmt(gasto) : '—'}</span>
-                     <span className="text-[10px] text-slate-600">/</span>
-                     <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
-                       className={`w-16 text-right text-[11px] font-mono px-1.5 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { const v = parseFloat(e.target.value) || 0; uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
-                   </div>
-                 </div>
-               );
-             })}
-           </div>
-           {Object.values(orcamentos).some(v => v > 0) && (
-             <div className={`mt-3 pt-3 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between text-sm font-bold`}>
-               <span>Total</span>
-               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
-             </div>
-           )}
-         </Card>
-
          {/* Grouped budgets */}
          <Card>
            <h4 className="font-semibold mb-3">📦 Orçamentos Agrupados</h4>
@@ -9873,12 +9834,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                    {/* Progress */}
                    {grupo.limite > 0 && (
-                     <div className="flex items-center gap-2">
-                       <div className={`flex-1 h-2 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                         <div className={`h-full rounded-full transition-all ${pctG > 100 ? 'bg-red-500' : pctG > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                     <div>
+                       <div className="flex items-center justify-between mb-1.5">
+                         <span className={`text-sm font-bold font-mono ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-emerald-400'}`}>{fmt(gastoGrupo)}</span>
+                         <span className="text-xs text-slate-500 font-mono">/ {fmt(grupo.limite)} <span className={`font-bold ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-slate-400'}`}>({pctG.toFixed(0)}%)</span></span>
+                       </div>
+                       <div className={`w-full h-3 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                         <div className={`h-full rounded-full transition-all duration-500 ${pctG > 100 ? 'bg-red-500' : pctG > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
                            style={{ width: Math.min(100, pctG) + '%' }} />
                        </div>
-                       <span className={`text-xs font-mono ${pctG > 100 ? 'text-red-400' : 'text-slate-400'}`}>{fmt(gastoGrupo)} / {fmt(grupo.limite)}</span>
+                       {pctG > 0 && <p className={`text-[10px] mt-1 ${pctG > 100 ? 'text-red-400' : 'text-slate-500'}`}>{pctG > 100 ? `${fmt(gastoGrupo - grupo.limite)} acima do limite` : `${fmt(grupo.limite - gastoGrupo)} disponível`}</p>}
                      </div>
                    )}
                  </div>
@@ -9891,6 +9856,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            }}
              className={`w-full mt-3 py-2.5 text-xs rounded-lg border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
              + Adicionar orçamento agrupado
+         {/* Simple per-category budgets */}
+         <Card>
+           <h4 className="font-semibold mb-3">🎯 Orçamento por Categoria</h4>
+           <p className="text-xs text-slate-500 mb-4">Limites mensais individuais. Gasto de {extratoMes}.</p>
+           <div className="space-y-2">
+             {categorias.filter(c => c.id !== 'transferencia').map(cat => {
+               const gasto = porCategoria[cat.id] || 0;
+               const limite = orcamentos[cat.id] || 0;
+               const pct = limite > 0 ? (gasto / limite * 100) : 0;
+               return (
+                 <div key={cat.id} className={`p-2.5 rounded-lg ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
+                   <div className="flex items-center gap-2">
+                     <span className="text-sm w-36 truncate">{cat.icon} {cat.nome}</span>
+                     <div className="flex-1">
+                       {limite > 0 && (
+                         <div className={`w-full h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                           <div className={`h-full rounded-full transition-all ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                             style={{ width: Math.min(100, pct) + '%' }} />
+                         </div>
+                       )}
+                     </div>
+                     <span className={`text-[11px] font-mono w-16 text-right ${pct > 100 ? 'text-red-400' : 'text-slate-400'}`}>{gasto > 0 ? fmt(gasto) : '—'}</span>
+                     <span className="text-[10px] text-slate-600">/</span>
+                     <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
+                       className={`w-16 text-right text-[11px] font-mono px-1.5 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
+                       onBlur={e => { const v = parseFloat(e.target.value) || 0; uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
+                   </div>
+                 </div>
+               );
+             })}
+           </div>
+           {Object.values(orcamentos).some(v => v > 0) && (
+             <div className={`mt-3 pt-3 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between text-sm font-bold`}>
+               <span>Total</span>
+               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
+             </div>
+           )}
+         </Card>
+
            </button>
          </Card>
        </div>
