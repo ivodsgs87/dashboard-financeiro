@@ -926,7 +926,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [mes, ano]);
   
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
-  const cats = ['Habitação','Utilidades','Alimentação','Saúde','Lazer','Transporte','Subscrições','Bancário','Serviços','Vários','Outros','Seguros'];
+  const cats = (G.categoriasExtrato || defG.categoriasExtrato).filter(c => c.id !== 'transferencia').map(c => c.nome);
+ // Migrar categorias antigas para as novas (categoriasExtrato)
+ const catMigration = {'Utilidades':'Energia, Luz & Agua','Alimentação':'Mercado','Lazer':'Vida & Entretenimento','Bancário':'Outros','Vários':'Outros','Seguros':'Habitação'};
+ const migrateCat = (cat) => catMigration[cat] || (cats.includes(cat) ? cat : 'Outros');
+
   
   // Verificar se é o mês/ano atual
   const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
@@ -938,8 +942,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     ivaPago: {},
     // Registo de pagamentos de impostos (SS, IVA, IRS)
     impostosPagos: [], // {id, tipo:'SS'|'IVA'|'IRS', data, valor, referencia, notas}
-    despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Utilidades',val:200},{id:5,desc:'Mercado',cat:'Alimentação',val:714},{id:6,desc:'Internet',cat:'Utilidades',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Bancário',val:5},{id:9,desc:'Bar/Café',cat:'Lazer',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Outros',val:120},{id:12,desc:'Ginástica',cat:'Outros',val:45},{id:13,desc:'Seguro filhos',cat:'Seguros',val:60}],
-    despPess: [{id:1,desc:'Telemóvel',cat:'Utilidades',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Vários',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Alimentação',val:100}],
+    despABanca: [{id:1,desc:'Prestação Casa',cat:'Habitação',val:971},{id:2,desc:'Seguro Propriedade',cat:'Habitação',val:16},{id:3,desc:'Seguro Vida',cat:'Habitação',val:36},{id:4,desc:'Água/Luz',cat:'Energia, Luz & Agua',val:200},{id:5,desc:'Mercado',cat:'Mercado',val:714},{id:6,desc:'Internet',cat:'Comunicação / PC',val:43},{id:7,desc:'Condomínio',cat:'Habitação',val:59},{id:8,desc:'Manutenção Conta',cat:'Outros',val:5},{id:9,desc:'Bar/Café',cat:'Bar + Café',val:50},{id:10,desc:'Empregada',cat:'Serviços',val:175},{id:11,desc:'Escola Laura',cat:'Educação',val:120},{id:12,desc:'Ginástica',cat:'Saúde',val:45},{id:13,desc:'Seguro filhos',cat:'Habitação',val:60}],
+    despPess: [{id:1,desc:'Telemóvel',cat:'Comunicação / PC',val:14},{id:2,desc:'Carro',cat:'Transporte',val:30},{id:3,desc:'Prendas/Lazer',cat:'Compras',val:400},{id:4,desc:'Subscrições',cat:'Subscrições',val:47},{id:5,desc:'Crossfit',cat:'Saúde',val:85},{id:6,desc:'Bar/Café',cat:'Bar + Café',val:100}],
     catsInv: ['ETF','PPR','P2P','CRIPTO','FE','CREDITO'],
     sara: {
       rend: [{id:1,desc:'Flex anual',val:1131},{id:2,desc:'Cartão Refeição',val:224,isCR:true},{id:3,desc:'Salário',val:1360}],
@@ -3980,7 +3984,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Agrupar despesas por categoria
  const porCat = cats.map(c => ({
    cat: c,
-   val: despABanca.filter(d => d.cat === c).reduce((a, d) => a + d.val, 0)
+   val: despABanca.filter(d => migrateCat(d.cat) === c).reduce((a, d) => a + d.val, 0)
  })).filter(c => c.val > 0);
  
  const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
@@ -4025,7 +4029,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
  <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={d.cat} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despABanca',despABanca.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
  </div>
@@ -4067,7 +4071,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Agrupar despesas por categoria
  const porCat = cats.map(c => ({
    cat: c,
-   val: despPess.filter(d => d.cat === c).reduce((a, d) => a + d.val, 0)
+   val: despPess.filter(d => migrateCat(d.cat) === c).reduce((a, d) => a + d.val, 0)
  })).filter(c => c.val > 0);
  
  const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
@@ -4106,7 +4110,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
  <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={d.cat} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
  </div>
@@ -9664,36 +9668,42 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <p className="text-xs text-slate-500 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
            {(() => {
              // Mapeamento: cat planeamento → cat extrato
-             const catMap = {
-               'Habitação': 'habitacao', 'Utilidades': 'habitacao', 'Seguros': 'habitacao',
-               'Alimentação': 'alimentacao',
-               'Saúde': 'saude', 'Lazer': 'lazer', 'Transporte': 'transporte',
-               'Subscrições': 'subscricoes', 'Serviços': 'servicos',
-               'Bancário': 'outros', 'Vários': 'outros', 'Outros': 'outros',
-             };
+             // Mapeamento: nome da categoria → id do extrato (agora uniforme)
+             const allCats = G.categoriasExtrato || defG.categoriasExtrato;
+             const catMap = {};
+             allCats.forEach(c => { catMap[c.nome] = c.id; });
+             // Fallback para nomes antigos
+             if (!catMap['Utilidades']) catMap['Utilidades'] = 'habitacao';
+             if (!catMap['Alimentação']) catMap['Alimentação'] = 'alimentacao';
+             if (!catMap['Lazer']) catMap['Lazer'] = 'lazer';
+             if (!catMap['Bancário']) catMap['Bancário'] = 'outros';
+             if (!catMap['Vários']) catMap['Vários'] = 'outros';
+             if (!catMap['Seguros']) catMap['Seguros'] = 'habitacao';
              
              // Find ABanca and Activo Bank conta IDs
              const abancaConta = contas.find(c => (c.nome || '').toLowerCase().includes('abanca') || (c.banco || '').toLowerCase().includes('abanca'));
              const activoConta = contas.find(c => (c.nome || '').toLowerCase().includes('activo') || (c.banco || '').toLowerCase().includes('activo'));
              
-             // --- ABanca: 3 grupos (Mercado, Habitação, Resto) ---
-             const abMercado = (despABanca || []).filter(d => d.cat === 'Alimentação').reduce((a, d) => a + (d.val || 0), 0);
-             const abHabitacao = (despABanca || []).filter(d => ['Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).reduce((a, d) => a + (d.val || 0), 0);
-             const abResto = (despABanca || []).filter(d => !['Alimentação', 'Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).reduce((a, d) => a + (d.val || 0), 0);
+             // --- ABanca: agrupar por categoria extrato ---
+             const abPorCat = {};
+             (despABanca || []).forEach(d => {
+               const extCatId = catMap[migrateCat(d.cat)] || 'outros';
+               abPorCat[extCatId] = (abPorCat[extCatId] || 0) + (d.val || 0);
+             });
+             // Separar em Mercado, Habitação, Resto
+             const abMercado = abPorCat['alimentacao'] || 0;
+             const abHabitacao = abPorCat['habitacao'] || 0;
+             const abRestoTotal = Object.entries(abPorCat).filter(([k]) => k !== 'alimentacao' && k !== 'habitacao').reduce((a, [_, v]) => a + v, 0);
              
-             // Cats extrato que pertencem a cada grupo ABanca
+             // Cats extrato para cada grupo
              const mercadoCats = ['alimentacao'];
              const habitacaoCats = ['habitacao'];
-             const restoCatsSet = new Set();
-             (despABanca || []).filter(d => !['Alimentação', 'Habitação', 'Utilidades', 'Seguros'].includes(d.cat)).forEach(d => {
-               restoCatsSet.add(catMap[d.cat] || 'outros');
-             });
-             const restoCats = [...restoCatsSet];
+             const restoCats = [...new Set(Object.keys(abPorCat).filter(k => k !== 'alimentacao' && k !== 'habitacao'))];
              
              // --- Activo Bank: por categoria ---
              const activoCats = {};
              (despPess || []).forEach(d => {
-               const extCat = catMap[d.cat] || 'outros';
+               const extCat = catMap[migrateCat(d.cat)] || 'outros';
                activoCats[extCat] = (activoCats[extCat] || 0) + (d.val || 0);
              });
              
@@ -9702,7 +9712,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              if (abancaConta) {
                proposedGroups.push({ nome: '🛒 ABanca — Mercado', contaId: abancaConta.id, categorias: mercadoCats, limite: Math.round(abMercado) });
                proposedGroups.push({ nome: '🏠 ABanca — Habitação', contaId: abancaConta.id, categorias: habitacaoCats, limite: Math.round(abHabitacao) });
-               if (abResto > 0) proposedGroups.push({ nome: '📦 ABanca — Resto', contaId: abancaConta.id, categorias: restoCats, limite: Math.round(abResto) });
+               if (abRestoTotal > 0) proposedGroups.push({ nome: '📦 ABanca — Resto', contaId: abancaConta.id, categorias: restoCats, limite: Math.round(abRestoTotal) });
              }
              if (activoConta) {
                Object.entries(activoCats).sort((a, b) => b[1] - a[1]).forEach(([catId, val]) => {
@@ -11387,9 +11397,9 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  const getComparacaoBenchmarks = useCallback(() => {
    const rendTotal = recLiq || 1;
-   const gastosHab = despABanca.filter(d => d.cat === 'Habitação').reduce((a, d) => a + d.val, 0) * (contrib/100);
-   const gastosAlim = despABanca.filter(d => d.cat === 'Alimentação').reduce((a, d) => a + d.val, 0) * (contrib/100);
-   const gastosTrans = despPess.filter(d => d.cat === 'Transporte').reduce((a, d) => a + d.val, 0);
+   const gastosHab = despABanca.filter(d => migrateCat(d.cat) === 'Habitação').reduce((a, d) => a + d.val, 0) * (contrib/100);
+   const gastosAlim = despABanca.filter(d => migrateCat(d.cat) === 'Mercado').reduce((a, d) => a + d.val, 0) * (contrib/100);
+   const gastosTrans = despPess.filter(d => migrateCat(d.cat) === 'Transporte').reduce((a, d) => a + d.val, 0);
    
    return {
      habitacao: { atual: (gastosHab / rendTotal * 100), benchmark: benchmarks.habitacao },
@@ -12694,7 +12704,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/50 border-slate-200' : 'bg-slate-800/30 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide`}>
+      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide sticky top-[57px] sm:top-[65px] z-40 backdrop-blur-xl`}>
         {tabs.map(t => {
           // Verificar se alguma sub-tab está ativa
           const isSubActive = t.submenu?.some(sub => tab === sub.id);
