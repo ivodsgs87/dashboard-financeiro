@@ -1942,7 +1942,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
 
- const Resumo = () => {
+ const renderResumo = () => {
  const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
  const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
  const projecao = getProjecaoAnual();
@@ -2466,7 +2466,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // PERFORMANCE DASHBOARD
- const Performance = () => {
+ const renderPerformance = () => {
    const totaisAnuais = calcularTotaisAnuais();
    const portfolioHist = G.portfolioHist || [];
    const patrimonioHist = G.patrimonioHist || [];
@@ -3385,13 +3385,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // RECEITAS
- const Receitas = () => {
-   const [editRecibo, setEditRecibo] = useState(null);
-   const [showReciboModal, setShowReciboModal] = useState(false);
-   const [showImportModal, setShowImportModal] = useState(false);
-   const [importLoading, setImportLoading] = useState(false);
-   const [importError, setImportError] = useState('');
-   const [importedData, setImportedData] = useState(null);
+ const renderReceitas = () => {
    
    const paisOptions = ['PT', 'UE', 'Fora UE'];
    
@@ -3980,7 +3974,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // ABANCA
- const ABanca = () => {
+ const renderABanca = () => {
  // Agrupar despesas por categoria
  const porCat = cats.map(c => ({
    cat: c,
@@ -4067,7 +4061,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // PESSOAIS
- const Pessoais = () => {
+ const renderPessoais = () => {
  // Agrupar despesas por categoria
  const porCat = cats.map(c => ({
    cat: c,
@@ -4146,7 +4140,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // INVESTIMENTOS
- const Invest = () => {
+ const renderInvest = () => {
  const disp = restante>0?restante:0;
  const pAmort = disp*((alocAmort-alocFerias)/100);
  const pFerias = disp*(alocFerias/100);
@@ -4154,7 +4148,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const totInvSemCredito = inv.filter(i => i.cat !== 'CREDITO').reduce((a,i) => a + i.val, 0);
  const rest = pInv - totInvSemCredito;
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
- const [novaCat, setNovaCat] = useState('');
  
  return (
  <div key={mesKey} className="space-y-6 max-w-4xl mx-auto">
@@ -4304,7 +4297,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // SARA
- const Sara = () => {
+ const renderSara = () => {
  const totAloc = sara.aloc.reduce((a,x)=>a+x.val,0);
  const restAloc = sobraSara - totAloc;
  const pctAloc = sobraSara > 0 ? (totAloc / sobraSara) * 100 : 0;
@@ -4416,7 +4409,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // HISTÓRICO
- const Historico = () => {
+ const renderHistorico = () => {
  const h = getHist();
  
  // Anos disponíveis: todos os anos com dados + ano atual
@@ -4984,9 +4977,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
  const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0),items:portfolio.filter(p=>p.cat===c)})).filter(c=>c.val>0);
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
- const [novaCatPort, setNovaCatPort] = useState('');
- const [expandedCat, setExpandedCat] = useState(null);
- const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
+ // useState moved to parent scope (Portfolio)
+ // useState moved to parent scope (Portfolio)
+ // useState moved to parent scope (Portfolio)
  
  // Filtrar dados do histórico por período
  const getLineData = () => {
@@ -5415,8 +5408,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
    <h3 className="font-semibold mb-4">🔮 Simuladores</h3>
    {(() => {
-     const [simTab, setSimTab] = useState('projecao');
-     const totPortfolio = portfolio.reduce((a, p) => a + p.val, 0);
+        const totPortfolio = portfolio.reduce((a, p) => a + p.val, 0);
      // Calc avg monthly investment from last 6 months
      const avgInvMensal = (() => {
        let total = 0, count = 0;
@@ -5432,11 +5424,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      })();
 
      // Simulador 1: Projeção Portfolio
-     const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
-     const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
-     const [simRetorno, setSimRetorno] = useState(7);
-     const [simAnos, setSimAnos] = useState(20);
-
+            
      const calcProjecao = () => {
        const r = simRetorno / 100 / 12;
        const n = simAnos * 12;
@@ -5457,9 +5445,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const maxProj = Math.max(...proj.map(p => p.total), 1);
 
      // Simulador 2: Amortizar vs Investir
-     const [simExtra, setSimExtra] = useState(200);
-     const [simRetornoInv, setSimRetornoInv] = useState(7);
-     const taxaCredito = credito.taxaJuro || 2;
+           const taxaCredito = credito.taxaJuro || 2;
      const dividaCredito = credito.dividaAtual || 229693;
      const prestacaoCredito = credito.prestacao || 971;
 
@@ -5509,14 +5495,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const avi = calcAmortVsInvest();
 
      // Simulador 3: FIRE
-     const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
-     const [simRetornoFire, setSimRetornoFire] = useState(4);
-     const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
-     const [flamingoIdade, setFlamingoIdade] = useState(35);
-     const [flamingoReforma, setFlamingoReforma] = useState(60);
-     const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
-     const [flamingoRetorno, setFlamingoRetorno] = useState(7);
-     const fireTarget = simDespMensal * 12 * simMetodoFire;
+                          const fireTarget = simDespMensal * 12 * simMetodoFire;
      const calcFire = () => {
        const r = simRetornoInv / 100 / 12;
        let saldo = totPortfolio;
@@ -5947,23 +5926,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // CRÉDITO HABITAÇÃO
  const Credito = () => {
- const [simAmort, setSimAmort] = useState(500);
- const [simAnos, setSimAnos] = useState(10);
- const [simEuribor, setSimEuribor] = useState(2.5);
- const [simSpread, setSimSpread] = useState(1.0);
- const [simMeses, setSimMeses] = useState(null);
- const [simDivida, setSimDivida] = useState(null);
- const [showAddCredito, setShowAddCredito] = useState(false);
- const [editCredito, setEditCredito] = useState(null);
- const [showLiquidar, setShowLiquidar] = useState(false);
- const [showAllHistorico, setShowAllHistorico] = useState(false);
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
+ // useState moved to parent scope (Credito)
  
  // Usar sistema de múltiplos créditos ou fallback para estrutura antiga
  const creditos = G.creditos || [];
  const creditoAtivo = creditos.find(c => c.estado === 'ativo') || null;
  
  // Auto-selecionar crédito ativo
- const [creditoSelecionado, setCreditoSelecionado] = useState(null);
+ // useState moved to parent scope (Credito)
  
  // Atualizar seleção quando créditos mudam ou quando não há seleção
  useEffect(() => {
@@ -6219,13 +6197,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const totalPrestacoes = creditosAtivos.reduce((acc, c) => acc + (c.prestacao || 0) + (c.seguros || 0), 0);
  
  // Modal de adicionar crédito
- const [novoCredito, setNovoCredito] = useState({
+ // useState moved to parent scope (Credito)
    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
  });
  
  // Modal de liquidação
- const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
+ // useState moved to parent scope (Credito)
  
  return (
  <div className="space-y-6">
@@ -6874,10 +6852,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const transacoes = G.transacoes || [];
    const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
    
-   const [showAddTransacao, setShowAddTransacao] = useState(false);
-   const [editTransacao, setEditTransacao] = useState(null);
-   const [novaTransacao, setNovaTransacao] = useState({
-     data: new Date().toISOString().split('T')[0],
+        data: new Date().toISOString().split('T')[0],
      tipo: 'compra',
      categoria: catsInv[0] || 'ETF',
      ticker: '',
@@ -6890,15 +6865,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    });
    
    // Filtros
-   const [filtroCorretora, setFiltroCorretora] = useState('todas');
-   const [filtroCategoria, setFiltroCategoria] = useState('todas');
-   const [filtroTipo, setFiltroTipo] = useState('todos');
-   const [filtroAno, setFiltroAno] = useState('todos');
-   const [novaCorretora, setNovaCorretora] = useState('');
-   
+        
    // Ordenação
-   const [ordenacao, setOrdenacao] = useState('data-desc');
-   
+    
    // Calcular valor total automaticamente
    const handleQuantidadeChange = (val) => {
      const quantidade = parseFloat(val) || 0;
@@ -7335,27 +7304,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const Calendario = () => {
    const projetos = G.projetos || [];
    const feriasLista = G.feriasCalendario || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
-   const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
-   const [calMes, setCalMes] = useState(meses.indexOf(mes));
-   const [calAno, setCalAno] = useState(ano);
-   const [showAddProjeto, setShowAddProjeto] = useState(false);
-   const [showAddFerias, setShowAddFerias] = useState(false);
-   const [editProjeto, setEditProjeto] = useState(null);
-   const [editFerias, setEditFerias] = useState(null);
-   const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
-   const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
-   
+            
    // Filtros de visualização
-   const [showProjetos, setShowProjetos] = useState(true);
-   const [showFeriasFilter, setShowFeriasFilter] = useState(true);
-   
+     
    // Google Calendar state
-   const [gcalConnected, setGcalConnected] = useState(false);
-   const [gcalLoading, setGcalLoading] = useState(false);
-   const [gcalToken, setGcalToken] = useState(null);
-   const [gcalError, setGcalError] = useState('');
-   const [syncing, setSyncing] = useState(false);
-   
+        
    // Verificar se já tem token guardado
    useEffect(() => {
      const savedToken = localStorage.getItem('gcal_token');
@@ -8270,7 +8223,87 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // AGENDA FINANCEIRA
- const Agenda = () => {
+   const renderTarefaModal = () => {
+     if (!showAddModal) return null;
+     return (
+       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
+         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+             <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
+             <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
+           </div>
+           <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
+             <div>
+               <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
+               <input 
+                 className={`w-full ${inputClass}`} 
+                 value={novaTarefa.desc} 
+                 onChange={e => {
+                   const val = e.target.value;
+                   setNovaTarefa(prev => ({...prev, desc: val}));
+                 }} 
+                 placeholder="Ex: Pagar IVA trimestral"
+               />
+             </div>
+             <div className="grid grid-cols-2 gap-3">
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
+                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value || 1}))} />
+               </div>
+               <div>
+                 <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
+                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))}>
+                   {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                 </select>
+               </div>
+             </div>
+             <div>
+               <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
+               <div className="flex gap-2">
+                 {[{id:'semanal',label:'Semanal'},{id:'mensal',label:'Mensal'},{id:'anual',label:'Meses específicos'}].map(f => (
+                   <button key={f.id} onClick={() => setNovaTarefa(prev => ({...prev, freq: f.id, meses: f.id === 'mensal' || f.id === 'semanal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f.id ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                     {f.label}
+                   </button>
+                 ))}
+               </div>
+             </div>
+             {novaTarefa.freq === 'semanal' && (
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Dia da semana</label>
+                 <div className="grid grid-cols-7 gap-1">
+                   {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
+                     <button key={i} onClick={() => setNovaTarefa(prev => ({...prev, diaSemana: i}))} className={`py-1.5 px-1 rounded text-xs font-medium transition-all ${(novaTarefa.diaSemana ?? 1) === i ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                       {d}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             )}
+             {novaTarefa.freq === 'anual' && (
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
+                 <div className="grid grid-cols-4 gap-1">
+                   {meses.map((m, i) => (
+                     <button key={i} onClick={() => toggleMes(i+1)} className={`py-1.5 px-2 rounded text-xs font-medium transition-all ${novaTarefa.meses.includes(i+1) ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                       {m.slice(0,3)}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             )}
+           </div>
+           <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
+             <Button variant="secondary" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>Cancelar</Button>
+             <Button onClick={saveTarefa} disabled={!novaTarefa.desc}>{editTarefa ? 'Guardar' : 'Adicionar'}</Button>
+           </div>
+         </div>
+       </div>
+     );
+   };
+   
+
+
+ const renderAgenda = () => {
    const tarefas = G.tarefas || [];
    const tarefasConcluidas = G.tarefasConcluidas || {};
    const hoje = new Date();
@@ -8421,90 +8454,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const atrasadas = pendentes.filter(t => t.atrasada);
    
    // Modal para adicionar/editar tarefa - render direto sem componente interno
-   const renderTarefaModal = () => {
-     if (!showAddModal) return null;
-     return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-             <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
-             <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
-           </div>
-           <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
-             <div>
-               <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
-               <input 
-                 className={`w-full ${inputClass}`} 
-                 value={novaTarefa.desc} 
-                 onChange={e => {
-                   const val = e.target.value;
-                   setNovaTarefa(prev => ({...prev, desc: val}));
-                 }} 
-                 placeholder="Ex: Pagar IVA trimestral"
-               />
-             </div>
-             <div className="grid grid-cols-2 gap-3">
-               <div>
-                 <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
-                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value || 1}))} />
-               </div>
-               <div>
-                 <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
-                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))}>
-                   {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-                 </select>
-               </div>
-             </div>
-             <div>
-               <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
-               <div className="flex gap-2">
-                 {[{id:'semanal',label:'Semanal'},{id:'mensal',label:'Mensal'},{id:'anual',label:'Meses específicos'}].map(f => (
-                   <button key={f.id} onClick={() => setNovaTarefa(prev => ({...prev, freq: f.id, meses: f.id === 'mensal' || f.id === 'semanal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f.id ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                     {f.label}
-                   </button>
-                 ))}
-               </div>
-             </div>
-             {novaTarefa.freq === 'semanal' && (
-               <div>
-                 <label className="text-xs text-slate-400 mb-2 block">Dia da semana</label>
-                 <div className="grid grid-cols-7 gap-1">
-                   {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
-                     <button key={i} onClick={() => setNovaTarefa(prev => ({...prev, diaSemana: i}))} className={`py-1.5 px-1 rounded text-xs font-medium transition-all ${(novaTarefa.diaSemana ?? 1) === i ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
-                       {d}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             )}
-             {novaTarefa.freq === 'anual' && (
-               <div>
-                 <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
-                 <div className="grid grid-cols-4 gap-1">
-                   {meses.map((m, i) => (
-                     <button key={i} onClick={() => toggleMes(i+1)} className={`py-1.5 px-2 rounded text-xs font-medium transition-all ${novaTarefa.meses.includes(i+1) ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
-                       {m.slice(0,3)}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             )}
-           </div>
-           <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
-             <Button variant="secondary" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>Cancelar</Button>
-             <Button onClick={saveTarefa} disabled={!novaTarefa.desc}>{editTarefa ? 'Guardar' : 'Adicionar'}</Button>
-           </div>
-         </div>
-       </div>
-     );
-   };
-   
-   const totalAtrasadas = atrasadas.length + tarefasAtrasadasAnteriores.length;
+      const totalAtrasadas = atrasadas.length + tarefasAtrasadasAnteriores.length;
    
    return (
      <div className="space-y-6">
-       {renderTarefaModal()}
-       
        {/* RESUMO */}
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
          <StatCard label="Este Mês" value={tarefasMesAtual.length} color="text-blue-400" sub={`${tarefasMesAtual.filter(t=>t.concluida).length} concluídas`} icon="📋"/>
@@ -8663,10 +8616,76 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [extShowImport, setExtShowImport] = useState(false);
  const [extShowAddConta, setExtShowAddConta] = useState(false);
   const [extOrcGenCollapsed, setExtOrcGenCollapsed] = useState(true);
-  // Agenda states (parent scope to survive re-renders)
+  // Invest + Agenda states (parent scope to survive re-renders)
+  const [novaCat, setNovaCat] = useState('');
   const [agShowAddModal, setAgShowAddModal] = useState(false);
   const [agEditTarefa, setAgEditTarefa] = useState(null);
   const [agNovaTarefa, setAgNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
+  // States moved from inner components to parent scope (fixes focus issues)
+  const [novaCatPort, setNovaCatPort] = useState('');
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
+  const [simTab, setSimTab] = useState('projecao');
+  const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
+  const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
+  const [simRetorno, setSimRetorno] = useState(7);
+  const [simAnos, setSimAnos] = useState(20);
+  const [simExtra, setSimExtra] = useState(200);
+  const [simRetornoInv, setSimRetornoInv] = useState(7);
+  const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
+  const [simRetornoFire, setSimRetornoFire] = useState(4);
+  const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
+  const [flamingoIdade, setFlamingoIdade] = useState(35);
+  const [flamingoReforma, setFlamingoReforma] = useState(60);
+  const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
+  const [flamingoRetorno, setFlamingoRetorno] = useState(7);
+  const [simAmort, setSimAmort] = useState(500);
+  const [simEuribor, setSimEuribor] = useState(2.5);
+  const [simSpread, setSimSpread] = useState(1.0);
+  const [simMeses, setSimMeses] = useState(null);
+  const [simDivida, setSimDivida] = useState(null);
+  const [showAddCredito, setShowAddCredito] = useState(false);
+  const [editCredito, setEditCredito] = useState(null);
+  const [showLiquidar, setShowLiquidar] = useState(false);
+  const [showAllHistorico, setShowAllHistorico] = useState(false);
+  const [creditoSelecionado, setCreditoSelecionado] = useState(null);
+  const [novoCredito, setNovoCredito] = useState({
+  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
+  const [novaTransacao, setNovaTransacao] = useState({
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroAno, setFiltroAno] = useState('todos');
+  const [novaCorretora, setNovaCorretora] = useState('');
+  const [ordenacao, setOrdenacao] = useState('data-desc');
+  const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
+  const [calMes, setCalMes] = useState(meses.indexOf(mes));
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalToken, setGcalToken] = useState(null);
+  const [gcalError, setGcalError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  // States moved from inner components to prevent unmount issues
+  const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
+  const [csvText, setCsvText] = useState('');
+  const [editRecibo, setEditRecibo] = useState(null);
+  const [showReciboModal, setShowReciboModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importedData, setImportedData] = useState(null);
+  const [showAddTransacao, setShowAddTransacao] = useState(false);
+  const [editTransacao, setEditTransacao] = useState(null);
+  const [filtroCorretora, setFiltroCorretora] = useState('todas');
+  const [calAno, setCalAno] = useState(ano);
+  const [showAddProjeto, setShowAddProjeto] = useState(false);
+  const [showAddFerias, setShowAddFerias] = useState(false);
+  const [editProjeto, setEditProjeto] = useState(null);
+  const [editFerias, setEditFerias] = useState(null);
+  const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
+  const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
+  const [showProjetos, setShowProjetos] = useState(true);
+  const [showFeriasFilter, setShowFeriasFilter] = useState(true);
+  const [gcalConnected, setGcalConnected] = useState(false);
  const [extShowAddManual, setExtShowAddManual] = useState(false);
  const [extEditingTx, setExtEditingTx] = useState(null);
  const [extImportPreview, setExtImportPreview] = useState(null);
@@ -10538,7 +10557,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // Modal de atalhos de teclado
- const ShortcutsModal = () => {
+ const renderShortcutsModal = () => {
    if (!showShortcuts) return null;
    const shortcuts = [
      { key: '1', desc: '📊 Dashboard' },
@@ -11642,8 +11661,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    };
  };
  
- const RelatorioAnualModal = () => {
-   const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
+ const renderRelatorioAnualModal = () => {
    const relatorio = gerarRelatorioAnual(anoRelatorio);
    
    // Função para imprimir/exportar PDF
@@ -11996,7 +12014,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  // Modal de Pesquisa
- const SearchModal = () => {
+ const renderSearchModal = () => {
    if (!showSearch) return null;
    const results = searchResults();
    
@@ -12034,7 +12052,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  // Modal de Alertas
- const AlertsModal = () => {
+ const renderAlertsModal = () => {
    if (!showAlerts) return null;
    const alerts = getActiveAlerts();
    const alertas = G.alertas || [];
@@ -12179,8 +12197,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  // Modal de Importar CSV
- const ImportCSVModal = () => {
-   const [csvText, setCsvText] = useState('');
+ const renderImportCSVModal = () => {
    if (!showImportCSV) return null;
    
    return (
@@ -12209,7 +12226,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  // Modal de Backup
- const BackupModal = () => {
+ const renderBackupModal = () => {
  if (!showBackupModal) return null;
  
  const handleImport = () => {
@@ -12450,12 +12467,13 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  return (
  <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`} style={{overflowX: 'clip'}}>
- <BackupModal />
- <SearchModal />
- <AlertsModal />
- <ImportCSVModal />
- <RelatorioAnualModal />
- <ShortcutsModal />
+ {renderBackupModal()}
+ {renderTarefaModal()}
+ {renderSearchModal()}
+ {renderAlertsModal()}
+ {renderImportCSVModal()}
+ {renderRelatorioAnualModal()}
+ {renderShortcutsModal()}
  {!isOnline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
      ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
@@ -12823,20 +12841,20 @@ ${transacoesOrdenadas.map(t => `<tr>
       )}
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
-        <div key={tab} className="animate-fadeIn">
-        {tab==='resumo' && <Resumo/>}
- {tab==='performance' && <Performance/>}
- {tab==='receitas' && <Receitas/>}
- {tab==='abanca' && <ABanca/>}
- {tab==='pessoais' && <Pessoais/>}
- {tab==='invest' && <Invest/>}
- {tab==='sara' && <Sara/>}
- {tab==='historico' && <Historico/>}
+        <div className="animate-fadeIn">
+        {tab==='resumo' && renderResumo()}
+ {tab==='performance' && renderPerformance()}
+ {tab==='receitas' && renderReceitas()}
+ {tab==='abanca' && renderABanca()}
+ {tab==='pessoais' && renderPessoais()}
+ {tab==='invest' && renderInvest()}
+ {tab==='sara' && renderSara()}
+ {tab==='historico' && renderHistorico()}
  {tab==='portfolio' && <Portfolio/>}
  {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
  {tab==='calendario' && <Calendario/>}
- {tab==='agenda' && <Agenda/>}
+ {tab==='agenda' && renderAgenda()}
  {tab==='extrato' && renderExtrato()}
         </div>
  </main>
