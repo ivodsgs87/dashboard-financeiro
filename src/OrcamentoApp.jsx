@@ -8278,26 +8278,57 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const anoAtual = hoje.getFullYear();
    const diaAtual = hoje.getDate();
    
-   // Estado para modal de nova tarefa
-   const [showAddModal, setShowAddModal] = useState(false);
-   const [editTarefa, setEditTarefa] = useState(null);
-   const [novaTarefa, setNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []});
+   // Usar estado do parent scope (sobrevive re-renders)
+   const showAddModal = agShowAddModal;
+   const setShowAddModal = setAgShowAddModal;
+   const editTarefa = agEditTarefa;
+   const setEditTarefa = setAgEditTarefa;
+   const novaTarefa = agNovaTarefa;
+   const setNovaTarefa = setAgNovaTarefa;
    
    // Determinar tarefas deste mês
+   const diasSemana = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
    const getTarefasMes = (mes, anoCheck) => {
-     return tarefas.filter(t => {
-       if (!t.ativo) return false;
+     const result = [];
+     tarefas.filter(t => {
+       if (!t.ativo && t.ativo !== undefined) return false;
        if (t.freq === 'mensal') return true;
+       if (t.freq === 'semanal') return true;
        if (t.freq === 'trimestral') return t.meses?.includes(mes);
        if (t.freq === 'anual') return t.meses?.includes(mes);
        return false;
-     }).map(t => ({
-       ...t,
-       key: `${anoCheck}-${mes}-${t.id}`,
-       concluida: tarefasConcluidas[`${anoCheck}-${mes}-${t.id}`] || false,
-       atrasada: mes < mesAtual || (mes === mesAtual && t.dia < diaAtual),
-       proxima: mes === mesAtual && t.dia >= diaAtual && t.dia <= diaAtual + 7
-     }));
+     }).forEach(t => {
+       if (t.freq === 'semanal') {
+         // Generate occurrences for each week in the month
+         const daysInMonth = new Date(anoCheck, mes, 0).getDate();
+         for (let d = 1; d <= daysInMonth; d++) {
+           const dow = new Date(anoCheck, mes - 1, d).getDay();
+           if (dow === (t.diaSemana || 1)) { // default Monday
+             const weekNum = Math.ceil(d / 7);
+             const key = `${anoCheck}-${mes}-${t.id}-w${weekNum}`;
+             result.push({
+               ...t,
+               dia: d,
+               key,
+               concluida: tarefasConcluidas[key] || false,
+               atrasada: mes < mesAtual || (mes === mesAtual && d < diaAtual),
+               proxima: mes === mesAtual && d >= diaAtual && d <= diaAtual + 7,
+               semanaLabel: `Semana ${weekNum}`
+             });
+           }
+         }
+       } else {
+         const key = `${anoCheck}-${mes}-${t.id}`;
+         result.push({
+           ...t,
+           key,
+           concluida: tarefasConcluidas[key] || false,
+           atrasada: mes < mesAtual || (mes === mesAtual && t.dia < diaAtual),
+           proxima: mes === mesAtual && t.dia >= diaAtual && t.dia <= diaAtual + 7
+         });
+       }
+     });
+     return result.sort((a, b) => a.dia - b.dia);
    };
    
    // Obter tarefas atrasadas de meses anteriores (últimos 3 meses)
@@ -8360,12 +8391,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
      setShowAddModal(false);
      setEditTarefa(null);
-     setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []});
+     setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
    };
    
    const openEditModal = (t) => {
      setEditTarefa(t);
-     setNovaTarefa({desc: t.desc, dia: t.dia, freq: t.freq, cat: t.cat, meses: t.meses || []});
+     setNovaTarefa({desc: t.desc, dia: t.dia, freq: t.freq, cat: t.cat, meses: t.meses || [], diaSemana: t.diaSemana ?? 1});
      setShowAddModal(true);
    };
    
@@ -8427,13 +8458,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div>
                <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
                <div className="flex gap-2">
-                 {['mensal', 'anual'].map(f => (
-                   <button key={f} onClick={() => setNovaTarefa(prev => ({...prev, freq: f, meses: f === 'mensal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                     {f === 'mensal' ? 'Todos os meses' : 'Meses específicos'}
+                 {[{id:'semanal',label:'Semanal'},{id:'mensal',label:'Mensal'},{id:'anual',label:'Meses específicos'}].map(f => (
+                   <button key={f.id} onClick={() => setNovaTarefa(prev => ({...prev, freq: f.id, meses: f.id === 'mensal' || f.id === 'semanal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f.id ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                     {f.label}
                    </button>
                  ))}
                </div>
              </div>
+             {novaTarefa.freq === 'semanal' && (
+               <div>
+                 <label className="text-xs text-slate-400 mb-2 block">Dia da semana</label>
+                 <div className="grid grid-cols-7 gap-1">
+                   {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
+                     <button key={i} onClick={() => setNovaTarefa(prev => ({...prev, diaSemana: i}))} className={`py-1.5 px-1 rounded text-xs font-medium transition-all ${(novaTarefa.diaSemana ?? 1) === i ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                       {d}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             )}
              {novaTarefa.freq === 'anual' && (
                <div>
                  <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
@@ -8522,7 +8565,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">📅 {meses[mesAtual-1]} {anoAtual}</h3>
-           <Button onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+ Nova Tarefa</Button>
+           <Button onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setShowAddModal(true);}}>+ Nova Tarefa</Button>
          </div>
          <div className="space-y-2">
            {tarefasMesAtual.length === 0 ? (
@@ -8572,7 +8615,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">⚙️ Gerir Tarefas Recorrentes</h3>
            <div className="flex gap-2">
-             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: []}); setShowAddModal(true);}}>+</Button>
+             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setShowAddModal(true);}}>+</Button>
              <Button variant="secondary" onClick={() => {
                if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
                  saveUndo();
@@ -8619,6 +8662,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const EXT_POR_PAGINA = 200;
  const [extShowImport, setExtShowImport] = useState(false);
  const [extShowAddConta, setExtShowAddConta] = useState(false);
+  const [extOrcGenCollapsed, setExtOrcGenCollapsed] = useState(true);
+  // Agenda states (parent scope to survive re-renders)
+  const [agShowAddModal, setAgShowAddModal] = useState(false);
+  const [agEditTarefa, setAgEditTarefa] = useState(null);
+  const [agNovaTarefa, setAgNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
  const [extShowAddManual, setExtShowAddManual] = useState(false);
  const [extEditingTx, setExtEditingTx] = useState(null);
  const [extImportPreview, setExtImportPreview] = useState(null);
@@ -9664,8 +9712,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="space-y-4">
          {/* Auto-generate from Casal + Pessoais */}
          <Card>
-           <h4 className="font-semibold mb-2">⚡ Gerar Orçamentos do Planeamento</h4>
-           <p className="text-xs text-slate-500 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
+           <button type="button" onClick={() => setExtOrcGenCollapsed(p => !p)} className="flex items-center justify-between w-full">
+             <h4 className="font-semibold">⚡ Gerar Orçamentos do Planeamento</h4>
+             <span className="text-slate-500 text-sm">{extOrcGenCollapsed ? '▼' : '▲'}</span>
+           </button>
+           {!extOrcGenCollapsed && <><p className="text-xs text-slate-500 mt-2 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
            {(() => {
              // Mapeamento: cat planeamento → cat extrato
              // Mapeamento: nome da categoria → id do extrato (agora uniforme)
@@ -9787,6 +9838,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </details>
              </>);
            })()}
+           </>}
          </Card>
 
          {/* Grouped budgets */}
@@ -9862,10 +9914,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    {grupo.limite > 0 && (
                      <div className="mt-1">
                        <div className="flex items-end justify-between mb-2">
-                         <span className={`text-xl font-bold font-mono ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-emerald-400'}`}>{fmt(gastoGrupo)}</span>
+                         <span className={`text-lg font-bold font-mono ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-emerald-400'}`}>{fmt(gastoGrupo)}</span>
                          <span className="text-sm text-slate-500 font-mono">/ {fmt(grupo.limite)} <span className={`font-bold ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-slate-400'}`}>({pctG.toFixed(0)}%)</span></span>
                        </div>
-                       <div className={`w-full h-5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                       <div className={`w-full h-3.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
                          <div className={`h-full rounded-full transition-all duration-500 ${pctG > 100 ? 'bg-red-500' : pctG > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
                            style={{ width: Math.min(100, pctG) + '%' }} />
                        </div>
@@ -11256,26 +11308,31 @@ ${transacoesOrdenadas.map(t => `<tr>
    const diaAtual = hoje.getDate();
    
    // Filtrar tarefas do mês atual
-   const tarefasMes = tarefas.filter(t => {
-     // Verificar se está ativa (default true se não existir)
+   const tarefasMes = [];
+   tarefas.filter(t => {
      if (t.ativo === false) return false;
-     // Tarefas mensais aparecem sempre
-     if (t.freq === 'mensal') return true;
-     // Tarefas trimestrais/anuais só aparecem nos meses especificados
+     if (t.freq === 'mensal' || t.freq === 'semanal') return true;
      if (t.freq === 'trimestral' || t.freq === 'anual') {
        return Array.isArray(t.meses) && t.meses.includes(mesAtual);
      }
      return false;
-   }).map(t => {
-     const key = `${anoAtual}-${mesAtual}-${t.id}`;
-     const concluida = tarefasConcluidas[key] === true;
-     return {
-       ...t,
-       key,
-       concluida,
-       atrasada: t.dia < diaAtual && !concluida,
-       proxima: t.dia >= diaAtual && t.dia <= diaAtual + 5 && !concluida
-     };
+   }).forEach(t => {
+     if (t.freq === 'semanal') {
+       const daysInMonth = new Date(anoAtual, mesAtual, 0).getDate();
+       for (let d = 1; d <= daysInMonth; d++) {
+         const dow = new Date(anoAtual, mesAtual - 1, d).getDay();
+         if (dow === (t.diaSemana || 1)) {
+           const weekNum = Math.ceil(d / 7);
+           const key = `${anoAtual}-${mesAtual}-${t.id}-w${weekNum}`;
+           const concluida = tarefasConcluidas[key] === true;
+           tarefasMes.push({...t, dia: d, key, concluida, atrasada: d < diaAtual && !concluida, proxima: d >= diaAtual && d <= diaAtual + 5 && !concluida});
+         }
+       }
+     } else {
+       const key = `${anoAtual}-${mesAtual}-${t.id}`;
+       const concluida = tarefasConcluidas[key] === true;
+       tarefasMes.push({...t, key, concluida, atrasada: t.dia < diaAtual && !concluida, proxima: t.dia >= diaAtual && t.dia <= diaAtual + 5 && !concluida});
+     }
    });
    
    const pendentes = tarefasMes.filter(t => !t.concluida);
@@ -11297,23 +11354,29 @@ ${transacoesOrdenadas.map(t => `<tr>
      
      tarefas.filter(t => {
        if (t.ativo === false) return false;
-       if (t.freq === 'mensal') return true;
+       if (t.freq === 'mensal' || t.freq === 'semanal') return true;
        if (t.freq === 'trimestral' || t.freq === 'anual') {
          return Array.isArray(t.meses) && t.meses.includes(mesCheck);
        }
        return false;
      }).forEach(t => {
-       const key = `${anoCheck}-${mesCheck}-${t.id}`;
-       if (tarefasConcluidas[key] !== true) {
-         tarefasAtrasadasAnteriores.push({
-           ...t,
-           key,
-           concluida: false,
-           atrasada: true,
-           data: new Date(anoCheck, mesCheck - 1, t.dia),
-           mesNome: meses[mesCheck - 1],
-           mesAnterior: true // Flag para identificar que é de mês anterior
-         });
+       if (t.freq === 'semanal') {
+         // For past months, just check if there are uncompleted weekly tasks
+         const dim = new Date(anoCheck, mesCheck, 0).getDate();
+         for (let d = 1; d <= dim; d++) {
+           if (new Date(anoCheck, mesCheck - 1, d).getDay() === (t.diaSemana || 1)) {
+             const wn = Math.ceil(d / 7);
+             const key = `${anoCheck}-${mesCheck}-${t.id}-w${wn}`;
+             if (tarefasConcluidas[key] !== true) {
+               tarefasAtrasadasAnteriores.push({...t, dia: d, key, concluida: false, atrasada: true, data: new Date(anoCheck, mesCheck - 1, d), mesNome: meses[mesCheck - 1], mesAnterior: true});
+             }
+           }
+         }
+       } else {
+         const key = `${anoCheck}-${mesCheck}-${t.id}`;
+         if (tarefasConcluidas[key] !== true) {
+           tarefasAtrasadasAnteriores.push({...t, key, concluida: false, atrasada: true, data: new Date(anoCheck, mesCheck - 1, t.dia), mesNome: meses[mesCheck - 1], mesAnterior: true});
+         }
        }
      });
    }
