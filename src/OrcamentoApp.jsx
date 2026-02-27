@@ -2059,11 +2059,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <button onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }} className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">🔄 Resetar tarefas</button>
              </div>
            )}
-           {(tarefasPend.atrasadas || []).map((t, i) => {
+           {(tarefasPend.atrasadas || []).length > 2 && (
+             <button onClick={() => { saveUndo(); const novas = {...(G.tarefasConcluidas || {})}; (tarefasPend.atrasadas || []).forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="w-full text-center text-xs px-2 py-1.5 mb-1 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors">✓ Marcar todas concluídas ({(tarefasPend.atrasadas || []).length})</button>
+           )}
+           {(tarefasPend.atrasadas || []).slice(0, 8).map((t, i) => {
              const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
              const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
              return (
-               <div key={`atrasada-${i}`} onClick={() => setTab('agenda')} className={`flex items-center gap-2 p-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-sm cursor-pointer hover:bg-orange-500/30`}>
+               <div key={`atrasada-${i}`} className={`flex items-center gap-2 p-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-sm`}>
+                 <input type="checkbox" checked={false} onChange={() => { saveUndo(); uG('tarefasConcluidas', {...(G.tarefasConcluidas || {}), [t.key]: true}); }} className="w-4 h-4 accent-emerald-500 flex-shrink-0 cursor-pointer" title="Marcar como concluída" />
                  <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">{t.dia} {t.mesNome?.slice(0,3)}</span>
                  <span className="flex-1 truncate text-orange-300">{descComMes}</span>
                  <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
@@ -2071,6 +2075,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
              );
            })}
+           {(tarefasPend.atrasadas || []).length > 8 && (
+             <p className="text-xs text-center text-orange-400/70 py-1">e mais {(tarefasPend.atrasadas || []).length - 8} atrasadas...</p>
+           )}
            {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
              const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
              const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
@@ -8463,10 +8470,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                  </div>
                  <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
+                 <button onClick={() => toggleTarefa(t.key)} className="text-emerald-400/60 hover:text-emerald-400 text-xs ml-1 flex-shrink-0" title="Marcar concluída">✓</button>
                </div>
              ))}
            </div>
-           <p className="text-xs text-slate-500 mt-3">💡 Marca como concluídas ou ajusta as datas das tarefas recorrentes em "Gerir Tarefas".</p>
          </Card>
        )}
        
