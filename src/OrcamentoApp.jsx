@@ -6197,13 +6197,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const totalPrestacoes = creditosAtivos.reduce((acc, c) => acc + (c.prestacao || 0) + (c.seguros || 0), 0);
  
  // Modal de adicionar crédito
- // useState moved to parent scope (Credito)
-   nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
-   taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
- });
  
  // Modal de liquidação
- // useState moved to parent scope (Credito)
  
  return (
  <div className="space-y-6">
@@ -6852,22 +6847,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const transacoes = G.transacoes || [];
    const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
    
-        data: new Date().toISOString().split('T')[0],
-     tipo: 'compra',
-     categoria: catsInv[0] || 'ETF',
-     ticker: '',
-     corretora: corretoras[0],
-     quantidade: '',
-     precoUnitario: '',
-     valorTotal: '',
-     comissao: 0,
-     notas: ''
-   });
-   
-   // Filtros
-        
-   // Ordenação
-    
    // Calcular valor total automaticamente
    const handleQuantidadeChange = (val) => {
      const quantidade = parseFloat(val) || 0;
@@ -8650,8 +8629,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [showAllHistorico, setShowAllHistorico] = useState(false);
   const [creditoSelecionado, setCreditoSelecionado] = useState(null);
   const [novoCredito, setNovoCredito] = useState({
+    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
+    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
+  });
   const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
   const [novaTransacao, setNovaTransacao] = useState({
+    data: new Date().toISOString().split('T')[0],
+    tipo: 'compra',
+    categoria: 'ETF',
+    ticker: '',
+    corretora: '',
+    quantidade: '',
+    precoUnitario: '',
+    valorTotal: '',
+    comissao: 0,
+    notas: ''
+  });
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroAno, setFiltroAno] = useState('todos');
