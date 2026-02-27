@@ -7499,7 +7499,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Sync todos os projetos e férias para Google Calendar
    const syncAllToGoogle = async () => {
      if (!gcalToken) return;
-     setSyncing(true);
+     setGcalSyncing(true);
      
      // Copiar arrays para evitar problemas de estado
      const projetosToSync = [...projetos];
@@ -7545,7 +7545,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        uG('feriasCalendario', updatedFerias);
      }
      
-     setSyncing(false);
+     setGcalSyncing(false);
    };
    
    const cores = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#06b6d4', '#84cc16'];
@@ -7783,7 +7783,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
                    Google Calendar
                  </span>
-                 {syncing ? (
+                 {gcalSyncing ? (
                    <span className="text-xs text-amber-400">A sincronizar...</span>
                  ) : (
                    <button onClick={syncAllToGoogle} className="px-2 py-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg" title="Sincronizar projetos e férias">🔄 Sync</button>
@@ -8655,7 +8655,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [gcalLoading, setGcalLoading] = useState(false);
   const [gcalToken, setGcalToken] = useState(null);
   const [gcalError, setGcalError] = useState('');
-  const [syncing, setSyncing] = useState(false);
+  const [gcalSyncing, setGcalSyncing] = useState(false);
 
   // States moved from inner components to prevent unmount issues
   const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
