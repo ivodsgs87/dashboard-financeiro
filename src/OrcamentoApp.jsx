@@ -9712,10 +9712,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="space-y-4">
          {/* Auto-generate from Casal + Pessoais */}
          <Card>
-           <button type="button" onClick={() => setExtOrcGenCollapsed(p => !p)} className="flex items-center justify-between w-full">
+           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setExtOrcGenCollapsed(prev => !prev)}>
              <h4 className="font-semibold">⚡ Gerar Orçamentos do Planeamento</h4>
-             <span className="text-slate-500 text-sm">{extOrcGenCollapsed ? '▼' : '▲'}</span>
-           </button>
+             <span className={`text-slate-400 text-xs transition-transform ${extOrcGenCollapsed ? '' : 'rotate-180'}`}>▼</span>
+           </div>
            {!extOrcGenCollapsed && <><p className="text-xs text-slate-500 mt-2 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
            {(() => {
              // Mapeamento: cat planeamento → cat extrato
@@ -12449,8 +12449,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  return (
- <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
- <style>{`.no-overflow-x { overflow-x: clip; }`}</style>
+ <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`} style={{overflowX: 'clip'}}>
  <BackupModal />
  <SearchModal />
  <AlertsModal />
