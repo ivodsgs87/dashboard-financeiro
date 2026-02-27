@@ -8201,87 +8201,114 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- // AGENDA FINANCEIRA
-   const renderTarefaModal = () => {
-     if (!showAddModal) return null;
-     return (
-       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setShowAddModal(false); setEditTarefa(null); }}}>
-         <div className="bg-slate-800 border border-slate-700 rounded-2xl animate-modalIn w-full max-w-md shadow-2xl" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-           <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-             <h3 className="text-lg font-semibold">{editTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
-             <button onClick={() => {setShowAddModal(false); setEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
+
+
+ // === GLOBAL TASK MODAL (parent scope for stable rendering) ===
+ const agToggleMes = (m) => {
+   setAgNovaTarefa(prev => ({
+     ...prev,
+     meses: prev.meses.includes(m) ? prev.meses.filter(x => x !== m) : [...prev.meses, m].sort((a,b) => a-b)
+   }));
+ };
+ 
+ const agSaveTarefa = () => {
+   if (!agNovaTarefa.desc) return;
+   saveUndo();
+   const tarefas = G.tarefas || [];
+   if (agEditTarefa) {
+     uG('tarefas', tarefas.map(t => t.id === agEditTarefa.id ? {...agNovaTarefa, id: agEditTarefa.id, ativo: true} : t));
+   } else {
+     uG('tarefas', [...tarefas, {...agNovaTarefa, id: Date.now(), ativo: true}]);
+   }
+   setAgShowAddModal(false);
+   setAgEditTarefa(null);
+   setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
+ };
+ 
+ const agOpenEditModal = (t) => {
+   setAgEditTarefa(t);
+   setAgNovaTarefa({desc: t.desc, dia: t.dia, freq: t.freq, cat: t.cat, meses: t.meses || [], diaSemana: t.diaSemana ?? 1});
+   setAgShowAddModal(true);
+ };
+
+ const renderTarefaModal = () => {
+   if (!agShowAddModal) return null;
+   const agCategorias = ['IVA', 'SS', 'IRS', 'Contab', 'Transf', 'Invest', 'Seguros', 'Outro'];
+   return (
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-start justify-center pt-[10vh] p-4" onMouseDown={e => { if (e.target === e.currentTarget) { setAgShowAddModal(false); setAgEditTarefa(null); }}}>
+       <div className={`${theme === 'light' ? 'bg-white' : 'bg-slate-800'} border ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} rounded-2xl animate-modalIn w-full max-w-md shadow-2xl`} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+         <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
+           <h3 className="text-lg font-semibold">{agEditTarefa ? '✏️ Editar Tarefa' : '➕ Nova Tarefa'}</h3>
+           <button onClick={() => {setAgShowAddModal(false); setAgEditTarefa(null);}} className="text-slate-400 hover:text-white">✕</button>
+         </div>
+         <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
+           <div>
+             <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
+             <input 
+               className={`w-full ${inputClass}`} 
+               value={agNovaTarefa.desc} 
+               onChange={e => setAgNovaTarefa(prev => ({...prev, desc: e.target.value}))}
+               placeholder="Ex: Pagar IVA trimestral"
+               autoFocus
+             />
            </div>
-           <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
+           <div className="grid grid-cols-2 gap-3">
              <div>
-               <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
-               <input 
-                 className={`w-full ${inputClass}`} 
-                 value={novaTarefa.desc} 
-                 onChange={e => {
-                   const val = e.target.value;
-                   setNovaTarefa(prev => ({...prev, desc: val}));
-                 }} 
-                 placeholder="Ex: Pagar IVA trimestral"
-               />
-             </div>
-             <div className="grid grid-cols-2 gap-3">
-               <div>
-                 <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
-                 <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={novaTarefa.dia} onChange={e => setNovaTarefa(prev => ({...prev, dia: +e.target.value || 1}))} />
-               </div>
-               <div>
-                 <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
-                 <select className={`w-full ${inputClass}`} value={novaTarefa.cat} onChange={e => setNovaTarefa(prev => ({...prev, cat: e.target.value}))}>
-                   {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-                 </select>
-               </div>
+               <label className="text-xs text-slate-400 mb-1 block">Dia do mês</label>
+               <input type="number" min="1" max="31" className={`w-full ${inputClass}`} value={agNovaTarefa.dia} onChange={e => setAgNovaTarefa(prev => ({...prev, dia: +e.target.value || 1}))} />
              </div>
              <div>
-               <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
-               <div className="flex gap-2">
-                 {[{id:'semanal',label:'Semanal'},{id:'mensal',label:'Mensal'},{id:'anual',label:'Meses específicos'}].map(f => (
-                   <button key={f.id} onClick={() => setNovaTarefa(prev => ({...prev, freq: f.id, meses: f.id === 'mensal' || f.id === 'semanal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${novaTarefa.freq === f.id ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                     {f.label}
+               <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
+               <select className={`w-full ${inputClass}`} value={agNovaTarefa.cat} onChange={e => setAgNovaTarefa(prev => ({...prev, cat: e.target.value}))}>
+                 {agCategorias.map(c => <option key={c} value={c}>{c}</option>)}
+               </select>
+             </div>
+           </div>
+           <div>
+             <label className="text-xs text-slate-400 mb-1 block">Frequência</label>
+             <div className="flex gap-2">
+               {[{id:'semanal',label:'Semanal'},{id:'mensal',label:'Mensal'},{id:'anual',label:'Meses específicos'}].map(f => (
+                 <button key={f.id} onClick={() => setAgNovaTarefa(prev => ({...prev, freq: f.id, meses: f.id === 'mensal' || f.id === 'semanal' ? [] : prev.meses}))} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${agNovaTarefa.freq === f.id ? 'bg-blue-500 text-white' : theme === 'light' ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                   {f.label}
+                 </button>
+               ))}
+             </div>
+           </div>
+           {agNovaTarefa.freq === 'semanal' && (
+             <div>
+               <label className="text-xs text-slate-400 mb-2 block">Dia da semana</label>
+               <div className="grid grid-cols-7 gap-1">
+                 {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
+                   <button key={i} onClick={() => setAgNovaTarefa(prev => ({...prev, diaSemana: i}))} className={`py-1.5 px-1 rounded text-xs font-medium transition-all ${(agNovaTarefa.diaSemana ?? 1) === i ? 'bg-blue-500 text-white' : theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                     {d}
                    </button>
                  ))}
                </div>
              </div>
-             {novaTarefa.freq === 'semanal' && (
-               <div>
-                 <label className="text-xs text-slate-400 mb-2 block">Dia da semana</label>
-                 <div className="grid grid-cols-7 gap-1">
-                   {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
-                     <button key={i} onClick={() => setNovaTarefa(prev => ({...prev, diaSemana: i}))} className={`py-1.5 px-1 rounded text-xs font-medium transition-all ${(novaTarefa.diaSemana ?? 1) === i ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
-                       {d}
-                     </button>
-                   ))}
-                 </div>
+           )}
+           {agNovaTarefa.freq === 'anual' && (
+             <div>
+               <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
+               <div className="grid grid-cols-4 gap-1">
+                 {meses.map((m, i) => (
+                   <button key={i} onClick={() => agToggleMes(i+1)} className={`py-1.5 px-2 rounded text-xs font-medium transition-all ${agNovaTarefa.meses.includes(i+1) ? 'bg-blue-500 text-white' : theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                   {m.slice(0,3)}
+                 </button>
+                 ))}
                </div>
-             )}
-             {novaTarefa.freq === 'anual' && (
-               <div>
-                 <label className="text-xs text-slate-400 mb-2 block">Seleciona os meses</label>
-                 <div className="grid grid-cols-4 gap-1">
-                   {meses.map((m, i) => (
-                     <button key={i} onClick={() => toggleMes(i+1)} className={`py-1.5 px-2 rounded text-xs font-medium transition-all ${novaTarefa.meses.includes(i+1) ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
-                       {m.slice(0,3)}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             )}
-           </div>
-           <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
-             <Button variant="secondary" onClick={() => {setShowAddModal(false); setEditTarefa(null);}}>Cancelar</Button>
-             <Button onClick={saveTarefa} disabled={!novaTarefa.desc}>{editTarefa ? 'Guardar' : 'Adicionar'}</Button>
-           </div>
+             </div>
+           )}
+         </div>
+         <div className={`p-4 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-end gap-2`}>
+           <Button variant="secondary" onClick={() => {setAgShowAddModal(false); setAgEditTarefa(null);}}>Cancelar</Button>
+           <Button onClick={agSaveTarefa} disabled={!agNovaTarefa.desc}>{agEditTarefa ? 'Guardar' : 'Adicionar'}</Button>
          </div>
        </div>
-     );
-   };
-   
+     </div>
+   );
+ };
 
-
+ // AGENDA FINANCEIRA
  const renderAgenda = () => {
    const tarefas = G.tarefas || [];
    const tarefasConcluidas = G.tarefasConcluidas || {};
@@ -8290,14 +8317,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const anoAtual = hoje.getFullYear();
    const diaAtual = hoje.getDate();
    
-   // Usar estado do parent scope (sobrevive re-renders)
-   const showAddModal = agShowAddModal;
-   const setShowAddModal = setAgShowAddModal;
-   const editTarefa = agEditTarefa;
-   const setEditTarefa = setAgEditTarefa;
-   const novaTarefa = agNovaTarefa;
-   const setNovaTarefa = setAgNovaTarefa;
-   
+                     
    // Determinar tarefas deste mês
    const diasSemana = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
    const getTarefasMes = (mes, anoCheck) => {
@@ -8393,24 +8413,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      uG('tarefasConcluidas', novas);
    };
    
-   const saveTarefa = () => {
-     if (!novaTarefa.desc) return;
-     saveUndo();
-     if (editTarefa) {
-       uG('tarefas', tarefas.map(t => t.id === editTarefa.id ? {...novaTarefa, id: editTarefa.id, ativo: true} : t));
-     } else {
-       uG('tarefas', [...tarefas, {...novaTarefa, id: Date.now(), ativo: true}]);
-     }
-     setShowAddModal(false);
-     setEditTarefa(null);
-     setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
-   };
+   // saveTarefa moved to parent scope (agSaveTarefa)
    
-   const openEditModal = (t) => {
-     setEditTarefa(t);
-     setNovaTarefa({desc: t.desc, dia: t.dia, freq: t.freq, cat: t.cat, meses: t.meses || [], diaSemana: t.diaSemana ?? 1});
-     setShowAddModal(true);
-   };
+   // openEditModal moved to parent scope (agOpenEditModal)
    
    const removeTarefa = (id) => {
      if (confirm('Remover esta tarefa?')) {
@@ -8419,12 +8424,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
    };
    
-   const toggleMes = (m) => {
-     setNovaTarefa(prev => ({
-       ...prev,
-       meses: prev.meses.includes(m) ? prev.meses.filter(x => x !== m) : [...prev.meses, m].sort((a,b) => a-b)
-     }));
-   };
+   // toggleMes moved to parent scope (agToggleMes)
    
    const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6','Transf':'#10b981','Invest':'#8b5cf6','Contab':'#06b6d4'};
    const categorias = ['IVA', 'SS', 'IRS', 'Contab', 'Transf', 'Invest', 'Seguros', 'Outro'];
@@ -8497,7 +8497,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">📅 {meses[mesAtual-1]} {anoAtual}</h3>
-           <Button onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setShowAddModal(true);}}>+ Nova Tarefa</Button>
+           <Button onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+ Nova Tarefa</Button>
          </div>
          <div className="space-y-2">
            {tarefasMesAtual.length === 0 ? (
@@ -8547,7 +8547,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="flex justify-between items-center mb-4">
            <h3 className="text-lg font-semibold">⚙️ Gerir Tarefas Recorrentes</h3>
            <div className="flex gap-2">
-             <Button variant="secondary" onClick={() => {setNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setShowAddModal(true);}}>+</Button>
+             <Button variant="secondary" onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+</Button>
              <Button variant="secondary" onClick={() => {
                if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
                  saveUndo();
@@ -8568,7 +8568,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
                <div className="flex items-center gap-2">
                  <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <button onClick={() => openEditModal(t)} className="text-slate-400 hover:text-blue-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✏️</button>
+                 <button onClick={() => agOpenEditModal(t)} className="text-slate-400 hover:text-blue-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✏️</button>
                  <button onClick={() => removeTarefa(t.id)} className="text-red-400 hover:text-red-300 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                </div>
              </div>
