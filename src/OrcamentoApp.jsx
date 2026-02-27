@@ -926,11 +926,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [mes, ano]);
   
   const mesKey = `${ano}-${meses.indexOf(mes)+1}`;
-  const cats = (G.categoriasExtrato || defG.categoriasExtrato).filter(c => c.id !== 'transferencia').map(c => c.nome);
- // Migrar categorias antigas para as novas (categoriasExtrato)
- const catMigration = {'Utilidades':'Energia, Luz & Agua','Alimentação':'Mercado','Lazer':'Vida & Entretenimento','Bancário':'Outros','Vários':'Outros','Seguros':'Habitação'};
- const migrateCat = (cat) => catMigration[cat] || (cats.includes(cat) ? cat : 'Outros');
-
   
   // Verificar se é o mês/ano atual
   const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
@@ -1065,6 +1060,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
   const isSavingRef = useRef(false);
+
+  // Categorias unificadas (derivadas do extrato, partilhadas com casal/pessoais)
+  const cats = (G.categoriasExtrato || defG.categoriasExtrato).filter(c => c.id !== 'transferencia').map(c => c.nome);
+  const catMigration = {'Utilidades':'Energia, Luz & Agua','Alimentação':'Mercado','Lazer':'Vida & Entretenimento','Bancário':'Outros','Vários':'Outros','Seguros':'Habitação'};
+  const migrateCat = (cat) => catMigration[cat] || (cats.includes(cat) ? cat : 'Outros');
   
   // Sistema de Undo - guarda últimos 20 estados
   const undoRef = useRef([]);
