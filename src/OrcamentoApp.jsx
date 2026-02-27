@@ -8419,7 +8419,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {/* TAREFAS URGENTES */}
        {atrasadas.length > 0 && (
          <Card>
-           <h3 className="text-lg font-semibold mb-4 text-red-400">⚠️ Tarefas Atrasadas</h3>
+           <div className="flex justify-between items-center mb-4">
+             <h3 className="text-lg font-semibold text-red-400">⚠️ Tarefas Atrasadas</h3>
+             {atrasadas.length > 1 && <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; atrasadas.forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">✓ Marcar todas</button>}
+           </div>
            <div className="space-y-2">
              {atrasadas.map(t => (
                <div key={t.key} className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
@@ -8442,7 +8445,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <Card className="border-red-500/50 bg-red-500/5">
            <div className="flex justify-between items-center mb-4">
              <h3 className="text-lg font-semibold text-red-400">⚠️ Tarefas Atrasadas de Meses Anteriores</h3>
-             <span className="text-xs text-red-400 bg-red-500/20 px-2 py-1 rounded-full">{tarefasAtrasadasAnteriores.length} pendentes</span>
+             <div className="flex items-center gap-2">
+               <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; tarefasAtrasadasAnteriores.forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">✓ Marcar todas</button>
+               <span className="text-xs text-red-400 bg-red-500/20 px-2 py-1 rounded-full">{tarefasAtrasadasAnteriores.length} pendentes</span>
+             </div>
            </div>
            <div className="space-y-2">
              {tarefasAtrasadasAnteriores.map(t => (
@@ -9850,6 +9856,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                return (
                  <div key={grupo.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50 border border-slate-200' : 'bg-slate-800/30 border border-slate-700'}`}>
                    <div className="flex items-center gap-2 mb-2">
+                     <div className="flex flex-col -my-1">
+                       {gi > 0 && <button type="button" onClick={() => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; [g[gi-1], g[gi]] = [g[gi], g[gi-1]]; uG('orcamentosGrupos', g); }} className="text-slate-500 hover:text-white text-[10px] leading-none">▲</button>}
+                       {gi < (G.orcamentosGrupos || []).length - 1 && <button type="button" onClick={() => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; [g[gi], g[gi+1]] = [g[gi+1], g[gi]]; uG('orcamentosGrupos', g); }} className="text-slate-500 hover:text-white text-[10px] leading-none">▼</button>}
+                     </div>
                      <input type="text" defaultValue={grupo.nome} placeholder="Nome do grupo"
                        className={`flex-1 text-sm font-semibold px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                        onBlur={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, nome: e.target.value}; uG('orcamentosGrupos', g); }} />
