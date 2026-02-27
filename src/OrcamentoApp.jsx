@@ -3987,7 +3987,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    val: despABanca.filter(d => migrateCat(d.cat) === c).reduce((a, d) => a + d.val, 0)
  })).filter(c => c.val > 0);
  
- const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
+ const catCores = Object.fromEntries((G.categoriasExtrato || defG.categoriasExtrato).map(c => [c.nome, c.cor]));
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
@@ -4074,7 +4074,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    val: despPess.filter(d => migrateCat(d.cat) === c).reduce((a, d) => a + d.val, 0)
  })).filter(c => c.val > 0);
  
- const catCores = {'Habitação':'#3b82f6','Utilidades':'#f59e0b','Alimentação':'#10b981','Saúde':'#ec4899','Lazer':'#8b5cf6','Transporte':'#f97316','Subscrições':'#06b6d4','Bancário':'#64748b','Serviços':'#a855f7','Vários':'#84cc16','Outros':'#6b7280','Seguros':'#ef4444'};
+ const catCores = Object.fromEntries((G.categoriasExtrato || defG.categoriasExtrato).map(c => [c.nome, c.cor]));
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
@@ -9844,16 +9844,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                    {/* Progress */}
                    {grupo.limite > 0 && (
-                     <div>
-                       <div className="flex items-center justify-between mb-1.5">
-                         <span className={`text-sm font-bold font-mono ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-emerald-400'}`}>{fmt(gastoGrupo)}</span>
-                         <span className="text-xs text-slate-500 font-mono">/ {fmt(grupo.limite)} <span className={`font-bold ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-slate-400'}`}>({pctG.toFixed(0)}%)</span></span>
+                     <div className="mt-1">
+                       <div className="flex items-end justify-between mb-2">
+                         <span className={`text-xl font-bold font-mono ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-emerald-400'}`}>{fmt(gastoGrupo)}</span>
+                         <span className="text-sm text-slate-500 font-mono">/ {fmt(grupo.limite)} <span className={`font-bold ${pctG > 100 ? 'text-red-400' : pctG > 80 ? 'text-orange-400' : 'text-slate-400'}`}>({pctG.toFixed(0)}%)</span></span>
                        </div>
-                       <div className={`w-full h-3 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                       <div className={`w-full h-5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
                          <div className={`h-full rounded-full transition-all duration-500 ${pctG > 100 ? 'bg-red-500' : pctG > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
                            style={{ width: Math.min(100, pctG) + '%' }} />
                        </div>
-                       {pctG > 0 && <p className={`text-[10px] mt-1 ${pctG > 100 ? 'text-red-400' : 'text-slate-500'}`}>{pctG > 100 ? `${fmt(gastoGrupo - grupo.limite)} acima do limite` : `${fmt(grupo.limite - gastoGrupo)} disponível`}</p>}
+                       {pctG > 0 && <p className={`text-xs mt-1.5 ${pctG > 100 ? 'text-red-400' : 'text-slate-500'}`}>{pctG > 100 ? `${fmt(gastoGrupo - grupo.limite)} acima do limite` : `${fmt(grupo.limite - gastoGrupo)} disponível`}</p>}
                      </div>
                    )}
                  </div>
@@ -12605,7 +12605,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    </div>
  )}
 
- <header className={`${theme === 'light' ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-50 no-print`}>
+ <div className="sticky top-0 z-50 no-print">
+ <header className={`${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4`}>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
               <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">💎 Dashboard</h1>
@@ -12704,7 +12705,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide sticky top-[57px] sm:top-[65px] z-40 backdrop-blur-xl`}>
+      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
         {tabs.map(t => {
           // Verificar se alguma sub-tab está ativa
           const isSubActive = t.submenu?.some(sub => tab === sub.id);
@@ -12745,6 +12746,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           );
         })}
       </nav>
+      </div>{/* end sticky header+nav wrapper */}
       
       {/* Dropdown fixed para submenus */}
       {hoveredTab && tabs.find(t => t.id === hoveredTab)?.submenu && (
