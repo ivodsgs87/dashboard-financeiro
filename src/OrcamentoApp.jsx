@@ -4972,6 +4972,103 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
+  // States moved from inner components to parent scope (fixes focus issues)
+  const [novaCatPort, setNovaCatPort] = useState('');
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
+  const [simTab, setSimTab] = useState('projecao');
+  const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
+  const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
+  const [simRetorno, setSimRetorno] = useState(7);
+  const [simAnos, setSimAnos] = useState(20);
+  const [simExtra, setSimExtra] = useState(200);
+  const [simRetornoInv, setSimRetornoInv] = useState(7);
+  const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
+  const [simRetornoFire, setSimRetornoFire] = useState(4);
+  const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
+  const [flamingoIdade, setFlamingoIdade] = useState(35);
+  const [flamingoReforma, setFlamingoReforma] = useState(60);
+  const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
+  const [flamingoRetorno, setFlamingoRetorno] = useState(7);
+  const [simAmort, setSimAmort] = useState(500);
+  const [simEuribor, setSimEuribor] = useState(2.5);
+  const [simSpread, setSimSpread] = useState(1.0);
+  const [simMeses, setSimMeses] = useState(null);
+  const [simDivida, setSimDivida] = useState(null);
+  const [showAddCredito, setShowAddCredito] = useState(false);
+  const [editCredito, setEditCredito] = useState(null);
+  const [showLiquidar, setShowLiquidar] = useState(false);
+  const [showAllHistorico, setShowAllHistorico] = useState(false);
+  const [creditoSelecionado, setCreditoSelecionado] = useState(null);
+  const [novoCredito, setNovoCredito] = useState({
+    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
+    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
+  });
+  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
+  const [novaTransacao, setNovaTransacao] = useState({
+    data: new Date().toISOString().split('T')[0],
+    tipo: 'compra',
+    categoria: 'ETF',
+    ticker: '',
+    corretora: '',
+    quantidade: '',
+    precoUnitario: '',
+    valorTotal: '',
+    comissao: 0,
+    notas: ''
+  });
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroAno, setFiltroAno] = useState('todos');
+  const [novaCorretora, setNovaCorretora] = useState('');
+  const [ordenacao, setOrdenacao] = useState('data-desc');
+  const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
+  const [calMes, setCalMes] = useState(meses.indexOf(mes));
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalToken, setGcalToken] = useState(null);
+  const [gcalError, setGcalError] = useState('');
+  const [gcalSyncing, setGcalSyncing] = useState(false);
+
+  // States moved from inner components to prevent unmount issues
+  const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
+  const [csvText, setCsvText] = useState('');
+  const [editRecibo, setEditRecibo] = useState(null);
+  const [showReciboModal, setShowReciboModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importedData, setImportedData] = useState(null);
+  const [showAddTransacao, setShowAddTransacao] = useState(false);
+  const [editTransacao, setEditTransacao] = useState(null);
+  const [filtroCorretora, setFiltroCorretora] = useState('todas');
+  const [calAno, setCalAno] = useState(ano);
+  const [showAddProjeto, setShowAddProjeto] = useState(false);
+  const [showAddFerias, setShowAddFerias] = useState(false);
+  const [editProjeto, setEditProjeto] = useState(null);
+  const [editFerias, setEditFerias] = useState(null);
+  const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
+  const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
+  const [showProjetos, setShowProjetos] = useState(true);
+  const [showFeriasFilter, setShowFeriasFilter] = useState(true);
+  const [gcalConnected, setGcalConnected] = useState(false);
+ const [extShowAddManual, setExtShowAddManual] = useState(false);
+ const [extEditingTx, setExtEditingTx] = useState(null);
+ const [extImportPreview, setExtImportPreview] = useState(null);
+ const [extImportConta, setExtImportConta] = useState('');
+ const [extLastImportIds, setExtLastImportIds] = useState([]);
+ const [extSelectedTxs, setExtSelectedTxs] = useState(new Set());
+ const [extMData, setExtMData] = useState(new Date().toISOString().slice(0, 10));
+ const [extMDesc, setExtMDesc] = useState('');
+ const [extMValor, setExtMValor] = useState('');
+ const [extMConta, setExtMConta] = useState('');
+ const [extMCat, setExtMCat] = useState('outros');
+ const [extMTipo, setExtMTipo] = useState('despesa');
+ const [extCNome, setExtCNome] = useState('');
+ const [extCBanco, setExtCBanco] = useState('');
+ const [extCIban, setExtCIban] = useState('');
+ const [extCCor, setExtCCor] = useState('#3b82f6');
+ 
+ // EXTRATO BANCÁRIO - Rendering
  // PORTFOLIO
  const Portfolio = () => {
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
@@ -8600,103 +8697,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [agShowAddModal, setAgShowAddModal] = useState(false);
   const [agEditTarefa, setAgEditTarefa] = useState(null);
   const [agNovaTarefa, setAgNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
-  // States moved from inner components to parent scope (fixes focus issues)
-  const [novaCatPort, setNovaCatPort] = useState('');
-  const [expandedCat, setExpandedCat] = useState(null);
-  const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
-  const [simTab, setSimTab] = useState('projecao');
-  const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
-  const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
-  const [simRetorno, setSimRetorno] = useState(7);
-  const [simAnos, setSimAnos] = useState(20);
-  const [simExtra, setSimExtra] = useState(200);
-  const [simRetornoInv, setSimRetornoInv] = useState(7);
-  const [simDespMensal, setSimDespMensal] = useState(Math.round((despABanca.reduce((a, d) => a + d.val, 0) * (contrib / 100)) + despPess.reduce((a, d) => a + d.val, 0)));
-  const [simRetornoFire, setSimRetornoFire] = useState(4);
-  const [simMetodoFire, setSimMetodoFire] = useState(25); // Regra dos 25x
-  const [flamingoIdade, setFlamingoIdade] = useState(35);
-  const [flamingoReforma, setFlamingoReforma] = useState(60);
-  const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
-  const [flamingoRetorno, setFlamingoRetorno] = useState(7);
-  const [simAmort, setSimAmort] = useState(500);
-  const [simEuribor, setSimEuribor] = useState(2.5);
-  const [simSpread, setSimSpread] = useState(1.0);
-  const [simMeses, setSimMeses] = useState(null);
-  const [simDivida, setSimDivida] = useState(null);
-  const [showAddCredito, setShowAddCredito] = useState(false);
-  const [editCredito, setEditCredito] = useState(null);
-  const [showLiquidar, setShowLiquidar] = useState(false);
-  const [showAllHistorico, setShowAllHistorico] = useState(false);
-  const [creditoSelecionado, setCreditoSelecionado] = useState(null);
-  const [novoCredito, setNovoCredito] = useState({
-    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
-    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
-  });
-  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
-  const [novaTransacao, setNovaTransacao] = useState({
-    data: new Date().toISOString().split('T')[0],
-    tipo: 'compra',
-    categoria: 'ETF',
-    ticker: '',
-    corretora: '',
-    quantidade: '',
-    precoUnitario: '',
-    valorTotal: '',
-    comissao: 0,
-    notas: ''
-  });
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroAno, setFiltroAno] = useState('todos');
-  const [novaCorretora, setNovaCorretora] = useState('');
-  const [ordenacao, setOrdenacao] = useState('data-desc');
-  const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
-  const [calMes, setCalMes] = useState(meses.indexOf(mes));
-  const [gcalLoading, setGcalLoading] = useState(false);
-  const [gcalToken, setGcalToken] = useState(null);
-  const [gcalError, setGcalError] = useState('');
-  const [gcalSyncing, setGcalSyncing] = useState(false);
 
-  // States moved from inner components to prevent unmount issues
-  const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
-  const [csvText, setCsvText] = useState('');
-  const [editRecibo, setEditRecibo] = useState(null);
-  const [showReciboModal, setShowReciboModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importLoading, setImportLoading] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [importedData, setImportedData] = useState(null);
-  const [showAddTransacao, setShowAddTransacao] = useState(false);
-  const [editTransacao, setEditTransacao] = useState(null);
-  const [filtroCorretora, setFiltroCorretora] = useState('todas');
-  const [calAno, setCalAno] = useState(ano);
-  const [showAddProjeto, setShowAddProjeto] = useState(false);
-  const [showAddFerias, setShowAddFerias] = useState(false);
-  const [editProjeto, setEditProjeto] = useState(null);
-  const [editFerias, setEditFerias] = useState(null);
-  const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
-  const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
-  const [showProjetos, setShowProjetos] = useState(true);
-  const [showFeriasFilter, setShowFeriasFilter] = useState(true);
-  const [gcalConnected, setGcalConnected] = useState(false);
- const [extShowAddManual, setExtShowAddManual] = useState(false);
- const [extEditingTx, setExtEditingTx] = useState(null);
- const [extImportPreview, setExtImportPreview] = useState(null);
- const [extImportConta, setExtImportConta] = useState('');
- const [extLastImportIds, setExtLastImportIds] = useState([]);
- const [extSelectedTxs, setExtSelectedTxs] = useState(new Set());
- const [extMData, setExtMData] = useState(new Date().toISOString().slice(0, 10));
- const [extMDesc, setExtMDesc] = useState('');
- const [extMValor, setExtMValor] = useState('');
- const [extMConta, setExtMConta] = useState('');
- const [extMCat, setExtMCat] = useState('outros');
- const [extMTipo, setExtMTipo] = useState('despesa');
- const [extCNome, setExtCNome] = useState('');
- const [extCBanco, setExtCBanco] = useState('');
- const [extCIban, setExtCIban] = useState('');
- const [extCCor, setExtCCor] = useState('#3b82f6');
- 
- // EXTRATO BANCÁRIO - Rendering
  const renderExtrato = () => {
    // Aliases for backward compatibility
    const filtroCategoria = extFiltroCategoria, setFiltroCategoria = setExtFiltroCategoria;
