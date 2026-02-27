@@ -9815,31 +9815,47 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      <button type="button" onClick={() => { uG('orcamentosGrupos', (G.orcamentosGrupos || []).filter((_, i) => i !== gi)); }}
                        className="text-red-400/50 hover:text-red-400 text-xs">✕</button>
                    </div>
-                   {/* Conta filter */}
-                   <div className="flex items-center gap-2 mb-2">
-                     <span className="text-[10px] text-slate-500">Conta:</span>
-                     <select value={grupo.contaId || 'todas'} onChange={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, contaId: e.target.value}; uG('orcamentosGrupos', g); }}
-                       className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
-                       <option value="todas">Todas</option>
-                       {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                     </select>
-                   </div>
-                   {/* Category pills */}
-                   <div className="flex flex-wrap gap-1 mb-2">
-                     {categorias.filter(c => c.id !== 'transferencia').map(c => {
-                       const sel = (grupo.categorias || []).includes(c.id);
-                       return (
-                         <button type="button" key={c.id} onClick={() => {
-                           saveUndo();
-                           const g = [...(G.orcamentosGrupos || [])];
-                           const cats = sel ? (grupo.categorias || []).filter(x => x !== c.id) : [...(grupo.categorias || []), c.id];
-                           g[gi] = {...grupo, categorias: cats};
-                           uG('orcamentosGrupos', g);
-                         }}
-                           className={`px-1.5 py-0.5 text-[10px] rounded transition-all ${sel ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/50' : theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>
-                           {c.icon} {c.nome}
-                         </button>
-                       );
+                   {/* Conta + Category filters */}
+                   <div className="flex items-center gap-3 mb-2 flex-wrap">
+                     <div className="flex items-center gap-1">
+                       <span className="text-[10px] text-slate-500">Conta:</span>
+                       <select value={grupo.contaId || 'todas'} onChange={e => { saveUndo(); const g = [...(G.orcamentosGrupos || [])]; g[gi] = {...grupo, contaId: e.target.value}; uG('orcamentosGrupos', g); }}
+                         className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
+                         <option value="todas">Todas</option>
+                         {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                       </select>
+                     </div>
+                     <div className="flex items-center gap-1">
+                       <span className="text-[10px] text-slate-500">Cat:</span>
+                       <select value="" onChange={e => {
+                         if (!e.target.value) return;
+                         saveUndo();
+                         const g = [...(G.orcamentosGrupos || [])];
+                         const cur = grupo.categorias || [];
+                         const catId = e.target.value;
+                         g[gi] = {...grupo, categorias: cur.includes(catId) ? cur.filter(x => x !== catId) : [...cur, catId]};
+                         uG('orcamentosGrupos', g);
+                       }}
+                         className={`text-[10px] px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}>
+                         <option value="">+/−</option>
+                         {categorias.filter(c => c.id !== 'transferencia').map(c => (
+                           <option key={c.id} value={c.id}>{(grupo.categorias || []).includes(c.id) ? '✓ ' : '  '}{c.icon} {c.nome}</option>
+                         ))}
+                       </select>
+                     </div>
+                     {(grupo.categorias || []).map(catId => {
+                       const cat = categorias.find(x => x.id === catId);
+                       return cat ? (
+                         <span key={catId} className="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/15 text-blue-400 flex items-center gap-0.5">
+                           {cat.icon}
+                           <button type="button" onClick={() => {
+                             saveUndo();
+                             const g = [...(G.orcamentosGrupos || [])];
+                             g[gi] = {...grupo, categorias: (grupo.categorias || []).filter(x => x !== catId)};
+                             uG('orcamentosGrupos', g);
+                           }} className="text-blue-400/40 hover:text-red-400 text-[8px]">×</button>
+                         </span>
+                       ) : null;
                      })}
                    </div>
                    {/* Progress */}
@@ -9866,45 +9882,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            }}
              className={`w-full mt-3 py-2.5 text-xs rounded-lg border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
              + Adicionar orçamento agrupado
-         {/* Simple per-category budgets */}
-         <Card>
-           <h4 className="font-semibold mb-3">🎯 Orçamento por Categoria</h4>
-           <p className="text-xs text-slate-500 mb-4">Limites mensais individuais. Gasto de {extratoMes}.</p>
-           <div className="space-y-2">
-             {categorias.filter(c => c.id !== 'transferencia').map(cat => {
-               const gasto = porCategoria[cat.id] || 0;
-               const limite = orcamentos[cat.id] || 0;
-               const pct = limite > 0 ? (gasto / limite * 100) : 0;
-               return (
-                 <div key={cat.id} className={`p-2.5 rounded-lg ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
-                   <div className="flex items-center gap-2">
-                     <span className="text-sm w-36 truncate">{cat.icon} {cat.nome}</span>
-                     <div className="flex-1">
-                       {limite > 0 && (
-                         <div className={`w-full h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                           <div className={`h-full rounded-full transition-all ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                             style={{ width: Math.min(100, pct) + '%' }} />
-                         </div>
-                       )}
-                     </div>
-                     <span className={`text-[11px] font-mono w-16 text-right ${pct > 100 ? 'text-red-400' : 'text-slate-400'}`}>{gasto > 0 ? fmt(gasto) : '—'}</span>
-                     <span className="text-[10px] text-slate-600">/</span>
-                     <input type="number" step="10" defaultValue={limite || ''} placeholder="—"
-                       className={`w-16 text-right text-[11px] font-mono px-1.5 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
-                       onBlur={e => { const v = parseFloat(e.target.value) || 0; uG('orcamentos', { ...orcamentos, [cat.id]: v }); }} />
-                   </div>
-                 </div>
-               );
-             })}
-           </div>
-           {Object.values(orcamentos).some(v => v > 0) && (
-             <div className={`mt-3 pt-3 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between text-sm font-bold`}>
-               <span>Total</span>
-               <span>{fmt(Object.values(orcamentos).reduce((a, v) => a + (v || 0), 0))}/mês</span>
-             </div>
-           )}
-         </Card>
-
            </button>
          </Card>
        </div>
@@ -12409,7 +12386,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  return (
- <div className={`min-h-screen overflow-x-hidden transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
+ <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
+ <style>{`.no-overflow-x { overflow-x: clip; }`}</style>
  <BackupModal />
  <SearchModal />
  <AlertsModal />
