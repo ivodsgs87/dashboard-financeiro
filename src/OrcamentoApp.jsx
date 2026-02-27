@@ -4972,7 +4972,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
-  // States moved from inner components to parent scope (fixes focus issues)
+ // PORTFOLIO
+ const Portfolio = () => {
+
   const [novaCatPort, setNovaCatPort] = useState('');
   const [expandedCat, setExpandedCat] = useState(null);
   const [periodoGrafico, setPeriodoGrafico] = useState('tudo'); // 6m, 1a, 2a, tudo
@@ -4990,92 +4992,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [flamingoReforma, setFlamingoReforma] = useState(60);
   const [flamingoPctTrabalho, setFlamingoPctTrabalho] = useState(50);
   const [flamingoRetorno, setFlamingoRetorno] = useState(7);
-  const [simAmort, setSimAmort] = useState(500);
-  const [simEuribor, setSimEuribor] = useState(2.5);
-  const [simSpread, setSimSpread] = useState(1.0);
-  const [simMeses, setSimMeses] = useState(null);
-  const [simDivida, setSimDivida] = useState(null);
-  const [showAddCredito, setShowAddCredito] = useState(false);
-  const [editCredito, setEditCredito] = useState(null);
-  const [showLiquidar, setShowLiquidar] = useState(false);
-  const [showAllHistorico, setShowAllHistorico] = useState(false);
-  const [creditoSelecionado, setCreditoSelecionado] = useState(null);
-  const [novoCredito, setNovoCredito] = useState({
-    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
-    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
-  });
-  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
-  const [novaTransacao, setNovaTransacao] = useState({
-    data: new Date().toISOString().split('T')[0],
-    tipo: 'compra',
-    categoria: 'ETF',
-    ticker: '',
-    corretora: '',
-    quantidade: '',
-    precoUnitario: '',
-    valorTotal: '',
-    comissao: 0,
-    notas: ''
-  });
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroAno, setFiltroAno] = useState('todos');
-  const [novaCorretora, setNovaCorretora] = useState('');
-  const [ordenacao, setOrdenacao] = useState('data-desc');
-  const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
-  const [calMes, setCalMes] = useState(meses.indexOf(mes));
-  const [gcalLoading, setGcalLoading] = useState(false);
-  const [gcalToken, setGcalToken] = useState(null);
-  const [gcalError, setGcalError] = useState('');
-  const [gcalSyncing, setGcalSyncing] = useState(false);
-
-  // States moved from inner components to prevent unmount issues
-  const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
-  const [csvText, setCsvText] = useState('');
-  const [editRecibo, setEditRecibo] = useState(null);
-  const [showReciboModal, setShowReciboModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importLoading, setImportLoading] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [importedData, setImportedData] = useState(null);
-  const [showAddTransacao, setShowAddTransacao] = useState(false);
-  const [editTransacao, setEditTransacao] = useState(null);
-  const [filtroCorretora, setFiltroCorretora] = useState('todas');
-  const [calAno, setCalAno] = useState(ano);
-  const [showAddProjeto, setShowAddProjeto] = useState(false);
-  const [showAddFerias, setShowAddFerias] = useState(false);
-  const [editProjeto, setEditProjeto] = useState(null);
-  const [editFerias, setEditFerias] = useState(null);
-  const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
-  const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
-  const [showProjetos, setShowProjetos] = useState(true);
-  const [showFeriasFilter, setShowFeriasFilter] = useState(true);
-  const [gcalConnected, setGcalConnected] = useState(false);
- const [extShowAddManual, setExtShowAddManual] = useState(false);
- const [extEditingTx, setExtEditingTx] = useState(null);
- const [extImportPreview, setExtImportPreview] = useState(null);
- const [extImportConta, setExtImportConta] = useState('');
- const [extLastImportIds, setExtLastImportIds] = useState([]);
- const [extSelectedTxs, setExtSelectedTxs] = useState(new Set());
- const [extMData, setExtMData] = useState(new Date().toISOString().slice(0, 10));
- const [extMDesc, setExtMDesc] = useState('');
- const [extMValor, setExtMValor] = useState('');
- const [extMConta, setExtMConta] = useState('');
- const [extMCat, setExtMCat] = useState('outros');
- const [extMTipo, setExtMTipo] = useState('despesa');
- const [extCNome, setExtCNome] = useState('');
- const [extCBanco, setExtCBanco] = useState('');
- const [extCIban, setExtCIban] = useState('');
- const [extCCor, setExtCCor] = useState('#3b82f6');
- 
- // EXTRATO BANCÁRIO - Rendering
- // PORTFOLIO
- const Portfolio = () => {
  const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
  const porCat = catsInv.map(c=>({cat:c,val:portfolio.filter(p=>p.cat===c).reduce((a,p)=>a+p.val,0),items:portfolio.filter(p=>p.cat===c)})).filter(c=>c.val>0);
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
- // useState moved to parent scope (Portfolio)
- // useState moved to parent scope (Portfolio)
  // useState moved to parent scope (Portfolio)
  
  // Filtrar dados do histórico por período
@@ -6023,11 +5942,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // CRÉDITO HABITAÇÃO
  const Credito = () => {
- // useState moved to parent scope (Credito)
- // useState moved to parent scope (Credito)
- // useState moved to parent scope (Credito)
- // useState moved to parent scope (Credito)
- // useState moved to parent scope (Credito)
+
+  const [simAmort, setSimAmort] = useState(500);
+  const [simEuribor, setSimEuribor] = useState(2.5);
+  const [simSpread, setSimSpread] = useState(1.0);
+  const [simMeses, setSimMeses] = useState(null);
+  const [simDivida, setSimDivida] = useState(null);
+  const [showAddCredito, setShowAddCredito] = useState(false);
+  const [editCredito, setEditCredito] = useState(null);
+  const [showLiquidar, setShowLiquidar] = useState(false);
+  const [showAllHistorico, setShowAllHistorico] = useState(false);
+  const [creditoSelecionado, setCreditoSelecionado] = useState(null);
+  const [novoCredito, setNovoCredito] = useState({
+    nome: '', tipo: 'habitacao', valorBem: '', entradaInicial: '', montanteInicial: '',
+    taxaJuro: '', spread: '', euribor: '', prestacao: '', seguros: '', dataInicio: new Date().toISOString().split('T')[0], dataFim: '', notas: ''
+  });
+  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
  // useState moved to parent scope (Credito)
  // useState moved to parent scope (Credito)
  // useState moved to parent scope (Credito)
@@ -6036,10 +5966,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Usar sistema de múltiplos créditos ou fallback para estrutura antiga
  const creditos = G.creditos || [];
  const creditoAtivo = creditos.find(c => c.estado === 'ativo') || null;
- 
- // Auto-selecionar crédito ativo
- // useState moved to parent scope (Credito)
- 
+  // Auto-selecionar crédito ativo
  // Atualizar seleção quando créditos mudam ou quando não há seleção
  useEffect(() => {
    if (creditos.length > 0) {
@@ -6941,6 +6868,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // TRANSAÇÕES DE INVESTIMENTOS
  const Transacoes = () => {
+
+  const [novaTransacao, setNovaTransacao] = useState({
+    data: new Date().toISOString().split('T')[0],
+    tipo: 'compra',
+    categoria: 'ETF',
+    ticker: '',
+    corretora: '',
+    quantidade: '',
+    precoUnitario: '',
+    valorTotal: '',
+    comissao: 0,
+    notas: ''
+  });
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroAno, setFiltroAno] = useState('todos');
+  const [novaCorretora, setNovaCorretora] = useState('');
+  const [ordenacao, setOrdenacao] = useState('data-desc');
    const transacoes = G.transacoes || [];
    const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
    
@@ -7380,6 +7325,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const Calendario = () => {
    const projetos = G.projetos || [];
    const feriasLista = G.feriasCalendario || []; // Array de {id, quem: 'eu' | clienteId, dataInicio, dataFim, notas}
+
+  const [vista, setVista] = useState('mes'); // 'mes' ou 'semana'
+  const [calMes, setCalMes] = useState(meses.indexOf(mes));
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalToken, setGcalToken] = useState(null);
+  const [gcalError, setGcalError] = useState('');
+  const [gcalSyncing, setGcalSyncing] = useState(false);
+  const [anoRelatorio, setAnoRelatorio] = useState(anoAtualSistema);
+  const [csvText, setCsvText] = useState('');
+  const [editRecibo, setEditRecibo] = useState(null);
+  const [showReciboModal, setShowReciboModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importedData, setImportedData] = useState(null);
+  const [showAddTransacao, setShowAddTransacao] = useState(false);
+  const [editTransacao, setEditTransacao] = useState(null);
+  const [filtroCorretora, setFiltroCorretora] = useState('todas');
+  const [calAno, setCalAno] = useState(ano);
+  const [showAddProjeto, setShowAddProjeto] = useState(false);
+  const [showAddFerias, setShowAddFerias] = useState(false);
+  const [editProjeto, setEditProjeto] = useState(null);
+  const [editFerias, setEditFerias] = useState(null);
+  const [novoProjeto, setNovoProjeto] = useState({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] });
+  const [novasFerias, setNovasFerias] = useState({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' });
+  const [showProjetos, setShowProjetos] = useState(true);
+  const [showFeriasFilter, setShowFeriasFilter] = useState(true);
+  const [gcalConnected, setGcalConnected] = useState(false);
             
    // Filtros de visualização
      
@@ -8300,6 +8273,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
 
 
+  // Invest + Agenda states (parent scope to survive re-renders)
+  const [novaCat, setNovaCat] = useState('');
+  const [agShowAddModal, setAgShowAddModal] = useState(false);
+  const [agEditTarefa, setAgEditTarefa] = useState(null);
+  const [agNovaTarefa, setAgNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
+
  // === GLOBAL TASK MODAL (parent scope for stable rendering) ===
  const agToggleMes = (m) => {
    setAgNovaTarefa(prev => ({
@@ -8692,13 +8671,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [extShowImport, setExtShowImport] = useState(false);
  const [extShowAddConta, setExtShowAddConta] = useState(false);
   const [extOrcGenCollapsed, setExtOrcGenCollapsed] = useState(true);
-  // Invest + Agenda states (parent scope to survive re-renders)
-  const [novaCat, setNovaCat] = useState('');
-  const [agShowAddModal, setAgShowAddModal] = useState(false);
-  const [agEditTarefa, setAgEditTarefa] = useState(null);
-  const [agNovaTarefa, setAgNovaTarefa] = useState({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1});
 
+
+ const [extShowAddManual, setExtShowAddManual] = useState(false);
+ const [extEditingTx, setExtEditingTx] = useState(null);
+ const [extImportPreview, setExtImportPreview] = useState(null);
+ const [extImportConta, setExtImportConta] = useState('');
+ const [extLastImportIds, setExtLastImportIds] = useState([]);
+ const [extSelectedTxs, setExtSelectedTxs] = useState(new Set());
+ const [extMData, setExtMData] = useState(new Date().toISOString().slice(0, 10));
+ const [extMDesc, setExtMDesc] = useState('');
+ const [extMValor, setExtMValor] = useState('');
+ const [extMConta, setExtMConta] = useState('');
+ const [extMCat, setExtMCat] = useState('outros');
+ const [extMTipo, setExtMTipo] = useState('despesa');
+ const [extCNome, setExtCNome] = useState('');
+ const [extCBanco, setExtCBanco] = useState('');
+ const [extCIban, setExtCIban] = useState('');
+ const [extCCor, setExtCCor] = useState('#3b82f6');
  const renderExtrato = () => {
+
    // Aliases for backward compatibility
    const filtroCategoria = extFiltroCategoria, setFiltroCategoria = setExtFiltroCategoria;
    const filtroConta = extFiltroConta, setFiltroConta = setExtFiltroConta;
