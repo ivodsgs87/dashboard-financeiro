@@ -816,6 +816,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [showImportCSV, setShowImportCSV] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportMenuPos, setExportMenuPos] = useState({top: 0, right: 0});
   const [compareYear, setCompareYear] = useState(null);
   // Nota: estado offline gerido por isOnline acima
   
@@ -12484,6 +12485,25 @@ ${transacoesOrdenadas.map(t => `<tr>
  <SearchModal />
  <AlertsModal />
  {renderTarefaModal()}
+ {showExportMenu && (
+   <>
+     <div className="fixed inset-0 z-[99]" onClick={() => setShowExportMenu(false)}/>
+     <div className={`fixed ${theme === 'light' ? 'bg-white border-slate-200 shadow-xl' : 'bg-slate-800 border-slate-700 shadow-2xl'} border rounded-xl py-1 z-[100] min-w-[200px] max-h-[70vh] overflow-y-auto`} style={{top: exportMenuPos.top, right: exportMenuPos.right}}>
+       <div className="px-3 py-1 text-xs text-slate-500 font-medium">Orçamento</div>
+       <button onClick={() => { exportToPDF(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📄 PDF Mensal</button>
+       <button onClick={() => { setShowRelatorio(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Relatório Anual</button>
+       <button onClick={() => { exportToGoogleSheets(); setShowExportMenu(false); }} disabled={exporting} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'} ${exporting && 'opacity-50'}`}>{exporting ? '⏳' : '📗'} Excel (.xlsx)</button>
+       <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
+       <div className="px-3 py-1 text-xs text-slate-500 font-medium">Investimentos ({ano})</div>
+       <button onClick={() => { exportTransacoesPDF(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📈 Transações PDF</button>
+       <button onClick={() => { exportTransacoesExcel(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Transações Excel</button>
+       <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
+       <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
+       <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
+       <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
+     </div>
+   </>
+ )}
  <ImportCSVModal />
  <RelatorioAnualModal />
  <ShortcutsModal />
@@ -12722,26 +12742,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 
                 {/* Menu Export */}
                 <div className="relative">
-                  <button onClick={() => setShowExportMenu(!showExportMenu)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar">📤 <span className="hidden sm:inline">Export</span></button>
-                  {showExportMenu && (
-                    <>
-                      <div className="fixed inset-0 z-[99]" onClick={() => setShowExportMenu(false)}/>
-                      <div className={`absolute right-0 mt-1 ${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700'} border rounded-xl py-1 z-[100] min-w-[200px] max-h-[70vh] overflow-y-auto`} style={{top: '100%'}}>
-                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Orçamento</div>
-                        <button onClick={() => { exportToPDF(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📄 PDF Mensal</button>
-                        <button onClick={() => { setShowRelatorio(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Relatório Anual</button>
-                        <button onClick={() => { exportToGoogleSheets(); setShowExportMenu(false); }} disabled={exporting} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'} ${exporting && 'opacity-50'}`}>{exporting ? '⏳' : '📗'} Excel (.xlsx)</button>
-                        <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
-                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Investimentos ({ano})</div>
-                        <button onClick={() => { exportTransacoesPDF(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📈 Transações PDF</button>
-                        <button onClick={() => { exportTransacoesExcel(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📊 Transações Excel</button>
-                        <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
-                        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
-                        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
-                        <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
-                      </div>
-                    </>
-                  )}
+                  <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar">📤 <span className="hidden sm:inline">Export</span></button>
                 </div>
                 
                 {/* Layout Editor - disponível em tabs com personalização */}
