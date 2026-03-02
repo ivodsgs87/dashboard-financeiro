@@ -1654,12 +1654,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Inline previsaoIRS calculation (evita dependência de useCallback não hoisted)
    const hIRS = getHist();
    const hAnoIRS = hIRS.filter(x => x.ano === anoAtualSistema);
-   const receitasAnuaisIRS = hAnoIRS.reduce((a, x) => a + x.tot, 0);
+   const receitasAteAgoraIRS = hAnoIRS.reduce((a, x) => a + x.tot, 0);
+   const mesesComDadosIRS = hAnoIRS.length;
+   const mesAtualNumIRS = new Date().getMonth() + 1;
+   // Projetar receitas anuais: usar dados reais + projeção para meses restantes
+   const receitasAnuaisIRS = mesesComDadosIRS > 0 && mesAtualNumIRS < 12
+     ? receitasAteAgoraIRS + (receitasAteAgoraIRS / mesesComDadosIRS) * (12 - mesAtualNumIRS)
+     : receitasAteAgoraIRS;
    const escaloesIRS = [
      { limite: 8342, taxa: 0.125 }, { limite: 12587, taxa: 0.157 },
      { limite: 17838, taxa: 0.212 }, { limite: 23089, taxa: 0.241 },
      { limite: 29397, taxa: 0.311 }, { limite: 43090, taxa: 0.349 },
-     { limite: 55953, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
+     { limite: 46566, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
      { limite: Infinity, taxa: 0.48 }
    ];
    const rendColetavelIRS = receitasAnuaisIRS * 0.75;
@@ -1670,7 +1676,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const deducoesIRS = 4587.09 + Math.min(receitasAnuaisIRS * 0.15, 250);
    const impostoFinalIRS = Math.max(0, impostoIRS - deducoesIRS);
    const receitasComTaxasIRS = hAnoIRS.reduce((a, x) => a + x.com, 0);
-   const retencoesIRS = receitasComTaxasIRS * (taxa / 100);
+   // Retenções: projetar também para estimar retenções anuais
+   const retencoesProjetadasIRS = mesesComDadosIRS > 0 && mesAtualNumIRS < 12
+     ? (receitasComTaxasIRS + (receitasComTaxasIRS / mesesComDadosIRS) * (12 - mesAtualNumIRS)) * (taxa / 100)
+     : receitasComTaxasIRS * (taxa / 100);
+   const retencoesIRS = retencoesProjetadasIRS;
    const previsaoIRS = {
      receitasAnuais: receitasAnuaisIRS, rendColetavel: rendColetavelIRS,
      impostoEstimado: impostoFinalIRS, retencoes: retencoesIRS,
@@ -1887,7 +1897,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              { limite: 8342, taxa: 0.125 }, { limite: 12587, taxa: 0.157 },
              { limite: 17838, taxa: 0.212 }, { limite: 23089, taxa: 0.241 },
              { limite: 29397, taxa: 0.311 }, { limite: 43090, taxa: 0.349 },
-             { limite: 55953, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
+             { limite: 46566, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
              { limite: Infinity, taxa: 0.48 }
            ];
            for (const e of escaloesHist) {
@@ -1929,7 +1939,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const totalImpostos = ssAnualCalibrado + (totalIVA * ivaFatorAjuste) + Math.max(0, -irsAPagarReceberCalibrado);
    const temCalibracao = calibracao.SS || calibracao.IVA || calibracao.IRS;
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, totalImpostos,
+   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, mesesComDados: mesesComDadosIRS, totalImpostos,
      // Dados de calibração para UI
      calibracao: {
        ativa: !!temCalibracao,
@@ -2259,6 +2269,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {previsaoImpostos.irsAPagarReceber >= 0 ? '+' : ''}{fmt(previsaoImpostos.irsAPagarReceber)}
        </p>
        <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
+       <p className="text-[10px] text-slate-500/60">📊 Projeção anual baseada em {previsaoImpostos.mesesComDados || '?'} meses de dados</p>
        {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400/70">🎯 Ajuste: {(previsaoImpostos.calibracao.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio || 0)} (s/ ajuste: {fmt(previsaoImpostos.calibracao.IRS.original || 0)})</p>}
      </div>
    </div>
@@ -11217,7 +11228,13 @@ ${transacoesOrdenadas.map(t => `<tr>
  const getPrevisaoIRS = useCallback(() => {
    const h = getHist();
    const hAno = h.filter(x => x.ano === anoAtualSistema);
-   const receitasAnuais = hAno.reduce((a, x) => a + x.tot, 0);
+   const receitasAteAgora = hAno.reduce((a, x) => a + x.tot, 0);
+   const mesesComDados = hAno.length;
+   const mesAtualNumCb = new Date().getMonth() + 1;
+   // Projetar receitas anuais: usar dados reais + projeção para meses restantes
+   const receitasAnuais = mesesComDados > 0 && mesAtualNumCb < 12
+     ? receitasAteAgora + (receitasAteAgora / mesesComDados) * (12 - mesAtualNumCb)
+     : receitasAteAgora;
    
    // Escalões IRS 2026 (OE 2026 - Lei n.º 73-A/2025)
    // Limites atualizados em 3.51% + taxas do 2º ao 5º escalão -0.3pp
@@ -11228,7 +11245,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      { limite: 23089, taxa: 0.241 },
      { limite: 29397, taxa: 0.311 },
      { limite: 43090, taxa: 0.349 },
-     { limite: 55953, taxa: 0.431 },
+     { limite: 46566, taxa: 0.431 },
      { limite: 86634, taxa: 0.446 },
      { limite: Infinity, taxa: 0.48 }
    ];
@@ -11256,7 +11273,11 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    // Retenções já feitas (estimada com base na taxa configurada)
    const receitasComTaxas = hAno.reduce((a, x) => a + x.com, 0);
-   const retencoes = receitasComTaxas * (taxa / 100);
+   // Retenções: projetar para estimar retenções anuais
+   const retencoesProjetadas = mesesComDados > 0 && mesAtualNumCb < 12
+     ? (receitasComTaxas + (receitasComTaxas / mesesComDados) * (12 - mesAtualNumCb)) * (taxa / 100)
+     : receitasComTaxas * (taxa / 100);
+   const retencoes = retencoesProjetadas;
    
    const aPagarReceber = retencoes - impostoFinal;
    
