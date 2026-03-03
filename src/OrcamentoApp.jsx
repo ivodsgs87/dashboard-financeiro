@@ -8761,19 +8761,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const valEfectivo = (t) => t.valorReal != null ? t.valorReal : t.valor;
    
    // Totais usam txFiltradas para reagir a todos os filtros
-   const despesasFiltradas = txFiltradas.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
-   const receitasFiltradas = txFiltradas.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const despesasFiltradas = txFiltradas.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
+   const receitasFiltradas = txFiltradas.filter(t => t.tipo === 'receita' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    const reembolsosFiltrados = txFiltradas.filter(t => t.tipo === 'reembolso' || t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0);
-   const transferenciasFiltradas = txFiltradas.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const transferenciasFiltradas = txFiltradas.filter(t => t.tipo === 'transferencia' || t.categoria === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
    // Manter txMes totais para uso no resumo anual
-   const despesasMes = txMes.filter(t => t.tipo === 'despesa').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
-   const receitasMes = txMes.filter(t => t.tipo === 'receita').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const despesasMes = txMes.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
+   const receitasMes = txMes.filter(t => t.tipo === 'receita' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
    // Despesas por categoria - usa filtros activos
    const porCategoria = {};
-   txFiltradas.filter(t => t.tipo === 'despesa').forEach(t => {
+   txFiltradas.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').forEach(t => {
      const cat = t.categoria || 'outros';
      if (!porCategoria[cat]) porCategoria[cat] = 0;
      porCategoria[cat] += Math.abs(valEfectivo(t));
@@ -9409,8 +9409,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Resumo do mês */}
          <div className="grid grid-cols-3 gap-3">
-           <StatCard label="Despesas" value={fmt(despesasFiltradas)} color="text-red-400" icon="📉" sub={`${txFiltradas.filter(t=>t.tipo==='despesa').length} movimentos`} />
-           <StatCard label="Receitas" value={fmt(receitasFiltradas)} color="text-emerald-400" icon="📈" sub={`${txFiltradas.filter(t=>t.tipo==='receita').length} movimentos`} />
+           <StatCard label="Despesas" value={fmt(despesasFiltradas)} color="text-red-400" icon="📉" sub={`${txFiltradas.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').length} movimentos`} />
+           <StatCard label="Receitas" value={fmt(receitasFiltradas)} color="text-emerald-400" icon="📈" sub={`${txFiltradas.filter(t=>t.tipo==='receita'&&t.categoria!=='transferencia').length} movimentos`} />
            <StatCard label="Balanço" value={fmt(receitasFiltradas - despesasFiltradas)} color={receitasFiltradas-despesasFiltradas >= 0 ? 'text-emerald-400' : 'text-red-400'} icon="💰" sub={transferenciasFiltradas > 0 ? `${fmt(transferenciasFiltradas)} transf.` : ''} />
          </div>
          
@@ -9506,8 +9506,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      ); })()}
                      {/* Valor + edit valor real */}
                      <div className="flex-shrink-0 w-24 text-right">
-                       <span className={`font-mono text-sm font-bold ${tx.tipo === 'receita' ? 'text-emerald-400' : tx.tipo === 'transferencia' ? 'text-slate-500' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? 'text-orange-400' : 'text-red-400'}`}>
-                         {tx.tipo === 'receita' ? '+' : tx.tipo === 'despesa' ? '-' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? '↩' : '↔'}{fmt(Math.abs(tx.valor))}
+                       <span className={`font-mono text-sm font-bold ${(tx.tipo === 'receita' && tx.categoria !== 'transferencia') ? 'text-emerald-400' : (tx.tipo === 'transferencia' || tx.categoria === 'transferencia') ? 'text-slate-500' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? 'text-orange-400' : 'text-red-400'}`}>
+                         {(tx.tipo === 'receita' && tx.categoria !== 'transferencia') ? '+' : tx.tipo === 'despesa' && tx.categoria !== 'transferencia' ? '-' : tx.tipo === 'reembolso' || tx._usadoComoReembolso ? '↩' : '↔'}{fmt(Math.abs(tx.valor))}
                        </span>
                      </div>
                      {/* Delete */}
@@ -9866,7 +9866,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {(G.orcamentosGrupos || []).map((grupo, gi) => {
                // Calc gasto do grupo
                const gastoGrupo = txMes.filter(t => 
-                 t.tipo === 'despesa' && 
+                 t.tipo === 'despesa' && t.categoria !== 'transferencia' &&
                  (grupo.categorias || []).includes(t.categoria) &&
                  (!grupo.contaId || grupo.contaId === 'todas' || t.contaId === grupo.contaId)
                ).reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
