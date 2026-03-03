@@ -11321,13 +11321,27 @@ ${transacoesOrdenadas.map(t => `<tr>
  // Património líquido (Portfolio + Valor líquido da casa)
  const getPatrimonioLiquido = useCallback(() => {
    const totPortfolio = portfolio.reduce((a, p) => a + p.val, 0);
-   const valorCasa = credito.valorCasa || 0;
-   const dividaAtual = credito.dividaAtual || 0;
-   const casaLiquida = valorCasa - dividaAtual;
+   // Usar G.creditos (novo sistema multi-crédito) com fallback para G.credito (legado)
+   const creditosAtivos = (G.creditos || []).filter(c => c.estado === 'ativo');
+   let valorCasa = 0;
+   let dividaTotal = 0;
+   if (creditosAtivos.length > 0) {
+     // Somar dívida de todos os créditos ativos
+     creditosAtivos.forEach(c => {
+       dividaTotal += c.dividaAtual || 0;
+       // Valor do bem (casa) do crédito habitação
+       if (c.tipo === 'habitacao' && c.valorBem) valorCasa = Math.max(valorCasa, parseFloat(c.valorBem) || 0);
+     });
+   } else {
+     // Fallback para sistema legado
+     valorCasa = credito.valorCasa || 0;
+     dividaTotal = credito.dividaAtual || 0;
+   }
+   const casaLiquida = valorCasa - dividaTotal;
    const total = totPortfolio + casaLiquida;
    
-   return { portfolio: totPortfolio, casaLiquida, valorCasa, dividaAtual, total };
- }, [portfolio, credito]);
+   return { portfolio: totPortfolio, casaLiquida, valorCasa, dividaAtual: dividaTotal, total };
+ }, [portfolio, credito, G.creditos]);
 
  // Tarefas pendentes (para notificações no Resumo)
  const getTarefasPendentes = useCallback(() => {
