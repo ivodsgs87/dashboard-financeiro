@@ -1450,6 +1450,134 @@ const COEF_SIMPL = 0.75;
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
+
+  // Custom Color Picker (drag-friendly, stays open)
+  const ColorPicker = ({value, onChange, className = ''}) => {
+    const [cpOpen, setCpOpen] = useState(false);
+    const [hsv, setHsv] = useState({h:0,s:1,v:1});
+    const gradRef = useRef(null);
+    const hueRef = useRef(null);
+    const dragType = useRef(null);
+    const popRef = useRef(null);
+    const hsvRef = useRef(hsv);
+    hsvRef.current = hsv;
+    function hex2hsv(hex) {
+      let r=0,g=0,b=0; if(!hex)hex='#3b82f6';
+      if(hex.length===4){r=parseInt(hex[1]+hex[1],16);g=parseInt(hex[2]+hex[2],16);b=parseInt(hex[3]+hex[3],16);}
+      else if(hex.length===7){r=parseInt(hex.slice(1,3),16);g=parseInt(hex.slice(3,5),16);b=parseInt(hex.slice(5,7),16);}
+      r/=255;g/=255;b/=255;
+      const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;
+      let h=0,s2=mx===0?0:d/mx,v=mx;
+      if(d!==0){if(mx===r)h=((g-b)/d+(g<b?6:0))/6;else if(mx===g)h=((b-r)/d+2)/6;else h=((r-g)/d+4)/6;}
+      return {h,s:s2,v};
+    }
+    function hsv2hex(h,s2,v) {
+      let r,g,b;const i=Math.floor(h*6),ff=h*6-i,p=v*(1-s2),q=v*(1-ff*s2),t=v*(1-(1-ff)*s2);
+      switch(i%6){case 0:r=v;g=t;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=t;break;case 3:r=p;g=q;b=v;break;case 4:r=t;g=p;b=v;break;case 5:r=v;g=p;b=q;break;}
+      const toH=n=>{const x=Math.round(n*255).toString(16);return x.length===1?"0"+x:x;};
+      return "#"+toH(r)+toH(g)+toH(b);
+    }
+    const curHex = hsv2hex(hsv.h, hsv.s, hsv.v);
+    useEffect(() => { if (cpOpen) setHsv(hex2hsv(value || '#3b82f6')); }, [cpOpen]);
+    useEffect(() => {
+      if (!cpOpen) return;
+      const onMove = (e) => {
+        if (!dragType.current) return;
+        if (e.cancelable) e.preventDefault();
+        if (dragType.current === 'grad') {
+          const rect = gradRef.current?.getBoundingClientRect(); if (!rect) return;
+          const cx = e.touches ? e.touches[0].clientX : e.clientX;
+          const cy = e.touches ? e.touches[0].clientY : e.clientY;
+          const x = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
+          const y = Math.max(0, Math.min(1, (cy - rect.top) / rect.height));
+          const nv = {...hsvRef.current, s: x, v: 1 - y};
+          setHsv(nv); hsvRef.current = nv; onChange?.(hsv2hex(nv.h, nv.s, nv.v));
+        } else if (dragType.current === 'hue') {
+          const rect = hueRef.current?.getBoundingClientRect(); if (!rect) return;
+          const cx = e.touches ? e.touches[0].clientX : e.clientX;
+          const x = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
+          const nv = {...hsvRef.current, h: x};
+          setHsv(nv); hsvRef.current = nv; onChange?.(hsv2hex(nv.h, nv.s, nv.v));
+        }
+      };
+      const onUp = () => { dragType.current = null; };
+      const onOutside = (e) => {
+        if (dragType.current) return;
+        if (popRef.current && !popRef.current.contains(e.target)) setCpOpen(false);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, {passive: false});
+      window.addEventListener('touchend', onUp);
+      const tm = setTimeout(() => document.addEventListener('mousedown', onOutside), 100);
+      return () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onUp);
+        document.removeEventListener('mousedown', onOutside);
+        clearTimeout(tm);
+      };
+    }, [cpOpen]);
+    const startGrad = (e) => {
+      e.stopPropagation(); dragType.current = 'grad';
+      const rect = gradRef.current?.getBoundingClientRect(); if (!rect) return;
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      const x = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (cy - rect.top) / rect.height));
+      const nv = {...hsvRef.current, s: x, v: 1 - y};
+      setHsv(nv); hsvRef.current = nv; onChange?.(hsv2hex(nv.h, nv.s, nv.v));
+    };
+    const startHue = (e) => {
+      e.stopPropagation(); dragType.current = 'hue';
+      const rect = hueRef.current?.getBoundingClientRect(); if (!rect) return;
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const x = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
+      const nv = {...hsvRef.current, h: x};
+      setHsv(nv); hsvRef.current = nv; onChange?.(hsv2hex(nv.h, nv.s, nv.v));
+    };
+    const presets = ["#ef4444","#f97316","#f59e0b","#22c55e","#10b981","#06b6d4","#3b82f6","#6366f1","#8b5cf6","#a855f7","#ec4899","#78716c"];
+    return (
+      <div className={"relative inline-block " + className}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); setCpOpen(!cpOpen); }}
+          className="w-7 h-7 rounded-lg border-2 border-slate-600 cursor-pointer flex-shrink-0 hover:scale-110 transition-transform"
+          style={{backgroundColor: value || '#3b82f6'}} />
+        {cpOpen && (
+          <div ref={popRef}
+            className={"absolute z-[200] mt-1 right-0 p-3 rounded-xl shadow-2xl border " + (theme === "light" ? "bg-white border-slate-200" : "bg-slate-800 border-slate-600")}
+            style={{width: 240}} onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+            <div ref={gradRef} className="relative w-full rounded-lg overflow-hidden cursor-crosshair select-none"
+              style={{height: 160, background: "linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, " + hsv2hex(hsv.h, 1, 1) + ")"}}
+              onMouseDown={startGrad} onTouchStart={startGrad}>
+              <div className="absolute w-5 h-5 rounded-full border-2 border-white pointer-events-none"
+                style={{left: "calc(" + hsv.s * 100 + "% - 10px)", top: "calc(" + (1 - hsv.v) * 100 + "% - 10px)", backgroundColor: curHex, boxShadow: "0 0 0 1px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.3)"}}/>
+            </div>
+            <div ref={hueRef} className="relative w-full h-4 rounded-full mt-3 cursor-pointer select-none"
+              style={{background: "linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)"}}
+              onMouseDown={startHue} onTouchStart={startHue}>
+              <div className="absolute w-5 h-5 rounded-full border-2 border-white pointer-events-none"
+                style={{left: "calc(" + hsv.h * 100 + "% - 10px)", top: "-2px", backgroundColor: hsv2hex(hsv.h, 1, 1), boxShadow: "0 0 0 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2)"}}/>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {presets.map(p => (
+                <button key={p} type="button" className={"w-6 h-6 rounded-md border-2 hover:scale-125 transition-transform " + (p === curHex ? "border-white ring-1 ring-blue-400 scale-110" : "border-slate-600/50")}
+                  style={{backgroundColor: p}} onClick={() => { const nv = hex2hsv(p); setHsv(nv); hsvRef.current = nv; onChange?.(p); }}/>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <div className="w-7 h-7 rounded-lg border border-slate-600 flex-shrink-0" style={{backgroundColor: curHex}}/>
+              <input type="text" value={curHex}
+                className={"flex-1 text-xs font-mono px-2 py-1.5 rounded-lg " + (theme === "light" ? "bg-slate-100 border border-slate-200" : "bg-slate-700 border border-slate-600")}
+                onChange={e => { const v2 = e.target.value; if (/^#[0-9a-f]{6}$/i.test(v2)) { const nv = hex2hsv(v2); setHsv(nv); hsvRef.current = nv; onChange?.(v2); }}}/>
+              <button type="button" onClick={() => setCpOpen(false)}
+                className={"text-xs font-medium px-2.5 py-1.5 rounded-lg " + (theme === "light" ? "bg-blue-50 text-blue-600 hover:bg-blue-100" : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30")}>OK</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
  const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
  const Row = ({children, highlight, index = 0}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
   const inputClass = theme === 'light' 
@@ -10115,9 +10243,7 @@ const COEF_SIMPL = 0.75;
              {contas.map(c => (
                <div key={c.id} className={`p-3 rounded-xl ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30'}`}>
                  <div className="flex items-center gap-3">
-                   <input key={`cor-${c.id}-${c.cor || '#3b82f6'}`} type="color" defaultValue={c.cor || '#3b82f6'}
-                     onChange={e => { uG('contas', contas.map(x => x.id === c.id ? {...x, cor: e.target.value} : x)); }}
-                     className="w-6 h-6 rounded cursor-pointer flex-shrink-0 border-0" />
+                   <ColorPicker value={c.cor || '#3b82f6'} onChange={v => uG('contas', contas.map(x => x.id === c.id ? {...x, cor: v} : x))} />
                    <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
                      <input type="text" defaultValue={c.nome} placeholder="Nome"
                        className={`text-sm font-semibold px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
@@ -10158,7 +10284,7 @@ const COEF_SIMPL = 0.75;
                    </div>
                    <div>
                      <label className="text-xs text-slate-500 block mb-1">Cor</label>
-                     <input type="color" value={cCor} onChange={e => setCCor(e.target.value)} className="w-full h-9 rounded-lg cursor-pointer" />
+                     <ColorPicker value={cCor} onChange={v => setCCor(v)} />
                    </div>
                  </div>
                  <div className="flex gap-2 mt-3">
@@ -10189,9 +10315,7 @@ const COEF_SIMPL = 0.75;
                  <input type="text" defaultValue={c.nome}
                    className={`flex-1 text-sm px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-200' : 'bg-slate-700 border border-slate-600'}`}
                    onBlur={e => { saveUndo(); const novos = [...categorias]; novos[i] = {...c, nome: e.target.value}; uG('categoriasExtrato', novos); }} />
-                 <input key={`catcor-${c.id}-${c.cor || '#78716c'}`} type="color" defaultValue={c.cor || '#78716c'}
-                   className="w-7 h-7 rounded cursor-pointer border-0 flex-shrink-0"
-                   onChange={e => { const novos = [...categorias]; novos[i] = {...c, cor: e.target.value}; uG('categoriasExtrato', novos); }} />
+                 <ColorPicker value={c.cor || '#78716c'} onChange={v => { const novos = [...categorias]; novos[i] = {...c, cor: v}; uG('categoriasExtrato', novos); }} />
                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${theme === 'light' ? 'bg-slate-200 text-slate-500' : 'bg-slate-700 text-slate-500'}`}>{c.id}</span>
                  {!['transferencia'].includes(c.id) && (
                    <button type="button" onClick={() => { uG('categoriasExtrato', categorias.filter((_, j) => j !== i)); }}
@@ -13324,8 +13448,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
                      <input type="text" value={c.nome} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, nome: e.target.value}; uG('clientes', novos); }}
                        className={`flex-1 text-sm bg-transparent border-none outline-none ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
-                     <input key={`clicor-${c.id || i}-${c.cor}`} type="color" defaultValue={c.cor} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, cor: e.target.value}; uG('clientes', novos); }}
-                       className="w-6 h-6 rounded cursor-pointer border-0" />
+                     <ColorPicker value={c.cor} onChange={v => { saveUndo(); uG('clientes', clientes.map((x,j) => j===i ? {...x, cor: v} : x)); }} />
                      {G.clientes.length > 1 && (
                        <button onClick={() => { saveUndo(); uG('clientes', G.clientes.filter(x => x.id !== c.id)); }}
                          className="text-red-400 hover:text-red-300 text-xs">✕</button>
