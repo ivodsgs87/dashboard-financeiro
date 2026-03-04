@@ -2618,38 +2618,6 @@ const COEF_SIMPL = 0.75;
  </Card>
  )}
 
- {/* CHECKLIST INICIO DE MES */}
- <Card>
-   <div className="flex items-center justify-between mb-3">
-     <h3 className="font-semibold">{String.fromCodePoint(0x1F5D3)} Checklist {mes}</h3>
-     <span className={`text-xs px-2 py-0.5 rounded-full ${(() => {
-       const items = [regCom.length>0||regSem.length>0, transf.abanca||false, transf.activo||false, transf.trade||transf.toTR||false, (M[mesKey]?.inv||[]).some(i=>i.done), (G.extrato||[]).some(t=>{const[a,m]=t.data.split('-');return +a===ano&&+m===(meses.indexOf(mes)+1);})];
-       const done = items.filter(Boolean).length;
-       const pct = Math.round((done/items.length)*100);
-       return pct===100?'bg-emerald-500/20 text-emerald-400':pct>=50?'bg-amber-500/20 text-amber-400':'bg-red-500/20 text-red-400';
-     })()}`}>
-       {(() => { const items=[regCom.length>0||regSem.length>0,transf.abanca||false,transf.activo||false,transf.trade||transf.toTR||false,(M[mesKey]?.inv||[]).some(i=>i.done),(G.extrato||[]).some(t=>{const[a,m]=t.data.split('-');return +a===ano&&+m===(meses.indexOf(mes)+1);})]; return items.filter(Boolean).length+'/'+items.length; })()}
-     </span>
-   </div>
-   <div className="space-y-1.5">
-     {[
-       {label:'Registar receitas',done:regCom.length>0||regSem.length>0,action:()=>setTab('receitas'),icon:String.fromCodePoint(0x1F4B0)},
-       {label:'Transferir para TR',done:transf.trade||transf.toTR||false,icon:String.fromCodePoint(0x1F4E5)},
-       {label:'TR -> ABanca (Casal)',done:transf.abanca||false,icon:String.fromCodePoint(0x1F4B3)},
-       {label:'TR -> Activo (Pessoais)',done:transf.activo||false,icon:String.fromCodePoint(0x1F4B3)},
-       {label:'Registar investimentos',done:(M[mesKey]?.inv||[]).some(i=>i.done),action:()=>setTab('invest'),icon:String.fromCodePoint(0x1F4C8)},
-       {label:'Importar extrato',done:(G.extrato||[]).some(t=>{const[a,m]=t.data.split('-');return +a===ano&&+m===(meses.indexOf(mes)+1);}),action:()=>setTab('extrato'),icon:String.fromCodePoint(0x1F3E6)},
-       {label:'Snapshot portfolio',done:(G.portfolioHist||[]).some(h=>h.date===mesKey),action:()=>setTab('portfolio'),icon:String.fromCodePoint(0x1F4F8),showAfterDay:25},
-     ].filter(item=>!item.showAfterDay||new Date().getDate()>=item.showAfterDay).map((item,i)=>(
-       <div key={i} onClick={item.action} className={`flex items-center gap-2 p-2 rounded-lg text-sm ${item.action?'cursor-pointer':''} ${item.done?(theme==='light'?'bg-emerald-50 border border-emerald-200':'bg-emerald-500/10 border border-emerald-500/20'):(theme==='light'?'bg-slate-100 hover:bg-slate-200':'bg-slate-700/30 hover:bg-slate-700/50')}`}>
-         <span className={item.done?'opacity-50':''}>{item.done?String.fromCodePoint(0x2705):item.icon}</span>
-         <span className={`flex-1 ${item.done?'line-through text-slate-500':''}`}>{item.label}</span>
-         {item.action&&!item.done&&<span className="text-xs text-blue-400">-&gt;</span>}
-       </div>
-     ))}
-   </div>
- </Card>
-
  {/* RESUMO MENSAL */}
  <Card>
    <h3 className="font-semibold mb-3">{String.fromCodePoint(0x1F4CB)} Resumo {mes} {ano}</h3>
