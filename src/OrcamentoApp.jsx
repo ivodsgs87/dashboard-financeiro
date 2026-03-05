@@ -4248,19 +4248,25 @@ const COEF_SIMPL = 0.75;
      <div><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
      <div><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(parteSaraAB)}</p></div>
    </div>
-   {(cartaoRef > 0 || segFilhos > 0) && (
-     <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
-       <p className="text-xs text-slate-500 mb-2">Ajustes Parceiro/a:</p>
-       <div className="flex items-center gap-2 flex-wrap text-sm">
-         <span className="text-slate-400">{fmt(parteSaraAB)}</span>
-         {cartaoRef > 0 && (<><span className="text-slate-600">−</span><span className="text-amber-400">{fmt(cartaoRef)}</span><span className="text-[10px] text-slate-500">C. Refeicao</span></>)}
-         {segFilhos > 0 && (<><span className="text-slate-600">−</span><span className="text-cyan-400">{fmt(segFilhos)}</span><span className="text-[10px] text-slate-500">Seg. Filhos</span></>)}
-         <span className="text-slate-600">=</span>
-         <span className="bg-emerald-500/20 px-3 py-1 rounded-lg text-emerald-400 font-bold">{fmt(contribSaraAB)}</span>
-         <span className="text-[10px] text-slate-500">(transfere)</span>
+   <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
+     <p className="text-xs text-slate-500 mb-2">Ajustes Parceiro/a:</p>
+     <div className="flex items-center gap-2 flex-wrap text-sm">
+       <span className="text-slate-400">{fmt(parteSaraAB)}</span>
+       <span className="text-slate-600">−</span>
+       <div className="flex items-center gap-1">
+         <StableInput type="number" className={`w-16 ${inputClass} text-amber-400 font-bold text-right text-xs py-1 px-1.5`} initialValue={cartaoRef} onSave={v => { const idx = sara.rend.findIndex(r => r.isCR); if (idx >= 0) { const nr = [...sara.rend]; nr[idx] = {...nr[idx], val: v}; uS('rend', nr); }}} />
+         <span className="text-[10px] text-slate-500">C. Refeicao</span>
        </div>
+       <span className="text-slate-600">−</span>
+       <div className="flex items-center gap-1">
+         <StableInput type="number" className={`w-16 ${inputClass} text-cyan-400 font-bold text-right text-xs py-1 px-1.5`} initialValue={segFilhos} onSave={v => { const idx2 = despABanca.findIndex(d => d.desc.toLowerCase().includes('seguro filhos')); if (idx2 >= 0) uG('despABanca', despABanca.map((d,i) => i === idx2 ? {...d, val: v} : d)); }} />
+         <span className="text-[10px] text-slate-500">Seg. Filhos</span>
+       </div>
+       <span className="text-slate-600">=</span>
+       <span className="bg-emerald-500/20 px-3 py-1 rounded-lg text-emerald-400 font-bold">{fmt(contribSaraAB)}</span>
+       <span className="text-[10px] text-slate-500">(transfere)</span>
      </div>
-   )}
+   </div>
  </div> </Card>
  
  {porCat.length > 0 && (
