@@ -4242,12 +4242,26 @@ const COEF_SIMPL = 0.75;
  </div>
  )}
  />
- <div className="flex justify-between gap-4 mt-6 p-4 bg-slate-700/30 rounded-xl">
- <div className="text-center"><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
- <div className="text-center"><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
- <div className="text-center"><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(totAB-minhaAB)}</p></div>
- </div>
- </Card>
+ <div className="mt-6 p-4 bg-slate-700/30 rounded-xl space-y-3">
+   <div className="grid grid-cols-3 gap-4 text-center">
+     <div><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
+     <div><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
+     <div><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(parteSaraAB)}</p></div>
+   </div>
+   {(cartaoRef > 0 || segFilhos > 0) && (
+     <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
+       <p className="text-xs text-slate-500 mb-2">Ajustes Parceiro/a:</p>
+       <div className="flex items-center gap-2 flex-wrap text-sm">
+         <span className="text-slate-400">{fmt(parteSaraAB)}</span>
+         {cartaoRef > 0 && (<><span className="text-slate-600">−</span><span className="text-amber-400">{fmt(cartaoRef)}</span><span className="text-[10px] text-slate-500">C. Refeicao</span></>)}
+         {segFilhos > 0 && (<><span className="text-slate-600">−</span><span className="text-cyan-400">{fmt(segFilhos)}</span><span className="text-[10px] text-slate-500">Seg. Filhos</span></>)}
+         <span className="text-slate-600">=</span>
+         <span className="bg-emerald-500/20 px-3 py-1 rounded-lg text-emerald-400 font-bold">{fmt(contribSaraAB)}</span>
+         <span className="text-[10px] text-slate-500">(transfere)</span>
+       </div>
+     </div>
+   )}
+ </div> </Card>
  
  {porCat.length > 0 && (
  <Card>
