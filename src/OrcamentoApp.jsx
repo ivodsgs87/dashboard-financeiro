@@ -9648,9 +9648,23 @@ const COEF_SIMPL = 0.75;
          {(() => {
            const _mesN = extratoMes === "todos" ? 0 : extratoMes.split("-").map(Number)[1];
            const _anoN = extratoMes === "todos" ? 0 : extratoMes.split("-").map(Number)[0];
-           const _txR = extrato.filter(t=>{const[a,m]=t.data.split("-");return (extratoMes==="todos"||( +a===_anoN && +m===_mesN))&&t.tipo==="receita"&&t.categoria!=="transferencia";});
            const _regM = [...regCom,...regSem];
-           const _naoR = _txR.filter(tx=>{const val=Math.abs(tx.valor);return val>10&&!_regM.some(r=>Math.abs(r.val-val)<1);});
+           // Receitas normais (nao usadas como reembolso) sem registo correspondente
+           const _txR = extrato.filter(t=>{
+             const[a,m]=t.data.split("-");
+             if(!(extratoMes==="todos"||( +a===_anoN && +m===_mesN))) return false;
+             if(t._usadoComoReembolso) return false; // ja tratada como reembolso
+             return t.tipo==="receita" && t.categoria!=="transferencia";
+           });
+           // Despesas com valorReal > 0 (reembolso excede custo = income liquido)
+           const _txExcess = extrato.filter(t=>{
+             const[a,m]=t.data.split("-");
+             if(!(extratoMes==="todos"||( +a===_anoN && +m===_mesN))) return false;
+             return t.tipo==="despesa" && t.valorReal != null && t.valorReal > 0;
+           }).map(t=>({...t, _displayVal: t.valorReal, _isExcess: true}));
+           // Juntar e filtrar contra registos existentes
+           const _todos = [..._txR.map(t=>({...t, _displayVal: Math.abs(t.valor)})), ..._txExcess];
+           const _naoR = _todos.filter(tx=>tx._displayVal>10&&!_regM.some(r=>Math.abs(r.val-tx._displayVal)<1));
            if(_naoR.length===0)return null;
            return (
              <div className={"p-3 rounded-xl border text-sm mb-3 "+(theme==="light"?"bg-amber-50 border-amber-200":"bg-amber-500/10 border-amber-500/30")}>
@@ -9658,8 +9672,8 @@ const COEF_SIMPL = 0.75;
                <div className="space-y-1">
                  {_naoR.slice(0,3).map((tx,i)=>(<div key={i} className="flex items-center gap-2 text-xs">
                    <span className="text-slate-500">{tx.data.split("-").reverse().join("/")}</span>
-                   <span className="flex-1 truncate">{tx.descricao||"-"}</span>
-                   <span className="font-medium text-emerald-400">+{Math.abs(tx.valor).toFixed(2)}</span>
+                   <span className="flex-1 truncate">{tx.descricao||"-"}{tx._isExcess?" (liquido)":""}</span>
+                   <span className="font-medium text-emerald-400">+{tx._displayVal.toFixed(2)}</span>
                    <button type="button" onClick={()=>setTab("receitas")} className="text-blue-400 hover:underline">Registar</button>
                  </div>))}
                  {_naoR.length>3&&<p className="text-xs text-slate-500">e mais {_naoR.length-3}...</p>}
