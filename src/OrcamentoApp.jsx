@@ -8998,14 +8998,14 @@ const COEF_SIMPL = 0.75;
    const valEfectivo = (t) => t.valorReal != null ? t.valorReal : t.valor;
    
    // Totais usam txFiltradas para reagir a todos os filtros
-   const despesasFiltradas = txFiltradas.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
-   const receitasFiltradas = txFiltradas.filter(t => (t.tipo === 'receita' || t._usadoComoReembolso) && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const despesasFiltradas = txFiltradas.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => { const ve = valEfectivo(t); return a + (ve < 0 ? Math.abs(ve) : 0); }, 0);
+   const receitasFiltradas = txFiltradas.filter(t => t.tipo === 'receita' && t.categoria !== 'transferencia' && !t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0) + txFiltradas.filter(t => t.tipo === 'despesa' && t.valorReal != null && t.valorReal > 0).reduce((a, t) => a + t.valorReal, 0);
    const reembolsosFiltrados = txFiltradas.filter(t => t.tipo === 'reembolso' || t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0);
    const transferenciasFiltradas = txFiltradas.filter(t => t.tipo === 'transferencia' || t.categoria === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
    // Manter txMes totais para uso no resumo anual
-   const despesasMes = txMes.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
-   const receitasMes = txMes.filter(t => (t.tipo === 'receita' || t._usadoComoReembolso) && t.categoria !== 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
+   const despesasMes = txMes.filter(t => t.tipo === 'despesa' && t.categoria !== 'transferencia').reduce((a, t) => { const ve = valEfectivo(t); return a + (ve < 0 ? Math.abs(ve) : 0); }, 0);
+   const receitasMes = txMes.filter(t => t.tipo === 'receita' && t.categoria !== 'transferencia' && !t._usadoComoReembolso).reduce((a, t) => a + Math.abs(t.valor), 0) + txMes.filter(t => t.tipo === 'despesa' && t.valorReal != null && t.valorReal > 0).reduce((a, t) => a + t.valorReal, 0);
    const transferenciasMes = txMes.filter(t => t.tipo === 'transferencia').reduce((a, t) => a + Math.abs(t.valor), 0);
    
    // Despesas por categoria - usa filtros activos
@@ -9671,7 +9671,7 @@ const COEF_SIMPL = 0.75;
          {/* Resumo do mês */}
          <div className="grid grid-cols-3 gap-3">
            <StatCard label="Despesas" value={fmt(despesasFiltradas)} color="text-red-400" icon="📉" sub={`${txFiltradas.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').length} movimentos`} />
-           <StatCard label="Receitas" value={fmt(receitasFiltradas)} color="text-emerald-400" icon="📈" sub={`${txFiltradas.filter(t=>(t.tipo==='receita'||t._usadoComoReembolso)&&t.categoria!=='transferencia').length} movimentos`} />
+           <StatCard label="Receitas" value={fmt(receitasFiltradas)} color="text-emerald-400" icon="📈" sub={`${txFiltradas.filter(t=>t.tipo==='receita'&&t.categoria!=='transferencia'&&!t._usadoComoReembolso).length + txFiltradas.filter(t=>t.tipo==='despesa'&&t.valorReal!=null&&t.valorReal>0).length} movimentos`} />
            <StatCard label="Balanço" value={fmt(receitasFiltradas - despesasFiltradas)} color={receitasFiltradas-despesasFiltradas >= 0 ? 'text-emerald-400' : 'text-red-400'} icon="💰" sub={transferenciasFiltradas > 0 ? `${fmt(transferenciasFiltradas)} transf.` : ''} />
          </div>
          
