@@ -2624,12 +2624,12 @@ const COEF_SIMPL = 0.75;
    {(() => {
      const mesNum = meses.indexOf(mes)+1;
      const ext = (G.extrato||[]).filter(t=>{const[a,m]=t.data.split('-');return +a===ano&&+m===mesNum;});
-     const extDesp = ext.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0);
+     const extDesp = ext.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').reduce((a,t)=>{ const ve=t.valorReal!=null?t.valorReal:t.valor; return a+(ve<0?Math.abs(ve):0); },0);
      const taxaPoup = recLiq>0?((totInv+(restante*(alocAmort/100)))/recLiq*100):0;
      const catG = {};
      ext.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').forEach(t=>{
        const nm=(G.categoriasExtrato||[]).find(c2=>c2.id===t.categoria)?.nome||t.categoria;
-       catG[nm]=(catG[nm]||0)+Math.abs(t.valor);
+       const _ve=t.valorReal!=null?t.valorReal:t.valor; if(_ve<0) catG[nm]=(catG[nm]||0)+Math.abs(_ve);
      });
      const topC = Object.entries(catG).sort((a,b)=>b[1]-a[1]).slice(0,3);
      const metaPct = metas.receitas>0?(totaisAnuais.receitasAnuais/metas.receitas*100):0;
@@ -10130,7 +10130,7 @@ const COEF_SIMPL = 0.75;
                  t.tipo === 'despesa' && t.categoria !== 'transferencia' &&
                  (grupo.categorias || []).includes(t.categoria) &&
                  (!grupo.contaId || grupo.contaId === 'todas' || t.contaId === grupo.contaId)
-               ).reduce((a, t) => a + Math.abs(valEfectivo(t)), 0);
+               ).reduce((a, t) => { const ve = valEfectivo(t); return a + (ve < 0 ? Math.abs(ve) : 0); }, 0);
                const pctG = grupo.limite > 0 ? (gastoGrupo / grupo.limite * 100) : 0;
                
                return (
@@ -11469,7 +11469,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    const _aN = new Date().getFullYear();
    _oG.forEach(g => {
      if (!g.limite || g.limite <= 0) return;
-     const gasto = _eD.filter(t => { const [a,m]=t.data.split("-"); return +a===_aN && +m===_mN && t.tipo==="despesa" && t.categoria!=="transferencia" && (g.categorias||[]).includes(t.categoria); }).reduce((ac,t) => ac + Math.abs(t.valor), 0);
+     const gasto = _eD.filter(t => { const [a,m]=t.data.split("-"); return +a===_aN && +m===_mN && t.tipo==="despesa" && t.categoria!=="transferencia" && (g.categorias||[]).includes(t.categoria); }).reduce((ac,t) => { const ve = t.valorReal != null ? t.valorReal : t.valor; return ac + (ve < 0 ? Math.abs(ve) : 0); }, 0);
      const pct = (gasto / g.limite) * 100;
      if (pct >= 100) alerts.push({tipo:"orcamento", severity:"error", msg: (g.icon||"") + " " + g.nome + ": " + Math.round(pct) + "% (" + gasto.toFixed(0) + "/" + g.limite + ")"});
      else if (pct >= 80) alerts.push({tipo:"orcamento", severity:"warning", msg: (g.icon||"") + " " + g.nome + ": " + Math.round(pct) + "% (" + gasto.toFixed(0) + "/" + g.limite + ")"});
