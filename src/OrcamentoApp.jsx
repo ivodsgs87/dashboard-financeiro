@@ -3675,7 +3675,7 @@ const COEF_SIMPL = 0.75;
        data: importedData.data || new Date().toISOString().split('T')[0],
        valIliq: importedData.valorIliquido || 0,
        iva: importedData.valorIva || 0,
-       taxaIva: importedData.taxaIva || 23,
+       taxaIva: importedData.taxaIva ?? 23,
        retIRS: importedData.retencaoIRS || 0,
        pais: importedData.pais || 'PT'
      };
