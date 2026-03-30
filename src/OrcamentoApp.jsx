@@ -1831,7 +1831,7 @@ const COEF_SIMPL = 0.75;
      taxaEfetiva: receitasAnuaisIRS > 0 ? (impostoFinalIRS / receitasAnuaisIRS * 100) : 0
    };
    
-   let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0;
+   let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0;
    const mesAtualNum = meses.indexOf(mesAtualSistema) + 1; // Converter para número (1-12)
    
    Object.entries(M).forEach(([key, mesData]) => {
@@ -1870,7 +1870,7 @@ const COEF_SIMPL = 0.75;
    const getReceitasMesDeclaraveis = (anoR, mesR) => {
      const k = `${anoR}-${mesR}`;
      const md = M[k] || {};
-     return (md.regCom || []).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
+     return (md.regCom || []).filter(r => !r.emitidoPorSara).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
    };
    
    // Determinar qual declaração trimestral está ativa AGORA
@@ -2076,7 +2076,7 @@ const COEF_SIMPL = 0.75;
    const totalImpostos = ssAnualCalibrado + (totalIVA * ivaFatorAjuste) + Math.max(0, -irsAPagarReceberCalibrado);
    const temCalibracao = calibracao.SS || calibracao.IVA || calibracao.IRS;
    
-   return { totalIliquido, totalPT, totalUE, totalForaUE, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, mesesComDados: mesesComDadosIRS, totalImpostos,
+   return { totalIliquido, totalPT, totalUE, totalForaUE, totalSaraIliq, totalSaraRetIRS, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, mesesComDados: mesesComDadosIRS, totalImpostos,
      // Dados de calibração para UI
      calibracao: {
        ativa: !!temCalibracao,
@@ -3675,7 +3675,7 @@ const COEF_SIMPL = 0.75;
        data: importedData.data || new Date().toISOString().split('T')[0],
        valIliq: importedData.valorIliquido || 0,
        iva: importedData.valorIva || 0,
-       taxaIva: importedData.taxaIva ?? 23,
+       taxaIva: importedData.taxaIva != null ? importedData.taxaIva : 23,
        retIRS: importedData.retencaoIRS || 0,
        pais: importedData.pais || 'PT'
      };
@@ -3825,7 +3825,7 @@ const COEF_SIMPL = 0.75;
        // Campos do recibo verde
        valIliq: editRecibo.valIliq || 0,
        iva: editRecibo.iva || 0,
-       taxaIva: editRecibo.taxaIva || 23,
+       taxaIva: editRecibo.taxaIva != null ? editRecibo.taxaIva : 23,
        retIRS: editRecibo.retIRS || 0,
        pais: editRecibo.pais || 'PT',
        // Ficheiro do recibo (base64)
@@ -3913,7 +3913,7 @@ const COEF_SIMPL = 0.75;
                  <select 
                    className={`w-full ${inputClass}`} 
                    value={editRecibo.pais || 'PT'} 
-                   onChange={e => setEditRecibo({...editRecibo, pais: e.target.value, taxaIva: e.target.value === 'PT' ? 23 : 0, iva: e.target.value === 'PT' ? (editRecibo.valIliq || 0) * 0.23 : 0})}
+                   onChange={e => setEditRecibo({...editRecibo, pais: e.target.value, taxaIva: e.target.value === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 23 : 0, iva: e.target.value === 'PT' ? (editRecibo.valIliq || 0) * 0.23 : 0})}
                    
                  >
                    {paisOptions.map(p => <option key={p} value={p}>{p === 'PT' ? '🇵🇹 Portugal' : p === 'UE' ? '🇪🇺 UE' : '🌍 Fora UE'}</option>)}
@@ -3921,6 +3921,38 @@ const COEF_SIMPL = 0.75;
                </div>
              </div>
              
+
+             {/* Emitido por Sara */}
+             <div className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-slate-600">
+               <label className="flex items-center gap-2 cursor-pointer flex-1">
+                 <input type="checkbox" checked={editRecibo.emitidoPorSara || false}
+                   onChange={e => {
+                     const isSara = e.target.checked;
+                     const pais = editRecibo.pais || 'PT';
+                     const taxaRet = isSara ? (pais === 'PT' ? 11.5 : 0) : (pais === 'PT' ? 25 : 0);
+                     const retIRS = (editRecibo.valIliq || 0) * taxaRet / 100;
+                     setEditRecibo({...editRecibo, emitidoPorSara: isSara, taxaIva: isSara ? 0 : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23), iva: isSara ? 0 : editRecibo.iva, taxaRetIRS: taxaRet, retIRS});
+                   }}
+                   className="w-4 h-4 accent-pink-500 cursor-pointer" />
+                 <span className="text-sm">Emitido pela Sara</span>
+               </label>
+               {editRecibo.emitidoPorSara && (
+                 <div className="flex items-center gap-2">
+                   <span className="text-[10px] text-slate-500">Ret. IRS:</span>
+                   <input type="number" step="0.5" className={`w-16 ${inputClass} text-xs py-1 px-1.5 text-right`}
+                     value={editRecibo.taxaRetIRS != null ? editRecibo.taxaRetIRS : 11.5}
+                     onChange={e => {
+                       const taxa = parseFloat(e.target.value) || 0;
+                       setEditRecibo({...editRecibo, taxaRetIRS: taxa, retIRS: (editRecibo.valIliq || 0) * taxa / 100});
+                     }} />
+                   <span className="text-[10px] text-slate-500">%</span>
+                 </div>
+               )}
+               {editRecibo.emitidoPorSara && (
+                 <span className="text-[10px] text-pink-400">Sem SS | Sem IVA</span>
+               )}
+             </div>
+
              <div>
                <label className="text-xs text-slate-400 mb-1 block">Descrição</label>
                <input 
@@ -3942,7 +3974,7 @@ const COEF_SIMPL = 0.75;
                    onChange={e => {
                      const val = parseFloat(e.target.value) || 0;
                      const pais = editRecibo.pais || 'PT';
-                     const taxaIva = pais === 'PT' ? (editRecibo.taxaIva || 23) : 0;
+                     const taxaIva = pais === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0;
                      const iva = val * taxaIva / 100;
                      const retIRS = pais === 'PT' ? val * 0.23 : 0; // 23% retenção IRS (art. 101.º CIRS)
                      setEditRecibo({...editRecibo, valIliq: val, iva, retIRS, val: val});
@@ -3955,7 +3987,7 @@ const COEF_SIMPL = 0.75;
                  <label className="text-xs text-slate-400 mb-1 block">Taxa IVA (%)</label>
                  <select 
                    className={`w-full ${inputClass}`} 
-                   value={editRecibo.taxaIva || 23} 
+                   value={editRecibo.taxaIva != null ? editRecibo.taxaIva : 23} 
                    onChange={e => {
                      const taxa = parseFloat(e.target.value);
                      setEditRecibo({...editRecibo, taxaIva: taxa, iva: (editRecibo.valIliq || 0) * taxa / 100});
@@ -3996,7 +4028,7 @@ const COEF_SIMPL = 0.75;
                    disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
                  {(editRecibo.pais || 'PT') === 'PT' && editRecibo.valIliq > 0 && (
-                   <p className="text-[10px] text-slate-500 mt-1">Sugestão 23%: {fmt((editRecibo.valIliq || 0) * 0.23)}</p>
+                   <p className="text-[10px] text-slate-500 mt-1">Sugestão {editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS || 11.5) : 25}%: {fmt((editRecibo.valIliq || 0) * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS || 11.5) : 25) / 100)}</p>
                  )}
                </div>
              </div>
@@ -4132,7 +4164,9 @@ const COEF_SIMPL = 0.75;
        <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
-       {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
+       {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 hidden sm:inline">Sara</span>}
+        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 hidden sm:inline">Sara</span>}
+        {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
        {r.ficheiro && (
          <button 
            onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
@@ -13389,6 +13423,18 @@ ${transacoesOrdenadas.map(t => `<tr>
                    </p>
                    <p className="text-[10px] text-slate-500">{irsVal >= 0 ? 'Reembolso previsto' : 'A pagar na declaração'} · Rend. coletável: {fmt((pi.totalIliquido || 0) * 0.75)}</p>
                  </div>
+                  {/* Recibos pela Sara */}
+                  {(pi.totalSaraIliq || 0) > 0 && (
+                    <div>
+                      <div className="flex justify-between">
+                        <span className="text-pink-400">👩 Recibos pela Sara</span>
+                        <span className="font-bold text-pink-400">{fmt(pi.totalSaraIliq)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Sem SS · Sem IVA · Ret. IRS: {fmt(pi.totalSaraRetIRS || 0)} · Entra no IRS conjunto
+                      </p>
+                    </div>
+                  )}
                  <div className={`border-t pt-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}>
                    <div className="flex justify-between font-bold">
                      <span>Total impostos</span>
