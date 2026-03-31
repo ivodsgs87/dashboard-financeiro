@@ -3920,7 +3920,15 @@ const COEF_SIMPL = 0.75;
                  <select 
                    className={`w-full ${inputClass}`} 
                    value={editRecibo.pais || 'PT'} 
-                   onChange={e => setEditRecibo({...editRecibo, pais: e.target.value, taxaIva: e.target.value === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0, iva: e.target.value === 'PT' ? (editRecibo.valIliq || 0) * 0.23 : 0})}
+                   onChange={e => {
+                     const np = e.target.value;
+                     const isSara = editRecibo.emitidoPorSara || false;
+                     const newTaxaIva = isSara ? 0 : (np === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0);
+                     const newIva = (editRecibo.valIliq || 0) * newTaxaIva / 100;
+                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? 25 : 0);
+                     const newRetIRS = (editRecibo.valIliq || 0) * newTaxaRet / 100;
+                     setEditRecibo({...editRecibo, pais: np, taxaIva: newTaxaIva, iva: newIva, taxaRetIRS: newTaxaRet, retIRS: newRetIRS});
+                   }}
                    
                  >
                    {paisOptions.map(p => <option key={p} value={p}>{p === 'PT' ? '🇵🇹 Portugal' : p === 'UE' ? '🇪🇺 UE' : '🌍 Fora UE'}</option>)}
