@@ -4164,8 +4164,7 @@ const COEF_SIMPL = 0.75;
        <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
-       {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 hidden sm:inline">Sara</span>}
-        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 hidden sm:inline">Sara</span>}
+       {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
         {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
        {r.ficheiro && (
          <button 
@@ -4199,6 +4198,7 @@ const COEF_SIMPL = 0.75;
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
        {r.ficheiro && (
          <button 
            onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
