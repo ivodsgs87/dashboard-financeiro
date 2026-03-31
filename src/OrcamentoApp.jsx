@@ -1380,9 +1380,14 @@ const COEF_SIMPL = 0.75;
  const metas = getMetasAno(ano);
 
  const inCom = regCom.reduce((a,r)=>a+r.val,0);
+ const inComSara = regCom.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+r.val,0);
+ const inComOwn = inCom - inComSara;
  const inSem = regSem.reduce((a,r)=>a+r.val,0);
+ const inSemSara = regSem.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+r.val,0);
+ const inSemOwn = inSem - inSemSara;
  const totRec = inCom + inSem;
- const valTax = inCom * (taxa/100);
+ const retSara = regCom.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+(r.retIRS||0),0) + regSem.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+(r.retIRS||0),0);
+ const valTax = inComOwn * (taxa/100) + retSara;
  const recLiq = totRec - valTax;
  const totAB = despABanca.reduce((a,d)=>a+d.val,0);
  const minhaAB = totAB * (contrib/100);
@@ -3831,7 +3836,9 @@ const COEF_SIMPL = 0.75;
        // Ficheiro do recibo (base64)
        ficheiro: editRecibo.ficheiro || null,
        ficheiroNome: editRecibo.ficheiroNome || null,
-       ficheiroTipo: editRecibo.ficheiroTipo || null
+       ficheiroTipo: editRecibo.ficheiroTipo || null,
+       emitidoPorSara: editRecibo.emitidoPorSara || false,
+       taxaRetIRS: editRecibo.taxaRetIRS != null ? editRecibo.taxaRetIRS : null
      } : x));
      setShowReciboModal(false);
      setEditRecibo(null);
