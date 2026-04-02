@@ -7039,6 +7039,18 @@ const COEF_SIMPL = 0.75;
                <span className="text-sm font-medium">{mesNome} {y}</span>
                {isInicioAno && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Início {ano}</span>}
                {isUltimo && !isInicioAno && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">Atual</span>}
+               {(() => {
+                 const idxFull = historicoOrdenado.indexOf(h);
+                 if (idxFull <= 0) return null;
+                 const prev = historicoOrdenado[idxFull - 1];
+                 const diff = h.divida - prev.divida;
+                 const pct = prev.divida > 0 ? (diff / prev.divida * 100) : 0;
+                 return (
+                   <span className={`text-[10px] font-medium ${diff <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                     {diff <= 0 ? String.fromCodePoint(0x25BC) : String.fromCodePoint(0x25B2)} {fmt(Math.abs(diff))} ({Math.abs(pct).toFixed(1)}%)
+                   </span>
+                 );
+               })()}
              </div>
              <div className="flex items-center gap-3">
                <StableInput 
