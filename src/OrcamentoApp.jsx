@@ -1456,11 +1456,11 @@ const COEF_SIMPL = 0.75;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
 
-  // Custom Category Dropdown (stable, no auto-close on re-render)
+  // Custom Category Dropdown (relative positioning, stable)
   const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
     const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({top: 0, left: 0, width: 180, maxHeight: 400});
-    const btnRef = useRef(null);
+    const [openUp, setOpenUp] = useState(false);
+    const wrapRef = useRef(null);
     const ddRef = useRef(null);
 
     const selected = (options || []).find(o => o.id === value) || (options && options[0]);
@@ -1472,26 +1472,13 @@ const COEF_SIMPL = 0.75;
         setOpen(false);
         return;
       }
-      if (btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 400);
-        const margin = 8;
-        const spaceBelow = window.innerHeight - r.bottom - margin;
-        const spaceAbove = r.top - margin;
-        // Choose side with more space
-        const showAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
-        let top, maxH;
-        if (showAbove) {
-          maxH = Math.min(desiredHeight, spaceAbove);
-          top = r.top - maxH - 4;
-        } else {
-          maxH = Math.min(desiredHeight, spaceBelow);
-          top = r.bottom + 4;
-        }
-        // Clamp horizontal position to viewport
-        const ddWidth = Math.max(r.width, 180);
-        const left = Math.max(margin, Math.min(r.left, window.innerWidth - ddWidth - margin));
-        setPos({ top, left, width: ddWidth, maxHeight: maxH });
+      // Decide if dropdown should open up or down based on space
+      if (wrapRef.current) {
+        const r = wrapRef.current.getBoundingClientRect();
+        const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 360);
+        const spaceBelow = window.innerHeight - r.bottom;
+        const spaceAbove = r.top;
+        setOpenUp(spaceBelow < desiredHeight && spaceAbove > spaceBelow);
       }
       setOpen(true);
     };
@@ -1499,8 +1486,7 @@ const COEF_SIMPL = 0.75;
     useEffect(() => {
       if (!open) return;
       const onClick = (e) => {
-        if (btnRef.current && btnRef.current.contains(e.target)) return;
-        if (ddRef.current && ddRef.current.contains(e.target)) return;
+        if (wrapRef.current && wrapRef.current.contains(e.target)) return;
         setOpen(false);
       };
       const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
@@ -1516,10 +1502,9 @@ const COEF_SIMPL = 0.75;
     }, [open]);
 
     return (
-      <>
-        <button ref={btnRef} type="button" onClick={handleToggle}
-          className={cls + " flex items-center gap-1 cursor-pointer"}
-          style={{minWidth: 0}}
+      <div ref={wrapRef} className="relative inline-block" style={{minWidth: 0}}>
+        <button type="button" onClick={handleToggle}
+          className={cls + " flex items-center gap-1 cursor-pointer w-full"}
           title={selected?.nome}>
           <span className="flex-shrink-0">{selected?.icon}</span>
           <span className="truncate flex-1 text-left">{selected?.nome}</span>
@@ -1527,20 +1512,20 @@ const COEF_SIMPL = 0.75;
         </button>
         {open && (
           <div ref={ddRef}
-            className={"fixed rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600')}
-            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight || 400, zIndex: 9999}}
+            className={"absolute rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600') + (openUp ? ' bottom-full mb-1' : ' top-full mt-1')}
+            style={{left: 0, minWidth: 180, maxHeight: 360, zIndex: 9999}}
             onMouseDown={e => e.stopPropagation()}>
             {(options || []).map(opt => (
               <button key={opt.id} type="button"
                 onClick={(e) => { e.stopPropagation(); onChange(opt.id); setOpen(false); }}
-                className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
+                className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
                 <span>{opt.icon}</span>
-                <span className="truncate">{opt.nome}</span>
+                <span>{opt.nome}</span>
               </button>
             ))}
           </div>
         )}
-      </>
+      </div>
     );
   };
 
