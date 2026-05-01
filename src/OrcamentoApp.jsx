@@ -1456,23 +1456,18 @@ const COEF_SIMPL = 0.75;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
 
-  // Custom Category Dropdown (relative positioning, stable)
+  // Custom Category Dropdown (wrapper takes child styles, dd anchored to wrapper)
   const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
     const [open, setOpen] = useState(false);
     const [openUp, setOpenUp] = useState(false);
     const wrapRef = useRef(null);
-    const ddRef = useRef(null);
 
     const selected = (options || []).find(o => o.id === value) || (options && options[0]);
 
     const handleToggle = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      if (open) {
-        setOpen(false);
-        return;
-      }
-      // Decide if dropdown should open up or down based on space
+      if (open) { setOpen(false); return; }
       if (wrapRef.current) {
         const r = wrapRef.current.getBoundingClientRect();
         const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 360);
@@ -1501,19 +1496,18 @@ const COEF_SIMPL = 0.75;
       };
     }, [open]);
 
+    // The wrapper applies the cls (sizing/styling) and the button is just for click/visual content
     return (
-      <div ref={wrapRef} className="relative inline-block" style={{minWidth: 0}}>
-        <button type="button" onClick={handleToggle}
-          className={cls + " flex items-center gap-1 cursor-pointer w-full"}
-          title={selected?.nome}>
-          <span className="flex-shrink-0">{selected?.icon}</span>
-          <span className="truncate flex-1 text-left">{selected?.nome}</span>
-          <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
-        </button>
+      <div ref={wrapRef} className={cls + " relative cursor-pointer flex items-center gap-1"} 
+           onClick={handleToggle} title={selected?.nome}>
+        <span className="flex-shrink-0">{selected?.icon}</span>
+        <span className="truncate flex-1 text-left">{selected?.nome}</span>
+        <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
         {open && (
-          <div ref={ddRef}
+          <div
             className={"absolute rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600') + (openUp ? ' bottom-full mb-1' : ' top-full mt-1')}
             style={{left: 0, minWidth: 180, maxHeight: 360, zIndex: 9999}}
+            onClick={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}>
             {(options || []).map(opt => (
               <button key={opt.id} type="button"
