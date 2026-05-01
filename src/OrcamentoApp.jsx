@@ -1459,7 +1459,7 @@ const COEF_SIMPL = 0.75;
   // Custom Category Dropdown (stable, no auto-close on re-render)
   const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
     const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({top: 0, left: 0, width: 180});
+    const [pos, setPos] = useState({top: 0, left: 0, width: 180, maxHeight: 400});
     const btnRef = useRef(null);
     const ddRef = useRef(null);
 
@@ -1474,14 +1474,24 @@ const COEF_SIMPL = 0.75;
       }
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
-        const dropdownHeight = Math.min((options?.length || 1) * 36 + 16, 400);
-        const spaceBelow = window.innerHeight - r.bottom;
-        const showAbove = spaceBelow < dropdownHeight && r.top > dropdownHeight;
-        setPos({
-          top: showAbove ? r.top - dropdownHeight - 4 : r.bottom + 4,
-          left: r.left,
-          width: Math.max(r.width, 180)
-        });
+        const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 400);
+        const margin = 8;
+        const spaceBelow = window.innerHeight - r.bottom - margin;
+        const spaceAbove = r.top - margin;
+        // Choose side with more space
+        const showAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+        let top, maxH;
+        if (showAbove) {
+          maxH = Math.min(desiredHeight, spaceAbove);
+          top = r.top - maxH - 4;
+        } else {
+          maxH = Math.min(desiredHeight, spaceBelow);
+          top = r.bottom + 4;
+        }
+        // Clamp horizontal position to viewport
+        const ddWidth = Math.max(r.width, 180);
+        const left = Math.max(margin, Math.min(r.left, window.innerWidth - ddWidth - margin));
+        setPos({ top, left, width: ddWidth, maxHeight: maxH });
       }
       setOpen(true);
     };
@@ -1518,7 +1528,7 @@ const COEF_SIMPL = 0.75;
         {open && (
           <div ref={ddRef}
             className={"fixed rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600')}
-            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: 400, zIndex: 9999}}
+            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight || 400, zIndex: 9999}}
             onMouseDown={e => e.stopPropagation()}>
             {(options || []).map(opt => (
               <button key={opt.id} type="button"
