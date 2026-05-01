@@ -1459,18 +1459,22 @@ const COEF_SIMPL = 0.75;
   // Custom Category Dropdown (stable, no auto-close on re-render)
   const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
     const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({top: 0, left: 0, width: 0});
+    const [pos, setPos] = useState({top: 0, left: 0, width: 180});
     const btnRef = useRef(null);
     const ddRef = useRef(null);
 
-    const selected = options.find(o => o.id === value) || options[0];
+    const selected = (options || []).find(o => o.id === value) || (options && options[0]);
 
-    const openDropdown = (e) => {
-      e?.stopPropagation();
+    const handleToggle = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (open) {
+        setOpen(false);
+        return;
+      }
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
-        // Position dropdown below the button
-        const dropdownHeight = Math.min(options.length * 36 + 16, 400);
+        const dropdownHeight = Math.min((options?.length || 1) * 36 + 16, 400);
         const spaceBelow = window.innerHeight - r.bottom;
         const showAbove = spaceBelow < dropdownHeight && r.top > dropdownHeight;
         setPos({
@@ -1485,16 +1489,15 @@ const COEF_SIMPL = 0.75;
     useEffect(() => {
       if (!open) return;
       const onClick = (e) => {
-        if (btnRef.current?.contains(e.target)) return;
-        if (ddRef.current?.contains(e.target)) return;
+        if (btnRef.current && btnRef.current.contains(e.target)) return;
+        if (ddRef.current && ddRef.current.contains(e.target)) return;
         setOpen(false);
       };
       const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
-      // Delay to avoid closing on the click that opened
       const t = setTimeout(() => {
         document.addEventListener('mousedown', onClick);
         document.addEventListener('keydown', onEsc);
-      }, 50);
+      }, 100);
       return () => {
         clearTimeout(t);
         document.removeEventListener('mousedown', onClick);
@@ -1504,21 +1507,22 @@ const COEF_SIMPL = 0.75;
 
     return (
       <>
-        <button ref={btnRef} type="button" onClick={openDropdown}
-          className={cls + " flex items-center gap-1 cursor-pointer truncate"}
+        <button ref={btnRef} type="button" onClick={handleToggle}
+          className={cls + " flex items-center gap-1 cursor-pointer"}
+          style={{minWidth: 0}}
           title={selected?.nome}>
-          <span>{selected?.icon}</span>
-          <span className="truncate">{selected?.nome}</span>
-          <span className="text-[8px] ml-auto opacity-60">▾</span>
+          <span className="flex-shrink-0">{selected?.icon}</span>
+          <span className="truncate flex-1 text-left">{selected?.nome}</span>
+          <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
         </button>
         {open && (
           <div ref={ddRef}
-            className={"fixed z-[200] rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600')}
-            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: 400}}
+            className={"fixed rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600')}
+            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: 400, zIndex: 9999}}
             onMouseDown={e => e.stopPropagation()}>
-            {options.map(opt => (
+            {(options || []).map(opt => (
               <button key={opt.id} type="button"
-                onClick={() => { onChange(opt.id); setOpen(false); }}
+                onClick={(e) => { e.stopPropagation(); onChange(opt.id); setOpen(false); }}
                 className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
                 <span>{opt.icon}</span>
                 <span className="truncate">{opt.nome}</span>
