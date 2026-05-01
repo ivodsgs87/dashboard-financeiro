@@ -1456,6 +1456,80 @@ const COEF_SIMPL = 0.75;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
 
+  // Custom Category Dropdown (stable, no auto-close on re-render)
+  const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({top: 0, left: 0, width: 0});
+    const btnRef = useRef(null);
+    const ddRef = useRef(null);
+
+    const selected = options.find(o => o.id === value) || options[0];
+
+    const openDropdown = (e) => {
+      e?.stopPropagation();
+      if (btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        // Position dropdown below the button
+        const dropdownHeight = Math.min(options.length * 36 + 16, 400);
+        const spaceBelow = window.innerHeight - r.bottom;
+        const showAbove = spaceBelow < dropdownHeight && r.top > dropdownHeight;
+        setPos({
+          top: showAbove ? r.top - dropdownHeight - 4 : r.bottom + 4,
+          left: r.left,
+          width: Math.max(r.width, 180)
+        });
+      }
+      setOpen(true);
+    };
+
+    useEffect(() => {
+      if (!open) return;
+      const onClick = (e) => {
+        if (btnRef.current?.contains(e.target)) return;
+        if (ddRef.current?.contains(e.target)) return;
+        setOpen(false);
+      };
+      const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+      // Delay to avoid closing on the click that opened
+      const t = setTimeout(() => {
+        document.addEventListener('mousedown', onClick);
+        document.addEventListener('keydown', onEsc);
+      }, 50);
+      return () => {
+        clearTimeout(t);
+        document.removeEventListener('mousedown', onClick);
+        document.removeEventListener('keydown', onEsc);
+      };
+    }, [open]);
+
+    return (
+      <>
+        <button ref={btnRef} type="button" onClick={openDropdown}
+          className={cls + " flex items-center gap-1 cursor-pointer truncate"}
+          title={selected?.nome}>
+          <span>{selected?.icon}</span>
+          <span className="truncate">{selected?.nome}</span>
+          <span className="text-[8px] ml-auto opacity-60">▾</span>
+        </button>
+        {open && (
+          <div ref={ddRef}
+            className={"fixed z-[200] rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600')}
+            style={{top: pos.top, left: pos.left, width: pos.width, maxHeight: 400}}
+            onMouseDown={e => e.stopPropagation()}>
+            {options.map(opt => (
+              <button key={opt.id} type="button"
+                onClick={() => { onChange(opt.id); setOpen(false); }}
+                className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
+                <span>{opt.icon}</span>
+                <span className="truncate">{opt.nome}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
+
   // Custom Color Picker (drag-friendly, stays open)
   const ColorPicker = ({value, onChange, className = ''}) => {
     const [cpOpen, setCpOpen] = useState(false);
@@ -9808,19 +9882,18 @@ const COEF_SIMPL = 0.75;
                          setSelectedTxs(next);
                        }} className="rounded flex-shrink-0" />
                      {/* Categoria - inline dropdown with icon+text */}
-                     <select key={`cat-${tx.id}-${tx.categoria}`} defaultValue={tx.categoria || 'outros'} 
-                       onMouseDown={e => e.stopPropagation()}
-                       onChange={e => {
-                         const newCat = e.target.value;
+                     <CategoryDropdown
+                       value={tx.categoria || 'outros'}
+                       options={categorias}
+                       onChange={newCat => {
                          const newTipo = newCat === 'transferencia' ? 'transferencia' : tx.valor < 0 ? 'despesa' : 'receita';
                          saveUndo();
                          uG('extrato', extrato.map(t => t.id === tx.id ? {...t, categoria: newCat, tipo: newTipo} : t));
                          guardarRegra(tx.descricao, newCat);
                        }}
-                       className={`flex-shrink-0 text-[11px] w-28 cursor-pointer rounded-lg px-1.5 py-1 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 border border-slate-200' : 'bg-slate-700/50 hover:bg-slate-700 border border-slate-600'}`}
-                       title={cat.nome}>
-                       {categorias.map(c => <option key={c.id} value={c.id}>{c.icon} {c.nome}</option>)}
-                     </select>
+                       theme={theme}
+                       className={`flex-shrink-0 text-[11px] w-28 rounded-lg px-1.5 py-1 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 border border-slate-200' : 'bg-slate-700/50 hover:bg-slate-700 border border-slate-600'}`}
+                     />
                      {/* Data */}
                      <span className="text-[11px] text-slate-500 w-14 flex-shrink-0">{tx.data?.slice(5)}</span>
                      {/* Descrição + transfer label + reembolso */}
