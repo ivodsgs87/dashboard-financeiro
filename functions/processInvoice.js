@@ -1,88 +1,124 @@
-const functions = require('firebase-functions');
-const fetch = require('node-fetch');
+const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 
-// Função para processar fatura com Gemini
-exports.processInvoice = functions.https.onCall(async (data, context) => {
-  const { base64, mediaType } = data;
-  
-  if (!base64) {
-    throw new functions.https.HttpsError('invalid-argument', 'Ficheiro não fornecido');
-  }
-  
-  const GEMINI_API_KEY = functions.config().gemini?.apikey;
-  
-  if (!GEMINI_API_KEY) {
-    throw new functions.https.HttpsError('failed-precondition', 'API key do Gemini não configurada');
-  }
-  
-  try {
-    const prompt = `Analisa esta fatura/recibo verde português e extrai os seguintes campos em JSON:
-{
-  "valorIliquido": número (valor base antes de IVA),
-  "taxaIva": número (0, 6, 13 ou 23),
-  "valorIva": número,
-  "retencaoIRS": número (retenção na fonte, 0 se não houver ou não for visível),
-  "temRetencao": boolean (true se o documento mostra retenção IRS, false se não),
-  "totalDocumento": número,
-  "totalPagar": número (valor final a receber após retenção),
-  "pais": "PT" ou "UE" ou "Fora UE" (baseado no NIF/país do cliente),
-  "nomeCliente": string,
-  "descricao": string (descrição do serviço prestado),
-  "data": string (formato YYYY-MM-DD),
-  "nif": string (NIF do cliente, se visível)
-}
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
-IMPORTANTE: 
-- Responde APENAS com o JSON, sem markdown nem explicações
-- Se um campo não estiver visível, usa null
-- Para país: se NIF começar com PT ou for 9 dígitos assume "PT", se tiver prefixo UE (ex: DE, FR, ES) assume "UE", senão "Fora UE"
-- temRetencao: true se vês linha de "Retenção na fonte" ou "Retenção IRS" no documento
-- Valores numéricos em euros, sem símbolo €`;
+// Modelo atual (Julho 2026). Se este for descontinuado no futuro,
+// consulta https://ai.google.dev/gemini-api/docs/models e atualiza.
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              {
-                inline_data: {
-                  mime_type: mediaType,
-                  data: base64
-                }
-              },
-              { text: prompt }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 1000
-          }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('Gemini API error:', error);
-      throw new functions.https.HttpsError('internal', error.error?.message || 'Erro na API Gemini');
+exports.processInvoice = onRequest(
+  {
+    secrets: [geminiApiKey],
+    cors: true,
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Access-Control-Allow-Methods", "POST");
+      res.set("Access-Control-Allow-Headers", "Content-Type");
+      res.status(204).send("");
+      return;
     }
 
-    const result = await response.json();
-    
-    // Extrair texto da resposta
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    
-    // Limpar e parsear JSON
-    const cleanJson = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
-    
-    return { success: true, data: parsed };
-    
-  } catch (error) {
-    console.error('Erro ao processar fatura:', error);
-    throw new functions.https.HttpsError('internal', error.message || 'Erro ao processar fatura');
+    res.set("Access-Control-Allow-Origin", "*");
+
+    try {
+      const { base64, mediaType } = req.body?.data || {};
+
+      if (!base64) {
+        res.status(400).json({ error: { message: "Ficheiro em falta (base64)" } });
+        return;
+      }
+
+      const prompt = `Analisa esta fatura/recibo e extrai os seguintes dados em JSON puro (sem markdown, sem backticks):
+{
+  "nomeCliente": "nome do cliente/empresa a quem foi emitida OU quem emitiu (o que fizer mais sentido como cliente do freelancer)",
+  "descricao": "descrição breve do serviço",
+  "valorIliquido": 0.00,
+  "valorIva": 0.00,
+  "taxaIva": 0,
+  "retencaoIRS": 0.00,
+  "temRetencao": false,
+  "pais": "PT",
+  "data": "YYYY-MM-DD"
+}
+
+Regras:
+- valorIliquido: valor base sem IVA (número)
+- valorIva: valor do IVA em euros (número, 0 se isento)
+- taxaIva: percentagem do IVA (0, 6, 13 ou 23)
+- retencaoIRS: valor da retenção na fonte em euros (número, 0 se não houver)
+- temRetencao: true se houver retenção na fonte
+- pais: "PT" se cliente português, "UE" se União Europeia, "Fora UE" caso contrário
+- data: data de emissão do documento
+- Responde APENAS com o JSON, nada mais.`;
+
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiApiKey.value()}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: mediaType || "application/pdf",
+                      data: base64,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+            },
+          }),
+        }
+      );
+
+      if (!geminiResponse.ok) {
+        const errBody = await geminiResponse.text();
+        console.error("Gemini API error:", geminiResponse.status, errBody);
+        res.status(502).json({
+          error: {
+            message: `Erro Gemini (${geminiResponse.status}). Verifica se o modelo ${GEMINI_MODEL} ainda está disponível.`,
+          },
+        });
+        return;
+      }
+
+      const result = await geminiResponse.json();
+      const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        console.error("Resposta Gemini sem texto:", JSON.stringify(result).slice(0, 500));
+        res.status(502).json({ error: { message: "Resposta vazia do Gemini" } });
+        return;
+      }
+
+      // Parse do JSON (remove backticks se existirem)
+      const clean = text.replace(/```json|```/g, "").trim();
+      let data;
+      try {
+        data = JSON.parse(clean);
+      } catch (e) {
+        console.error("JSON parse falhou:", clean.slice(0, 300));
+        res.status(502).json({ error: { message: "Gemini devolveu formato inválido" } });
+        return;
+      }
+
+      res.json({ result: { success: true, data } });
+    } catch (err) {
+      console.error("processInvoice error:", err);
+      res.status(500).json({ error: { message: err.message || "Erro interno" } });
+    }
   }
-});
+);
