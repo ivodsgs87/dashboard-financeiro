@@ -2,6 +2,18 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData } from './firebase';
 import OrcamentoApp from './OrcamentoApp';
 
+// Versão memoizada: só re-renderiza quando os dados que afetam o conteúdo
+// (user, initialData) mudam. Assim as oscilações de syncing/lastSync durante
+// a gravação deixam de remontar os ecrãs e de apagar o que se está a escrever.
+const MemoOrcamentoApp = React.memo(
+  OrcamentoApp,
+  (prev, next) =>
+    prev.user === next.user &&
+    prev.initialData === next.initialData &&
+    prev.onSaveData === next.onSaveData &&
+    prev.onLogout === next.onLogout
+);
+
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -123,7 +135,7 @@ const App = () => {
   }
 
   return (
-    <OrcamentoApp 
+    <MemoOrcamentoApp 
       user={user}
       initialData={memoizedInitialData}
       onSaveData={handleSaveData}
