@@ -827,9 +827,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
-  // Escala global da interface. 80% = tudo ~20% mais compacto (bom para telemóvel).
-  // Sobe para 0.85 ou 0.9 se ficar pequeno demais; 1 = tamanho original.
-  const [uiScale, setUiScale] = useState(0.8);
+  // Escala global da interface. 1 = tamanho original (100%).
+  // Baixa para 0.9/0.85 se quiseres tudo mais compacto de uma vez.
+  const [uiScale, setUiScale] = useState(1);
   useEffect(() => {
     document.documentElement.style.fontSize = (uiScale * 100) + '%';
     return () => { document.documentElement.style.fontSize = ''; };
@@ -1671,6 +1671,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const inputClass = theme === 'light' 
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
+  // Variante compacta (menos altura) para as linhas de listas de despesas/investimentos
+  const denseInputClass = theme === 'light'
+    ? "bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+    : "bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
   
   // Classes auxiliares para tema
   const cardBg = theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30';
@@ -4365,11 +4369,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  items={despABanca}
  onReorder={(newItems) => uG('despABanca', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
- <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
+ <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
- <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,val:v}:x))}/>
+ <StableInput className={`flex-[2] min-w-0 ${denseInputClass}`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despABanca',despABanca.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
  </div>
  )}
@@ -4466,11 +4470,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  items={despPess}
  onReorder={(newItems) => uG('despPess', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
- <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
+ <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px]">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
- <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
+ <StableInput className={`flex-[2] min-w-0 ${denseInputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
  </div>
  )}
