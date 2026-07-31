@@ -705,8 +705,76 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
   );
 });
 
-const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
-  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+// Custom Category Dropdown (wrapper takes child styles, dd anchored to wrapper)
+const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
+  const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const wrapRef = useRef(null);
+
+  const selected = (options || []).find(o => o.id === value) || (options && options[0]);
+
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (open) { setOpen(false); return; }
+    if (wrapRef.current) {
+      const r = wrapRef.current.getBoundingClientRect();
+      const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 360);
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      setOpenUp(spaceBelow < desiredHeight && spaceAbove > spaceBelow);
+    }
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e) => {
+      if (wrapRef.current && wrapRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', onClick);
+      document.addEventListener('keydown', onEsc);
+    }, 100);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  // The wrapper applies the cls (sizing/styling) and the button is just for click/visual content
+  return (
+    <div ref={wrapRef} className={cls + " relative cursor-pointer flex items-center gap-1"} 
+         onClick={handleToggle} title={selected?.nome}>
+      <span className="flex-shrink-0">{selected?.icon}</span>
+      <span className="truncate flex-1 text-left">{selected?.nome}</span>
+      <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
+      {open && (
+        <div
+          className={"absolute rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600') + (openUp ? ' bottom-full mb-1' : ' top-full mt-1')}
+          style={{left: 0, minWidth: 180, maxHeight: 360, zIndex: 9999}}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}>
+          {(options || []).map(opt => (
+            <button key={opt.id} type="button"
+              onClick={(e) => { e.stopPropagation(); onChange(opt.id); setOpen(false); }}
+              className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
+              <span>{opt.icon}</span>
+              <span>{opt.nome}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// ── Constantes ao nível do módulo (criadas uma só vez, não a cada render) ──
+const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 // Escaloes IRS 2026
 const ESCALOES_IRS = [
@@ -718,7 +786,12 @@ const ESCALOES_IRS = [
 ];
 const DEDUCAO_CATB = 4587.09;
 const COEF_SIMPL = 0.75;
-  const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
+const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
+
+// Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
+const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
+
+const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   
   // Mês e ano atual do sistema
   const hoje = new Date();
@@ -1407,7 +1480,7 @@ const COEF_SIMPL = 0.75;
  const sobraSara = totSaraR - totSaraD - contribSaraAB;
  const totPort = portfolio.reduce((a,p)=>a+p.val,0);
 
- const fmt = v => new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR'}).format(v);
+ const fmt = v => _fmtEUR.format(v);
  const fmtP = v => Math.round(v)+'%';
 
  // Pagamentos de impostos - callbacks estáveis para o componente memo
@@ -1455,73 +1528,6 @@ const COEF_SIMPL = 0.75;
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
   const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
-
-  // Custom Category Dropdown (wrapper takes child styles, dd anchored to wrapper)
-  const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
-    const [open, setOpen] = useState(false);
-    const [openUp, setOpenUp] = useState(false);
-    const wrapRef = useRef(null);
-
-    const selected = (options || []).find(o => o.id === value) || (options && options[0]);
-
-    const handleToggle = (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (open) { setOpen(false); return; }
-      if (wrapRef.current) {
-        const r = wrapRef.current.getBoundingClientRect();
-        const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 360);
-        const spaceBelow = window.innerHeight - r.bottom;
-        const spaceAbove = r.top;
-        setOpenUp(spaceBelow < desiredHeight && spaceAbove > spaceBelow);
-      }
-      setOpen(true);
-    };
-
-    useEffect(() => {
-      if (!open) return;
-      const onClick = (e) => {
-        if (wrapRef.current && wrapRef.current.contains(e.target)) return;
-        setOpen(false);
-      };
-      const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
-      const t = setTimeout(() => {
-        document.addEventListener('mousedown', onClick);
-        document.addEventListener('keydown', onEsc);
-      }, 100);
-      return () => {
-        clearTimeout(t);
-        document.removeEventListener('mousedown', onClick);
-        document.removeEventListener('keydown', onEsc);
-      };
-    }, [open]);
-
-    // The wrapper applies the cls (sizing/styling) and the button is just for click/visual content
-    return (
-      <div ref={wrapRef} className={cls + " relative cursor-pointer flex items-center gap-1"} 
-           onClick={handleToggle} title={selected?.nome}>
-        <span className="flex-shrink-0">{selected?.icon}</span>
-        <span className="truncate flex-1 text-left">{selected?.nome}</span>
-        <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
-        {open && (
-          <div
-            className={"absolute rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600') + (openUp ? ' bottom-full mb-1' : ' top-full mt-1')}
-            style={{left: 0, minWidth: 180, maxHeight: 360, zIndex: 9999}}
-            onClick={e => e.stopPropagation()}
-            onMouseDown={e => e.stopPropagation()}>
-            {(options || []).map(opt => (
-              <button key={opt.id} type="button"
-                onClick={(e) => { e.stopPropagation(); onChange(opt.id); setOpen(false); }}
-                className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
-                <span>{opt.icon}</span>
-                <span>{opt.nome}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   // Custom Color Picker (drag-friendly, stays open)
   const ColorPicker = ({value, onChange, className = ''}) => {
@@ -1824,7 +1830,7 @@ const COEF_SIMPL = 0.75;
        // Não há registos este ano ainda - verificar se há meses passados
        if (mesesAContar > 0 && creditoParaCalculo?.prestacao) {
          // Estimar amortização baseada na prestação
-         const taxaMensal = (creditoParaCalculo?.taxaJuro || 2) / 100 / 12;
+         const taxaMensal = (creditoParaCalculo?.taxaJuro ?? 2) / 100 / 12;
          const jurosMensais = dividaInicio * taxaMensal;
          const amortMensal = Math.max(0, creditoParaCalculo.prestacao - jurosMensais);
          amortizacaoAnual = amortMensal * mesesAContar;
@@ -5182,7 +5188,7 @@ const COEF_SIMPL = 0.75;
          {(() => {
            const allH = getHist();
            const anos = [...new Set(allH.map(x => x.ano))].sort((a, b) => a - b);
-           const taxaJuro = (creditoAtual.taxaJuro || 2) / 100;
+           const taxaJuro = (creditoAtual.taxaJuro ?? 2) / 100;
            const prestacaoMensal = creditoAtual.prestacao || 0;
            const montanteInicial = creditoAtual.montanteInicial || 0;
            
@@ -5245,7 +5251,7 @@ const COEF_SIMPL = 0.75;
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Juros estimados com base na taxa {((creditoAtual.taxaJuro || 2))}% sobre dívida em início de ano. Progresso = % do capital inicial amortizado.</p>
+   <p className="text-[10px] text-slate-500 mt-3">Juros estimados com base na taxa {((creditoAtual.taxaJuro ?? 2))}% sobre dívida em início de ano. Progresso = % do capital inicial amortizado.</p>
  </Card>
  )}
 
@@ -5802,7 +5808,7 @@ const COEF_SIMPL = 0.75;
      // Simulador 2: Amortizar vs Investir
      const [simExtra, setSimExtra] = useState(200);
      const [simRetornoInv, setSimRetornoInv] = useState(7);
-     const taxaCredito = credito.taxaJuro || 2;
+     const taxaCredito = credito.taxaJuro ?? 2;
      const dividaCredito = creditoAtual.dividaAtual || 0;
      const prestacaoCredito = creditoAtual.prestacao || 0;
 
@@ -12893,21 +12899,47 @@ ${transacoesOrdenadas.map(t => `<tr>
  <div className="p-4 flex-1 overflow-hidden flex flex-col">
  {backupMode === 'export' ? (
  <>
- <p className="text-sm text-slate-400 mb-3">
- Seleciona todo o texto abaixo (Ctrl+A), copia (Ctrl+C) e guarda num ficheiro .json
- </p>
- <textarea 
- className="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-xs font-mono text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
- value={backupData}
- readOnly
- onClick={(e) => e.target.select()}
- />
+ <div className="flex items-center justify-between mb-3 gap-2">
+                  <p className="text-sm text-slate-400">
+                    Descarrega o ficheiro de backup ou copia o texto manualmente.
+                  </p>
+                  <button onClick={() => {
+                    const blob = new Blob([backupData], {type: 'application/json'});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup-orcamento-${new Date().toISOString().slice(0,10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setBackupStatus('✅ Backup descarregado!');
+                  }} className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white text-sm font-semibold rounded-xl">
+                    💾 Descarregar .json
+                  </button>
+                </div>
+                <textarea
+                  className="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-xs font-mono text-slate-300 resize-none"
+                  value={backupData}
+                  readOnly
+                  onClick={(e) => e.target.select()}
+                />
  </>
  ) : backupMode === 'import' ? (
  <>
- <p className="text-sm text-slate-400 mb-3">
- Cola o conteúdo do ficheiro de backup JSON abaixo:
- </p>
+ <div className="flex items-center justify-between mb-3 gap-2">
+                  <p className="text-sm text-slate-400">Carrega um ficheiro .json ou cola o conteúdo abaixo:</p>
+                  <label className="flex-shrink-0 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold rounded-xl cursor-pointer">
+                    📁 Escolher ficheiro
+                    <input type="file" accept=".json,application/json" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => setBackupData(ev.target.result);
+                      reader.readAsText(file);
+                    }} />
+                  </label>
+                </div>
  <textarea 
  className="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-xs font-mono text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
  value={backupData}
