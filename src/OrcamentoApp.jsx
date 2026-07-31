@@ -827,6 +827,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
+  // Escala global da interface. 80% = tudo ~20% mais compacto (bom para telemóvel).
+  // Sobe para 0.85 ou 0.9 se ficar pequeno demais; 1 = tamanho original.
+  const [uiScale, setUiScale] = useState(0.8);
+  useEffect(() => {
+    document.documentElement.style.fontSize = (uiScale * 100) + '%';
+    return () => { document.documentElement.style.fontSize = ''; };
+  }, [uiScale]);
   const [histAno, setHistAno] = useState(anoAtualSistema);
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupMode, setBackupMode] = useState('export');
@@ -1527,7 +1534,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
  };
-  const Select = ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>;
+  // Select memoizado: mantém a MESMA identidade entre renders (só muda com o tema).
+  // Sem isto, era recriado a cada render e o React desmontava/remontava todos os
+  // dropdowns e campos à volta, fazendo-os "reiniciar" enquanto se escrevia.
+  const Select = useMemo(() => ({children, className = '', ...props}) => <select className={`${theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer smooth-colors ${className}`} {...props}>{children}</select>, [theme]);
 
   // Custom Color Picker (drag-friendly, stays open)
   const ColorPicker = ({value, onChange, className = ''}) => {
@@ -10739,7 +10749,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const tabs = [
    {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
-   {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'extrato',icon:'🏦',label:'Reais'}]},
+   {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'}]},
@@ -13373,8 +13383,8 @@ ${transacoesOrdenadas.map(t => `<tr>
         {tab==='resumo' && <Resumo/>}
  {tab==='performance' && <Performance/>}
  {tab==='receitas' && <Receitas/>}
- {tab==='abanca' && <ABanca/>}
- {tab==='pessoais' && <Pessoais/>}
+ {tab==='abanca' && ABanca()}
+ {tab==='pessoais' && Pessoais()}
  {tab==='invest' && <Invest/>}
  {tab==='sara' && <Sara/>}
  {tab==='historico' && <Historico/>}
