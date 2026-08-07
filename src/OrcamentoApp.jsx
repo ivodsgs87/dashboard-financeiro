@@ -1298,6 +1298,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const portfolio = mesD.portfolio && mesD.portfolio.length > 0 
    ? mesD.portfolio 
    : getPortfolioParaMes(mesKey);
+ // true quando o que se vê é a cópia do mês anterior (o mês atual ainda não foi
+ // tocado). Basta editar/adicionar qualquer valor para deixar de estar "por atualizar".
+ const portfolioPorAtualizar = !(mesD.portfolio && mesD.portfolio.length > 0);
   
   const mesKeyRef = useRef(mesKey);
   
@@ -5699,7 +5702,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
- <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}</h3>
+ <h3 className="text-lg font-semibold">💰 Portfolio Total: {fmt(totPort)}{portfolioPorAtualizar && <span className="ml-2 align-middle text-xs font-medium text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">por atualizar</span>}</h3>
  <div className="flex flex-wrap items-center gap-3">
    <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
    {G.portfolioLastUpdate && (
@@ -5707,9 +5710,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        📅 Última atualização: {new Date(G.portfolioLastUpdate).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
      </p>
    )}
-   {(!mesD.portfolio || mesD.portfolio.length === 0) && (
+   {portfolioPorAtualizar && (
      <span className="text-xs text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
-       📋 Estrutura herdada do mês anterior
+       📋 A mostrar os valores do mês anterior — edita qualquer valor para atualizar este mês
      </span>
    )}
  </div>
