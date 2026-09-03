@@ -1261,8 +1261,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       clearTimeout(saveTimeoutRef.current);
     }
     
-    // 10 segundos de inatividade antes de guardar
-    saveTimeoutRef.current = setTimeout(flushSave, 10000);
+    // 2 segundos de inatividade antes de guardar (reduzido de 10s: quanto
+    // menor a espera, menor a hipótese de fechar a app antes de gravar).
+    saveTimeoutRef.current = setTimeout(flushSave, 2000);
     
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
