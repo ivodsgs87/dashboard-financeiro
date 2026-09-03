@@ -1220,6 +1220,32 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   gRef.current = G;
   mRef.current = M;
   
+  // Função que efetivamente grava — usada tanto pelo temporizador de 10s
+  // como para gravar de imediato quando a app é escondida/fechada.
+  const flushSave = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    const dataToSave = JSON.stringify({ g: gRef.current, m: mRef.current });
+    if (dataToSave === lastSavedDataRef.current) {
+      pendingChangesRef.current = false;
+      return;
+    }
+
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+
+    try {
+      await onSaveData({ g: gRef.current, m: mRef.current });
+      lastSavedDataRef.current = dataToSave;
+      pendingChangesRef.current = false;
+    } catch (e) {
+      console.error('Erro ao guardar:', e);
+    }
+    isSavingRef.current = false;
+  }, [onSaveData]);
+
   useEffect(() => {
     if (!dataLoaded) return;
     
@@ -1236,30 +1262,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     }
     
     // 10 segundos de inatividade antes de guardar
-    saveTimeoutRef.current = setTimeout(async () => {
-      const dataToSave = JSON.stringify({ g: gRef.current, m: mRef.current });
-      if (dataToSave === lastSavedDataRef.current) {
-        pendingChangesRef.current = false;
-        return;
-      }
-      
-      if (isSavingRef.current) return;
-      isSavingRef.current = true;
-      
-      try {
-        await onSaveData({ g: gRef.current, m: mRef.current });
-        lastSavedDataRef.current = dataToSave;
-        pendingChangesRef.current = false;
-      } catch (e) {
-        console.error('Erro ao guardar:', e);
-      }
-      isSavingRef.current = false;
-    }, 10000);
+    saveTimeoutRef.current = setTimeout(flushSave, 10000);
     
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [G, M, dataLoaded, onSaveData]);
+  }, [G, M, dataLoaded, flushSave]);
+
+  // Gravar de imediato ao sair/minimizar a app ou bloquear o ecrã — sem isto,
+  // alterações feitas nos últimos 10s (ex: marcar checks de transferências e
+  // fechar logo a seguir) perdiam-se porque o temporizador nunca chegava a disparar.
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden' && pendingChangesRef.current) flushSave();
+    };
+    const handlePageHide = () => {
+      if (pendingChangesRef.current) flushSave();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [dataLoaded, flushSave]);
 
  // Função para obter o mês anterior
  const getMesAnteriorKey = (currentKey) => {
