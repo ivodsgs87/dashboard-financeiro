@@ -791,6 +791,14 @@ const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2
 // Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
 const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
 
+// Endereços da Firebase Function de OCR de faturas. O primeiro é o URL directo
+// do Cloud Run (funções de 2ª geração), que é o que o deploy reporta; o segundo
+// é o alias clássico, usado como recurso se o primeiro falhar na rede.
+const PROCESS_INVOICE_URLS = [
+  'https://processinvoice-lwlsrb4r2q-uc.a.run.app',
+  'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
+];
+
 // ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
 // Componente ao nível do módulo (estado próprio, sem remount). Recebe G/uG por props.
 const VC_DEFAULT = {
@@ -4053,12 +4061,37 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        const mediaType = file.type || 'application/pdf';
        
-       // Chamar Firebase Function via fetch (HTTPS)
-       const response = await fetch('https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ data: { base64, mediaType } })
-       });
+       // Chamar a Firebase Function. Tenta cada endereço: se a rede falhar num
+       // (típico de "Failed to fetch"), passa ao seguinte.
+       let response = null;
+       for (const url of PROCESS_INVOICE_URLS) {
+         try {
+           response = await fetch(url, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ data: { base64, mediaType } })
+           });
+           break;
+         } catch (e) {
+           console.warn('Falhou o contacto com', url, e);
+           response = null;
+         }
+       }
+       
+       if (!response) {
+         throw new Error('Não foi possível contactar o servidor de OCR. Verifica a ligação à internet — se persistir, a função pode estar offline ou sem acesso público.');
+       }
+       
+       if (!response.ok) {
+         let msg = `O servidor respondeu com erro ${response.status}.`;
+         if (response.status === 403) msg = 'Acesso negado (403): a função de OCR não está acessível publicamente. É preciso permitir invocações não autenticadas no Cloud Run.';
+         if (response.status === 404) msg = 'Função de OCR não encontrada (404). O endereço pode ter mudado — confirma o URL no deploy.';
+         try {
+           const errJson = await response.json();
+           if (errJson?.error?.message) msg = errJson.error.message;
+         } catch (_) { /* resposta sem JSON */ }
+         throw new Error(msg);
+       }
        
        const result = await response.json();
        
