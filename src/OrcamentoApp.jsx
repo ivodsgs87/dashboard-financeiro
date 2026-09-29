@@ -791,6 +791,20 @@ const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2
 // Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
 const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
 
+// Estimativa de impostos de um recibo isolado, à margem (regime simplificado).
+// coef: coeficiente do simplificado (0,35 outras prestações / 0,75 art. 151.º)
+// taxaMarg: taxa marginal de IRS em % · comSS: se conta para a Segurança Social
+const estimarImpostosRecibo = ({ valIliq = 0, retIRS = 0, coef = 0.35, taxaMarg = 43.1, comSS = false }) => {
+  const bruto = parseFloat(valIliq) || 0;
+  const jaRetido = parseFloat(retIRS) || 0;
+  const baseIrs = bruto * coef;
+  const irsTotal = baseIrs * (taxaMarg / 100);
+  const irsPorPagar = Math.max(0, irsTotal - jaRetido);
+  const ss = comSS ? bruto * 0.70 * 0.214 : 0;
+  const liquido = bruto - irsPorPagar - ss;
+  return { bruto, baseIrs, irsTotal, irsPorPagar, ss, liquido };
+};
+
 // Endereços da Firebase Function de OCR de faturas. O primeiro é o URL directo
 // do Cloud Run (funções de 2ª geração), que é o que o deploy reporta; o segundo
 // é o alias clássico, usado como recurso se o primeiro falhar na rede.
@@ -4242,16 +4256,58 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      </div>
                    </div>
                    
-                   <div className="grid grid-cols-2 gap-3">
-                     <div className="p-2 bg-slate-700/50 rounded-lg">
-                       <p className="text-slate-400 text-xs">Total Documento</p>
-                       <p className="font-medium">{fmt(importedData.totalDocumento || 0)}</p>
-                     </div>
-                     <div className="p-2 bg-emerald-500/20 rounded-lg">
-                       <p className="text-slate-400 text-xs">Total a Receber</p>
-                       <p className="font-bold text-emerald-400">{fmt(importedData.totalPagar || 0)}</p>
-                     </div>
-                   </div>
+                   {(() => {
+                     // Totais calculados a partir dos valores extraídos (a função
+                     // de OCR não os devolve, daí apareciam a zero).
+                     const _ili = parseFloat(importedData.valorIliquido) || 0;
+                     const _iva = parseFloat(importedData.valorIva) || 0;
+                     const _ret = parseFloat(importedData.retencaoIRS) || 0;
+                     const _totDoc = importedData.totalDocumento != null ? parseFloat(importedData.totalDocumento) : _ili + _iva;
+                     const _totReceber = importedData.totalPagar != null ? parseFloat(importedData.totalPagar) : _totDoc - _ret;
+                     // Vai para "Com Retenção" (conta para SS) ou "Sem Retenção"
+                     const _comSS = !!(importedData.temRetencao || _ret > 0);
+                     const est = estimarImpostosRecibo({
+                       valIliq: _ili, retIRS: _ret,
+                       coef: G.coefSimpl ?? 0.35,
+                       taxaMarg: G.irsMarginal ?? 43.1,
+                       comSS: _comSS
+                     });
+                     return (
+                       <>
+                         <div className="grid grid-cols-2 gap-3">
+                           <div className="p-2 bg-slate-700/50 rounded-lg">
+                             <p className="text-slate-400 text-xs">Total Documento</p>
+                             <p className="font-medium">{fmt(_totDoc)}</p>
+                           </div>
+                           <div className="p-2 bg-emerald-500/20 rounded-lg">
+                             <p className="text-slate-400 text-xs">Total a Receber</p>
+                             <p className="font-bold text-emerald-400">{fmt(_totReceber)}</p>
+                           </div>
+                         </div>
+
+                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-1.5">
+                           <p className="text-xs text-amber-400 font-medium">📊 Estimativa de impostos deste recibo</p>
+                           <div className="flex justify-between text-xs">
+                             <span className="text-slate-400">Base tributável ({((G.coefSimpl ?? 0.35)*100).toFixed(0)}% de {fmt(_ili)})</span>
+                             <span>{fmt(est.baseIrs)}</span>
+                           </div>
+                           <div className="flex justify-between text-xs">
+                             <span className="text-slate-400">IRS a {(G.irsMarginal ?? 43.1)}%{_ret > 0 ? ' (já retido: ' + fmt(_ret) + ')' : ''}</span>
+                             <span className="text-orange-400">−{fmt(est.irsPorPagar)}</span>
+                           </div>
+                           <div className="flex justify-between text-xs">
+                             <span className="text-slate-400">Segurança Social{_comSS ? '' : ' (não aplicável)'}</span>
+                             <span className="text-orange-400">{est.ss > 0 ? '−' + fmt(est.ss) : fmt(0)}</span>
+                           </div>
+                           <div className="flex justify-between text-sm font-semibold pt-1.5 border-t border-amber-500/20">
+                             <span>Fica realmente para ti</span>
+                             <span className="text-emerald-400">{fmt(est.liquido)}</span>
+                           </div>
+                           <p className="text-[10px] text-slate-500">Estimativa à margem. Ajusta o coeficiente e a taxa marginal no separador Receitas.</p>
+                         </div>
+                       </>
+                     );
+                   })()}
                  </div>
                  
                  <div className="pt-4 border-t border-slate-700">
@@ -4626,6 +4682,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
  </div>
 
+ {/* Parâmetros da estimativa de IRS por recibo */}
+ <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl mb-4 text-xs">
+ <span className="text-slate-300">Estimativa:</span>
+ <label className="flex items-center gap-1.5">
+   <span className="text-slate-400">Coef.</span>
+   <Select value={G.coefSimpl ?? 0.35} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
+     <option value={0.35}>0,35</option>
+     <option value={0.75}>0,75</option>
+   </Select>
+ </label>
+ <label className="flex items-center gap-1.5">
+   <span className="text-slate-400">IRS marginal</span>
+   <input type="number" step="0.1" defaultValue={G.irsMarginal ?? 43.1}
+     onBlur={e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v!==(G.irsMarginal??43.1)) uG('irsMarginal', v);}}
+     className={`w-16 ${inputClass} text-xs !py-1 text-right`}/>
+   <span className="text-slate-400">%</span>
+ </label>
+ <span className="text-slate-500 hidden sm:inline">Confirma a tua taxa marginal real com o contabilista</span>
+ </div>
+
  {regCom.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : (
  <DraggableList
    items={regCom}
@@ -4636,6 +4712,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       {(() => {
+         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
+         return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · SS ≈ ${fmt(_e.ss)} · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
+       })()}
        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
         {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
        {r.ficheiro && (
@@ -4670,6 +4750,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       {(() => {
+         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: false });
+         return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · sem SS · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
+       })()}
         {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
        {r.ficheiro && (
          <button 
