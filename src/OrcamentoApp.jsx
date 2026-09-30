@@ -1155,6 +1155,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
+  const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
+  const [textoCopiado, setTextoCopiado] = useState(false);
   // Escala global da interface. 1 = tamanho original (100%).
   // Baixa para 0.9/0.85 se quiseres tudo mais compacto de uma vez.
   const [uiScale, setUiScale] = useState(1);
@@ -2031,6 +2033,58 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
   // Variante compacta (menos altura) para as linhas de listas de despesas/investimentos
+  // Gera um resumo em linguagem natural das despesas, para colar noutra app
+  // (ex: Bilance) e ela montar os orçamentos a partir daí.
+  const gerarTextoDespesas = () => {
+    const eur = v => _fmtEUR.format(parseFloat(v) || 0);
+    const soma = lista => lista.reduce((a, d) => a + (parseFloat(d.val) || 0), 0);
+
+    const ab = (despABanca || []).filter(d => (parseFloat(d.val) || 0) > 0);
+    const pess = (despPess || []).filter(d => (parseFloat(d.val) || 0) > 0);
+    const totAb = soma(ab);
+    const totPess = soma(pess);
+    const pctMinha = parseFloat(contrib) || 50;
+    const minhaParteAb = totAb * (pctMinha / 100);
+
+    // Mês seguinte ao que está selecionado
+    const idxAtual = meses.indexOf(mes);
+    const proxMes = meses[(idxAtual + 1) % 12];
+    const proxAno = idxAtual === 11 ? ano + 1 : ano;
+
+    const linhas = [];
+    linhas.push(`Prepara os meus orçamentos para ${proxMes} de ${proxAno} com base nisto:`);
+    linhas.push('');
+    linhas.push('As minhas despesas mensais fixas são as seguintes.');
+    linhas.push('');
+
+    if (ab.length) {
+      linhas.push(`Despesas da conta conjunta do casal, num total de ${eur(totAb)} por mês, das quais eu assumo ${pctMinha}% (${eur(minhaParteAb)}):`);
+      ab.forEach(d => linhas.push(`- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês (categoria: ${migrateCat(d.cat)})`));
+      linhas.push('');
+    }
+
+    if (pess.length) {
+      linhas.push(`As minhas despesas pessoais somam ${eur(totPess)} por mês:`);
+      pess.forEach(d => linhas.push(`- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês (categoria: ${migrateCat(d.cat)})`));
+      linhas.push('');
+    }
+
+    linhas.push(`No total, as despesas fixas a meu cargo são ${eur(minhaParteAb + totPess)} por mês (${eur(minhaParteAb)} da parte conjunta mais ${eur(totPess)} de despesas pessoais).`);
+
+    setTextoCopiado(false);
+    setTextoBilance(linhas.join('\n'));
+  };
+
+  const copiarTextoBilance = async () => {
+    try {
+      await navigator.clipboard.writeText(textoBilance || '');
+      setTextoCopiado(true);
+      setTimeout(() => setTextoCopiado(false), 2000);
+    } catch (e) {
+      console.warn('Cópia falhou', e);
+    }
+  };
+
   const denseInputClass = theme === 'light'
     ? "bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
@@ -4812,7 +4866,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold">🏠 Despesas do Casal (Fixas Partilhadas)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
+ <div className="flex items-center gap-2">
+ <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs">📝 Gerar texto</Button>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
+ </div>
  </div>
  <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-pink-500/10 border border-pink-500/30 rounded-xl mb-6">
  <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm text-slate-300">Minha contrib.</p></div>
@@ -4918,7 +4975,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold">👤 Despesas Pessoais (Activo Bank)</h3>
  <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
  </div>
+ <div className="flex items-center gap-2">
+ <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs">📝 Gerar texto</Button>
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
+ </div>
  </div>
  <DraggableList
  items={despPess}
@@ -13850,6 +13910,34 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
  {tab==='vendacasa' && <VendaCasa G={G} uG={uG} theme={theme}/>}
+
+ {/* Modal: texto das despesas para colar noutra app */}
+ {textoBilance !== null && (
+   <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setTextoBilance(null); }}>
+     <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
+       <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+         <h3 className="text-lg font-semibold">📝 Texto das despesas</h3>
+         <button onClick={() => setTextoBilance(null)} className="text-slate-400 hover:text-white">✕</button>
+       </div>
+       <div className="p-4 space-y-3">
+         <p className="text-xs text-slate-400">Copia este texto e cola na outra app para ela gerar os orçamentos.</p>
+         <textarea
+           readOnly
+           value={textoBilance}
+           onFocus={e => e.target.select()}
+           className={`w-full h-64 ${inputClass} text-xs font-mono resize-none`}
+         />
+         <div className="flex gap-2">
+           <button onClick={copiarTextoBilance}
+             className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium hover:opacity-90 transition-opacity text-sm">
+             {textoCopiado ? '✓ Copiado!' : '📋 Copiar texto'}
+           </button>
+           <Button variant="secondary" onClick={() => setTextoBilance(null)}>Fechar</Button>
+         </div>
+       </div>
+     </div>
+   </div>
+ )}
  {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
  {tab==='extrato' && renderExtrato()}
