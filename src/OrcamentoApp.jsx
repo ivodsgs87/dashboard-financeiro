@@ -2183,7 +2183,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     const CONTA_CASAL = 'ABanca';
     const CONTA_PESSOAL = 'Activo Bank';
 
-    const nTotal = ab.length + pess.length;
+    const soma = lista => lista.reduce((a, d) => a + (parseFloat(d.val) || 0), 0);
+    const totAb = soma(ab);
+    const totPess = soma(pess);
+
+    // 2 orçamentos globais (um por conta) + 1 por cada despesa
+    const nGerais = (ab.length ? 1 : 0) + (pess.length ? 1 : 0);
+    const nTotal = nGerais + ab.length + pess.length;
     let i = 0;
     const linha = (d, conta) => {
       i++;
@@ -2198,6 +2204,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     linhas.push('Usa o valor indicado em cada linha na totalidade, sem aplicar percentagens nem divisões.');
     linhas.push('As categorias já correspondem às tuas (grupo > subcategoria); usa-as exatamente como estão escritas.');
     linhas.push('');
+
+    if (nGerais) {
+      linhas.push(`ORÇAMENTOS GLOBAIS POR CONTA (${nGerais} ${nGerais === 1 ? 'orçamento' : 'orçamentos'}) — servem para ver o total gasto em cada conta, e por isso abrangem todas as categorias:`);
+      if (ab.length) {
+        i++;
+        linhas.push(`${i}. Total ${CONTA_CASAL} — ${eur(totAb)} por mês — categoria: todas as categorias — conta: ${CONTA_CASAL}`);
+      }
+      if (pess.length) {
+        i++;
+        linhas.push(`${i}. Total ${CONTA_PESSOAL} — ${eur(totPess)} por mês — categoria: todas as categorias — conta: ${CONTA_PESSOAL}`);
+      }
+      linhas.push('Nota: estes dois orçamentos globais convivem com os orçamentos detalhados que se seguem — os detalhados são as despesas que compõem estes totais, não orçamentos adicionais a somar.');
+      linhas.push('');
+    }
 
     if (ab.length) {
       linhas.push(`ORÇAMENTOS A CRIAR NA CONTA ${CONTA_CASAL.toUpperCase()} (despesas do casal, ${ab.length} orçamentos):`);
