@@ -791,6 +791,94 @@ const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2
 // Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
 const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
 
+// ── Mapeamento das despesas para as categorias da app Bilance ──
+// Primeiro tenta pela descrição (mais preciso), depois pela categoria interna.
+// Para afinar, basta acrescentar entradas em BILANCE_POR_DESC.
+const _semAcentos = s => (s || '').toString().toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+const BILANCE_POR_DESC = [
+  // Casa
+  [['prestacao casa', 'prestacao', 'hipoteca', 'renda casa', 'renda'], 'Casa > Renda, hipoteca'],
+  [['condominio obras', 'obras'], 'Casa > Construção, remodelação'],
+  [['condominio'], 'Casa > Condomínio'],
+  [['agua', 'luz', 'energia', 'eletricidade', 'gas'], 'Casa > Energia, contas de consumo'],
+  [['seguro propriedade', 'seguro habitacao', 'seguro casa'], 'Casa > Seguro habitação'],
+  [['moveis', 'decoracao', 'sofa', 'cortinados'], 'Casa > Móveis, decoração'],
+  [['empregada', 'limpeza'], 'Casa > Limpeza, produtos de limpeza'],
+  [['jardim', 'plantas'], 'Casa > Jardim, plantas'],
+  [['manutencao casa', 'reparacoes'], 'Casa > Manutenção, reparações'],
+  // Comida e bebida
+  [['mercado', 'supermercado', 'compras casa'], 'Comida e Bebida > Supermercado'],
+  [['bar', 'cafe', 'lanche', 'padaria'], 'Comida e Bebida > Café, Lanches'],
+  [['restaurante', 'entregas', 'takeaway', 'uber eats', 'glovo'], 'Comida e Bebida > Restaurantes, Entregas'],
+  [['suplementos', 'suplementacao', 'proteina'], 'Comida e Bebida > Suplementação'],
+  // Vida e lazer
+  [['internet', 'telemovel', 'telefone', 'mobile', 'meo', 'nos', 'vodafone'], 'Vida e Lazer > Telefone'],
+  [['netflix', 'spotify', 'streaming', 'disney', 'hbo'], 'Vida e Lazer > TV, filmes, música, streaming'],
+  [['software', 'adobe', 'subscricao', 'cloud', 'dropbox'], 'Vida e Lazer > Serviços digitais, software'],
+  [['ferias', 'viagem', 'viagens', 'hotel'], 'Vida e Lazer > Férias, viagens'],
+  [['hobbies', 'hobby'], 'Vida e Lazer > Hobbies'],
+  // Crianças
+  [['escola', 'creche', 'colegio', 'infantario'], 'Crianças > Educação, escola'],
+  [['seguro filhos'], 'Crianças > Saúde'],
+  [['investimentos filhos', 'poupanca filhos'], 'Investimentos > Poupança'],
+  [['babysitter', 'ama'], 'Crianças > Babysitter/Ama'],
+  [['semanada', 'mesada'], 'Crianças > Semanada'],
+  // Saúde e educação
+  [['ginasio', 'ginastica', 'crossfit', 'fitness', 'desporto'], 'Saúde e Educação > Fitness, desporto'],
+  [['medico', 'dentista', 'consulta', 'farmacia', 'fisioterapia'], 'Saúde e Educação > Cuidados de saúde, médico'],
+  [['cabeleireiro', 'beleza', 'estetica'], 'Saúde e Educação > Bem-estar, beleza'],
+  [['formacao', 'curso'], 'Saúde e Educação > Educação, desenvolvimento pessoal'],
+  // Financeiras
+  [['seguro vida'], 'Despesas Financeiras > Seguros'],
+  [['manutencao conta', 'comissao', 'taxa banco'], 'Despesas Financeiras > Encargos, taxas'],
+  [['contabilista', 'contabilidade', 'consultoria'], 'Despesas Financeiras > Consultoria'],
+  [['emprestimo', 'juros', 'credito'], 'Despesas Financeiras > Empréstimo, juros'],
+  [['impostos', 'irs', 'iva', 'seguranca social'], 'Despesas Financeiras > Impostos'],
+  [['multa', 'coima'], 'Despesas Financeiras > Multas'],
+  // Transporte
+  [['combustivel', 'gasolina', 'gasoleo'], 'Transporte > Combustível'],
+  [['seguro auto', 'seguro carro', 'seguro automovel'], 'Transporte > Seguro de automóvel'],
+  [['portagens', 'via verde'], 'Transporte > Portagens'],
+  [['estacionamento', 'parque'], 'Transporte > Estacionamento'],
+  [['passe', 'transporte publico', 'metro', 'comboio'], 'Transporte > Transporte público'],
+  // Animais
+  [['veterinario'], 'Animais de estimação > Veterinário, medicamentos'],
+  [['racao'], 'Animais de estimação > Alimentação']
+];
+
+// Fallback por categoria interna da app (cobre nomes antigos e atuais)
+const BILANCE_POR_CATEGORIA = {
+  'Habitação': 'Casa > Renda, hipoteca',
+  'Energia, Luz & Agua': 'Casa > Energia, contas de consumo',
+  'Utilidades': 'Casa > Energia, contas de consumo',
+  'Mercado': 'Comida e Bebida > Supermercado',
+  'Alimentação': 'Comida e Bebida > Supermercado',
+  'Restauração': 'Comida e Bebida > Restaurantes, Entregas',
+  'Transporte': 'Transporte > Veículo, manutenção',
+  'Saúde': 'Saúde e Educação > Cuidados de saúde, médico',
+  'Educação': 'Saúde e Educação > Educação, desenvolvimento pessoal',
+  'Vestuário': 'Compras > Roupa, acessórios',
+  'Lazer': 'Vida e Lazer > Hobbies',
+  'Vida & Entretenimento': 'Vida e Lazer > Hobbies',
+  'Subscrições': 'Vida e Lazer > Serviços digitais, software',
+  'Serviços': 'Vida e Lazer > Serviços digitais, software',
+  'Impostos': 'Despesas Financeiras > Impostos',
+  'Investimentos': 'Investimentos > Investimentos financeiros',
+  'Outros': 'Outras / Especiais > Outros'
+};
+
+const mapearCategoriaBilance = (desc, cat) => {
+  const d = _semAcentos(desc);
+  if (d) {
+    for (const [chaves, destino] of BILANCE_POR_DESC) {
+      if (chaves.some(k => d.includes(k))) return destino;
+    }
+  }
+  return BILANCE_POR_CATEGORIA[cat] || 'Outras / Especiais > Outros';
+};
+
 // Estimativa de impostos de um recibo isolado, à margem (regime simplificado).
 // coef: coeficiente do simplificado (0,35 outras prestações / 0,75 art. 151.º)
 // taxaMarg: taxa marginal de IRS em % · comSS: se conta para a Segurança Social
@@ -2051,25 +2139,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     const proxMes = meses[(idxAtual + 1) % 12];
     const proxAno = idxAtual === 11 ? ano + 1 : ano;
 
+    // Contas associadas a cada tipo de despesa
+    const CONTA_CASAL = 'ABanca';
+    const CONTA_PESSOAL = 'Activo Bank';
+
+    const linha = (d, conta) =>
+      `- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês — categoria: ${mapearCategoriaBilance(d.desc, migrateCat(d.cat))} — conta: ${conta}`;
+
     const linhas = [];
     linhas.push(`Prepara os meus orçamentos para ${proxMes} de ${proxAno} com base nisto:`);
     linhas.push('');
-    linhas.push('As minhas despesas mensais fixas são as seguintes.');
+    linhas.push('As categorias indicadas já correspondem às tuas (grupo > subcategoria). Usa-as tal como estão.');
     linhas.push('');
 
     if (ab.length) {
-      linhas.push(`Despesas da conta conjunta do casal, num total de ${eur(totAb)} por mês, das quais eu assumo ${pctMinha}% (${eur(minhaParteAb)}):`);
-      ab.forEach(d => linhas.push(`- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês (categoria: ${migrateCat(d.cat)})`));
+      linhas.push(`DESPESAS DO CASAL — todas debitadas exclusivamente da conta ${CONTA_CASAL}.`);
+      linhas.push(`Total de ${eur(totAb)} por mês, dos quais eu assumo ${pctMinha}% (${eur(minhaParteAb)}).`);
+      ab.forEach(d => linhas.push(linha(d, CONTA_CASAL)));
       linhas.push('');
     }
 
     if (pess.length) {
-      linhas.push(`As minhas despesas pessoais somam ${eur(totPess)} por mês:`);
-      pess.forEach(d => linhas.push(`- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês (categoria: ${migrateCat(d.cat)})`));
+      linhas.push(`DESPESAS PESSOAIS — todas debitadas exclusivamente da conta ${CONTA_PESSOAL}.`);
+      linhas.push(`Total de ${eur(totPess)} por mês.`);
+      pess.forEach(d => linhas.push(linha(d, CONTA_PESSOAL)));
       linhas.push('');
     }
 
-    linhas.push(`No total, as despesas fixas a meu cargo são ${eur(minhaParteAb + totPess)} por mês (${eur(minhaParteAb)} da parte conjunta mais ${eur(totPess)} de despesas pessoais).`);
+    linhas.push(`No total, as despesas fixas a meu cargo são ${eur(minhaParteAb + totPess)} por mês: ${eur(minhaParteAb)} da minha parte nas despesas do casal (conta ${CONTA_CASAL}) mais ${eur(totPess)} de despesas pessoais (conta ${CONTA_PESSOAL}).`);
 
     setTextoCopiado(false);
     setTextoBilance(linhas.join('\n'));
