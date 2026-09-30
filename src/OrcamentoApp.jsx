@@ -800,8 +800,8 @@ const _semAcentos = s => (s || '').toString().toLowerCase()
 const BILANCE_POR_DESC = [
   // Casa
   [['prestacao casa', 'prestacao', 'hipoteca', 'renda casa', 'renda'], 'Casa > Renda, hipoteca'],
-  [['condominio obras', 'obras'], 'Casa > Construção, remodelação'],
-  [['condominio'], 'Casa > Condomínio'],
+  [['condominio', 'condominio obras'], 'Casa > Condomínio'],
+  [['obras', 'remodelacao'], 'Casa > Construção, remodelação'],
   [['agua', 'luz', 'energia', 'eletricidade', 'gas'], 'Casa > Energia, contas de consumo'],
   [['seguro propriedade', 'seguro habitacao', 'seguro casa'], 'Casa > Seguro habitação'],
   [['moveis', 'decoracao', 'sofa', 'cortinados'], 'Casa > Móveis, decoração'],
@@ -826,7 +826,8 @@ const BILANCE_POR_DESC = [
   [['babysitter', 'ama'], 'Crianças > Babysitter/Ama'],
   [['semanada', 'mesada'], 'Crianças > Semanada'],
   // Saúde e educação
-  [['ginasio', 'ginastica', 'crossfit', 'fitness', 'desporto'], 'Saúde e Educação > Fitness, desporto'],
+  [['ginastica'], 'Crianças > Hobbies, atividades'],
+  [['ginasio', 'crossfit', 'fitness', 'desporto'], 'Saúde e Educação > Fitness, desporto'],
   [['medico', 'dentista', 'consulta', 'farmacia', 'fisioterapia'], 'Saúde e Educação > Cuidados de saúde, médico'],
   [['cabeleireiro', 'beleza', 'estetica'], 'Saúde e Educação > Bem-estar, beleza'],
   [['formacao', 'curso'], 'Saúde e Educação > Educação, desenvolvimento pessoal'],
@@ -846,6 +847,35 @@ const BILANCE_POR_DESC = [
   // Animais
   [['veterinario'], 'Animais de estimação > Veterinário, medicamentos'],
   [['racao'], 'Animais de estimação > Alimentação']
+];
+
+// Taxonomia completa do Bilance — usada quando uma despesa cobre um grupo inteiro
+// (ex: um orçamento "Carro" abrange combustível, portagens, seguro, manutenção...).
+const BILANCE_GRUPOS = {
+  'Comida e Bebida': ['Supermercado', 'Restaurantes, Entregas', 'Café, Lanches', 'Álcool, Tabaco', 'Suplementação'],
+  'Compras': ['Roupa, acessórios', 'Produtos de beleza', 'Eletrónicos', 'Presentes'],
+  'Casa': ['Renda, hipoteca', 'Energia, contas de consumo', 'Manutenção, reparações', 'Seguro habitação', 'Móveis, decoração', 'Jardim, plantas', 'Segurança', 'Limpeza, produtos de limpeza', 'Construção, remodelação', 'Condomínio'],
+  'Transporte': ['Transporte público', 'Táxi', 'Longa distância', 'Combustível', 'Estacionamento', 'Veículo, manutenção', 'Alugueres', 'Seguro de automóvel', 'Leasing', 'Carregamentos elétricos', 'Portagens'],
+  'Vida e Lazer': ['Telefone', 'Lotaria e jogos de azar', 'Hobbies', 'TV, filmes, música, streaming', 'Férias, viagens', 'Doações', 'Cultura, eventos', 'Serviços digitais, software', 'Livros, audiolivros, notícias', 'Presentes', 'Festas'],
+  'Despesas Financeiras': ['Impostos', 'Seguros', 'Empréstimo, juros', 'Multas', 'Consultoria', 'Encargos, taxas', 'Negócios'],
+  'Investimentos': ['Imóveis', 'Investimentos financeiros', 'Poupança', 'Reforma'],
+  'Saúde e Educação': ['Cuidados de saúde, médico', 'Bem-estar, beleza', 'Fitness, desporto', 'Educação, desenvolvimento pessoal'],
+  'Crianças': ['Semanada', 'Educação, escola', 'Pensão de alimentos', 'Hobbies, atividades', 'Saúde', 'Roupa', 'Brinquedos, eletrónicos', 'Presentes', 'Babysitter/Ama'],
+  'Animais de estimação': ['Alimentação', 'Veterinário, medicamentos', 'Brinquedos, acessórios', 'Serviços', 'Creche, hotel'],
+  'Outras / Especiais': ['Outros', 'Indefinido', 'Transferências internas', 'Excluído']
+};
+
+// Descrições abrangentes que devem cobrir um GRUPO inteiro em vez de uma só
+// subcategoria. Verificadas DEPOIS das específicas (ex: "seguro carro" continua
+// a ir só para "Seguro de automóvel").
+const BILANCE_GRUPO_POR_DESC = [
+  [['carro', 'automovel', 'viatura', 'transportes', 'transporte'], 'Transporte'],
+  [['filhos', 'criancas', 'criancas'], 'Crianças'],
+  [['animais', 'cao', 'gato', 'pet'], 'Animais de estimação'],
+  [['lazer', 'entretenimento', 'diversao'], 'Vida e Lazer'],
+  [['alimentacao', 'comida', 'alimentar'], 'Comida e Bebida'],
+  [['compras', 'vestuario', 'roupa'], 'Compras'],
+  [['saude', 'educacao'], 'Saúde e Educação']
 ];
 
 // Fallback por categoria interna da app (cobre nomes antigos e atuais)
@@ -869,11 +899,26 @@ const BILANCE_POR_CATEGORIA = {
   'Outros': 'Outras / Especiais > Outros'
 };
 
+const _grupoCompleto = grupo =>
+  `${grupo} — todas as subcategorias deste grupo: ${(BILANCE_GRUPOS[grupo] || []).join(', ')}`;
+
+// Correspondência por palavra inteira. Sem isto, "cao" casava dentro de
+// "alimentacao" e mandava a despesa para o grupo errado.
+const _contemPalavra = (texto, chave) => {
+  const k = chave.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto);
+};
+
 const mapearCategoriaBilance = (desc, cat) => {
   const d = _semAcentos(desc);
   if (d) {
+    // 1. Correspondência específica: subcategoria exata
     for (const [chaves, destino] of BILANCE_POR_DESC) {
-      if (chaves.some(k => d.includes(k))) return destino;
+      if (chaves.some(k => _contemPalavra(d, k))) return destino;
+    }
+    // 2. Descrição abrangente: grupo inteiro
+    for (const [chaves, grupo] of BILANCE_GRUPO_POR_DESC) {
+      if (chaves.some(k => _contemPalavra(d, k))) return _grupoCompleto(grupo);
     }
   }
   return BILANCE_POR_CATEGORIA[cat] || 'Outras / Especiais > Outros';
