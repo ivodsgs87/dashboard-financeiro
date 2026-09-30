@@ -2125,14 +2125,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // (ex: Bilance) e ela montar os orçamentos a partir daí.
   const gerarTextoDespesas = () => {
     const eur = v => _fmtEUR.format(parseFloat(v) || 0);
-    const soma = lista => lista.reduce((a, d) => a + (parseFloat(d.val) || 0), 0);
 
     const ab = (despABanca || []).filter(d => (parseFloat(d.val) || 0) > 0);
     const pess = (despPess || []).filter(d => (parseFloat(d.val) || 0) > 0);
-    const totAb = soma(ab);
-    const totPess = soma(pess);
-    const pctMinha = parseFloat(contrib) || 50;
-    const minhaParteAb = totAb * (pctMinha / 100);
 
     // Mês seguinte ao que está selecionado
     const idxAtual = meses.indexOf(mes);
@@ -2143,30 +2138,35 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     const CONTA_CASAL = 'ABanca';
     const CONTA_PESSOAL = 'Activo Bank';
 
-    const linha = (d, conta) =>
-      `- ${d.desc || 'Sem descrição'}: ${eur(d.val)} por mês — categoria: ${mapearCategoriaBilance(d.desc, migrateCat(d.cat))} — conta: ${conta}`;
+    const nTotal = ab.length + pess.length;
+    let i = 0;
+    const linha = (d, conta) => {
+      i++;
+      return `${i}. ${d.desc || 'Sem descrição'} — ${eur(d.val)} por mês — categoria: ${mapearCategoriaBilance(d.desc, migrateCat(d.cat))} — conta: ${conta}`;
+    };
 
     const linhas = [];
-    linhas.push(`Prepara os meus orçamentos para ${proxMes} de ${proxAno} com base nisto:`);
+    linhas.push(`Cria os meus orçamentos mensais para ${proxMes} de ${proxAno}.`);
     linhas.push('');
-    linhas.push('As categorias indicadas já correspondem às tuas (grupo > subcategoria). Usa-as tal como estão.');
+    linhas.push(`INSTRUÇÕES: cria um orçamento separado e individual para CADA uma das ${nTotal} linhas listadas abaixo — ou seja, ${nTotal} orçamentos no total, um por linha.`);
+    linhas.push('Não agregues, não somes e não agrupes valores. Cada linha corresponde a um orçamento próprio, com o seu valor mensal, a sua categoria e a sua conta.');
+    linhas.push('Usa o valor indicado em cada linha na totalidade, sem aplicar percentagens nem divisões.');
+    linhas.push('As categorias já correspondem às tuas (grupo > subcategoria); usa-as exatamente como estão escritas.');
     linhas.push('');
 
     if (ab.length) {
-      linhas.push(`DESPESAS DO CASAL — todas debitadas exclusivamente da conta ${CONTA_CASAL}.`);
-      linhas.push(`Total de ${eur(totAb)} por mês, dos quais eu assumo ${pctMinha}% (${eur(minhaParteAb)}).`);
+      linhas.push(`ORÇAMENTOS A CRIAR NA CONTA ${CONTA_CASAL.toUpperCase()} (despesas do casal, ${ab.length} orçamentos):`);
       ab.forEach(d => linhas.push(linha(d, CONTA_CASAL)));
       linhas.push('');
     }
 
     if (pess.length) {
-      linhas.push(`DESPESAS PESSOAIS — todas debitadas exclusivamente da conta ${CONTA_PESSOAL}.`);
-      linhas.push(`Total de ${eur(totPess)} por mês.`);
+      linhas.push(`ORÇAMENTOS A CRIAR NA CONTA ${CONTA_PESSOAL.toUpperCase()} (despesas pessoais, ${pess.length} orçamentos):`);
       pess.forEach(d => linhas.push(linha(d, CONTA_PESSOAL)));
       linhas.push('');
     }
 
-    linhas.push(`No total, as despesas fixas a meu cargo são ${eur(minhaParteAb + totPess)} por mês: ${eur(minhaParteAb)} da minha parte nas despesas do casal (conta ${CONTA_CASAL}) mais ${eur(totPess)} de despesas pessoais (conta ${CONTA_PESSOAL}).`);
+    linhas.push(`Confirma no fim que criaste os ${nTotal} orçamentos, um por cada linha acima.`);
 
     setTextoCopiado(false);
     setTextoBilance(linhas.join('\n'));
