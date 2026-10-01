@@ -1961,12 +1961,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const inSemOwn = inSem - inSemSara;
  const totRec = inCom + inSem;
  const retSara = regCom.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+(r.retIRS||0),0) + regSem.filter(r=>r.emitidoPorSara).reduce((a,r)=>a+(r.retIRS||0),0);
- const valTax = inComOwn * (taxa/100) + retSara;
+ // Reserva de impostos sobre TODAS as receitas próprias, incluindo as "Sem Taxas"
+ // (clientes fora da UE). Antes só incidia sobre regCom, pelo que o rendimento
+ // estrangeiro — justamente o que não tem retenção na fonte — entrava inteiro no
+ // disponível e inflacionava o valor a investir.
+ const valTax = (inComOwn + inSemOwn) * (taxa/100) + retSara;
  const recLiq = totRec - valTax;
  const totAB = despABanca.reduce((a,d)=>a+d.val,0);
  const minhaAB = totAB * (contrib/100);
  const parteSaraAB = totAB * (1-contrib/100);
- const segFilhos = despABanca.find(d=>d.desc.toLowerCase().includes('seguro filhos'))?.val || 60;
+ // ?? em vez de || : um seguro a 0 € é um valor válido e não deve virar 60 €
+ const segFilhos = despABanca.find(d=>d.desc.toLowerCase().includes('seguro filhos'))?.val ?? 60;
  const investFilhos = despABanca.find(d=>d.desc.toLowerCase().includes('investimentos filhos'))?.val || 0;
  const cartaoRef = sara.rend.find(r=>r.isCR)?.val || 0;
  const contribSaraAB = parteSaraAB - cartaoRef - segFilhos;
@@ -11444,7 +11449,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const exportToPDF = () => {
    // Usar os dados do mês atual (mesD já está disponível no scope)
    const totRec = inCom + inSem;
-   const valTaxPDF = inCom * (taxa/100);
+   const valTaxPDF = valTax; // mesma regra do ecrã principal (inclui regSem e retenções da Sara)
    const recLiqPDF = totRec - valTaxPDF;
    const totABPDF = despABanca.reduce((a,d)=>a+d.val,0);
    const minhaABPDF = totABPDF * (contrib/100);
@@ -11930,7 +11935,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        const md = M[key] || {};
        const com = md.regCom?.reduce((a, r) => a + r.val, 0) || 0;
        const sem = md.regSem?.reduce((a, r) => a + r.val, 0) || 0;
-       const tax = com * (G.taxa / 100);
+       const tax = (com + sem) * (G.taxa / 100); // reserva sobre Com + Sem Taxas
        totCom += com; totSem += sem; totTax += tax;
        resumoData.push([mesNome, com, sem, com + sem, tax, com + sem - tax]);
      });
@@ -11949,7 +11954,13 @@ ${transacoesOrdenadas.map(t => `<tr>
        const inCom = regCom.reduce((a, r) => a + r.val, 0);
        const inSem = regSem.reduce((a, r) => a + r.val, 0);
        const totRec = inCom + inSem;
-       const valTax = inCom * (G.taxa / 100);
+       // Mesma regra do ecrã principal: reserva sobre todas as receitas próprias
+       // (Com e Sem Taxas), mais as retenções dos recibos emitidos pela Sara.
+       const inComSaraMes = regCom.filter(r => r.emitidoPorSara).reduce((a, r) => a + r.val, 0);
+       const inSemSaraMes = regSem.filter(r => r.emitidoPorSara).reduce((a, r) => a + r.val, 0);
+       const retSaraMes = regCom.filter(r => r.emitidoPorSara).reduce((a, r) => a + (r.retIRS || 0), 0)
+                        + regSem.filter(r => r.emitidoPorSara).reduce((a, r) => a + (r.retIRS || 0), 0);
+       const valTax = (inCom - inComSaraMes + inSem - inSemSaraMes) * (G.taxa / 100) + retSaraMes;
        const recLiq = totRec - valTax;
        const totABanca = G.despABanca.reduce((a, d) => a + d.val, 0);
        const minhaABanca = totABanca * (G.contrib / 100);
@@ -13455,7 +13466,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  const com = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
  const sem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
  const tot = com + sem;
- const tax = com * (G.taxa / 100);
+ const tax = tot * (G.taxa / 100); // reserva sobre Com + Sem Taxas
  const liq = tot - tax;
  totalAnualCom += com;
  totalAnualSem += sem;
