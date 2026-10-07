@@ -1361,17 +1361,45 @@ const txLerTradeRepublic = texto => {
 };
 // Marca o que já existe: importado antes (mesma referência) ou registado à mão
 // (mesmo dia, mesmo tipo e valor quase igual — com ou sem a comissão incluída).
+// Uma transação registada à mão "parece" a mesma que uma importada se for do mesmo tipo,
+// tiver até 10 dias de diferença e o valor for quase igual (com ou sem a comissão).
+const txDias = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) / 864e5;
+const txParecida = (manual, imp) => {
+  if (!manual || !imp || manual.tipo !== imp.tipo || !manual.data || !imp.data) return false;
+  if (!(txDias(manual.data, imp.data) <= 10)) return false;
+  const vm = patNum(manual.valorTotal), vi = patNum(imp.valorTotal), ci = patNum(imp.comissao);
+  const tol = Math.max(1.5, vi * 0.01);
+  return Math.abs(vm - vi) <= tol || Math.abs(vm - (vi + ci)) <= tol;
+};
+const txMaisProxima = (alvo, lista, usados, teste) => {
+  let melhor = -1, dist = Infinity;
+  lista.forEach((t, k) => {
+    if (usados.has(k) || !teste(t)) return;
+    const d = txDias(t.data, alvo.data);
+    if (d < dist) { dist = d; melhor = k; }
+  });
+  return melhor;
+};
 const txMarcarDuplicados = (novas, existentes) => {
   const ex = (existentes || []).filter(Boolean);
   const ids = new Set(ex.map(t => t.importId).filter(Boolean));
   const usados = new Set();
   return (novas || []).map(n => {
     if (n.importId && ids.has(n.importId)) return { ...n, dup: 'importada' };
-    const i = ex.findIndex((t, k) => !usados.has(k) && !t.importId && t.data === n.data && t.tipo === n.tipo
-      && (Math.abs(patNum(t.valorTotal) - n.valorTotal) <= 1.5 || Math.abs(patNum(t.valorTotal) - (n.valorTotal + n.comissao)) <= 1.5));
+    const i = txMaisProxima(n, ex, usados, t => !t.importId && txParecida(t, n));
     if (i >= 0) { usados.add(i); return { ...n, dup: 'manual' }; }
     return { ...n, dup: null };
   });
+};
+// Pares já gravados que parecem a mesma compra: uma registada à mão e outra importada.
+const txDuplicadosProvaveis = transacoes => {
+  const todas = (transacoes || []).filter(Boolean);
+  const imp = todas.filter(t => t.importId), usados = new Set(), pares = [];
+  todas.filter(t => !t.importId).forEach(m => {
+    const i = txMaisProxima(m, imp, usados, t => txParecida(m, t));
+    if (i >= 0) { usados.add(i); pares.push({ manual: m, importada: imp[i] }); }
+  });
+  return pares;
 };
 // Texto de um PDF (usa a pdf.js, carregada só quando é precisa)
 const txTextoPDF = async arrayBuffer => {
@@ -1495,6 +1523,35 @@ const patDetalhe = serie => serie.map((s, i) => {
     salto: prev ? s.idx - prev.idx : 0
   };
 });
+
+// Transações que contam como "pôr ou tirar dinheiro dos investimentos"
+const patTxConta = (t, regras) => !!t && !!t.data && (t.tipo === 'compra' || t.tipo === 'venda')
+  && t.categoria !== 'CREDITO' && !patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras);
+const patTxLiquido = t => t.tipo === 'compra' ? patNum(t.valorTotal) + patNum(t.comissao) : -Math.max(0, patNum(t.valorTotal) - patNum(t.comissao));
+const patTxEntre = (G, de, ate) => {
+  const regras = patRegras(G);
+  return ((G || {}).transacoes || []).filter(t => patTxConta(t, regras) && patIdx(t.data) >= de && patIdx(t.data) <= ate)
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+};
+// Ganho desde a primeira compra, por categoria: o que vale hoje no Portfolio menos
+// tudo o que lá foi posto segundo as Transações. Não depende do histórico mensal.
+const patVida = (G, itens, ateIdx) => {
+  const regras = patRegras(G), cats = {};
+  ((G || {}).transacoes || []).forEach(t => {
+    if (!patTxConta(t, regras) || patIdx(t.data) > ateIdx) return;
+    const c = cats[t.categoria || '—'] = cats[t.categoria || '—'] || { cat: t.categoria || '—', posto: 0, n: 0, desde: t.data, valor: 0 };
+    c.posto += patTxLiquido(t); c.n++; if (t.data < c.desde) c.desde = t.data;
+  });
+  (itens || []).forEach(i => { if (cats[i.cat] && !i.liq && !patEhLiquidez(i, regras)) cats[i.cat].valor += patNum(i.val); });
+  const linhas = Object.values(cats).map(c => ({ ...c, ganho: c.valor - c.posto, pct: c.posto > 0 ? (c.valor - c.posto) / c.posto : null }))
+    .sort((a, b) => b.valor - a.valor);
+  const boas = linhas.filter(l => l.valor > 0 && l.posto > 0);
+  const valor = patSoma(boas.map(l => ({ val: l.valor }))), posto = patSoma(boas.map(l => ({ val: l.posto })));
+  return {
+    linhas, cats: boas.map(l => l.cat), valor, posto, ganho: valor - posto, pct: posto > 0 ? (valor - posto) / posto : null,
+    n: boas.reduce((a, l) => a + l.n, 0), desde: boas.length ? boas.map(l => l.desde).sort()[0] : null
+  };
+};
 
 // Retorno dos investimentos ponderado pelo tempo (Dietz modificado, encadeado).
 const patRetorno = det => {
@@ -1917,12 +1974,19 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const setPat = patch => uG('patrimonio', { ...pat, ...patch });
   const serie = patSerie(efetivos);
   const det = patDetalhe(serie);
-  const ret = patRetorno(det);
   const campo = vista === 'capital' ? 'capital' : 'total';
   const nomeVista = vista === 'capital' ? 'Património financeiro' : 'Património total';
 
   const ultimo = det[det.length - 1] || null;
-  const primeiro = det[0] || null;
+  // Ponto de partida do período escolhido: o último registo até N meses atrás
+  const primeiro = (periodo && ultimo ? det.filter(d => d.idx <= ultimo.idx - periodo).pop() : null) || det[0] || null;
+  const janela = primeiro ? det.filter(d => d.idx > primeiro.idx) : [];
+  const ret = patRetorno(janela);
+  const vida = ultimo ? patVida(G, ultimo.rec.investItens, ultimo.idx) : { linhas: [], cats: [] };
+  const usaVida = !periodo && vida.cats.length > 0;   // "Início": conta desde a primeira compra, pelas Transações
+  const dups = txDuplicadosProvaveis(G.transacoes);
+  const dupIds = new Set(dups.map(d => d.manual.id));
+  const rotData = d => patRotulo(patIdx(d));
   const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
   const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
   // De onde vem a variação. Um snapshot antigo não separa investimentos de liquidez, por isso aí não se mostra.
@@ -1976,7 +2040,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     setNovoEv({ data: '', texto: '' });
   };
 
-  const visiveis = periodo && ultimo ? det.filter(d => d.idx > ultimo.idx - periodo) : det;
+  const visiveis = periodo && ultimo ? det.filter(d => d.idx >= ultimo.idx - periodo) : det;
   const pontos = visiveis.map(d => ({
     idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
     tip: [
@@ -2041,9 +2105,16 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               {vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
             </p>
           </div>
-          <div className="flex gap-2">
-            <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
-            <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2">
+              <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
+              <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
+            </div>
+            <div className="flex gap-1.5" role="group" aria-label="Período">
+              {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Início']].map(([m, l]) => (
+                <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -2061,18 +2132,99 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}{varPct != null && <span className="text-xs font-normal"> {pct(varPct)}</span>}</p>
               <p className={`text-xs ${sub}`}>{partesVar || `${det.length} ${det.length === 1 ? 'registo' : 'registos'}`}</p>
             </div>
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-              <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-              <p className={`text-xs ${sub}`}>{ret.periodos ? `só ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação` : 'a partir do 2.º mês com detalhe'}</p>
-            </div>
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-              <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
-              <p className={`text-xs ${sub}`}>
-                {ret.periodos ? `valor ${sinal(ret.variacao)} − o que puseste` : 'a partir do 2.º mês com detalhe'}{ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}
-              </p>
-            </div>
+            {usaVida ? (<>
+              <div className={tile}>
+                <p className={`text-xs ${sub}`}>Puseste em {vida.cats.join(' + ')} desde {rotData(vida.desde)}</p>
+                <p className="text-xl font-bold">{sinal(vida.posto)}</p>
+                <p className={`text-xs ${sub}`}>{vida.n} transações · compras e comissões, menos vendas</p>
+              </div>
+              <div className={tile}>
+                <p className={`text-xs ${sub}`}>{vida.cats.join(' + ')} renderam desde {rotData(vida.desde)}</p>
+                <p className={`text-xl font-bold ${corDelta(vida.ganho)}`}>{seta(vida.ganho)}{sinal(vida.ganho)}{vida.pct != null && <span className="text-xs font-normal"> {pct(vida.pct)}</span>}</p>
+                <p className={`text-xs ${sub}`}>valem {f(vida.valor)} − o que puseste</p>
+              </div>
+            </>) : (<>
+              <div className={tile}>
+                <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
+                <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
+                <p className={`text-xs ${sub}`}>{ret.periodos ? `${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação` : 'a partir do 2.º mês com detalhe'}</p>
+              </div>
+              <div className={tile}>
+                <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
+                <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
+                <p className={`text-xs ${sub}`}>
+                  {ret.periodos ? `valor ${sinal(ret.variacao)} − o que puseste` : 'a partir do 2.º mês com detalhe'}{ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}
+                </p>
+              </div>
+            </>)}
+          </div>
+        )}
+
+        {ultimo && (
+          <div className="mt-3">
+            <button onClick={() => setSec({ ...sec, contas: !sec.contas })} aria-expanded={!!sec.contas} className="text-xs text-blue-400 hover:text-blue-300">
+              {sec.contas ? '▾' : '▸'} Ver as contas{dups.length > 0 ? ` · ${dups.length} ${dups.length === 1 ? 'transação parece repetida' : 'transações parecem repetidas'}` : ''}
+            </button>
+            {sec.contas && (
+              <div className="mt-3 space-y-4 text-sm">
+                {dups.length > 0 && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                    <p className="text-amber-500 font-medium">{dups.length === 1 ? 'Há 1 compra que parece estar' : `Há ${dups.length} compras que parecem estar`} duas vezes nas Transações: registada à mão e também importada.</p>
+                    <p className={`mt-1 ${sub}`}>Enquanto lá estiverem, o "puseste" fica a mais e o rendimento a menos ({f(patSoma(dups.map(d => ({ val: Math.abs(patTxLiquido(d.manual)) }))))} no total).</p>
+                    {onAbrirTab && <button onClick={() => onAbrirTab('transacoes')} className="mt-1.5 text-blue-400 hover:text-blue-300">Abrir as Transações para as apagar →</button>}
+                  </div>
+                )}
+                {vida.linhas.length > 0 && (
+                  <div>
+                    <p className="font-medium mb-1">Desde a primeira compra, por categoria</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs tabular-nums">
+                        <thead><tr className={sub}><th className="text-left font-normal py-1">Categoria</th><th className="text-right font-normal">Vale hoje</th><th className="text-right font-normal">Puseste</th><th className="text-right font-normal">Rendeu</th></tr></thead>
+                        <tbody>
+                          {vida.linhas.map(l => (
+                            <tr key={l.cat} className="border-t border-slate-700/30">
+                              <td className="py-1">{l.cat} <span className={sub}>· {l.n} tr. desde {rotData(l.desde)}</span></td>
+                              <td className="text-right">{l.valor > 0 ? f(l.valor) : <span className="text-amber-500">sem valor no Portfolio</span>}</td>
+                              <td className="text-right">{f(l.posto)}</td>
+                              <td className={`text-right ${l.valor > 0 ? corDelta(l.ganho) : ''}`}>{l.valor > 0 ? `${sinal(l.ganho)}${l.pct != null ? ` (${pct(l.pct)})` : ''}` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className={`mt-1 text-xs ${sub}`}>Só é fiel se as Transações tiverem todas as compras dessa categoria e a categoria tiver o mesmo nome no Portfolio.</p>
+                  </div>
+                )}
+                <div>
+                  <p className="font-medium mb-1">Mês a mês {periodo ? `(últimos ${periodo} meses)` : '(desde o início)'}</p>
+                  {janela.filter(d => d.resultado != null).length === 0 && <p className={`text-xs ${sub}`}>Ainda não há dois meses seguidos com detalhe neste período.</p>}
+                  <div className="space-y-2">
+                    {janela.filter(d => d.resultado != null).slice().reverse().map(d => {
+                      const txs = patTxEntre(G, d.prev.idx + 1, d.idx);
+                      const somaTx = txs.reduce((a, t) => a + patTxLiquido(t), 0);
+                      return (
+                        <div key={d.idx} className={`rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
+                          <p className="text-xs">
+                            <strong>{patRotulo(d.idx)}</strong> · investimentos {f(d.prev.invest)} → {f(d.invest)} ({sinal(d.invest - d.prev.invest)}) · puseste {f(d.fluxo)} · <span className={corDelta(d.resultado)}>renderam {sinal(d.resultado)}</span>
+                          </p>
+                          {txs.length > 0 ? (
+                            <ul className={`mt-1.5 text-xs ${sub} space-y-0.5`}>
+                              {txs.map(t => (
+                                <li key={t.id} className="flex justify-between gap-2">
+                                  <span className="truncate">{String(t.data).split('-').reverse().join('/')} · {t.tipo === 'venda' ? 'venda' : 'compra'} · {t.ticker || t.categoria} · {t.corretora || '—'} · {t.importId ? 'importada' : 'à mão'}{dupIds.has(t.id) && <span className="text-amber-500"> · repetida?</span>}</span>
+                                  <span className="flex-shrink-0">{sinal(patTxLiquido(t))}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : <p className={`mt-1 text-xs ${sub}`}>Sem compras nem vendas nas Transações neste mês.</p>}
+                          {Math.abs(somaTx - d.fluxo) > 0.5 && <p className="mt-1 text-xs text-amber-500">O valor usado ({f(d.fluxo)}) é diferente da soma das Transações ({f(somaTx)}): foi gravado ou corrigido à mão neste mês, ou vem da Alocação. Abre esse mês e usa "corrigir".</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2083,11 +2235,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <h3 className="font-semibold">Evolução — {nomeVista}</h3>
-            <div className="flex gap-1.5">
-              {[[12, '1A'], [36, '3A'], [60, '5A'], [0, 'Tudo']].map(([m, l]) => (
-                <button key={l} className={chip(periodo === m)} onClick={() => setPeriodo(m)}>{l}</button>
-              ))}
-            </div>
+            <span className={`text-xs ${sub}`}>{periodo ? `últimos ${periodo} meses` : 'desde o início'}</span>
           </div>
           {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
@@ -9136,6 +9284,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const Transacoes = () => {
    const transacoes = G.transacoes || [];
+   const dupsTx = txDuplicadosProvaveis(transacoes);
    const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
    
    const [showAddTransacao, setShowAddTransacao] = useState(false);
@@ -9389,6 +9538,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          </div>
          
+         {dupsTx.length > 0 && (
+           <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+             <p className="text-amber-500 font-medium">{dupsTx.length === 1 ? '1 compra parece estar registada' : `${dupsTx.length} compras parecem estar registadas`} duas vezes: à mão e importada.</p>
+             <ul className="mt-2 space-y-1 text-xs text-slate-400">
+               {dupsTx.map(d => (
+                 <li key={d.manual.id} className="flex flex-wrap items-center justify-between gap-2">
+                   <span>À mão: {d.manual.data.split('-').reverse().join('/')} · {d.manual.ticker || d.manual.categoria} · {fmt(d.manual.valorTotal)} <span className="text-slate-500">= importada: {d.importada.data.split('-').reverse().join('/')} · {d.importada.corretora} · {fmt(d.importada.valorTotal)}</span></span>
+                   <button onClick={() => uG('transacoes', transacoes.filter(t => t.id !== d.manual.id))} className="text-red-400 hover:text-red-300">apagar a que está à mão</button>
+                 </li>
+               ))}
+             </ul>
+             <button onClick={() => { const ids = new Set(dupsTx.map(d => d.manual.id)); uG('transacoes', transacoes.filter(t => !ids.has(t.id))); showToast(`${ids.size} ${ids.size === 1 ? 'transação repetida apagada' : 'transações repetidas apagadas'}. Podes desfazer com o botão de voltar atrás.`, 'success', 6000); }}
+               className="mt-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-500">
+               {dupsTx.length === 1 ? 'Apagar a registada à mão' : `Apagar as ${dupsTx.length} registadas à mão`}
+             </button>
+           </div>
+         )}
          {/* Filtros */}
          <div className="flex flex-wrap gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl">
            <div className="flex rounded-xl overflow-hidden border border-slate-600 text-sm">
