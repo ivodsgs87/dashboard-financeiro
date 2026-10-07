@@ -1333,16 +1333,20 @@ const patListaCreditos = G => {
 };
 
 // Rascunho do mês: o registo guardado, ou uma proposta pré-preenchida.
-const patRascunho = ({ registos, key, portfolio, G }) => {
+const patRascunho = ({ registos, key, portfolio, G, M }) => {
   const copia = l => (l || []).map(x => ({ ...x, id: x.id || patId(), val: patStr(x.val) }));
+  const mov = patMovimentos(G, M, registos, key);
+  const z = v => v ? patStr(v) : '';
   const ex = (registos || {})[key];
   if (ex) {
     return {
       existe: true, importado: !!ex.importado, fechadoEm: ex.fechadoEm || null,
       investItens: (ex.investItens || []).map(i => ({ ...i })),
       liquidez: copia(ex.liquidez), imoveis: copia(ex.imoveis), outros: copia(ex.outros), dividas: copia(ex.dividas),
-      aportes: ex.importado ? '' : patStr(ex.aportes), levantamentos: ex.importado ? '' : patStr(ex.levantamentos),
-      amortizacao: ex.importado ? '' : patStr(ex.amortizacao),
+      // Um registo importado ainda não tem movimentos: propõe os das Transações
+      aportes: ex.importado ? z(mov.aportes) : patStr(ex.aportes), levantamentos: ex.importado ? z(mov.levantamentos) : patStr(ex.levantamentos),
+      amortizacao: ex.importado ? z(mov.amortizacao) : patStr(ex.amortizacao),
+      origemMov: ex.importado ? mov.origem : null,
       nota: ex.nota || ''
     };
   }
@@ -1363,7 +1367,7 @@ const patRascunho = ({ registos, key, portfolio, G }) => {
       ...ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id })),
       ...copia(manuais)
     ],
-    aportes: '', levantamentos: '', amortizacao: '', nota: ''
+    aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, nota: ''
   };
 };
 
@@ -1389,6 +1393,31 @@ const patSugestaoAportes = (M, registos, key) => {
     ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO') tot += patNum(x.val); });
   }
   return tot;
+};
+
+// Movimentos desde o último registo, lidos do separador Transações:
+//   compra → aporte · venda → levantamento · compra na categoria CREDITO → amortização.
+// Dividendos não contam: são resultado, não dinheiro novo. Sem transações no
+// período, usa os investimentos marcados como feitos na Alocação.
+const patMovimentos = (G, M, registos, key) => {
+  const idx = patIdx(key);
+  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
+  const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
+  const r2 = v => Math.round(v * 100) / 100;
+  let aportes = 0, levantamentos = 0, amortizacao = 0, nCompras = 0, nVendas = 0;
+  ((G || {}).transacoes || []).forEach(t => {
+    if (!t || !t.data) return;
+    const i = patIdx(t.data);
+    if (i < de || i > idx) return;
+    const v = patNum(t.valorTotal);
+    if (t.tipo === 'compra') { nCompras++; if (t.categoria === 'CREDITO') amortizacao += v; else aportes += v; }
+    else if (t.tipo === 'venda' && t.categoria !== 'CREDITO') { nVendas++; levantamentos += v; }
+  });
+  if (nCompras + nVendas > 0) {
+    return { origem: 'transacoes', aportes: r2(aportes), levantamentos: r2(levantamentos), amortizacao: r2(amortizacao), nCompras, nVendas };
+  }
+  const aloc = patSugestaoAportes(M || {}, registos, key);
+  return { origem: aloc > 0 ? 'alocacao' : null, aportes: r2(aloc), levantamentos: 0, amortizacao: 0, nCompras: 0, nVendas: 0 };
 };
 
 // Importa os snapshots antigos do Portfolio (e o histórico do Crédito) como registos.
@@ -1585,7 +1614,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   const [vista, setVista] = useState('capital');           // 'capital' | 'total'
   const [periodo, setPeriodo] = useState(0);               // meses; 0 = tudo
-  const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G }));
+  const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G, M }));
   const [anosAbertos, setAnosAbertos] = useState({});
   const [novoEv, setNovoEv] = useState({ data: '', texto: '' });
   const [confirmaApagar, setConfirmaApagar] = useState(false);
@@ -1593,7 +1622,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   // Recriar o rascunho só quando muda o mês ou o registo guardado desse mês —
   // nunca a meio da edição.
   useEffect(() => {
-    setDraft(patRascunho({ registos, key: mesKey, portfolio, G }));
+    setDraft(patRascunho({ registos, key: mesKey, portfolio, G, M }));
     setConfirmaApagar(false);
   }, [mesKey, assinatura]); // eslint-disable-line
 
@@ -1618,9 +1647,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const investVivo = patSoma(patInvestDoPortfolio(portfolio));
   const podeSincronizar = draft.existe && temPortfolioProprio && investVivo > 0 && Math.abs(investVivo - tDraft.invest) > 0.5;
   const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
-    !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
+    !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G, M })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
   const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
-  const sugestao = patSugestaoAportes(M, registos, mesKey);
+  const mov = patMovimentos(G, M, registos, mesKey);
+  const movDifere = mov.origem === 'transacoes' && (patNum(draft.aportes) !== mov.aportes
+    || patNum(draft.levantamentos) + patNum(draft.amortizacao) !== mov.levantamentos + mov.amortizacao);
   const fluxoDraft = patNum(draft.aportes) - patNum(draft.levantamentos) - patNum(draft.amortizacao);
   // Se a dívida desceu desde o último registo, é provável que parte tenha saído dos investimentos
   const descidaDivida = anterior ? Math.round((anterior.dividas - tDraft.dividas) * 100) / 100 : 0;
@@ -1879,14 +1910,27 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
             </div>
             <p className={`text-[11px] mt-1.5 ${sub}`}>Aportes = dinheiro novo. Levantamentos = retirado para gastar. Amortização = saiu dos investimentos para abater dívida; não é perda, no Património total a dívida desce no mesmo valor.</p>
-            {sugestao > 0 && patNum(draft.aportes) !== sugestao && (
-              <button onClick={() => setDraft({ ...draft, aportes: String(sugestao) })} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
-                Usar {f(sugestao)} em aportes — investimentos marcados como feitos na Alocação
+            {draft.origemMov === 'transacoes' && !movDifere && (
+              <p className={`text-xs mt-2 ${sub}`}>
+                ✓ Preenchido a partir das Transações{anterior ? ` desde ${patRotulo(anterior.idx)}` : ' deste mês'}: {mov.nCompras} {mov.nCompras === 1 ? 'compra' : 'compras'}, {mov.nVendas} {mov.nVendas === 1 ? 'venda' : 'vendas'}. Dividendos não contam — são resultado.
+              </p>
+            )}
+            {draft.origemMov === 'alocacao' && patNum(draft.aportes) === mov.aportes && (
+              <p className={`text-xs mt-2 ${sub}`}>✓ Sem transações neste período — aportes preenchidos com os investimentos marcados como feitos na Alocação.</p>
+            )}
+            {movDifere && (
+              <button onClick={() => setDraft({ ...draft, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '', origemMov: 'transacoes' })}
+                className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
+                ↻ As Transações dizem: {f(mov.aportes)} de compras e {f(mov.levantamentos)} de vendas{mov.amortizacao ? `, ${f(mov.amortizacao)} de amortização` : ''} — usar estes valores
               </button>
             )}
+            {mov.origem === null && !draft.existe && (
+              <p className={`text-xs mt-2 ${sub}`}>Sem transações nem investimentos marcados na Alocação neste período — preenche à mão se houve movimentos.</p>
+            )}
             {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
-              <button onClick={() => setDraft({ ...draft, amortizacao: String(descidaDivida) })} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
-                A dívida desceu {f(descidaDivida)} desde {patRotulo(anterior.idx)} — usar como amortização (inclui a parte normal das prestações; ajusta se for o caso)
+              <button onClick={() => setDraft({ ...draft, amortizacao: String(descidaDivida), levantamentos: patNum(draft.levantamentos) > 0 ? String(Math.max(0, Math.round((patNum(draft.levantamentos) - descidaDivida) * 100) / 100) || '') : draft.levantamentos })}
+                className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
+                A dívida desceu {f(descidaDivida)} desde {patRotulo(anterior.idx)} — contar como amortização{patNum(draft.levantamentos) > 0 ? ' (desconta dos levantamentos, para não contar duas vezes)' : ''}. Inclui a parte normal das prestações; ajusta se for o caso.
               </button>
             )}
             {anterior && (
