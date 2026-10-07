@@ -1279,6 +1279,22 @@ const patStr = v => (v === '' || v == null) ? '' : String(v);
 const patIdx = key => { const [y, m] = String(key || '').split('-').map(Number); return (y || 0) * 12 + ((m || 1) - 1); };
 const patKey = idx => `${Math.floor(idx / 12)}-${(idx % 12) + 1}`;
 const patSoma = l => (l || []).reduce((a, x) => a + patNum(x.val), 0);
+const patIdxHoje = () => { const h = new Date(); return h.getFullYear() * 12 + h.getMonth(); };
+// Um mês só "tem portfolio" se tiver valores. Ao editar qualquer outra coisa num mês
+// novo, a app copia a lista por defeito (tudo a zero) — isso não conta como preenchido.
+const patTemPortfolio = p => Array.isArray(p) && p.some(x => patNum(x && x.val) !== 0);
+
+// Histórico do Portfolio SEM depender do botão Snapshot: junta os snapshots
+// antigos com o que está guardado em cada mês (que prevalece).
+const patHistoricoPortfolio = (guardado, M) => {
+  const mapa = {}, hoje = patIdxHoje();
+  (guardado || []).forEach(h => { if (h && h.date) mapa[patIdx(h.date)] = patNum(h.total); });
+  Object.keys(M || {}).forEach(k => {
+    const p = (M[k] || {}).portfolio, i = patIdx(k);
+    if (patTemPortfolio(p) && i <= hoje) mapa[i] = patSoma(p);
+  });
+  return Object.keys(mapa).map(Number).sort((a, b) => a - b).map(i => ({ date: patKey(i), total: mapa[i] }));
+};
 const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx / 12)).slice(2)}`;
 
 const patTotais = rec => {
@@ -1296,10 +1312,11 @@ const patSerie = registos => Object.entries(registos || {})
   .sort((a, b) => a.idx - b.idx);
 
 // Por registo: variações e separação entre o que foi posto (aportes) e o que o
-// mercado rendeu. Registos importados não têm fluxos, por isso não entram.
+// mercado rendeu. Snapshots antigos (importados) não entram, nem como ponto de
+// partida: não têm movimentos e podem ter o fundo de emergência misturado no total.
 const patDetalhe = serie => serie.map((s, i) => {
   const prev = i > 0 ? serie[i - 1] : null;
-  const temFluxos = !!prev && !s.rec.importado;
+  const temFluxos = !!prev && !s.rec.importado && !prev.rec.importado;
   const fluxo = temFluxos ? patNum(s.rec.aportes) - patNum(s.rec.levantamentos) - patNum(s.rec.amortizacao) : null;
   return {
     ...s, prev, fluxo,
@@ -1338,6 +1355,23 @@ const patListaCreditos = G => {
   return [];
 };
 
+// Dívida (e valor do imóvel) num dado mês, pelo histórico do separador Crédito.
+const patCreditoNoMes = (G, idx) => {
+  const dividas = [], imoveis = [];
+  patListaCreditos(G).forEach(c => {
+    if (c.estado === 'planeado') return;
+    if (c.estado === 'liquidado' && c.dataLiquidacao && patIdx(c.dataLiquidacao) <= idx) return;
+    const ent = (c.historico || []).filter(e => e && e.date && patIdx(e.date) <= idx)
+      .sort((a, b) => patIdx(b.date) - patIdx(a.date))[0];
+    if (!ent) return;
+    dividas.push({ id: patId(), nome: c.nome || 'Crédito', val: patNum(ent.divida), creditoId: c.id });
+    if ((c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0) {
+      imoveis.push({ id: patId(), nome: 'Casa', val: patNum(c.valorBem) });
+    }
+  });
+  return { dividas, imoveis };
+};
+
 // Rascunho do mês: o registo guardado, ou uma proposta pré-preenchida.
 const patRascunho = ({ registos, key, portfolio, G, M }) => {
   const copia = l => (l || []).map(x => ({ ...x, id: x.id || patId(), val: patStr(x.val) }));
@@ -1358,21 +1392,23 @@ const patRascunho = ({ registos, key, portfolio, G, M }) => {
   }
   const idx = patIdx(key);
   const prev = patSerie(registos).filter(s => s.idx < idx).pop();
-  const ativos = patListaCreditos(G).filter(c => c.estado === 'ativo');
   const manuais = prev ? (prev.rec.dividas || []).filter(d => d.creditoId == null) : [];
+  // Mês corrente: valores atuais do separador Crédito. Mês passado: o histórico desse mês.
+  const passado = idx < patIdxHoje();
+  const hist = passado ? patCreditoNoMes(G, idx) : null;
+  const ativos = patListaCreditos(G).filter(c => c.estado === 'ativo');
+  const dividasCredito = passado ? hist.dividas.map(d => ({ ...d, val: patStr(d.val) }))
+    : ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id }));
+  const imoveisCredito = passado ? hist.imoveis.map(d => ({ ...d, val: patStr(d.val) }))
+    : ativos.filter(c => (c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0)
+        .map(c => ({ id: patId(), nome: 'Casa', val: patStr(patNum(c.valorBem)) }));
   return {
     existe: false, importado: false, fechadoEm: null,
     investItens: patInvestDoPortfolio(portfolio),
     liquidez: prev ? copia(prev.rec.liquidez) : PAT_CONTAS_BASE.map(n => ({ id: patId(), nome: n, val: '' })),
-    imoveis: prev ? copia(prev.rec.imoveis)
-      : ativos.filter(c => (c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0)
-          .map(c => ({ id: patId(), nome: 'Casa', val: patStr(patNum(c.valorBem)) })),
+    imoveis: prev ? copia(prev.rec.imoveis) : imoveisCredito,
     outros: prev ? copia(prev.rec.outros) : [],
-    // Dívidas geridas no separador Crédito vêm sempre de lá (fonte única de verdade).
-    dividas: [
-      ...ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id })),
-      ...copia(manuais)
-    ],
+    dividas: [...dividasCredito, ...copia(manuais)],
     aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, nota: ''
   };
 };
@@ -1428,15 +1464,15 @@ const patMovimentos = (G, M, registos, key) => {
 };
 
 // Importa os snapshots antigos do Portfolio (e o histórico do Crédito) como registos.
-const patImportar = (G, M) => {
-  const regs = (G.patrimonio || {}).registos || {};
+const patImportar = (G, M, existentes) => {
+  const regs = existentes || (G.patrimonio || {}).registos || {};
   const detalhe = G.portfolioDetail || {};
   const novos = {};
   (G.portfolioHist || []).forEach(h => {
     if (!h || !h.date) return;
     const idx = patIdx(h.date), key = patKey(idx);
     if (regs[key] || novos[key]) return;
-    const pm = (M[key] || {}).portfolio || [];
+    const pm = ((M || {})[key] || {}).portfolio || [];
     const det = detalhe[h.date] || detalhe[key] || [];
     const comCat = det.map(d => {
       const ref = pm.find(p => p.id === d.id) || pm.find(p => p.desc === d.desc);
@@ -1448,24 +1484,35 @@ const patImportar = (G, M) => {
     if (!itens.length || Math.abs(patSoma(itens) - total) > 1) {
       itens = total ? [{ desc: 'Portfólio (total)', cat: '—', val: total }] : [];
     }
-    const dividas = [], imoveis = [];
-    patListaCreditos(G).forEach(c => {
-      if (c.estado === 'planeado') return;
-      if (c.estado === 'liquidado' && c.dataLiquidacao && patIdx(c.dataLiquidacao) <= idx) return;
-      const ent = (c.historico || []).filter(e => e && e.date && patIdx(e.date) <= idx)
-        .sort((a, b) => patIdx(b.date) - patIdx(a.date))[0];
-      if (!ent) return;
-      dividas.push({ id: patId(), nome: c.nome || 'Crédito', val: patNum(ent.divida), creditoId: c.id });
-      if ((c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0) {
-        imoveis.push({ id: patId(), nome: 'Casa', val: patNum(c.valorBem) });
-      }
-    });
+    const { dividas, imoveis } = patCreditoNoMes(G, idx);
     novos[key] = {
       investItens: itens, liquidez: [], imoveis, outros: [], dividas,
-      aportes: 0, levantamentos: 0, amortizacao: 0, nota: '', fechadoEm: new Date().toISOString(), importado: true
+      aportes: 0, levantamentos: 0, amortizacao: 0, nota: '', fechadoEm: null, importado: true
     };
   });
   return novos;
+};
+
+// Os registos que a app realmente usa. Nada depende de carregar num botão:
+//   1. o que guardaste (com os investimentos sempre lidos do Portfolio desse mês);
+//   2. meses em que atualizaste o Portfolio mas não guardaste → registo automático;
+//   3. snapshots antigos sem mais dados → registo importado.
+const patRegistosEfetivos = (G, M) => {
+  const guard = ((G || {}).patrimonio || {}).registos || {};
+  const mm = M || {}, hoje = patIdxHoje(), out = {};
+  Object.entries(guard).forEach(([k, r]) => {
+    const key = patKey(patIdx(k)), p = (mm[key] || {}).portfolio;
+    out[key] = patTemPortfolio(p) ? { ...r, investItens: patInvestDoPortfolio(p) } : r;
+  });
+  const autos = [...new Set(Object.keys(mm).map(k => patKey(patIdx(k))))]
+    .filter(k => !out[k] && patTemPortfolio((mm[k] || {}).portfolio) && patIdx(k) <= hoje)
+    .sort((a, b) => patIdx(a) - patIdx(b));
+  Object.entries(patImportar(G || {}, mm, out)).forEach(([k, r]) => { if (!autos.includes(k)) out[k] = r; });
+  autos.forEach(key => {
+    const d = patRascunho({ registos: out, key, portfolio: mm[key].portfolio, G: G || {}, M: mm });
+    out[key] = { ...patLimpar(d), fechadoEm: null, auto: true };
+  });
+  return out;
 };
 // ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
 
@@ -1622,10 +1669,18 @@ const PatChart = ({ pontos, eventos, theme }) => {
 
 const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, onIrParaMes }) => {
   const pat = G.patrimonio || {};
-  const registos = pat.registos || {};
+  const guardados = pat.registos || {};
+  // Guardados + automáticos + importados. O histórico nunca depende de um clique.
+  const efetivos = useMemo(() => patRegistosEfetivos(G, M), [G, M]);
   const eventos = pat.eventos || [];
   const idxSel = patIdx(mesKey);
-  const guardado = registos[mesKey];
+  const guardado = guardados[mesKey];
+  // Base para o rascunho deste mês: sem o registo automático dele próprio
+  const registos = useMemo(() => {
+    if (guardado || !(efetivos[mesKey] && efetivos[mesKey].auto)) return efetivos;
+    const r = { ...efetivos }; delete r[mesKey]; return r;
+  }, [efetivos, mesKey, guardado]);
+  const ehAuto = !guardado && !!(efetivos[mesKey] && efetivos[mesKey].auto);
   const assinatura = JSON.stringify(guardado || null);
 
   const [vista, setVista] = useState('capital');           // 'capital' | 'total'
@@ -1651,7 +1706,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const pct = v => (v > 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
 
   const setPat = patch => uG('patrimonio', { ...pat, ...patch });
-  const serie = patSerie(registos);
+  const serie = patSerie(efetivos);
   const det = patDetalhe(serie);
   const ret = patRetorno(det);
   const campo = vista === 'capital' ? 'capital' : 'total';
@@ -1664,8 +1719,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   // Rascunho → totais ao vivo
   const tDraft = patTotais(draft);
-  const investVivo = patSoma(patInvestDoPortfolio(portfolio));
-  const podeSincronizar = draft.existe && temPortfolioProprio && investVivo > 0 && Math.abs(investVivo - patSoma(draft.investItens)) > 0.5;
   const itensInvest = draft.investItens.filter(i => !patEhLiquidez(i));
   const itensLiquidez = draft.investItens.filter(patEhLiquidez);
   const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
@@ -1685,8 +1738,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     levantamentos: patNum(draft.levantamentos) > 0 ? (String(Math.max(0, Math.round((patNum(draft.levantamentos) - descidaDivida) * 100) / 100) || '')) : draft.levantamentos
   });
 
-  const guardar = () => setPat({ registos: { ...registos, [mesKey]: patLimpar(draft) } });
-  const apagar = () => { const r = { ...registos }; delete r[mesKey]; setPat({ registos: r }); };
+  const guardar = () => setPat({ registos: { ...guardados, [mesKey]: patLimpar(draft) } });
+  const apagar = () => { const r = { ...guardados }; delete r[mesKey]; setPat({ registos: r }); };
 
   // Meses sem registo entre o primeiro registo e hoje
   const hoje = new Date();
@@ -1697,8 +1750,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     for (let i = serie[0].idx; i <= idxHoje; i++) if (!tem.has(i)) emFalta.push(i);
   }
 
-  const porImportar = Object.keys(patImportar(G, M)).length;
-  const importar = () => setPat({ registos: { ...registos, ...patImportar(G, M) } });
 
   // Eventos numerados por ordem cronológica
   const evOrd = [...eventos].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
@@ -1731,7 +1782,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       `${Math.floor(d.idx / 12)}-${String((d.idx % 12) + 1).padStart(2, '0')}`,
       n(d.invest), n(d.liquidez), n(d.imoveis), n(d.outros), n(d.dividas), n(d.capital), n(d.total),
       d.fluxo == null ? '' : n(patNum(d.rec.aportes)), d.fluxo == null ? '' : n(patNum(d.rec.levantamentos)), d.fluxo == null ? '' : n(patNum(d.rec.amortizacao)),
-      n(d.resultado), d.rec.importado ? 'importado' : 'registado',
+      n(d.resultado), d.rec.importado ? 'importado' : d.rec.auto ? 'automático' : 'guardado',
       '"' + (d.rec.nota || '').replace(/"/g, '""') + '"'
     ].join(';'));
     const blob = new Blob(['﻿' + [cab.join(';'), ...linhasCsv].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1782,7 +1833,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         </div>
 
         {!ultimo ? (
-          <p className={`text-sm ${sub}`}>Ainda não há registos. Preenche o registo do mês mais abaixo{porImportar ? ', ou importa o histórico que já tens no Portfolio' : ''}.</p>
+          <p className={`text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className={tile}>
@@ -1810,12 +1861,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           </div>
         )}
 
-        {porImportar > 0 && (
-          <div className={`mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 ${escuro ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'}`}>
-            <p className="text-xs flex-1 min-w-[200px]">Tens <strong>{porImportar}</strong> {porImportar === 1 ? 'mês' : 'meses'} de snapshots do Portfolio que ainda não estão aqui. A importação traz os investimentos e, quando existir no separador Crédito, a dívida e o valor da casa dessa altura.</p>
-            <button onClick={importar} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">Importar histórico</button>
-          </div>
-        )}
       </div>
 
       {/* Evolução */}
@@ -1871,8 +1916,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <h3 className="text-lg font-semibold">📝 {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? 'text-amber-400 bg-amber-500/15 border-amber-500/40' : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
-              {!draft.existe ? 'Por registar' : draft.importado ? 'Importado — confirma' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? (ehAuto ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-amber-400 bg-amber-500/15 border-amber-500/40') : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
+              {!draft.existe ? (ehAuto ? 'Automático' : 'Portfolio por atualizar') : draft.importado ? 'Snapshot antigo' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
             </span>
             <button onClick={() => setAjuda(!ajuda)} aria-label="Ajuda" aria-expanded={ajuda} className={chip(ajuda)}>?</button>
           </div>
@@ -1880,7 +1925,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
         {ajuda && (
           <div className={`mb-4 rounded-xl p-3 text-xs space-y-1.5 ${escuro ? 'bg-slate-700/30 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-            <p>Isto é uma fotografia do fim do mês. Confirma os números e guarda. Para outro mês, muda o mês no topo da app.</p>
+            <p>Cada mês entra no histórico sozinho, assim que atualizas o Portfolio — não há snapshot para fazer. Só precisas de guardar aqui se quiseres corrigir saldos, movimentos ou deixar uma nota.</p>
             <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas. O Fundo de Emergência do Portfolio entra aqui sozinho — é dinheiro parado, não conta para o retorno dos investimentos.</p>
             <p><strong>Casa e dívidas</strong> só contam na vista "Património total". Os créditos ativos vêm do separador Crédito.</p>
             <p><strong>Puseste / tiraste</strong> vem das Transações (compras e vendas) ou, sem transações, da Alocação. Serve para separar o teu esforço do que o mercado fez. Amortização é dinheiro dos investimentos usado para abater dívida — não é perda.</p>
@@ -1889,7 +1934,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
         {emFalta.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-amber-400">Sem registo:</span>
+            <span className="text-xs text-amber-400">Portfolio por atualizar:</span>
             {emFalta.slice(-8).map(i => <button key={i} onClick={() => onIrParaMes(patKey(i))} className={chip(i === idxSel)}>{patRotulo(i)}</button>)}
           </div>
         )}
@@ -1912,11 +1957,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             )}
             {!draft.existe && !temPortfolioProprio && (
               <p className="text-xs text-amber-400 mt-2">⚠ O Portfolio deste mês ainda não foi atualizado — estes são os valores do mês anterior.</p>
-            )}
-            {podeSincronizar && (
-              <button onClick={() => setDraft({ ...draft, investItens: patInvestDoPortfolio(portfolio) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
-                ↻ O Portfolio mudou — atualizar este registo
-              </button>
             )}
           </div>
 
@@ -1949,7 +1989,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   Desde {patRotulo(anterior.idx)} puseste <strong>{f(patNum(draft.aportes))}</strong>
                   {saidasDraft > 0 && <> e tiraste <strong>{f(saidasDraft)}</strong></>}
                   {patNum(draft.amortizacao) > 0 && <span className={sub}> ({f(patNum(draft.amortizacao))} para amortizar crédito)</span>}
-                  . O mercado {mercadoDraft >= 0 ? 'rendeu' : 'tirou'} <strong className={corDelta(mercadoDraft)}>{f(Math.abs(mercadoDraft))}</strong>.
+                  .{anterior.rec.importado
+                    ? <span className={sub}> O mês anterior é um snapshot antigo sem detalhe, por isso o rendimento do mercado só é calculado a partir do próximo.</span>
+                    : <> O mercado {mercadoDraft >= 0 ? 'rendeu' : 'tirou'} <strong className={corDelta(mercadoDraft)}>{f(Math.abs(mercadoDraft))}</strong>.</>}
                 </p>
                 <button onClick={() => setEditMov(!editMov)} aria-expanded={editMov} className="text-xs text-blue-400 hover:text-blue-300">{editMov ? 'fechar' : 'corrigir'}</button>
               </div>
@@ -1992,6 +2034,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={1} placeholder="O que explica os números deste mês?" className={`${inp} w-full resize-y`} />
         </label>
 
+        {ehAuto && <p className={`text-xs mt-3 ${sub}`}>Este mês já está no histórico, calculado sozinho a partir do Portfolio. Não precisas de guardar nada — só se corrigires algum valor.</p>}
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
           <div><p className={`text-xs ${sub}`}>Capital investido</p><p className="font-bold">{f(tDraft.capital)}</p></div>
           <div><p className={`text-xs ${sub}`}>Património total</p><p className="font-bold">{f(tDraft.total)}</p></div>
@@ -2004,7 +2047,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             {!confirmaApagar && (
               <button onClick={guardar} disabled={!sujo && !draft.importado}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all ${(!sujo && !draft.importado) ? 'bg-slate-500/40 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`}>
-                {!draft.existe ? 'Guardar' : draft.importado ? 'Confirmar' : sujo ? 'Guardar alterações' : 'Guardado'}
+                {!draft.existe ? (ehAuto ? 'Guardar correções' : 'Guardar') : draft.importado ? 'Confirmar' : sujo ? 'Guardar alterações' : 'Guardado'}
               </button>
             )}
           </div>
@@ -2076,7 +2119,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                           return (
                             <tr key={d.idx} onClick={() => onIrParaMes(d.key)} title={d.rec.nota || 'Abrir este mês'}
                               className={`cursor-pointer border-t ${linhaB} ${d.idx === idxSel ? (escuro ? 'bg-blue-500/10' : 'bg-blue-50') : (escuro ? 'hover:bg-slate-700/30' : 'hover:bg-slate-50')}`}>
-                              <td className="py-1.5 px-2 text-left font-medium">{patRotulo(d.idx)}{d.rec.importado && <span className={`ml-1 text-[10px] font-normal ${sub}`}>imp.</span>}{d.rec.nota && <span className={`ml-1 text-[10px] font-normal ${sub}`}>nota</span>}</td>
+                              <td className="py-1.5 px-2 text-left font-medium">{patRotulo(d.idx)}{d.rec.importado && <span className={`ml-1 text-[10px] font-normal ${sub}`}>imp.</span>}{d.rec.auto && <span className={`ml-1 text-[10px] font-normal ${sub}`}>auto</span>}{d.rec.nota && <span className={`ml-1 text-[10px] font-normal ${sub}`}>nota</span>}</td>
                               <td className="py-1.5 px-2 text-right">{f(d.invest)}</td>
                               <td className="py-1.5 px-2 text-right">{f(d.liquidez)}</td>
                               <td className="py-1.5 px-2 text-right">{f(d.outros)}</td>
@@ -2097,7 +2140,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               </div>
             );
           })}
-          <p className={`text-[11px] mt-2 ${sub}`}>imp. = importado · clica numa linha para abrir esse mês.</p>
+          <p className={`text-[11px] mt-2 ${sub}`}>auto = calculado sozinho a partir do Portfolio · imp. = snapshot antigo · clica numa linha para abrir esse mês.</p>
           </div>)}
         </div>
       )}
@@ -2615,7 +2658,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Obter portfolio do mês atual, ou copiar do mês anterior se não existir
  const getPortfolioParaMes = useCallback((key) => {
    // Se já tem portfolio para este mês, retornar
-   if (M[key]?.portfolio && M[key].portfolio.length > 0) {
+   if (patTemPortfolio(M[key]?.portfolio)) {
      return M[key].portfolio;
    }
    
@@ -2623,7 +2666,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    let checkKey = getMesAnteriorKey(key);
    let tentativas = 12; // máximo 12 meses para trás
    while (tentativas > 0) {
-     if (M[checkKey]?.portfolio && M[checkKey].portfolio.length > 0) {
+     if (patTemPortfolio(M[checkKey]?.portfolio)) {
        // Copiar portfolio do mês anterior com novos IDs
        return M[checkKey].portfolio.map(p => ({
          ...p,
@@ -2639,12 +2682,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }, [M]);
 
  const mesD = M[mesKey] || defM;
- const portfolio = mesD.portfolio && mesD.portfolio.length > 0 
+ const portfolio = patTemPortfolio(mesD.portfolio) 
    ? mesD.portfolio 
    : getPortfolioParaMes(mesKey);
  // true quando o que se vê é a cópia do mês anterior (o mês atual ainda não foi
  // tocado). Basta editar/adicionar qualquer valor para deixar de estar "por atualizar".
- const portfolioPorAtualizar = !(mesD.portfolio && mesD.portfolio.length > 0);
+ const portfolioPorAtualizar = !patTemPortfolio(mesD.portfolio);
   
   const mesKeyRef = useRef(mesKey);
   
@@ -2781,7 +2824,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    showToast(`${novasRegCom.length + novasRegSem.length} receitas duplicadas do mês anterior`);
  }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
- const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,portfolioHist=[],metas:metasRaw=defG.metas,credito=defG.credito} = G;
+ const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,metas:metasRaw=defG.metas,credito=defG.credito} = G;
+ // Histórico do Portfolio calculado a partir dos meses guardados — já não depende do botão Snapshot
+ const portfolioHist = patHistoricoPortfolio(G.portfolioHist, M);
 
   // Credito unificado
   const creditoAtual = useMemo(() => {
@@ -4200,7 +4245,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // PERFORMANCE DASHBOARD
  const Performance = () => {
    const totaisAnuais = useMemo(() => calcularTotaisAnuais(), [calcularTotaisAnuais]);
-   const portfolioHist = G.portfolioHist || [];
    const patrimonioHist = G.patrimonioHist || [];
    
    // Calcular métricas de performance
@@ -4672,7 +4716,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {(() => {
            // Calcular património ao longo do tempo
            const patrimonioHist = G.patrimonioHist || [];
-           const portfolioHistorico = G.portfolioHist || [];
+           const portfolioHistorico = portfolioHist;
            const creditosData = G.creditos || [];
            
            // Criar série temporal
@@ -7157,10 +7201,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <p className="text-4xl mb-3">📊</p>
        <h3 className="font-semibold mb-2">Sem dados de evolução</h3>
        <p className="text-sm text-slate-500 mb-4">
-         Clica em "📸 Snapshot" no final de cada mês para registar o valor do teu portfolio e acompanhar a evolução.
-       </p>
-       <p className="text-xs text-slate-500">
-         {portfolioHist.length === 0 ? 'Nenhum snapshot guardado ainda.' : `${portfolioHist.length} snapshot(s) guardado(s).`}
+         A evolução aparece sozinha assim que tiveres dois meses com valores no Portfolio.
        </p>
      </div>
    </Card>
@@ -7266,7 +7307,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      📥 Copiar Mês Anterior
    </Button>
    <Button variant="secondary" size="sm" onClick={() => { uG('portfolioLastUpdate', new Date().toISOString()); }}>🔄 Marcar Atualizado</Button>
-   <Button variant="secondary" size="sm" onClick={guardarSnapshot}>📸 Snapshot</Button>
    <Button onClick={()=>uM('portfolio',[...portfolio,{id:Date.now(),desc:'Novo',cat:catsInv[0]||'ETF',val:0}])}>+</Button>
  </div>
  </div>
@@ -13089,13 +13129,12 @@ ${transacoesOrdenadas.map(t => `<tr>
      alerts.push({tipo: 'aviso', msg: `⚠️ Horas acima da meta: ${horasEsteMes}h / ${metas.horasMensais || 120}h (+${(horasEsteMes - (metas.horasMensais || 120))}h)`, severity: 'warning'});
    }
    
-   // ALERTA: Portfolio sem snapshot recente
-   const portfolioHist = G.portfolioHist || [];
-   const ultimoSnapshot = portfolioHist.length > 0 ? portfolioHist[portfolioHist.length - 1]?.date : null;
+   // ALERTA: fim do mês e o Portfolio deste mês ainda não foi atualizado
+   // (o histórico é automático; a única coisa a não esquecer é atualizar os valores)
    const mesPassado = `${mesAtualNum === 1 ? ano - 1 : ano}-${mesAtualNum === 1 ? 12 : mesAtualNum - 1}`;
    
-   if (diaAtual >= 28 && ultimoSnapshot !== mesKey && portfolioHist.length > 0) {
-     alerts.push({tipo: 'lembrete', msg: `📸 Fim do mês! Faz snapshot do portfolio`, severity: 'info'});
+   if (diaAtual >= 28 && !patTemPortfolio((M[mesKey] || {}).portfolio) && Object.keys(M).some(k => patTemPortfolio((M[k] || {}).portfolio))) {
+     alerts.push({tipo: 'lembrete', msg: `📈 Fim do mês! Atualiza os valores do Portfolio`, severity: 'info'});
    }
    
    // ALERTA: Investimentos abaixo da meta
@@ -14394,12 +14433,12 @@ ${transacoesOrdenadas.map(t => `<tr>
  csv += `TOTAL;;${totalPortfolio.toFixed(2)}\n\n`;
  
  // EVOLUÇÃO PORTFOLIO
- if (G.portfolioHist?.length > 0) {
+ if (portfolioHist.length > 0) {
  csv += '═══════════════════════════════════════\n';
  csv += 'EVOLUÇÃO DO PORTFOLIO\n';
  csv += '═══════════════════════════════════════\n';
  csv += 'Data;Valor Total\n';
- G.portfolioHist.forEach(h => {
+ portfolioHist.forEach(h => {
  const [y, m] = h.date.split('-').map(Number);
  csv += `${meses[m - 1]} ${y};${h.total.toFixed(2)}\n`;
  });
