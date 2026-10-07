@@ -2180,7 +2180,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <div className={tile}>
                 <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
                 <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-                <p className={`text-xs ${sub}`}>{ret.periodos ? `${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação` : 'a partir do 2.º mês com detalhe'}</p>
+                <p className={`text-xs ${sub}`}>{ret.periodos ? (periodo && ret.meses < periodo ? `pediste ${periodo} meses, mas só há ${ret.meses} com detalhe (desde ${patRotulo(ret.inicio)})` : `${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação`) : 'a partir do 2.º mês com detalhe'}</p>
               </div>
               <div className={tile}>
                 <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
