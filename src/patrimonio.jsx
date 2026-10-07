@@ -1181,6 +1181,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
               <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
             </div>
+            <div className="flex gap-1.5" role="group" aria-label="Período da caixa do meio e do gráfico">
+              {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
+                <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
+              ))}
+            </div>
             {vista === 'capital' && haReservado && (
               <button className={chip(semReservado)} aria-pressed={semReservado} onClick={() => setSemReservado(!semReservado)} title="O dinheiro da venda da casa guardado para comprar imóvel">
                 {semReservado ? '✓ ' : ''}Sem o dinheiro reservado para imobiliário
@@ -1192,82 +1197,39 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         {!ultimo ? (
           <p className={`text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
         ) : (
-          <div className="space-y-3">
-            {/* 1 — Quanto tenho hoje */}
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>Quanto tens · {patRotulo(ultimo.idx)}</p>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <p className="text-2xl font-bold">{f(ultimo[campo])}</p>
-                {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
-              </div>
-              <p className={`text-xs mt-1 ${sub}`}>
-                Investimentos <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong>
-                {' · '}dinheiro nas contas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.liquidez - (vista === 'capital' ? ultimo.reservado : 0))}</strong>
-                {ultimo.outros > 0 && <>{' · '}outros <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.outros)}</strong></>}
-                {vista === 'total' && <>{' · '}imóveis <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.imoveis)}</strong>{' · '}dívidas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>−{f(ultimo.dividas)}</strong></>}
-                {vista === 'capital' && ultimo.reservado > 0 && <>{' · '}reservado para imobiliário <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.reservado)}</strong>{semRes ? ' (fora do total)' : ''}</>}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 1 — Quanto tens */}
+            <div className={`${tile} !p-4`}>
+              <p className={`text-sm ${sub}`}>Tens hoje</p>
+              <p className="text-3xl font-bold tabular-nums mt-1">{f(ultimo[campo])}</p>
+              <p className={`text-sm mt-2 ${sub}`}>
+                {vista === 'total'
+                  ? <>financeiro <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.capital)}</strong> · casa menos dívida <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.imoveis - ultimo.dividas)}</strong></>
+                  : <>investimentos <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong> · contas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.liquidez + ultimo.outros - ultimo.reservado)}</strong>{ultimo.reservado > 0 && <> · reservado <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.reservado)}</strong></>}</>}
               </p>
             </div>
-
             {/* 2 — O que mudou no período */}
-            <div className={tile}>
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <p className={`text-xs ${sub}`}>O que mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}</p>
-                <div className="flex gap-1.5" role="group" aria-label="Período">
-                  {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
-                    <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              {!primeiro || primeiro === ultimo ? (
-                <p className={`text-sm ${sub}`}>Precisa de pelo menos dois meses com dados.</p>
-              ) : (<>
-                <div className="flex flex-wrap items-stretch gap-x-2 gap-y-2 text-sm">
-                  {[
-                    { l: `Em ${patRotulo(primeiro.idx)}`, v: f(primeiro[campo]) },
-                    ...(mud.nSem ? [{ l: `Sem detalhe até ${patRotulo(mud.fimSem)}`, v: sinal(mud.semDetalhe), cor: sub, t: 'Nestes meses a app só tem o total guardado, por isso não sabe separar o que o mercado rendeu do dinheiro que entrou ou saiu.' }] : []),
-                    ...(mud.nCom ? [
-                      { l: mud.mercado >= 0 ? 'O mercado rendeu' : 'O mercado tirou', v: sinal(mud.mercado), cor: corDelta(mud.mercado), t: 'Variação do valor dos investimentos, descontado o dinheiro que lá puseste ou tiraste.' },
-                      ...(vista === 'total' && Math.abs(mud.casa) >= 0.5 ? [{ l: 'Casa e dívida', v: sinal(mud.casa), cor: corDelta(mud.casa), t: 'Variação do valor dos imóveis menos a variação das dívidas (amortizar a dívida faz isto subir).' }] : []),
-                      { l: mud.dinheiro >= 0 ? 'Entrou dinheiro novo' : 'Saiu dinheiro', v: sinal(mud.dinheiro), cor: corDelta(mud.dinheiro), t: mud.dinheiro >= 0 ? 'O que poupaste: dinheiro que entrou nas contas e nos investimentos vindo de fora.' : 'Dinheiro que saiu das contas e dos investimentos: amortizações do crédito, impostos, gastos.' }
-                    ] : []),
-                    { l: `Hoje (${patRotulo(ultimo.idx)})`, v: f(ultimo[campo]), forte: true }
-                  ].map((p, i, arr) => (
-                    <React.Fragment key={p.l}>
-                      <div title={p.t || undefined} className={`rounded-lg px-3 py-2 ${escuro ? 'bg-slate-800/60' : 'bg-white'} ${p.t ? 'cursor-help' : ''}`}>
-                        <p className={`text-[11px] ${sub}`}>{p.l}</p>
-                        <p className={`tabular-nums ${p.forte ? 'font-bold' : 'font-semibold'} ${p.cor || ''}`}>{p.v}</p>
-                      </div>
-                      {i < arr.length - 1 && <span className={`self-center ${sub}`} aria-hidden="true">→</span>}
-                    </React.Fragment>
-                  ))}
-                </div>
-                <p className={`text-xs mt-2 ${sub}`}>
-                  No total: <span className={corDelta(varTotal)}>{sinal(varTotal)}{varPct != null ? ` (${pct(varPct)})` : ''}</span>.
-                  {ret.periodos > 0 && Math.abs(ret.aportes) >= 0.5 && <> Pelo meio passaste <strong>{f(Math.abs(ret.aportes))}</strong> {ret.aportes >= 0 ? 'das contas para os investimentos' : 'dos investimentos para as contas'} (não muda o total).</>}
-                  {mud.nSem > 0 && mud.nCom === 0 && <> Este período ainda não tem meses com detalhe.</>}
+            <div className={`${tile} !p-4`}>
+              <p className={`text-sm ${sub}`}>Mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}</p>
+              {!primeiro || primeiro === ultimo ? <p className="text-3xl font-bold mt-1">—</p> : (<>
+                <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
+                <p className={`text-sm mt-2 ${sub}`}>
+                  {mud.nCom > 0
+                    ? <>mercado <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {vista === 'total' || mud.nSem > 0 ? 'resto' : (varTotal - mud.mercado >= 0 ? 'entrou' : 'saiu')} <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{vista === 'total' || mud.nSem > 0 ? sinal(varTotal - mud.mercado) : f(Math.abs(varTotal - mud.mercado))}</strong></>
+                    : 'ainda sem detalhe neste período'}
                 </p>
               </>)}
             </div>
-
             {/* 3 — Os investimentos estão a render? */}
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>Os investimentos estão a render?{vida.cats.length > 0 ? ` · ${vida.cats.join(' + ')} desde ${rotData(vida.desde)}` : ''}</p>
+            <div className={`${tile} !p-4`}>
+              <p className={`text-sm ${sub}`}>Investimentos renderam{vida.cats.length > 0 ? ` desde ${rotData(vida.desde)}` : ''}</p>
               {vida.cats.length > 0 ? (<>
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mt-1 text-sm">
-                  <span>Puseste <strong className="tabular-nums">{f(vida.posto)}</strong></span>
-                  <span className={sub} aria-hidden="true">→</span>
-                  <span>valem <strong className="tabular-nums">{f(vida.valor)}</strong></span>
-                  <span className={sub} aria-hidden="true">→</span>
-                  <span className={`text-xl font-bold tabular-nums ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-xs font-normal"> {pct(vida.pct)}</span>}</span>
-                </div>
-                <p className={`text-xs mt-1 ${sub}`}>
-                  Desde a primeira compra, pelas {vida.n} transações. Não muda com o período.
-                  {rendimentoRecebido > 0 && <> Além disto, recebeste <strong>{f(rendimentoRecebido)}</strong> em juros e dividendos.</>}
-                </p>
-              </>) : (
-                <p className={`text-sm mt-1 ${sub}`}>Importa as transações da corretora (Transações → Importar ficheiro) para ver quanto puseste e quanto renderam.</p>
-              )}
+                <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-base font-semibold"> {pct(vida.pct)}</span>}</p>
+                <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.posto)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.valor)}</strong></p>
+              </>) : (<>
+                <p className="text-3xl font-bold mt-1">—</p>
+                <p className={`text-sm mt-2 ${sub}`}>importa as transações para ver</p>
+              </>)}
             </div>
           </div>
         )}
@@ -1279,6 +1241,35 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             </button>
             {sec.contas && (
               <div className="mt-3 space-y-4 text-sm">
+                {primeiro && primeiro !== ultimo && (
+                  <div>
+                    <p className="font-medium mb-2">O que mudou desde {patRotulo(primeiro.idx)}, passo a passo</p>
+                    <div className="flex flex-wrap items-stretch gap-x-2 gap-y-2 text-sm">
+                      {[
+                        { l: `Em ${patRotulo(primeiro.idx)}`, v: f(primeiro[campo]) },
+                        ...(mud.nSem ? [{ l: `Sem detalhe até ${patRotulo(mud.fimSem)}`, v: sinal(mud.semDetalhe), cor: sub, t: 'Nestes meses a app só tem o total guardado, por isso não sabe separar o que o mercado rendeu do dinheiro que entrou ou saiu.' }] : []),
+                        ...(mud.nCom ? [
+                          { l: mud.mercado >= 0 ? 'O mercado rendeu' : 'O mercado tirou', v: sinal(mud.mercado), cor: corDelta(mud.mercado), t: 'Variação do valor dos investimentos, descontado o dinheiro que lá puseste ou tiraste.' },
+                          ...(vista === 'total' && Math.abs(mud.casa) >= 0.5 ? [{ l: 'Casa e dívida', v: sinal(mud.casa), cor: corDelta(mud.casa), t: 'Variação do valor dos imóveis menos a variação das dívidas (amortizar a dívida faz isto subir).' }] : []),
+                          { l: mud.dinheiro >= 0 ? 'Entrou dinheiro novo' : 'Saiu dinheiro', v: sinal(mud.dinheiro), cor: corDelta(mud.dinheiro), t: mud.dinheiro >= 0 ? 'O que poupaste: dinheiro que entrou nas contas e nos investimentos vindo de fora.' : 'Dinheiro que saiu das contas e dos investimentos: amortizações do crédito, impostos, gastos.' }
+                        ] : []),
+                        { l: `Hoje (${patRotulo(ultimo.idx)})`, v: f(ultimo[campo]), forte: true }
+                      ].map((p, i, arr) => (
+                        <React.Fragment key={p.l}>
+                          <div title={p.t || undefined} className={`rounded-lg px-3 py-2 ${escuro ? 'bg-slate-800/60' : 'bg-white'} ${p.t ? 'cursor-help' : ''}`}>
+                            <p className={`text-[11px] ${sub}`}>{p.l}</p>
+                            <p className={`tabular-nums ${p.forte ? 'font-bold' : 'font-semibold'} ${p.cor || ''}`}>{p.v}</p>
+                          </div>
+                          {i < arr.length - 1 && <span className={`self-center ${sub}`} aria-hidden="true">→</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                    <p className={`text-xs mt-2 ${sub}`}>
+                      {ret.periodos > 0 && Math.abs(ret.aportes) >= 0.5 && <>Pelo meio passaste <strong>{f(Math.abs(ret.aportes))}</strong> {ret.aportes >= 0 ? 'das contas para os investimentos' : 'dos investimentos para as contas'} (não muda o total). </>}
+                      {rendimentoRecebido > 0 && <>Desde sempre recebeste <strong>{f(rendimentoRecebido)}</strong> em juros e dividendos.</>}
+                    </p>
+                  </div>
+                )}
                 {dups.length > 0 && (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
                     <p className="text-amber-500 font-medium">{dups.length === 1 ? 'Há 1 compra que parece estar' : `Há ${dups.length} compras que parecem estar`} duas vezes nas Transações: registada à mão e também importada.</p>
