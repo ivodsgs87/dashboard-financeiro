@@ -993,6 +993,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   const [vista, setVista] = useState('capital');           // 'capital' | 'total'
   const [periodo, setPeriodo] = useState(0);               // meses; 0 = tudo
+  const [graf, setGraf] = useState('valor');               // 'valor' | 'mercado': o que o gráfico mostra
   const [semReservado, setSemReservado] = useState(true);  // esconder o dinheiro reservado para imobiliário
   const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G, M }));
   const [anosAbertos, setAnosAbertos] = useState({});
@@ -1125,6 +1126,23 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     ]
   }));
 
+  // Gráfico só do mercado: o que os investimentos renderam, acumulado mês a mês (sem o dinheiro que puseste)
+  const pontosMercado = (() => {
+    const com = visiveis.filter(d => d.resultado != null && (!primeiro || d.idx > primeiro.idx || !periodo));
+    if (!com.length) return [];
+    let acum = 0;
+    const out = [{ idx: com[0].prev.idx, v: 0, tip: [['Ponto de partida', f(0), true]] }];
+    com.forEach(d => {
+      acum += d.resultado;
+      out.push({ idx: d.idx, v: acum, nota: d.rec.nota, tip: [
+        ['Mercado, acumulado', sinal(acum), true], ['Mercado neste mês', sinal(d.resultado)],
+        ['Investimentos', f(d.invest)], ['Puseste (líquido)', sinal(d.fluxo)]
+      ] });
+    });
+    return out;
+  })();
+  const verMercado = graf === 'mercado';
+
   const exportarCSV = () => {
     const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
     const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Património financeiro', 'Património total', 'Aportes', 'Levantamentos', 'Amortização de crédito', 'Resultado mercado', 'Origem', 'Nota'];
@@ -1215,7 +1233,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
                 <p className={`text-sm mt-2 ${sub}`}>
                   {mud.nCom > 0
-                    ? <>mercado <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {vista === 'total' || mud.nSem > 0 ? 'resto' : (varTotal - mud.mercado >= 0 ? 'entrou' : 'saiu')} <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{vista === 'total' || mud.nSem > 0 ? sinal(varTotal - mud.mercado) : f(Math.abs(varTotal - mud.mercado))}</strong></>
+                    ? <><button onClick={() => setGraf(graf === 'mercado' ? 'valor' : 'mercado')} aria-pressed={graf === 'mercado'} title="Ver no gráfico só o que o mercado rendeu" className={`underline decoration-dotted underline-offset-4 hover:text-blue-400 ${graf === 'mercado' ? 'text-blue-400' : ''}`}>mercado</button> <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {vista === 'total' || mud.nSem > 0 ? 'resto' : (varTotal - mud.mercado >= 0 ? 'entrou' : 'saiu')} <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{vista === 'total' || mud.nSem > 0 ? sinal(varTotal - mud.mercado) : f(Math.abs(varTotal - mud.mercado))}</strong></>
                     : 'ainda sem detalhe neste período'}
                 </p>
               </>)}
@@ -1339,10 +1357,21 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       {det.length > 0 && (
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h3 className="font-semibold">Evolução — {nomeVista}</h3>
-            <span className={`text-xs ${sub}`}>{periodo ? (periodo === 1 ? 'último mês' : `últimos ${periodo} meses`) : 'desde o início'}</span>
+            <h3 className="font-semibold">{verMercado ? 'O que o mercado rendeu (acumulado)' : `Evolução — ${nomeVista}`}</h3>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1.5" role="group" aria-label="O que o gráfico mostra">
+                <button className={chip(!verMercado)} aria-pressed={!verMercado} onClick={() => setGraf('valor')}>Valor</button>
+                <button className={chip(verMercado)} aria-pressed={verMercado} onClick={() => setGraf('mercado')}>Só o mercado</button>
+              </div>
+              <span className={`text-xs ${sub}`}>{periodo ? (periodo === 1 ? 'último mês' : `últimos ${periodo} meses`) : 'desde o início'}</span>
+            </div>
           </div>
-          {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
+          {verMercado ? (
+            pontosMercado.length > 1 ? (<>
+              <PatChart key="mercado" pontos={pontosMercado} eventos={evOrd} theme={theme} />
+              <p className={`text-xs mt-1 ${sub}`}>Ganho ou perda dos investimentos sem contar o dinheiro que lá puseste. Começa em zero em {patRotulo(pontosMercado[0].idx)}{pontosMercado[0].idx > (visiveis[0] ? visiveis[0].idx : 0) ? ', o primeiro mês com detalhe neste período' : ''}.</p>
+            </>) : <p className={`text-sm py-6 text-center ${sub}`}>Ainda não há meses com detalhe neste período para separar o mercado do dinheiro que puseste.</p>
+          ) : pontos.length > 1 ? <PatChart key="valor" pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
         </div>
       )}
