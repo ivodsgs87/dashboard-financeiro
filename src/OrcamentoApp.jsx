@@ -1252,6 +1252,744 @@ const VendaCasa = ({ G, uG, theme }) => {
   );
 };
 
+// ══ PATRIMÓNIO: lógica ══════════════════════════════════════════════════════
+// Um registo por mês, guardado por COMPONENTES (e não só um total), para que
+// qualquer vista futura possa ser recalculada a partir do detalhe.
+//   G.patrimonio = { registos: { 'AAAA-M': registo }, eventos: [{id, data, texto}] }
+//   registo = { investItens:[{desc,cat,val}], liquidez:[{id,nome,val}], imoveis:[…],
+//               outros:[…], dividas:[{…, creditoId?}], aportes, levantamentos,
+//               nota, fechadoEm, importado? }
+const PAT_COMP = [
+  { k: 'invest', label: 'Investimentos', cor: '#3b82f6' },
+  { k: 'liquidez', label: 'Liquidez', cor: '#059669' },
+  { k: 'imoveis', label: 'Imóveis', cor: '#d97706' },
+  { k: 'outros', label: 'Outros ativos', cor: '#8b5cf6' },
+  { k: 'dividas', label: 'Dívidas', cor: '#ef4444' }
+];
+const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Trade Republic (saldo)', 'Revolut'];
+
+const patId = () => Date.now() + Math.random();
+const patNum = v => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(x) ? x : 0; };
+const patStr = v => (v === '' || v == null) ? '' : String(v);
+// Aceita 'AAAA-M', 'AAAA-MM' e 'AAAA-MM-DD' (a app usa os três formatos).
+const patIdx = key => { const [y, m] = String(key || '').split('-').map(Number); return (y || 0) * 12 + ((m || 1) - 1); };
+const patKey = idx => `${Math.floor(idx / 12)}-${(idx % 12) + 1}`;
+const patSoma = l => (l || []).reduce((a, x) => a + patNum(x.val), 0);
+const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx / 12)).slice(2)}`;
+
+const patTotais = rec => {
+  const r = rec || {};
+  const invest = patSoma(r.investItens), liquidez = patSoma(r.liquidez), imoveis = patSoma(r.imoveis);
+  const outros = patSoma(r.outros), dividas = patSoma(r.dividas);
+  const capital = invest + liquidez + outros;               // sem casa nem dívida
+  return { invest, liquidez, imoveis, outros, dividas, capital, total: capital + imoveis - dividas };
+};
+
+const patSerie = registos => Object.entries(registos || {})
+  .map(([key, rec]) => ({ key: patKey(patIdx(key)), idx: patIdx(key), rec, ...patTotais(rec) }))
+  .sort((a, b) => a.idx - b.idx);
+
+// Por registo: variações e separação entre o que foi posto (aportes) e o que o
+// mercado rendeu. Registos importados não têm fluxos, por isso não entram.
+const patDetalhe = serie => serie.map((s, i) => {
+  const prev = i > 0 ? serie[i - 1] : null;
+  const temFluxos = !!prev && !s.rec.importado;
+  const fluxo = temFluxos ? patNum(s.rec.aportes) - patNum(s.rec.levantamentos) : null;
+  return {
+    ...s, prev, fluxo,
+    resultado: temFluxos ? s.invest - prev.invest - fluxo : null,
+    dCapital: prev ? s.capital - prev.capital : null,
+    dTotal: prev ? s.total - prev.total : null,
+    salto: prev ? s.idx - prev.idx : 0
+  };
+});
+
+// Retorno dos investimentos ponderado pelo tempo (Dietz modificado, encadeado).
+const patRetorno = det => {
+  let fator = 1, resultado = 0, aportes = 0, mesesN = 0, periodos = 0;
+  det.forEach(d => {
+    if (d.resultado == null) return;
+    resultado += d.resultado; aportes += d.fluxo;
+    const base = d.prev.invest + d.fluxo / 2;
+    if (base > 0) { fator *= 1 + d.resultado / base; mesesN += d.salto; periodos++; }
+  });
+  return {
+    resultado, aportes, periodos, meses: mesesN,
+    twr: periodos ? fator - 1 : null,
+    anual: (mesesN >= 12 && fator > 0) ? Math.pow(fator, 12 / mesesN) - 1 : null
+  };
+};
+
+const patInvestDoPortfolio = portfolio => (portfolio || [])
+  .filter(p => p.cat !== 'CREDITO' && patNum(p.val) !== 0)   // amortização não é ativo: já está na dívida
+  .map(p => ({ desc: p.desc || 'Sem nome', cat: p.cat || '—', val: patNum(p.val) }));
+
+const patListaCreditos = G => {
+  if (Array.isArray(G.creditos) && G.creditos.length) return G.creditos;
+  if (G.credito && patNum(G.credito.dividaAtual) > 0) {
+    return [{ ...G.credito, id: 'legado', nome: 'Crédito Habitação', tipo: 'habitacao', estado: 'ativo', valorBem: G.credito.valorCasa }];
+  }
+  return [];
+};
+
+// Rascunho do mês: o registo guardado, ou uma proposta pré-preenchida.
+const patRascunho = ({ registos, key, portfolio, G }) => {
+  const copia = l => (l || []).map(x => ({ ...x, id: x.id || patId(), val: patStr(x.val) }));
+  const ex = (registos || {})[key];
+  if (ex) {
+    return {
+      existe: true, importado: !!ex.importado, fechadoEm: ex.fechadoEm || null,
+      investItens: (ex.investItens || []).map(i => ({ ...i })),
+      liquidez: copia(ex.liquidez), imoveis: copia(ex.imoveis), outros: copia(ex.outros), dividas: copia(ex.dividas),
+      aportes: ex.importado ? '' : patStr(ex.aportes), levantamentos: ex.importado ? '' : patStr(ex.levantamentos),
+      nota: ex.nota || ''
+    };
+  }
+  const idx = patIdx(key);
+  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
+  const ativos = patListaCreditos(G).filter(c => c.estado === 'ativo');
+  const manuais = prev ? (prev.rec.dividas || []).filter(d => d.creditoId == null) : [];
+  return {
+    existe: false, importado: false, fechadoEm: null,
+    investItens: patInvestDoPortfolio(portfolio),
+    liquidez: prev ? copia(prev.rec.liquidez) : PAT_CONTAS_BASE.map(n => ({ id: patId(), nome: n, val: '' })),
+    imoveis: prev ? copia(prev.rec.imoveis)
+      : ativos.filter(c => (c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0)
+          .map(c => ({ id: patId(), nome: 'Casa', val: patStr(patNum(c.valorBem)) })),
+    outros: prev ? copia(prev.rec.outros) : [],
+    // Dívidas geridas no separador Crédito vêm sempre de lá (fonte única de verdade).
+    dividas: [
+      ...ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id })),
+      ...copia(manuais)
+    ],
+    aportes: '', levantamentos: '', nota: ''
+  };
+};
+
+const patLimpar = d => {
+  const limpa = l => (l || [])
+    .map(x => ({ id: x.id || patId(), nome: (x.nome || '').trim(), val: patNum(x.val), ...(x.creditoId != null ? { creditoId: x.creditoId } : {}) }))
+    .filter(x => x.nome || x.val);
+  return {
+    investItens: (d.investItens || []).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })),
+    liquidez: limpa(d.liquidez), imoveis: limpa(d.imoveis), outros: limpa(d.outros), dividas: limpa(d.dividas),
+    aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos),
+    nota: (d.nota || '').trim(), fechadoEm: new Date().toISOString()
+  };
+};
+
+// Sugestão de aportes: investimentos marcados como feitos na Alocação, desde o último registo.
+const patSugestaoAportes = (M, registos, key) => {
+  const idx = patIdx(key);
+  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
+  const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
+  let tot = 0;
+  for (let i = de; i <= idx; i++) {
+    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO') tot += patNum(x.val); });
+  }
+  return tot;
+};
+
+// Importa os snapshots antigos do Portfolio (e o histórico do Crédito) como registos.
+const patImportar = (G, M) => {
+  const regs = (G.patrimonio || {}).registos || {};
+  const detalhe = G.portfolioDetail || {};
+  const novos = {};
+  (G.portfolioHist || []).forEach(h => {
+    if (!h || !h.date) return;
+    const idx = patIdx(h.date), key = patKey(idx);
+    if (regs[key] || novos[key]) return;
+    const pm = (M[key] || {}).portfolio || [];
+    const det = detalhe[h.date] || detalhe[key] || [];
+    const comCat = det.map(d => {
+      const ref = pm.find(p => p.id === d.id) || pm.find(p => p.desc === d.desc);
+      return { desc: d.desc || 'Sem nome', cat: ref ? ref.cat : '—', val: patNum(d.val) };
+    });
+    const excl = patSoma(comCat.filter(i => i.cat === 'CREDITO'));
+    let itens = comCat.filter(i => i.cat !== 'CREDITO' && i.val);
+    const total = patNum(h.total) - excl;
+    if (!itens.length || Math.abs(patSoma(itens) - total) > 1) {
+      itens = total ? [{ desc: 'Portfólio (total)', cat: '—', val: total }] : [];
+    }
+    const dividas = [], imoveis = [];
+    patListaCreditos(G).forEach(c => {
+      if (c.estado === 'planeado') return;
+      if (c.estado === 'liquidado' && c.dataLiquidacao && patIdx(c.dataLiquidacao) <= idx) return;
+      const ent = (c.historico || []).filter(e => e && e.date && patIdx(e.date) <= idx)
+        .sort((a, b) => patIdx(b.date) - patIdx(a.date))[0];
+      if (!ent) return;
+      dividas.push({ id: patId(), nome: c.nome || 'Crédito', val: patNum(ent.divida), creditoId: c.id });
+      if ((c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0) {
+        imoveis.push({ id: patId(), nome: 'Casa', val: patNum(c.valorBem) });
+      }
+    });
+    novos[key] = {
+      investItens: itens, liquidez: [], imoveis, outros: [], dividas,
+      aportes: 0, levantamentos: 0, nota: '', fechadoEm: new Date().toISOString(), importado: true
+    };
+  });
+  return novos;
+};
+// ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
+
+const patFmtK = v => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace('.', ',') + 'M €';
+  if (a >= 1000) return (v / 1000).toFixed(a >= 100000 ? 0 : 1).replace('.', ',') + 'k €';
+  return Math.round(v) + ' €';
+};
+
+// Linhas editáveis de um componente (contas, imóveis, dívidas…)
+const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder }) => {
+  const upd = (id, campo, v) => onChange(linhas.map(l => l.id === id ? { ...l, [campo]: v } : l));
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-sm font-medium flex items-center gap-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: cor }} />{titulo}
+        </p>
+        <span className="text-sm font-semibold">{_fmtEUR.format(patSoma(linhas))}</span>
+      </div>
+      {dica && <p className={`text-[11px] mb-1.5 ${sub}`}>{dica}</p>}
+      <div className="space-y-1.5">
+        {linhas.map(l => (
+          <div key={l.id} className="flex items-center gap-1.5">
+            <input type="text" value={l.nome} onChange={e => upd(l.id, 'nome', e.target.value)} placeholder={placeholder || 'Nome'} className={`${inp} flex-1 min-w-0`} />
+            <input type="number" inputMode="decimal" value={l.val} onChange={e => upd(l.id, 'val', e.target.value)} placeholder="0" className={`${inp} w-28 text-right`} />
+            <button onClick={() => onChange(linhas.filter(x => x.id !== l.id))} aria-label={`Remover ${l.nome || 'linha'}`} className="text-red-400 hover:text-red-300 px-1 flex-shrink-0">✕</button>
+          </div>
+        ))}
+      </div>
+      <button onClick={() => onChange([...linhas, { id: patId(), nome: '', val: '' }])} className={`mt-1.5 text-xs ${sub} hover:text-blue-400`}>+ Adicionar linha</button>
+    </div>
+  );
+};
+
+// Gráfico de evolução: posiciona os pontos pelo mês real, por isso os meses em
+// falta ficam visíveis (segmento tracejado) em vez de serem escondidos.
+const PatChart = ({ pontos, eventos, theme }) => {
+  const [hi, setHi] = useState(null);
+  const [larg, setLarg] = useState(800);
+  const ref = useRef(null);
+  const caixa = useRef(null);
+  useEffect(() => {
+    const medir = () => { if (caixa.current && caixa.current.clientWidth) setLarg(caixa.current.clientWidth); };
+    medir();
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, []);
+  if (!pontos.length) return null;
+
+  // 1 unidade do viewBox = 1 px real, para o texto manter o tamanho em qualquer ecrã
+  const W = Math.max(300, larg), H = W < 520 ? 220 : 260, pl = W < 520 ? 48 : 58, pr = W < 520 ? 56 : 66, pt = 28, pb = 30;
+  const i0 = pontos[0].idx, i1 = pontos[pontos.length - 1].idx, span = i1 - i0;
+  const X = idx => span ? pl + ((idx - i0) / span) * (W - pl - pr) : (pl + W - pr) / 2;
+  const vals = pontos.map(p => p.v);
+  let lo = Math.min(...vals), top = Math.max(...vals);
+  if (lo >= 0 && lo < top * 0.5) lo = 0;
+  else lo -= ((top - lo) || Math.abs(top) || 1) * 0.15;
+  top += ((top - lo) || 1) * 0.1;
+  const Y = v => pt + (1 - (v - lo) / ((top - lo) || 1)) * (H - pt - pb);
+
+  const bruto = (top - lo) / 4, p10 = Math.pow(10, Math.floor(Math.log10(bruto || 1))), f = bruto / p10;
+  const passo = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p10;
+  const ticks = [];
+  for (let t = Math.ceil(lo / passo) * passo; t <= top; t += passo) ticks.push(t);
+
+  const escuro = theme !== 'light';
+  const grelha = escuro ? '#334155' : '#e2e8f0';
+  const tinta = escuro ? '#94a3b8' : '#64748b';
+  const tintaForte = escuro ? '#e2e8f0' : '#1e293b';
+  const superficie = escuro ? '#1e293b' : '#ffffff';
+  const linha = '#3b82f6';
+
+  const rotulosX = [];
+  pontos.forEach((p, i) => {
+    const x = X(p.idx);
+    const ult = rotulosX[rotulosX.length - 1];
+    if (i === 0 || i === pontos.length - 1 || !ult || x - ult.x > 70) {
+      if (i === pontos.length - 1 && ult && x - ult.x < 50) rotulosX.pop();
+      rotulosX.push({ x, t: patRotulo(p.idx) });
+    }
+  });
+  const evs = (eventos || []).filter(e => e.idx >= i0 && e.idx <= i1);
+
+  const mover = clientX => {
+    const r = ref.current && ref.current.getBoundingClientRect();
+    if (!r || !r.width) return;
+    const xv = ((clientX - r.left) / r.width) * W;
+    let best = 0, bd = Infinity;
+    pontos.forEach((p, i) => { const d = Math.abs(X(p.idx) - xv); if (d < bd) { bd = d; best = i; } });
+    setHi(best);
+  };
+  const h = hi != null && pontos[hi] ? pontos[hi] : null;
+  const hx = h ? X(h.idx) : 0;
+  const ult = pontos[pontos.length - 1];
+
+  return (
+    <div className="relative" ref={caixa}>
+      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" role="img"
+        aria-label="Evolução do património ao longo do tempo"
+        onMouseMove={e => mover(e.clientX)} onMouseLeave={() => setHi(null)}
+        onTouchStart={e => mover(e.touches[0].clientX)} onTouchMove={e => mover(e.touches[0].clientX)}>
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={pl} x2={W - pr} y1={Y(t)} y2={Y(t)} stroke={grelha} strokeWidth="1" />
+            <text x={pl - 8} y={Y(t) + 4} textAnchor="end" fontSize="11" fill={tinta}>{patFmtK(t)}</text>
+          </g>
+        ))}
+        {rotulosX.map((r, i) => <text key={i} x={r.x} y={H - 8} textAnchor="middle" fontSize="11" fill={tinta}>{r.t}</text>)}
+        {evs.map((e, i) => (
+          <g key={e.id}>
+            <line x1={X(e.idx)} x2={X(e.idx)} y1={pt - 4} y2={H - pb} stroke={tinta} strokeWidth="1" strokeDasharray="2 4" />
+            <circle cx={X(e.idx)} cy={pt - 13} r="9" fill={superficie} stroke={tinta} strokeWidth="1" />
+            <text x={X(e.idx)} y={pt - 9} textAnchor="middle" fontSize="10" fontWeight="600" fill={tintaForte}>{e.n}</text>
+          </g>
+        ))}
+        {pontos.slice(1).map((p, i) => {
+          const a = pontos[i];
+          return <line key={p.idx} x1={X(a.idx)} y1={Y(a.v)} x2={X(p.idx)} y2={Y(p.v)} stroke={linha} strokeWidth="2"
+            strokeLinecap="round" strokeDasharray={p.idx - a.idx > 1 ? '3 6' : undefined} opacity={p.idx - a.idx > 1 ? 0.6 : 1} />;
+        })}
+        {h && <line x1={hx} x2={hx} y1={pt} y2={H - pb} stroke={tinta} strokeWidth="1" />}
+        {pontos.map((p, i) => (
+          <circle key={p.idx} cx={X(p.idx)} cy={Y(p.v)} r={hi === i ? 6 : 4}
+            fill={p.importado ? superficie : linha} stroke={p.importado ? linha : superficie} strokeWidth="2" />
+        ))}
+        <text x={X(ult.idx) + 10} y={Y(ult.v) + 4} fontSize="12" fontWeight="600" fill={tintaForte}>{patFmtK(ult.v)}</text>
+      </svg>
+      {h && (
+        <div className={`absolute top-0 z-10 pointer-events-none rounded-lg border px-3 py-2 text-xs shadow-xl min-w-[170px] ${escuro ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
+          style={{ left: `${(hx / W) * 100}%`, transform: hx > W * 0.62 ? 'translateX(-104%)' : 'translateX(4%)' }}>
+          <p className="font-semibold mb-1">{patRotulo(h.idx)}{h.importado ? ' · importado' : ''}</p>
+          {h.tip.map(([l, v, forte]) => (
+            <p key={l} className={`flex justify-between gap-4 ${forte ? 'font-semibold' : ''}`}>
+              <span className={forte ? '' : (escuro ? 'text-slate-400' : 'text-slate-500')}>{l}</span><span>{v}</span>
+            </p>
+          ))}
+          {h.nota && <p className={`mt-1 pt-1 border-t ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>{h.nota}</p>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, onIrParaMes }) => {
+  const pat = G.patrimonio || {};
+  const registos = pat.registos || {};
+  const eventos = pat.eventos || [];
+  const idxSel = patIdx(mesKey);
+  const guardado = registos[mesKey];
+  const assinatura = JSON.stringify(guardado || null);
+
+  const [vista, setVista] = useState('capital');           // 'capital' | 'total'
+  const [periodo, setPeriodo] = useState(0);               // meses; 0 = tudo
+  const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G }));
+  const [anosAbertos, setAnosAbertos] = useState({});
+  const [novoEv, setNovoEv] = useState({ data: '', texto: '' });
+  const [confirmaApagar, setConfirmaApagar] = useState(false);
+
+  // Recriar o rascunho só quando muda o mês ou o registo guardado desse mês —
+  // nunca a meio da edição.
+  useEffect(() => {
+    setDraft(patRascunho({ registos, key: mesKey, portfolio, G }));
+    setConfirmaApagar(false);
+  }, [mesKey, assinatura]); // eslint-disable-line
+
+  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
+  const sinal = v => (v > 0 ? '+' : '') + f(v);
+  const pct = v => (v > 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
+
+  const setPat = patch => uG('patrimonio', { ...pat, ...patch });
+  const serie = patSerie(registos);
+  const det = patDetalhe(serie);
+  const ret = patRetorno(det);
+  const campo = vista === 'capital' ? 'capital' : 'total';
+  const nomeVista = vista === 'capital' ? 'Capital investido' : 'Património total';
+
+  const ultimo = det[det.length - 1] || null;
+  const primeiro = det[0] || null;
+  const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
+  const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
+
+  // Rascunho → totais ao vivo
+  const tDraft = patTotais(draft);
+  const investVivo = patSoma(patInvestDoPortfolio(portfolio));
+  const podeSincronizar = draft.existe && temPortfolioProprio && Math.abs(investVivo - tDraft.invest) > 0.5;
+  const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
+    !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
+  const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
+  const sugestao = patSugestaoAportes(M, registos, mesKey);
+
+  const guardar = () => setPat({ registos: { ...registos, [mesKey]: patLimpar(draft) } });
+  const apagar = () => { const r = { ...registos }; delete r[mesKey]; setPat({ registos: r }); };
+
+  // Meses sem registo entre o primeiro registo e hoje
+  const hoje = new Date();
+  const idxHoje = hoje.getFullYear() * 12 + hoje.getMonth();
+  const emFalta = [];
+  if (serie.length) {
+    const tem = new Set(serie.map(s => s.idx));
+    for (let i = serie[0].idx; i <= idxHoje; i++) if (!tem.has(i)) emFalta.push(i);
+  }
+
+  const porImportar = Object.keys(patImportar(G, M)).length;
+  const importar = () => setPat({ registos: { ...registos, ...patImportar(G, M) } });
+
+  // Eventos numerados por ordem cronológica
+  const evOrd = [...eventos].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+    .map((e, i) => ({ ...e, n: i + 1, idx: patIdx(e.data) }));
+  const addEvento = () => {
+    if (!novoEv.texto.trim()) return;
+    const data = novoEv.data || `${Math.floor(idxSel / 12)}-${String((idxSel % 12) + 1).padStart(2, '0')}-01`;
+    setPat({ eventos: [...eventos, { id: patId(), data, texto: novoEv.texto.trim() }] });
+    setNovoEv({ data: '', texto: '' });
+  };
+
+  const visiveis = periodo && ultimo ? det.filter(d => d.idx > ultimo.idx - periodo) : det;
+  const pontos = visiveis.map(d => ({
+    idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
+    tip: [
+      [nomeVista, f(d[campo]), true],
+      ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ['Outros ativos', f(d.outros)],
+      ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
+      ...(d.resultado != null ? [['Aportes líquidos', sinal(d.fluxo)], ['Resultado mercado', sinal(d.resultado)]] : [])
+    ]
+  }));
+
+  const exportarCSV = () => {
+    const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
+    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Capital investido', 'Património total', 'Aportes líquidos', 'Resultado mercado', 'Origem', 'Nota'];
+    const linhasCsv = det.map(d => [
+      `${Math.floor(d.idx / 12)}-${String((d.idx % 12) + 1).padStart(2, '0')}`,
+      n(d.invest), n(d.liquidez), n(d.imoveis), n(d.outros), n(d.dividas), n(d.capital), n(d.total),
+      n(d.fluxo), n(d.resultado), d.rec.importado ? 'importado' : 'registado',
+      '"' + (d.rec.nota || '').replace(/"/g, '""') + '"'
+    ].join(';'));
+    const blob = new Blob(['﻿' + [cab.join(';'), ...linhasCsv].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `patrimonio_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  // ── estilos ──
+  const escuro = theme !== 'light';
+  const card = `backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white/80 border-slate-200 shadow-sm'}`;
+  const inp = escuro
+    ? 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50'
+    : 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
+  const sub = escuro ? 'text-slate-400' : 'text-slate-500';
+  const linhaB = escuro ? 'border-slate-700/50' : 'border-slate-200';
+  const tile = `rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`;
+  const chip = on => `px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${on ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : (escuro ? 'bg-slate-700/40 border-slate-600 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500')}`;
+  const corDelta = v => v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : '';
+  const seta = v => v > 0 ? '▲ ' : v < 0 ? '▼ ' : '';
+
+  // Composição do último registo
+  const ativosComp = ultimo ? PAT_COMP.filter(c => c.k !== 'dividas' && (vista === 'total' || c.k !== 'imoveis'))
+    .map(c => ({ ...c, v: ultimo[c.k] })).filter(c => c.v > 0) : [];
+  const brutos = ativosComp.reduce((a, c) => a + c.v, 0);
+
+  const anosTab = [...new Set(det.map(d => Math.floor(d.idx / 12)))].sort((a, b) => b - a);
+  const anoAberto = y => anosAbertos[y] != null ? anosAbertos[y] : y === anosTab[0];
+
+  return (
+    <div className="space-y-4 max-w-5xl mx-auto">
+
+      {/* Cabeçalho + métricas */}
+      <div className={card}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-semibold">💎 Património</h3>
+            <p className={`text-xs ${sub}`}>
+              {vista === 'capital' ? 'Investimentos + liquidez + outros ativos — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Capital investido</button>
+            <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
+          </div>
+        </div>
+
+        {!ultimo ? (
+          <p className={`text-sm ${sub}`}>Ainda não há registos. Preenche o registo do mês mais abaixo{porImportar ? ', ou importa o histórico que já tens no Portfolio' : ''}.</p>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className={tile}>
+              <p className={`text-xs ${sub}`}>{nomeVista} · {patRotulo(ultimo.idx)}</p>
+              <p className="text-xl font-bold">{f(ultimo[campo])}</p>
+              {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
+            </div>
+            <div className={tile}>
+              <p className={`text-xs ${sub}`}>Desde {patRotulo(primeiro.idx)}</p>
+              <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}</p>
+              <p className={`text-xs ${sub}`}>{varPct != null ? pct(varPct) : '—'} · {det.length} {det.length === 1 ? 'registo' : 'registos'}</p>
+            </div>
+            <div className={tile}>
+              <p className={`text-xs ${sub}`}>Aportes líquidos</p>
+              <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
+              <p className={`text-xs ${sub}`}>{ret.periodos ? `o que puseste, em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo com fluxos'}</p>
+            </div>
+            <div className={tile}>
+              <p className={`text-xs ${sub}`}>Resultado dos investimentos</p>
+              <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
+              <p className={`text-xs ${sub}`}>
+                {ret.twr != null ? `retorno ${pct(ret.twr)}${ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}` : 'o que o mercado rendeu'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {porImportar > 0 && (
+          <div className={`mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 ${escuro ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'}`}>
+            <p className="text-xs flex-1 min-w-[200px]">Tens <strong>{porImportar}</strong> {porImportar === 1 ? 'mês' : 'meses'} de snapshots do Portfolio que ainda não estão aqui. A importação traz os investimentos e, quando existir no separador Crédito, a dívida e o valor da casa dessa altura.</p>
+            <button onClick={importar} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">Importar histórico</button>
+          </div>
+        )}
+      </div>
+
+      {/* Evolução */}
+      {det.length > 0 && (
+        <div className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h3 className="font-semibold">Evolução — {nomeVista}</h3>
+            <div className="flex gap-1.5">
+              {[[12, '1A'], [36, '3A'], [60, '5A'], [0, 'Tudo']].map(([m, l]) => (
+                <button key={l} className={chip(periodo === m)} onClick={() => setPeriodo(m)}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
+            : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
+          <p className={`text-[11px] mt-1 ${sub}`}>
+            Linha tracejada = meses sem registo pelo meio · ponto vazio = registo importado{evOrd.length ? ' · números = acontecimentos' : ''}
+          </p>
+        </div>
+      )}
+
+      {/* Composição */}
+      {ultimo && brutos > 0 && (
+        <div className={card}>
+          <h3 className="font-semibold mb-3">Composição em {patRotulo(ultimo.idx)}</h3>
+          <div className="flex h-4 w-full gap-0.5 mb-3">
+            {ativosComp.map(c => <div key={c.k} title={`${c.label}: ${f(c.v)}`} className="h-full first:rounded-l last:rounded-r" style={{ width: `${(c.v / brutos) * 100}%`, background: c.cor }} />)}
+          </div>
+          <div className="space-y-1.5 text-sm">
+            {ativosComp.map(c => (
+              <div key={c.k} className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: c.cor }} />{c.label}</span>
+                <span><span className="font-semibold">{f(c.v)}</span> <span className={`text-xs ${sub}`}>{((c.v / brutos) * 100).toFixed(1).replace('.', ',')}%</span></span>
+              </div>
+            ))}
+            {vista === 'total' && (
+              <>
+                <div className={`flex items-center justify-between gap-3 pt-1.5 border-t ${linhaB}`}>
+                  <span className={sub}>Ativos brutos</span><span className="font-semibold">{f(brutos)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#ef4444' }} />Dívidas</span>
+                  <span className="font-semibold">−{f(ultimo.dividas)}</span>
+                </div>
+                <div className={`flex items-center justify-between gap-3 pt-1.5 border-t ${linhaB}`}>
+                  <span className="font-semibold">Património líquido</span><span className="font-bold">{f(ultimo.total)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Registo do mês */}
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+          <h3 className="text-lg font-semibold">📝 Registo de {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? 'text-amber-400 bg-amber-500/15 border-amber-500/40' : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
+            {!draft.existe ? 'Por registar' : draft.importado ? 'Importado — revê e guarda' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
+          </span>
+        </div>
+        <p className={`text-xs mb-4 ${sub}`}>Uma fotografia do fim do mês. Muda o mês no topo da app para registar ou corrigir outro.</p>
+
+        {emFalta.length > 0 && (
+          <div className={`mb-4 rounded-xl border p-3 ${escuro ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+            <p className="text-xs mb-2">⚠ {emFalta.length} {emFalta.length === 1 ? 'mês sem registo' : 'meses sem registo'} desde {patRotulo(serie[0].idx)}:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {emFalta.slice(-12).map(i => <button key={i} onClick={() => onIrParaMes(patKey(i))} className={chip(i === idxSel)}>{patRotulo(i)}</button>)}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+          {/* Investimentos (vêm do Portfolio) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-sm font-medium flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#3b82f6' }} />Investimentos</p>
+              <span className="text-sm font-semibold">{f(tDraft.invest)}</span>
+            </div>
+            <p className={`text-[11px] mb-1.5 ${sub}`}>Vêm do separador Portfolio — é lá que se editam.</p>
+            {draft.investItens.length === 0 ? <p className={`text-xs ${sub}`}>Sem investimentos neste registo.</p> : (
+              <div className="space-y-1">
+                {draft.investItens.map((i, k) => (
+                  <div key={k} className="flex justify-between gap-3 text-sm">
+                    <span className="truncate">{i.desc} <span className={`text-xs ${sub}`}>{i.cat}</span></span><span>{f(patNum(i.val))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!draft.existe && !temPortfolioProprio && (
+              <p className="text-xs text-amber-400 mt-2">⚠ O Portfolio deste mês ainda não foi atualizado — estes são os valores do mês anterior.</p>
+            )}
+            {podeSincronizar && (
+              <button onClick={() => setDraft({ ...draft, investItens: patInvestDoPortfolio(portfolio) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
+                ↻ O Portfolio diz {f(investVivo)} — atualizar este registo
+              </button>
+            )}
+          </div>
+
+          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub}
+            placeholder="Conta" dica="Saldos das contas. Não repitas o que já está no Portfolio (ex.: Fundo de Emergência)." />
+          <PatLinhas titulo="Imóveis" cor="#d97706" linhas={draft.imoveis} onChange={l => setDraft({ ...draft, imoveis: l })} inp={inp} sub={sub}
+            placeholder="Imóvel" dica="Valor de mercado estimado. É uma estimativa tua — só conta no Património total." />
+          <PatLinhas titulo="Outros ativos" cor="#8b5cf6" linhas={draft.outros} onChange={l => setDraft({ ...draft, outros: l })} inp={inp} sub={sub}
+            placeholder="Ex.: Investimento imobiliário" dica="Capital aplicado fora do Portfolio: participações, empréstimos a receber, etc." />
+          <PatLinhas titulo="Dívidas" cor="#ef4444" linhas={draft.dividas} onChange={l => setDraft({ ...draft, dividas: l })} inp={inp} sub={sub}
+            placeholder="Dívida" dica={draft.existe ? 'Capital em dívida no fim do mês.' : 'Os créditos ativos vêm do separador Crédito; acrescenta aqui outras dívidas.'} />
+
+          {/* Fluxos */}
+          <div>
+            <p className="text-sm font-medium mb-1.5">Movimentos nos investimentos</p>
+            <p className={`text-[11px] mb-2 ${sub}`}>
+              {anterior ? `Desde o registo de ${patRotulo(anterior.idx)}.` : 'Sem registo anterior — só contam a partir do próximo.'} É isto que separa o que puseste do que o mercado rendeu.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Aportes (dinheiro novo)</span>
+                <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Levantamentos</span>
+                <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+            </div>
+            {sugestao > 0 && patNum(draft.aportes) !== sugestao && (
+              <button onClick={() => setDraft({ ...draft, aportes: String(sugestao) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
+                Usar {f(sugestao)} — investimentos marcados como feitos na Alocação
+              </button>
+            )}
+            {anterior && (
+              <p className={`text-xs mt-2 ${sub}`}>
+                Investimentos: {sinal(tDraft.invest - anterior.invest)} = {sinal(patNum(draft.aportes) - patNum(draft.levantamentos))} teus
+                {' '}+ <span className={corDelta(tDraft.invest - anterior.invest - patNum(draft.aportes) + patNum(draft.levantamentos))}>{sinal(tDraft.invest - anterior.invest - patNum(draft.aportes) + patNum(draft.levantamentos))} de mercado</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <label className="flex flex-col gap-1 mt-5">
+          <span className={`text-xs ${sub}`}>Nota do mês (opcional) — o que explica os números deste mês?</span>
+          <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={2} placeholder="Ex.: mercado caiu 8%; reforcei o fundo de emergência antes da mudança de casa" className={`${inp} w-full resize-y`} />
+        </label>
+
+        <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
+          <div><p className={`text-xs ${sub}`}>Capital investido</p><p className="font-bold">{f(tDraft.capital)}</p></div>
+          <div><p className={`text-xs ${sub}`}>Património total</p><p className="font-bold">{f(tDraft.total)}</p></div>
+          <div className="ml-auto flex items-center gap-2">
+            {draft.existe && (confirmaApagar
+              ? <><span className={`text-xs ${sub}`}>Apagar este registo?</span>
+                  <button onClick={apagar} className="px-3 py-2 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/30">Sim, apagar</button>
+                  <button onClick={() => setConfirmaApagar(false)} className={chip(false)}>Cancelar</button></>
+              : <button onClick={() => setConfirmaApagar(true)} className="px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-500/10">Apagar</button>)}
+            {!confirmaApagar && (
+              <button onClick={guardar} disabled={!sujo && !draft.importado}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all ${(!sujo && !draft.importado) ? 'bg-slate-500/40 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`}>
+                {!draft.existe ? 'Guardar registo' : draft.importado ? 'Confirmar registo' : sujo ? 'Guardar alterações' : 'Guardado'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Acontecimentos */}
+      <div className={card}>
+        <h3 className="font-semibold mb-1">📌 Acontecimentos</h3>
+        <p className={`text-xs mb-3 ${sub}`}>Marcos que explicam os degraus do gráfico daqui a uns anos: venda da casa, mudança de trabalho, um investimento grande.</p>
+        {evOrd.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {evOrd.map(e => (
+              <div key={e.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${escuro ? 'bg-slate-700/30' : 'bg-slate-50'}`}>
+                <span className={`w-5 h-5 rounded-full border text-[10px] font-semibold flex items-center justify-center flex-shrink-0 ${escuro ? 'border-slate-500' : 'border-slate-400'}`}>{e.n}</span>
+                <span className={`text-xs flex-shrink-0 ${sub}`}>{(e.data || '').split('-').reverse().join('/')}</span>
+                <span className="text-sm flex-1 min-w-0 truncate">{e.texto}</span>
+                <button onClick={() => setPat({ eventos: eventos.filter(x => x.id !== e.id) })} aria-label="Remover acontecimento" className="text-red-400 hover:text-red-300 px-1">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <input type="date" value={novoEv.data} onChange={e => setNovoEv({ ...novoEv, data: e.target.value })} className={inp} />
+          <input type="text" value={novoEv.texto} onChange={e => setNovoEv({ ...novoEv, texto: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addEvento(); }}
+            placeholder="Ex.: Vendi a casa" className={`${inp} flex-1 min-w-[180px]`} />
+          <button onClick={addEvento} className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">+ Adicionar</button>
+        </div>
+      </div>
+
+      {/* Histórico detalhado */}
+      {det.length > 0 && (
+        <div className={card}>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className="font-semibold">📚 Histórico detalhado</h3>
+            <button onClick={exportarCSV} className={chip(false)}>⬇ Exportar CSV</button>
+          </div>
+          {anosTab.map(y => {
+            const linhasAno = det.filter(d => Math.floor(d.idx / 12) === y).reverse();
+            const fim = linhasAno[0], ini = linhasAno[linhasAno.length - 1];
+            const base = ini.prev || ini;
+            return (
+              <div key={y} className={`border-t ${linhaB} first:border-t-0`}>
+                <button onClick={() => setAnosAbertos({ ...anosAbertos, [y]: !anoAberto(y) })} className="w-full flex items-center justify-between gap-3 py-2.5 text-left">
+                  <span className="font-semibold">{anoAberto(y) ? '▾' : '▸'} {y} <span className={`text-xs font-normal ${sub}`}>{linhasAno.length} {linhasAno.length === 1 ? 'registo' : 'registos'}</span></span>
+                  <span className="text-sm">{f(fim[campo])} <span className={`text-xs ${corDelta(fim[campo] - base[campo])}`}>{base !== fim ? sinal(fim[campo] - base[campo]) : ''}</span></span>
+                </button>
+                {anoAberto(y) && (
+                  <div className="overflow-x-auto pb-2">
+                    <table className="w-full text-xs whitespace-nowrap">
+                      <thead>
+                        <tr className={sub}>
+                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Aportes', 'Mercado'].map((c, i) => (
+                            <th key={c} className={`font-medium py-1.5 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {linhasAno.map(d => {
+                          const dv = vista === 'capital' ? d.dCapital : d.dTotal;
+                          return (
+                            <tr key={d.idx} onClick={() => onIrParaMes(d.key)} title={d.rec.nota || 'Abrir este mês'}
+                              className={`cursor-pointer border-t ${linhaB} ${d.idx === idxSel ? (escuro ? 'bg-blue-500/10' : 'bg-blue-50') : (escuro ? 'hover:bg-slate-700/30' : 'hover:bg-slate-50')}`}>
+                              <td className="py-1.5 px-2 text-left font-medium">{patRotulo(d.idx)}{d.rec.importado && <span className={`ml-1 text-[10px] font-normal ${sub}`}>imp.</span>}{d.rec.nota && <span className={`ml-1 text-[10px] font-normal ${sub}`}>nota</span>}</td>
+                              <td className="py-1.5 px-2 text-right">{f(d.invest)}</td>
+                              <td className="py-1.5 px-2 text-right">{f(d.liquidez)}</td>
+                              <td className="py-1.5 px-2 text-right">{f(d.outros)}</td>
+                              {vista === 'total' && <td className="py-1.5 px-2 text-right">{f(d.imoveis)}</td>}
+                              {vista === 'total' && <td className="py-1.5 px-2 text-right">{d.dividas ? '−' + f(d.dividas) : f(0)}</td>}
+                              <td className="py-1.5 px-2 text-right font-semibold">{f(d[campo])}</td>
+                              <td className={`py-1.5 px-2 text-right ${dv != null ? corDelta(dv) : sub}`}>{dv != null ? sinal(dv) : '—'}</td>
+                              <td className={`py-1.5 px-2 text-right ${d.fluxo == null ? sub : ''}`}>{d.fluxo != null ? sinal(d.fluxo) : '—'}</td>
+                              <td className={`py-1.5 px-2 text-right ${d.resultado != null ? corDelta(d.resultado) : sub}`}>{d.resultado != null ? sinal(d.resultado) : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <p className={`text-[11px] mt-2 ${sub}`}>imp. = importado, sem aportes registados · nota = passa o rato para a ler · clica numa linha para abrir esse mês.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   
   // Mês e ano atual do sistema
@@ -6206,7 +6944,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
      <div>
-       <h3 className="text-lg font-semibold">📈 Evolução do Património</h3>
+       <h3 className="text-lg font-semibold">📈 Evolução do Portfolio</h3>
        <p className="text-xs text-slate-500">{lineData.length} meses registados</p>
      </div>
      <div className="flex gap-1">
@@ -11437,7 +12175,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
-   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'transacoes',icon:'📝',label:'Transações'}]},
+   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛️',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
    {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
@@ -14083,6 +14821,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
  {tab==='vendacasa' && <VendaCasa G={G} uG={uG} theme={theme}/>}
+ {tab==='patrimonio' && <Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }}/>}
 
  {/* Modal: texto das despesas para colar noutra app */}
  {textoBilance !== null && (
