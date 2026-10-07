@@ -397,6 +397,43 @@ const patSaldosExtrato = (G, corte) => {
   return out;
 };
 
+// Poupança por mês: quanto o património total cresceu sem ser por causa do mercado.
+// Conta o dinheiro que ficou nas contas ou foi investido e a dívida que desceu.
+// Meses em que o valor dos imóveis mudou (reavaliação, compra, venda) ficam de fora da média.
+const patPoupanca = (det, M) => det.filter(d => d.resultado != null).map(d => {
+  let receitas = 0;
+  for (let i = d.prev.idx + 1; i <= d.idx; i++) {
+    const v = (M || {})[patKey(i)] || {};
+    receitas += [...(v.regCom || []), ...(v.regSem || [])].reduce((a, r) => a + patNum(r.val), 0);
+  }
+  const casaMudou = Math.abs(d.imoveis - d.prev.imoveis) >= 1;
+  const semRes = x => x.total - x.reservado;
+  return { idx: d.idx, meses: d.salto || 1, receitas, casaMudou, poupanca: (semRes(d) - semRes(d.prev)) - d.resultado - (d.imoveis - d.prev.imoveis) };
+});
+
+// Retorno real por ano (XIRR): a taxa anual que explica as tuas compras, nas datas em que
+// as fizeste, e o valor de hoje. Devolve também quanto puseste por mês nos últimos 12 meses.
+const patRetornoReal = (G, itens, hojeIso) => {
+  const regras = patRegras(G), valorCat = {};
+  (itens || []).forEach(i => { if (!i.liq && !patEhLiquidez(i, regras)) valorCat[i.cat] = (valorCat[i.cat] || 0) + patNum(i.val); });
+  const txs = ((G || {}).transacoes || []).filter(t => patTxConta(t, regras) && valorCat[t.categoria] > 0 && String(t.data) <= hojeIso);
+  if (!txs.length) return null;
+  const cats = [...new Set(txs.map(t => t.categoria))];
+  const valor = cats.reduce((a, c) => a + valorCat[c], 0);
+  const dia = iso => Date.parse(String(iso).slice(0, 10)) / 864e5, t1 = dia(hojeIso);
+  const fluxos = txs.map(t => ({ t: (t1 - dia(t.data)) / 365.25, v: -patTxLiquido(t) }));
+  const van = r => fluxos.reduce((a, x) => a + x.v * Math.pow(1 + r, x.t), 0) + valor;
+  let lo = -0.95, hi = 5, taxa = null;
+  if (van(lo) * van(hi) < 0) {
+    for (let k = 0; k < 80; k++) { const mid = (lo + hi) / 2; if (van(lo) * van(mid) <= 0) hi = mid; else lo = mid; }
+    taxa = (lo + hi) / 2;
+  }
+  const lim = new Date(Date.parse(hojeIso)); lim.setFullYear(lim.getFullYear() - 1);
+  const limIso = patIso(lim);
+  const ult12 = txs.filter(t => String(t.data) > limIso).reduce((a, t) => a + patTxLiquido(t), 0);
+  return { taxa, mediaMensal: ult12 / 12, cats, desde: txs.map(t => t.data).sort()[0], valor };
+};
+
 // Transações que contam como "pôr ou tirar dinheiro dos investimentos"
 const patTxConta = (t, regras) => !!t && !!t.data && (t.tipo === 'compra' || t.tipo === 'venda')
   && t.categoria !== 'CREDITO' && !patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras);
@@ -1027,8 +1064,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const det = patDetalhe(serie);
   const haReservado = serie.some(x => x.reservado > 0);
   const semRes = vista === 'capital' && semReservado && haReservado;
-  const campo = vista === 'capital' ? (semRes ? 'livre' : 'capital') : 'total';
-  const nomeVista = vista === 'capital' ? (semRes ? 'Património financeiro livre' : 'Património financeiro') : 'Património total';
+  const campo = vista === 'invest' ? 'invest' : vista === 'capital' ? (semRes ? 'livre' : 'capital') : 'total';
+  const nomeVista = vista === 'invest' ? 'Investimentos' : vista === 'capital' ? (semRes ? 'Património financeiro livre' : 'Património financeiro') : 'Património total';
 
   const ultimo = det[det.length - 1] || null;
   // Ponto de partida do período escolhido: o último registo até N meses atrás
@@ -1127,7 +1164,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
     tip: [
       [nomeVista, f(d[campo]), true],
-      ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ...(d.reservado > 0 ? [['— reservado para imobiliário', f(d.reservado)]] : []), ['Outros ativos', f(d.outros)],
+      ...(vista === 'invest' ? [] : [['Investimentos', f(d.invest)]]), ...(vista === 'invest' ? [] : [['Liquidez', f(d.liquidez)]]), ...(vista !== 'invest' && d.reservado > 0 ? [['— reservado para imobiliário', f(d.reservado)]] : []), ...(vista === 'invest' ? [] : [['Outros ativos', f(d.outros)]]),
       ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
       ...(d.resultado != null ? [
         ...(patNum(d.rec.amortizacao) ? [['Amortização de crédito', '−' + f(patNum(d.rec.amortizacao))]] : []),
@@ -1154,6 +1191,13 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     return out;
   })();
   const verMercado = graf === 'mercado';
+  // Poupança no período escolhido
+  const poup = (() => {
+    const l = patPoupanca(janela, M);
+    const validos = l.filter(x => !x.casaMudou);
+    const meses = validos.reduce((a, x) => a + x.meses, 0), tot = validos.reduce((a, x) => a + x.poupanca, 0), rec = validos.reduce((a, x) => a + x.receitas, 0);
+    return { l, meses, media: meses ? tot / meses : 0, total: tot, receitas: rec, taxa: rec > 0 ? tot / rec : null, max: Math.max(1, ...l.map(x => Math.abs(x.poupanca))) };
+  })();
 
   const exportarCSV = () => {
     const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
@@ -1203,11 +1247,12 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           <div>
             <h3 className="text-lg font-semibold">💎 Património</h3>
             <p className={`text-xs ${sub}`}>
-              {vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
+              {vista === 'invest' ? 'Só o que está exposto ao mercado (ETF, cripto, PPR…) — sem o dinheiro nas contas nem a Trade Republic.' : vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className={chip(vista === 'invest')} onClick={() => setVista('invest')}>Só investimentos</button>
               <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
               <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
             </div>
@@ -1233,7 +1278,14 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-sm ${sub}`}>Tens hoje</p>
               <p className="text-3xl font-bold tabular-nums mt-1">{f(ultimo[campo])}</p>
               <p className={`text-sm mt-2 ${sub}`}>
-                {vista === 'total'
+                {vista === 'invest'
+                  ? (() => {
+                      const porCat = {};
+                      (ultimo.rec.investItens || []).forEach(i => { if (!patItemLiq(i)) porCat[i.cat || '—'] = (porCat[i.cat || '—'] || 0) + patNum(i.val); });
+                      const l = Object.entries(porCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
+                      return l.map(([c, v], i) => <React.Fragment key={c}>{i > 0 ? ' · ' : ''}{c} <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(v)}</strong></React.Fragment>);
+                    })()
+                  : vista === 'total'
                   ? <>financeiro <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.capital)}</strong> · casa menos dívida <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.imoveis - ultimo.dividas)}</strong></>
                   : <>investimentos <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong> · contas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.liquidez + ultimo.outros - ultimo.reservado)}</strong>{ultimo.reservado > 0 && <> · reservado <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.reservado)}</strong></>}</>}
               </p>
@@ -1249,6 +1301,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                         const resto = varTotal - mud.mercado;
                         const forteCls = escuro ? 'text-slate-200' : 'text-slate-700';
                         if (vista === 'total') return <>resto <strong className={forteCls}>{sinal(resto)}</strong></>;
+                        if (vista === 'invest') return <>{resto >= 0 ? 'puseste' : 'tiraste'} <strong className={forteCls}>{f(Math.abs(resto))}</strong></>;
                         return <>{resto >= 0 ? 'entrou' : 'saiu'} <strong className={forteCls}>{f(Math.abs(resto))}</strong>
                           {resto < -1000 && descidaDividaPeriodo >= 1000 && <> · a dívida desceu <strong className={forteCls}>{f(descidaDividaPeriodo)}</strong></>}</>;
                       })()}</>
@@ -1287,7 +1340,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                         ...(mud.nCom ? [
                           { l: mud.mercado >= 0 ? 'O mercado rendeu' : 'O mercado tirou', v: sinal(mud.mercado), cor: corDelta(mud.mercado), t: 'Variação do valor dos investimentos, descontado o dinheiro que lá puseste ou tiraste.' },
                           ...(vista === 'total' && Math.abs(mud.casa) >= 0.5 ? [{ l: 'Casa e dívida', v: sinal(mud.casa), cor: corDelta(mud.casa), t: 'Variação do valor dos imóveis menos a variação das dívidas (amortizar a dívida faz isto subir).' }] : []),
-                          { l: mud.dinheiro >= 0 ? 'Entrou dinheiro novo' : 'Saiu dinheiro', v: sinal(mud.dinheiro), cor: corDelta(mud.dinheiro), t: mud.dinheiro >= 0 ? 'O que poupaste: dinheiro que entrou nas contas e nos investimentos vindo de fora.' : 'Dinheiro que saiu das contas e dos investimentos: amortizações do crédito, impostos, gastos.' }
+                          { l: vista === 'invest' ? (mud.dinheiro >= 0 ? 'Puseste' : 'Tiraste') : mud.dinheiro >= 0 ? 'Entrou dinheiro novo' : 'Saiu dinheiro', v: sinal(mud.dinheiro), cor: vista === 'invest' ? '' : corDelta(mud.dinheiro), t: vista === 'invest' ? 'Compras menos vendas, com comissões, pelas Transações.' : mud.dinheiro >= 0 ? 'O que poupaste: dinheiro que entrou nas contas e nos investimentos vindo de fora.' : 'Dinheiro que saiu das contas e dos investimentos: amortizações do crédito, impostos, gastos.' }
                         ] : []),
                         { l: `Hoje (${patRotulo(ultimo.idx)})`, v: f(ultimo[campo]), forte: true }
                       ].map((p, i, arr) => (
@@ -1391,6 +1444,35 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             </>) : <p className={`text-sm py-6 text-center ${sub}`}>Ainda não há meses com detalhe neste período para separar o mercado do dinheiro que puseste.</p>
           ) : pontos.length > 1 ? <PatChart key="valor" pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
+        </div>
+      )}
+
+      {/* Poupança */}
+      {poup.l.length > 0 && (
+        <div className={card}>
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+            <div>
+              <h3 className="font-semibold">Poupança</h3>
+              <p className={`text-xs ${sub}`}>{periodo ? (periodo === 1 ? 'último mês' : `últimos ${periodo} meses`) : 'desde o início'} · o que ficou teu sem contar o mercado</p>
+            </div>
+            <div className="flex items-baseline gap-4">
+              <p><span className={`text-2xl font-bold tabular-nums ${corDelta(poup.media)}`}>{f(poup.media)}</span><span className={`text-sm ${sub}`}> por mês</span></p>
+              {poup.taxa != null && <p><span className="text-2xl font-bold tabular-nums">{(poup.taxa * 100).toFixed(0)}%</span><span className={`text-sm ${sub}`}> das receitas</span></p>}
+            </div>
+          </div>
+          {poup.l.length > 1 && (
+            <div className="flex items-stretch gap-1 sm:gap-2 h-28 mt-4" role="img" aria-label="Poupança por mês">
+              {poup.l.map(x => (
+                <div key={x.idx} className={`flex-1 flex flex-col ${x.casaMudou ? 'opacity-40' : ''}`} title={`${patRotulo(x.idx)}: ${sinal(x.poupanca)}${x.receitas > 0 ? ` · receitas ${f(x.receitas)}` : ''}${x.casaMudou ? ' · o valor dos imóveis mudou, fica fora da média' : ''}`}>
+                  <div className="flex-1 flex items-end justify-center">{x.poupanca > 0 && <div className="w-full max-w-[28px] rounded-t" style={{ height: `${(x.poupanca / poup.max) * 100}%`, minHeight: 2, background: '#059669' }} />}</div>
+                  <div className={`h-px ${escuro ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                  <div className="flex-1 flex items-start justify-center">{x.poupanca < 0 && <div className="w-full max-w-[28px] rounded-b" style={{ height: `${(-x.poupanca / poup.max) * 100}%`, minHeight: 2, background: '#ef4444' }} />}</div>
+                  <span className={`text-[10px] text-center ${sub}`}>{patRotulo(x.idx).slice(0, 3)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className={`text-xs mt-2 ${sub}`}>Dinheiro que ficou nas contas ou foi investido, mais a dívida que desceu. As receitas são antes de impostos, por isso a percentagem real sobre o que recebes é mais alta.</p>
         </div>
       )}
 
@@ -1694,7 +1776,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                       </thead>
                       <tbody>
                         {linhasAno.map(d => {
-                          const dv = vista === 'capital' ? d.dCapital : d.dTotal;
+                          const dv = vista === 'invest' ? (d.prev ? d.invest - d.prev.invest : null) : vista === 'capital' ? d.dCapital : d.dTotal;
                           return (
                             <tr key={d.idx} onClick={() => onIrParaMes(d.key)} title={d.rec.nota || 'Abrir este mês'}
                               className={`cursor-pointer border-t ${linhaB} ${d.idx === idxSel ? (escuro ? 'bg-blue-500/10' : 'bg-blue-50') : (escuro ? 'hover:bg-slate-700/30' : 'hover:bg-slate-50')}`}>
@@ -1733,7 +1815,8 @@ export {
   PAT_COMP, PAT_CONTAS_BASE, PAT_CATS_LIQUIDEZ, patChave, patEhLiquidez, patItemLiq, patRegras, patId,
   patNum, patStr, patIdx, patKey, patSoma, patIso, patFimMes, patDataAceite,
   PAT_DATAS_INICIAIS, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio, patRotulo, patTotais, patSerie,
-  patDetalhe, patReservado, patSaldosExtrato, patTxConta, patTxLiquido, patTxEntre, patVida, patRetorno,
-  patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes, patMovimentos, patEstadoMeses,
-  patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, patFmtK, PatLinhas, PatChart, Patrimonio
+  patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
+  patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
+  patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, patFmtK, PatLinhas,
+  PatChart, Patrimonio
 };
