@@ -1978,7 +1978,12 @@ const PatChart = ({ pontos, eventos, theme }) => {
               <span className={forte ? '' : (escuro ? 'text-slate-400' : 'text-slate-500')}>{l}</span><span>{v}</span>
             </p>
           ))}
-          {h.nota && <p className={`mt-1 pt-1 border-t ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>{h.nota}</p>}
+          {(eventos || []).filter(e => e.idx === h.idx).map(e => (
+            <p key={e.id || e.n} className={`mt-1 pt-1 border-t max-w-[240px] whitespace-normal ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
+              <span className="font-semibold">{e.n}.</span> {e.texto}{e.data ? <span className={escuro ? 'text-slate-500' : 'text-slate-400'}> · {String(e.data).slice(0, 10).split('-').reverse().join('/')}</span> : null}
+            </p>
+          ))}
+          {h.nota && <p className={`mt-1 pt-1 border-t max-w-[240px] whitespace-normal ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>{h.nota}</p>}
         </div>
       )}
     </div>
