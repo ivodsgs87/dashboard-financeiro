@@ -1,2637 +1,20 @@
+// A app principal. As peças que não dependem do estado da app estão em
+// base.jsx, vendaCasa.jsx e patrimonio.jsx (têm de estar na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
-
-// Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
-const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex}) => {
-  const inputRef = useRef(null);
-  const onSaveRef = useRef(onSave);
-  const lastSavedValue = useRef(initialValue);
-  
-  // Atualizar ref do callback sem causar re-render
-  onSaveRef.current = onSave;
-  
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    
-    // Set initial value
-    input.value = initialValue ?? '';
-    lastSavedValue.current = initialValue;
-    
-    let isFocused = false;
-    
-    const onFocus = () => {
-      isFocused = true;
-    };
-    
-    const saveValue = () => {
-      const val = type === 'number' ? (+input.value || 0) : input.value;
-      if (val !== lastSavedValue.current) {
-        lastSavedValue.current = val;
-        onSaveRef.current(val);
-      }
-    };
-    
-    const onBlur = () => {
-      isFocused = false;
-      saveValue();
-    };
-    
-    const onKeyDown = (e) => {
-      if (e.key === 'Enter') {
-        saveValue();
-        input.blur();
-      }
-    };
-    
-    input.addEventListener('focus', onFocus);
-    input.addEventListener('blur', onBlur);
-    input.addEventListener('keydown', onKeyDown);
-    
-    return () => {
-      input.removeEventListener('focus', onFocus);
-      input.removeEventListener('blur', onBlur);
-      input.removeEventListener('keydown', onKeyDown);
-    };
-  }, []); // NUNCA re-executar
-  
-  return (
-    <input 
-      ref={inputRef} 
-      type={type} 
-      defaultValue={initialValue}
-      className={className}
-      placeholder={placeholder}
-      step={step}
-      tabIndex={tabIndex}
-    />
-  );
-}, () => true); // Comparador que SEMPRE retorna true = NUNCA re-renderizar
-
-// Stable Date Input - para campos de data
-const StableDateInput = memo(({value, onChange, className}) => {
-  const inputRef = useRef(null);
-  const onChangeRef = useRef(onChange);
-  const mountedRef = useRef(false);
-  
-  onChangeRef.current = onChange;
-  
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    
-    let isFocused = false;
-    
-    if (!mountedRef.current) {
-      input.value = value ?? '';
-      mountedRef.current = true;
-    }
-    
-    const onFocus = () => { isFocused = true; };
-    const onBlur = () => { isFocused = false; };
-    const handleChange = () => { onChangeRef.current(input.value); };
-    
-    input.addEventListener('focus', onFocus);
-    input.addEventListener('blur', onBlur);
-    input.addEventListener('change', handleChange);
-    
-    return () => {
-      input.removeEventListener('focus', onFocus);
-      input.removeEventListener('blur', onBlur);
-      input.removeEventListener('change', handleChange);
-    };
-  }, []);
-  
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input || document.activeElement === input) return;
-    
-    const timer = setTimeout(() => {
-      if (document.activeElement !== input && input.value !== value) {
-        input.value = value ?? '';
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [value]);
-  
-  return (
-    <input 
-      ref={inputRef}
-      type="date" 
-      defaultValue={value}
-      className={className}
-    />
-  );
-}, () => true); // NUNCA re-renderizar
-
-// Slider com input manual
-const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', className, color = 'blue'}) => {
- const [local, setLocal] = useState(value);
- const [inputVal, setInputVal] = useState(value);
- const dragging = useRef(false);
- 
- useEffect(() => { if (!dragging.current) { setLocal(value); setInputVal(value); } }, [value]);
- 
- const colors = {
- blue: 'accent-blue-500',
- pink: 'accent-pink-500',
- emerald: 'accent-emerald-500',
- purple: 'accent-purple-500',
- cyan: 'accent-cyan-500'
- };
- 
- return (
- <div className="flex items-center gap-3">
- <input 
- type="range" min={min} max={max} value={local} 
- onChange={e => setLocal(+e.target.value)}
- onMouseDown={() => dragging.current = true}
- onMouseUp={() => { dragging.current = false; onChange(local); setInputVal(local); }}
- onTouchStart={() => dragging.current = true}
- onTouchEnd={() => { dragging.current = false; onChange(local); setInputVal(local); }}
- className={`${className} ${colors[color]}`}
- />
- <div className="flex items-center gap-1 bg-slate-700/50 rounded-xl px-3 py-1.5">
- <input 
- type="number" min={min} max={max}
- value={inputVal}
- onChange={e => setInputVal(e.target.value)}
- onBlur={e => { const v = Math.min(max, Math.max(min, +e.target.value || 0)); onChange(v); setLocal(v); setInputVal(v); }}
- onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
- className="w-12 bg-transparent border-none text-white text-right outline-none font-bold"
- />
- <span className="text-slate-400 text-sm">{unit}</span>
- </div>
- </div>
- );
-});
-
-// Charts
-const PieChart = memo(({data, size = 200}) => {
- const total = data.reduce((a, d) => a + d.value, 0);
- if (total === 0) return null;
- let cumulative = 0;
- const createArc = (startAngle, endAngle) => {
- const start = (startAngle - 90) * Math.PI / 180;
- const end = (endAngle - 90) * Math.PI / 180;
- const r = size / 2 - 10;
- const cx = size / 2, cy = size / 2;
- const x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
- const x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
- return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${endAngle - startAngle > 180 ? 1 : 0} 1 ${x2} ${y2} Z`;
- };
- return (
- <svg width={size} height={size} className="drop-shadow-lg">
- {data.map((d, i) => {
- if (d.value === 0) return null;
- const startAngle = (cumulative / total) * 360;
- cumulative += d.value;
- return <path key={i} d={createArc(startAngle, (cumulative / total) * 360)} fill={d.color} stroke="#1e293b" strokeWidth="2" className="hover:opacity-80 transition-opacity"/>;
- })}
- <circle cx={size/2} cy={size/2} r={size/4} fill="#1e293b" />
- </svg>
- );
-});
-
-const LineChart = memo(({data, height = 200, color = '#3b82f6', showValues = false, formatValue}) => {
- if (data.length === 0) return null;
- const values = data.map(d => d.value);
- const max = Math.max(...values, 1);
- const min = Math.min(...values, 0);
- const range = max - min || 1;
- const padding = 10;
- const chartWidth = 100;
- const chartHeight = height - 40;
- const getX = (i) => padding + (i / (data.length - 1 || 1)) * (chartWidth - padding * 2);
- const getY = (v) => 15 + chartHeight - ((v - min) / range) * (chartHeight - 10);
- const pathD = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.value)}`).join(' ');
- const areaD = pathD + ` L ${getX(data.length - 1)} ${chartHeight + 15} L ${getX(0)} ${chartHeight + 15} Z`;
- 
- const fmtVal = formatValue || ((v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v.toString());
- 
- return (
- <div className="relative w-full" style={{height}}>
- <svg viewBox={`0 0 ${chartWidth} ${height}`} className="w-full h-full" preserveAspectRatio="none">
- <defs>
- <linearGradient id={`grad-${color.replace('#','')}`} x1="0%" y1="0%" x2="0%" y2="100%">
- <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
- <stop offset="100%" stopColor={color} stopOpacity="0"/>
- </linearGradient>
- </defs>
- {[0,1,2,3,4].map(i => <line key={i} x1={padding} x2={chartWidth-padding} y1={15 + i*(chartHeight-10)/4} y2={15 + i*(chartHeight-10)/4} stroke="#334155" strokeWidth="0.3" strokeDasharray="1"/>)}
- <path d={areaD} fill={`url(#grad-${color.replace('#','')})`}/>
- <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
- {data.map((d, i) => <circle key={i} cx={getX(i)} cy={getY(d.value)} r="2" fill={color} stroke="#1e293b" strokeWidth="1"/>)}
- </svg>
- {showValues && (
- <div className="absolute inset-0 pointer-events-none">
- {data.map((d, i) => {
- const xPercent = (getX(i) / chartWidth) * 100;
- const yPercent = ((getY(d.value) - 22) / height) * 100;
- return (
- <div 
- key={`val-${i}`} 
- className="absolute font-bold transform -translate-x-1/2"
- style={{
- left: `${xPercent}%`,
- top: `${yPercent}%`,
- color: color,
- fontSize: '12px',
- textShadow: '0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.5)'
- }}
- >
- {fmtVal(d.value)}
- </div>
- );
- })}
- </div>
- )}
- <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-xs text-slate-500">
- {data.map((d, i) => <span key={i} className="text-center truncate" style={{width: `${100/data.length}%`}}>{d.label}</span>)}
- </div>
- </div>
- );
-});
-
-// Area Chart mais bonito para All-Time
-const AreaChartAllTime = memo(({data, height = 280}) => {
- if (data.length === 0) return null;
- 
- const values = data.map(d => d.value);
- const max = Math.max(...values, 1);
- const min = 0; // Sempre começar do 0 para melhor visualização
- const range = max - min || 1;
- 
- const paddingLeft = 50;
- const paddingRight = 20;
- const paddingTop = 20;
- const paddingBottom = 50;
- const chartWidth = 800;
- const chartHeight = height - paddingTop - paddingBottom;
- 
- const getX = (i) => paddingLeft + (i / (data.length - 1 || 1)) * (chartWidth - paddingLeft - paddingRight);
- const getY = (v) => paddingTop + chartHeight - ((v - min) / range) * chartHeight;
- 
- // Criar path suave com curvas
- const createSmoothPath = () => {
-   if (data.length < 2) return '';
-   let path = `M ${getX(0)} ${getY(data[0].value)}`;
-   for (let i = 1; i < data.length; i++) {
-     const x0 = getX(i - 1);
-     const y0 = getY(data[i - 1].value);
-     const x1 = getX(i);
-     const y1 = getY(data[i].value);
-     const cpx = (x0 + x1) / 2;
-     path += ` C ${cpx} ${y0}, ${cpx} ${y1}, ${x1} ${y1}`;
-   }
-   return path;
- };
- 
- const smoothPath = createSmoothPath();
- const areaPath = smoothPath + ` L ${getX(data.length - 1)} ${paddingTop + chartHeight} L ${getX(0)} ${paddingTop + chartHeight} Z`;
- 
- // Valores do eixo Y
- const yAxisValues = [0, 1, 2, 3, 4].map(i => min + (range * (4 - i) / 4));
- 
- // Calcular média móvel (3 meses)
- const movingAvg = data.map((d, i) => {
-   if (i < 2) return null;
-   const avg = (data[i].value + data[i-1].value + data[i-2].value) / 3;
-   return { x: getX(i), y: getY(avg) };
- }).filter(Boolean);
- 
- const movingAvgPath = movingAvg.length > 1 
-   ? `M ${movingAvg[0].x} ${movingAvg[0].y} ` + movingAvg.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
-   : '';
- 
- // Labels do eixo X (mostrar apenas alguns para não sobrecarregar)
- const step = Math.ceil(data.length / 12);
- const xLabels = data.filter((_, i) => i % step === 0 || i === data.length - 1);
- 
- const formatVal = (v) => v >= 1000 ? `${(v/1000).toFixed(0)}k€` : `${v}€`;
- 
- return (
-   <div className="relative w-full overflow-hidden" style={{height}}>
-     <svg viewBox={`0 0 ${chartWidth} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-       <defs>
-         <linearGradient id="areaGradientAllTime" x1="0%" y1="0%" x2="0%" y2="100%">
-           <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
-           <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.2"/>
-           <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0"/>
-         </linearGradient>
-         <filter id="glow">
-           <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-           <feMerge>
-             <feMergeNode in="coloredBlur"/>
-             <feMergeNode in="SourceGraphic"/>
-           </feMerge>
-         </filter>
-       </defs>
-       
-       {/* Linhas de grelha horizontais */}
-       {[0,1,2,3,4].map(i => (
-         <g key={i}>
-           <line 
-             x1={paddingLeft} 
-             x2={chartWidth - paddingRight} 
-             y1={paddingTop + (i * chartHeight / 4)} 
-             y2={paddingTop + (i * chartHeight / 4)} 
-             stroke="#334155" 
-             strokeWidth="1" 
-             strokeDasharray="4 4"
-             opacity="0.5"
-           />
-           <text 
-             x={paddingLeft - 8} 
-             y={paddingTop + (i * chartHeight / 4) + 4} 
-             fill="#64748b" 
-             fontSize="11" 
-             textAnchor="end"
-           >
-             {formatVal(yAxisValues[i])}
-           </text>
-         </g>
-       ))}
-       
-       {/* Área preenchida */}
-       <path d={areaPath} fill="url(#areaGradientAllTime)"/>
-       
-       {/* Linha de média móvel */}
-       {movingAvgPath && (
-         <path 
-           d={movingAvgPath} 
-           fill="none" 
-           stroke="#f59e0b" 
-           strokeWidth="2" 
-           strokeDasharray="6 3"
-           opacity="0.7"
-         />
-       )}
-       
-       {/* Linha principal */}
-       <path 
-         d={smoothPath} 
-         fill="none" 
-         stroke="url(#lineGradient)" 
-         strokeWidth="3" 
-         strokeLinecap="round"
-         filter="url(#glow)"
-       />
-       <defs>
-         <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-           <stop offset="0%" stopColor="#3b82f6"/>
-           <stop offset="100%" stopColor="#8b5cf6"/>
-         </linearGradient>
-       </defs>
-       
-       {/* Pontos nos dados com valores */}
-       {data.map((d, i) => {
-         // Mostrar valores: sempre se <= 12 pontos, ou a cada N pontos se mais
-         const showValue = data.length <= 12 || i % Math.ceil(data.length / 12) === 0 || i === data.length - 1;
-         const valueY = getY(d.value) - 12;
-         const shortVal = d.value >= 1000 ? `${(d.value/1000).toFixed(1)}k` : d.value;
-         
-         return (
-           <g key={i}>
-             <circle 
-               cx={getX(i)} 
-               cy={getY(d.value)} 
-               r={data.length > 24 ? 3 : 5} 
-               fill="#1e293b" 
-               stroke="#3b82f6" 
-               strokeWidth="2"
-             />
-             {showValue && (
-               <text
-                 x={getX(i)}
-                 y={valueY}
-                 fill="#94a3b8"
-                 fontSize="9"
-                 textAnchor="middle"
-                 fontWeight="500"
-               >
-                 {shortVal}
-               </text>
-             )}
-           </g>
-         );
-       })}
-       
-       {/* Labels do eixo X */}
-       {xLabels.map((d, i) => {
-         const originalIndex = data.findIndex(x => x === d);
-         return (
-           <text 
-             key={i}
-             x={getX(originalIndex)} 
-             y={height - 15} 
-             fill="#64748b" 
-             fontSize="11" 
-             textAnchor="middle"
-           >
-             {d.label}
-           </text>
-         );
-       })}
-     </svg>
-     
-     {/* Legenda */}
-     <div className="absolute top-2 right-4 flex gap-4 text-xs">
-       <div className="flex items-center gap-1">
-         <div className="w-4 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded"/>
-         <span className="text-slate-400">Receita</span>
-       </div>
-       <div className="flex items-center gap-1">
-         <div className="w-4 h-0.5 bg-amber-500 rounded" style={{backgroundImage: 'repeating-linear-gradient(90deg, #f59e0b 0, #f59e0b 4px, transparent 4px, transparent 8px)'}}/>
-         <span className="text-slate-400">Média 3m</span>
-       </div>
-     </div>
-   </div>
- );
-});
-
-
-const BarChart = memo(({data, height = 220}) => {
- if (data.length === 0) return null;
- const max = Math.max(...data.map(d => (d.com||0) + (d.sem||0)), 1);
- return (
- <div className="relative" style={{height}}>
- <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6">
- {[0,1,2,3,4].map(i => <div key={i} className="border-t border-slate-700/30 w-full" />)}
- </div>
- <div className="absolute inset-0 flex items-end justify-around px-2 pb-6">
- {data.map((d, i) => (
- <div key={i} className="flex flex-col items-center" style={{width: `${85/data.length}%`}}>
- <div className="w-full flex flex-col justify-end" style={{height: height - 30}}>
- <div className="w-full bg-orange-500 rounded-t transition-all duration-500" style={{height: `${((d.com||0)/max)*100}%`}}/>
- <div className="w-full bg-emerald-500 rounded-b transition-all duration-500" style={{height: `${((d.sem||0)/max)*100}%`}}/>
- </div>
- </div>
- ))}
- </div>
- <div className="absolute bottom-0 left-0 right-0 flex justify-around text-xs text-slate-400">
- {data.map((d, i) => <span key={i}>{d.label}</span>)}
- </div>
- </div>
- );
-});
-
-// Input para adicionar cliente (isolado para evitar re-renders)
-const AddClienteInput = memo(({onAdd, inputClass}) => {
- const [value, setValue] = useState('');
- const handleAdd = () => {
- if (value.trim()) {
- onAdd(value.trim());
- setValue('');
- }
- };
- return (
- <div className="flex gap-3 mb-4">
- <input 
- className={`flex-1 ${inputClass}`} 
- value={value} 
- onChange={e => setValue(e.target.value)} 
- placeholder="Nome do novo cliente..." 
- onKeyDown={e => e.key === 'Enter' && handleAdd()}
- />
- <button 
- onClick={handleAdd}
- className="font-semibold rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white shadow-lg shadow-blue-500/25 px-4 py-2 text-sm"
- >
- + Adicionar
- </button>
- </div>
- );
-});
-
-// Draggable List Component - só arrasta pelo handle
-const DraggableList = memo(({items, onReorder, renderItem, className}) => {
- const [dragIdx, setDragIdx] = useState(null);
- const [overIdx, setOverIdx] = useState(null);
- 
- const handleDragStart = (e, idx) => {
- setDragIdx(idx);
- e.dataTransfer.effectAllowed = 'move';
- };
- 
- const handleDragOver = (e, idx) => {
- e.preventDefault();
- if (idx !== dragIdx) setOverIdx(idx);
- };
- 
- const handleDrop = (e, idx) => {
- e.preventDefault();
- if (dragIdx !== null && dragIdx !== idx) {
- const newItems = [...items];
- const [removed] = newItems.splice(dragIdx, 1);
- newItems.splice(idx, 0, removed);
- onReorder(newItems);
- }
- setDragIdx(null);
- setOverIdx(null);
- };
- 
- const handleDragEnd = () => {
- setDragIdx(null);
- setOverIdx(null);
- };
- 
- return (
- <div className={className || "space-y-2"}>
- {items.map((item, idx) => (
- <div
- key={item.id}
- onDragOver={e => handleDragOver(e, idx)}
- onDrop={e => handleDrop(e, idx)}
- className={`transition-all duration-150 ${dragIdx === idx ? 'opacity-50 scale-95' : ''} ${overIdx === idx ? 'ring-2 ring-blue-500' : ''}`}
- >
- {renderItem(item, idx, dragIdx !== null, (e) => handleDragStart(e, idx), handleDragEnd)}
- </div>
- ))}
- </div>
- );
-});
-
-// Componente isolado para pagamentos de impostos - memo evita re-renders do pai
-const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpdate, onDelete, fmt, showToast, confirmDelete }) => {
-  const [expanded, setExpanded] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const tipoRef = useRef(null);
-  const direcaoRef = useRef(null);
-  const dataRef = useRef(null);
-  const valorRef = useRef(null);
-  const refRef = useRef(null);
-
-  const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
-  const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
-  const todos = (impostosPagos || []).filter(p => p.data?.startsWith(anoAtual.toString())).sort((a, b) => b.data.localeCompare(a.data));
-  const totalPago = todos.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
-  const totalRecebido = todos.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
-
-  return (
-    <div className="mt-3">
-      <button 
-        onClick={() => setExpanded(!expanded)}
-        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/30 hover:bg-slate-700/50 text-slate-300'} transition-all`}
-      >
-        <span className="flex items-center gap-2">
-          <span>💳</span>
-          <span className="font-medium">Pagamentos registados</span>
-          {todos.length > 0 && (
-            <span className="text-xs text-slate-400">
-              ({todos.length}){' '}
-              {totalPago > 0 && <span className="text-red-400">↑ {fmt(totalPago)}</span>}
-              {totalPago > 0 && totalRecebido > 0 && ' '}
-              {totalRecebido > 0 && <span className="text-emerald-400">↓ {fmt(totalRecebido)}</span>}
-            </span>
-          )}
-        </span>
-        <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
-      </button>
-      
-      {expanded && (
-        <div className="mt-2 space-y-2 animate-fadeIn">
-          {/* Formulário */}
-          <div className={`flex flex-wrap gap-2 items-end p-3 rounded-xl ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Tipo</span>
-              <select ref={tipoRef} defaultValue="SS"
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
-                <option value="SS">🏛️ SS</option>
-                <option value="IVA">💶 IVA</option>
-                <option value="IRS">📋 IRS</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Direção</span>
-              <select ref={direcaoRef} defaultValue="pago"
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
-                <option value="pago">↑ Pago</option>
-                <option value="recebido">↓ Recebido</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Data</span>
-              <input ref={dataRef} type="date" defaultValue={new Date().toISOString().split('T')[0]}
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-32`} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Valor (€)</span>
-              <input ref={valorRef} type="number" step="0.01" placeholder="0.00"
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Ref.</span>
-              <input ref={refRef} type="text" placeholder="Jan/26"
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-20`} />
-            </div>
-            <button onClick={() => {
-              const tipo = tipoRef.current?.value || 'SS';
-              const direcao = direcaoRef.current?.value || 'pago';
-              const data = dataRef.current?.value || new Date().toISOString().split('T')[0];
-              const valRaw = parseFloat(valorRef.current?.value);
-              const referencia = refRef.current?.value || '';
-              if (!valRaw || valRaw <= 0) { showToast('Insere um valor válido', 'warning'); return; }
-              onAdd({ tipo, data, valor: direcao === 'recebido' ? -valRaw : valRaw, referencia });
-              if (valorRef.current) valorRef.current.value = '';
-              if (refRef.current) refRef.current.value = '';
-            }}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
-            >+ Adicionar</button>
-          </div>
-          
-          {/* Lista */}
-          {todos.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-2">Nenhum pagamento registado em {anoAtual}</p>
-          ) : (() => {
-            const totaisPorTipo = {};
-            todos.forEach(p => { 
-              if (!totaisPorTipo[p.tipo]) totaisPorTipo[p.tipo] = { pago: 0, recebido: 0 };
-              if (p.valor >= 0) totaisPorTipo[p.tipo].pago += p.valor;
-              else totaisPorTipo[p.tipo].recebido += Math.abs(p.valor);
-            });
-            const LIMIT = 6;
-            const visivel = showAll ? todos : todos.slice(0, LIMIT);
-            return (
-              <>
-                <div className="flex flex-wrap gap-3 px-3">
-                  {Object.entries(totaisPorTipo).map(([tipo, vals]) => (
-                    <span key={tipo} className={`text-xs ${tiposCores[tipo]}`}>
-                      {tiposIcons[tipo]} {tipo}: {vals.pago > 0 ? `↑${fmt(vals.pago)}` : ''}{vals.pago > 0 && vals.recebido > 0 ? ' · ' : ''}{vals.recebido > 0 ? <span className="text-emerald-400">↓{fmt(vals.recebido)}</span> : ''}
-                    </span>
-                  ))}
-                </div>
-                <div className="space-y-1 px-1">
-                  {visivel.map(p => (
-                    <div key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs ${p.valor < 0 ? (theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-900/10') : (theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/30')}`}>
-                      <span className="flex-shrink-0">{tiposIcons[p.tipo]}</span>
-                      <select defaultValue={p.tipo}
-                        className={`${theme === 'light' ? 'bg-transparent text-slate-900' : 'bg-transparent text-white'} text-xs w-12 cursor-pointer`}
-                        onChange={e => onUpdate(p.id, 'tipo', e.target.value)}>
-                        <option value="SS">SS</option><option value="IVA">IVA</option><option value="IRS">IRS</option>
-                      </select>
-                      <input type="date" defaultValue={p.data}
-                        className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
-                        onBlur={e => { if (e.target.value !== p.data) onUpdate(p.id, 'data', e.target.value); }} />
-                      <input type="text" defaultValue={p.referencia} placeholder="—"
-                        className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
-                        onBlur={e => { if (e.target.value !== p.referencia) onUpdate(p.id, 'referencia', e.target.value); }} />
-                      <div className="flex-1" />
-                      <span className={`text-[10px] flex-shrink-0 ${p.valor < 0 ? 'text-emerald-400' : 'text-red-400'}`}>{p.valor < 0 ? '↓' : '↑'}</span>
-                      <input type="number" step="0.01" defaultValue={Math.abs(p.valor)}
-                        className={`${p.valor < 0 ? 'text-emerald-400' : (theme === 'light' ? 'text-slate-900' : 'text-white')} bg-transparent font-bold text-xs text-right w-20`}
-                        onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { const nv = p.valor < 0 ? -Math.abs(v) : Math.abs(v); if (nv !== p.valor) onUpdate(p.id, 'valor', nv); }}} />
-                      <span className="text-slate-500 text-[10px]">€</span>
-                      <button onClick={() => onUpdate(p.id, 'valor', -p.valor)}
-                        className={`text-[10px] px-1 rounded ${p.valor < 0 ? 'text-emerald-400/60 hover:text-emerald-400' : 'text-red-400/60 hover:text-red-400'}`} title="Alternar pago/recebido">⇅</button>
-                      <button onClick={() => onDelete(p)}
-                        className="text-red-400/50 hover:text-red-400 flex-shrink-0">✕</button>
-                    </div>
-                  ))}
-                </div>
-                {todos.length > LIMIT && (
-                  <button onClick={() => setShowAll(!showAll)}
-                    className={`w-full text-center text-xs py-1.5 rounded-lg ${theme === 'light' ? 'text-blue-600 hover:bg-slate-100' : 'text-blue-400 hover:bg-slate-700/30'}`}>
-                    {showAll ? `▲ Mostrar últimos ${LIMIT}` : `▼ Ver todos (${todos.length})`}
-                  </button>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      )}
-    </div>
-  );
-});
-
-// Custom Category Dropdown (wrapper takes child styles, dd anchored to wrapper)
-const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls = '' }) => {
-  const [open, setOpen] = useState(false);
-  const [openUp, setOpenUp] = useState(false);
-  const wrapRef = useRef(null);
-
-  const selected = (options || []).find(o => o.id === value) || (options && options[0]);
-
-  const handleToggle = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (open) { setOpen(false); return; }
-    if (wrapRef.current) {
-      const r = wrapRef.current.getBoundingClientRect();
-      const desiredHeight = Math.min((options?.length || 1) * 36 + 16, 360);
-      const spaceBelow = window.innerHeight - r.bottom;
-      const spaceAbove = r.top;
-      setOpenUp(spaceBelow < desiredHeight && spaceAbove > spaceBelow);
-    }
-    setOpen(true);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e) => {
-      if (wrapRef.current && wrapRef.current.contains(e.target)) return;
-      setOpen(false);
-    };
-    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const t = setTimeout(() => {
-      document.addEventListener('mousedown', onClick);
-      document.addEventListener('keydown', onEsc);
-    }, 100);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('mousedown', onClick);
-      document.removeEventListener('keydown', onEsc);
-    };
-  }, [open]);
-
-  // The wrapper applies the cls (sizing/styling) and the button is just for click/visual content
-  return (
-    <div ref={wrapRef} className={cls + " relative cursor-pointer flex items-center gap-1"} 
-         onClick={handleToggle} title={selected?.nome}>
-      <span className="flex-shrink-0">{selected?.icon}</span>
-      <span className="truncate flex-1 text-left">{selected?.nome}</span>
-      <span className="text-[8px] flex-shrink-0 opacity-60">▾</span>
-      {open && (
-        <div
-          className={"absolute rounded-lg border shadow-2xl overflow-y-auto " + (th === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600') + (openUp ? ' bottom-full mb-1' : ' top-full mt-1')}
-          style={{left: 0, minWidth: 180, maxHeight: 360, zIndex: 9999}}
-          onClick={e => e.stopPropagation()}
-          onMouseDown={e => e.stopPropagation()}>
-          {(options || []).map(opt => (
-            <button key={opt.id} type="button"
-              onClick={(e) => { e.stopPropagation(); onChange(opt.id); setOpen(false); }}
-              className={"w-full text-left px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap " + (opt.id === value ? (th === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/20 text-blue-400') : (th === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'))}>
-              <span>{opt.icon}</span>
-              <span>{opt.nome}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-// ── Constantes ao nível do módulo (criadas uma só vez, não a cada render) ──
-const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-
-// Escaloes IRS 2026
-const ESCALOES_IRS = [
-  { limite: 8342, taxa: 0.125 }, { limite: 12587, taxa: 0.157 },
-  { limite: 17838, taxa: 0.212 }, { limite: 23089, taxa: 0.241 },
-  { limite: 29397, taxa: 0.311 }, { limite: 43090, taxa: 0.349 },
-  { limite: 46566, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
-  { limite: Infinity, taxa: 0.48 }
-];
-const DEDUCAO_CATB = 4587.09;
-const COEF_SIMPL = 0.75;
-const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
-
-// Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
-const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
-
-// ── Mapeamento das despesas para as categorias da app Bilance ──
-// Primeiro tenta pela descrição (mais preciso), depois pela categoria interna.
-// Para afinar, basta acrescentar entradas em BILANCE_POR_DESC.
-const _semAcentos = s => (s || '').toString().toLowerCase()
-  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-const BILANCE_POR_DESC = [
-  // Casa
-  [['prestacao casa', 'prestacao', 'hipoteca', 'renda casa', 'renda'], 'Casa > Renda, hipoteca'],
-  [['condominio', 'condominio obras'], 'Casa > Condomínio'],
-  [['obras', 'remodelacao'], 'Casa > Construção, remodelação'],
-  [['agua', 'luz', 'energia', 'eletricidade', 'gas'], 'Casa > Energia, contas de consumo'],
-  [['seguro propriedade', 'seguro habitacao', 'seguro casa'], 'Casa > Seguro habitação'],
-  [['moveis', 'decoracao', 'sofa', 'cortinados'], 'Casa > Móveis, decoração'],
-  [['empregada', 'limpeza'], 'Casa > Limpeza, produtos de limpeza'],
-  [['jardim', 'plantas'], 'Casa > Jardim, plantas'],
-  [['manutencao casa', 'reparacoes'], 'Casa > Manutenção, reparações'],
-  // Comida e bebida
-  [['mercado', 'supermercado', 'compras casa'], 'Comida e Bebida > Supermercado'],
-  [['bar', 'cafe', 'lanche', 'padaria'], 'Comida e Bebida > Café, Lanches'],
-  [['restaurante', 'entregas', 'takeaway', 'uber eats', 'glovo'], 'Comida e Bebida > Restaurantes, Entregas'],
-  [['suplementos', 'suplementacao', 'proteina'], 'Comida e Bebida > Suplementação'],
-  // Vida e lazer
-  [['internet', 'telemovel', 'telefone', 'mobile', 'meo', 'nos', 'vodafone'], 'Vida e Lazer > Telefone'],
-  [['netflix', 'spotify', 'streaming', 'disney', 'hbo'], 'Vida e Lazer > TV, filmes, música, streaming'],
-  [['software', 'adobe', 'subscricao', 'cloud', 'dropbox'], 'Vida e Lazer > Serviços digitais, software'],
-  [['ferias', 'viagem', 'viagens', 'hotel'], 'Vida e Lazer > Férias, viagens'],
-  [['hobbies', 'hobby'], 'Vida e Lazer > Hobbies'],
-  // Crianças
-  [['escola', 'creche', 'colegio', 'infantario'], 'Crianças > Educação, escola'],
-  [['seguro filhos'], 'Crianças > Saúde'],
-  [['investimentos filhos', 'poupanca filhos'], 'Investimentos > Poupança'],
-  [['babysitter', 'ama'], 'Crianças > Babysitter/Ama'],
-  [['semanada', 'mesada'], 'Crianças > Semanada'],
-  // Saúde e educação
-  [['ginastica'], 'Crianças > Hobbies, atividades'],
-  [['ginasio', 'crossfit', 'fitness', 'desporto'], 'Saúde e Educação > Fitness, desporto'],
-  [['medico', 'dentista', 'consulta', 'farmacia', 'fisioterapia'], 'Saúde e Educação > Cuidados de saúde, médico'],
-  [['cabeleireiro', 'beleza', 'estetica'], 'Saúde e Educação > Bem-estar, beleza'],
-  [['formacao', 'curso'], 'Saúde e Educação > Educação, desenvolvimento pessoal'],
-  // Financeiras
-  [['seguro vida'], 'Despesas Financeiras > Seguros'],
-  [['manutencao conta', 'comissao', 'taxa banco'], 'Despesas Financeiras > Encargos, taxas'],
-  [['contabilista', 'contabilidade', 'consultoria'], 'Despesas Financeiras > Consultoria'],
-  [['emprestimo', 'juros', 'credito'], 'Despesas Financeiras > Empréstimo, juros'],
-  [['impostos', 'irs', 'iva', 'seguranca social'], 'Despesas Financeiras > Impostos'],
-  [['multa', 'coima'], 'Despesas Financeiras > Multas'],
-  // Transporte
-  [['combustivel', 'gasolina', 'gasoleo'], 'Transporte > Combustível'],
-  [['seguro auto', 'seguro carro', 'seguro automovel'], 'Transporte > Seguro de automóvel'],
-  [['portagens', 'via verde'], 'Transporte > Portagens'],
-  [['estacionamento', 'parque'], 'Transporte > Estacionamento'],
-  [['passe', 'transporte publico', 'metro', 'comboio'], 'Transporte > Transporte público'],
-  // Animais
-  [['veterinario'], 'Animais de estimação > Veterinário, medicamentos'],
-  [['racao'], 'Animais de estimação > Alimentação']
-];
-
-// Taxonomia completa do Bilance — usada quando uma despesa cobre um grupo inteiro
-// (ex: um orçamento "Carro" abrange combustível, portagens, seguro, manutenção...).
-const BILANCE_GRUPOS = {
-  'Comida e Bebida': ['Supermercado', 'Restaurantes, Entregas', 'Café, Lanches', 'Álcool, Tabaco', 'Suplementação'],
-  'Compras': ['Roupa, acessórios', 'Produtos de beleza', 'Eletrónicos', 'Presentes'],
-  'Casa': ['Renda, hipoteca', 'Energia, contas de consumo', 'Manutenção, reparações', 'Seguro habitação', 'Móveis, decoração', 'Jardim, plantas', 'Segurança', 'Limpeza, produtos de limpeza', 'Construção, remodelação', 'Condomínio'],
-  'Transporte': ['Transporte público', 'Táxi', 'Longa distância', 'Combustível', 'Estacionamento', 'Veículo, manutenção', 'Alugueres', 'Seguro de automóvel', 'Leasing', 'Carregamentos elétricos', 'Portagens'],
-  'Vida e Lazer': ['Telefone', 'Lotaria e jogos de azar', 'Hobbies', 'TV, filmes, música, streaming', 'Férias, viagens', 'Doações', 'Cultura, eventos', 'Serviços digitais, software', 'Livros, audiolivros, notícias', 'Presentes', 'Festas'],
-  'Despesas Financeiras': ['Impostos', 'Seguros', 'Empréstimo, juros', 'Multas', 'Consultoria', 'Encargos, taxas', 'Negócios'],
-  'Investimentos': ['Imóveis', 'Investimentos financeiros', 'Poupança', 'Reforma'],
-  'Saúde e Educação': ['Cuidados de saúde, médico', 'Bem-estar, beleza', 'Fitness, desporto', 'Educação, desenvolvimento pessoal'],
-  'Crianças': ['Semanada', 'Educação, escola', 'Pensão de alimentos', 'Hobbies, atividades', 'Saúde', 'Roupa', 'Brinquedos, eletrónicos', 'Presentes', 'Babysitter/Ama'],
-  'Animais de estimação': ['Alimentação', 'Veterinário, medicamentos', 'Brinquedos, acessórios', 'Serviços', 'Creche, hotel'],
-  'Outras / Especiais': ['Outros', 'Indefinido', 'Transferências internas', 'Excluído']
-};
-
-// Descrições abrangentes que devem cobrir um GRUPO inteiro em vez de uma só
-// subcategoria. Verificadas DEPOIS das específicas (ex: "seguro carro" continua
-// a ir só para "Seguro de automóvel").
-const BILANCE_GRUPO_POR_DESC = [
-  [['carro', 'automovel', 'viatura', 'transportes', 'transporte'], 'Transporte'],
-  [['filhos', 'criancas', 'criancas'], 'Crianças'],
-  [['animais', 'cao', 'gato', 'pet'], 'Animais de estimação'],
-  [['lazer', 'entretenimento', 'diversao'], 'Vida e Lazer'],
-  [['alimentacao', 'comida', 'alimentar'], 'Comida e Bebida'],
-  [['compras', 'vestuario', 'roupa'], 'Compras'],
-  [['saude', 'educacao'], 'Saúde e Educação']
-];
-
-// Fallback por categoria interna da app (cobre nomes antigos e atuais)
-const BILANCE_POR_CATEGORIA = {
-  'Habitação': 'Casa > Renda, hipoteca',
-  'Energia, Luz & Agua': 'Casa > Energia, contas de consumo',
-  'Utilidades': 'Casa > Energia, contas de consumo',
-  'Mercado': 'Comida e Bebida > Supermercado',
-  'Alimentação': 'Comida e Bebida > Supermercado',
-  'Restauração': 'Comida e Bebida > Restaurantes, Entregas',
-  'Transporte': 'Transporte > Veículo, manutenção',
-  'Saúde': 'Saúde e Educação > Cuidados de saúde, médico',
-  'Educação': 'Saúde e Educação > Educação, desenvolvimento pessoal',
-  'Vestuário': 'Compras > Roupa, acessórios',
-  'Lazer': 'Vida e Lazer > Hobbies',
-  'Vida & Entretenimento': 'Vida e Lazer > Hobbies',
-  'Subscrições': 'Vida e Lazer > Serviços digitais, software',
-  'Serviços': 'Vida e Lazer > Serviços digitais, software',
-  'Impostos': 'Despesas Financeiras > Impostos',
-  'Investimentos': 'Investimentos > Investimentos financeiros',
-  'Outros': 'Outras / Especiais > Outros'
-};
-
-const _grupoCompleto = grupo =>
-  `${grupo} — todas as subcategorias deste grupo: ${(BILANCE_GRUPOS[grupo] || []).join(', ')}`;
-
-// Correspondência por palavra inteira. Sem isto, "cao" casava dentro de
-// "alimentacao" e mandava a despesa para o grupo errado.
-const _contemPalavra = (texto, chave) => {
-  const k = chave.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto);
-};
-
-const mapearCategoriaBilance = (desc, cat) => {
-  const d = _semAcentos(desc);
-  if (d) {
-    // 1. Correspondência específica: subcategoria exata
-    for (const [chaves, destino] of BILANCE_POR_DESC) {
-      if (chaves.some(k => _contemPalavra(d, k))) return destino;
-    }
-    // 2. Descrição abrangente: grupo inteiro
-    for (const [chaves, grupo] of BILANCE_GRUPO_POR_DESC) {
-      if (chaves.some(k => _contemPalavra(d, k))) return _grupoCompleto(grupo);
-    }
-  }
-  return BILANCE_POR_CATEGORIA[cat] || 'Outras / Especiais > Outros';
-};
-
-// Estimativa de impostos de um recibo isolado, à margem (regime simplificado).
-// coef: coeficiente do simplificado (0,35 outras prestações / 0,75 art. 151.º)
-// taxaMarg: taxa marginal de IRS em % · comSS: se conta para a Segurança Social
-const estimarImpostosRecibo = ({ valIliq = 0, retIRS = 0, coef = 0.35, taxaMarg = 43.1, comSS = false }) => {
-  const bruto = parseFloat(valIliq) || 0;
-  const jaRetido = parseFloat(retIRS) || 0;
-  const baseIrs = bruto * coef;
-  const irsTotal = baseIrs * (taxaMarg / 100);
-  const irsPorPagar = Math.max(0, irsTotal - jaRetido);
-  const ss = comSS ? bruto * 0.70 * 0.214 : 0;
-  const liquido = bruto - irsPorPagar - ss;
-  return { bruto, baseIrs, irsTotal, irsPorPagar, ss, liquido };
-};
-
-// Endereços da Firebase Function de OCR de faturas. O primeiro é o URL directo
-// do Cloud Run (funções de 2ª geração), que é o que o deploy reporta; o segundo
-// é o alias clássico, usado como recurso se o primeiro falhar na rede.
-const PROCESS_INVOICE_URLS = [
-  'https://processinvoice-lwlsrb4r2q-uc.a.run.app',
-  'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
-];
-
-// ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
-// Componente ao nível do módulo (estado próprio, sem remount). Recebe G/uG por props.
-const VC_DEFAULT = {
-  dataVenda: '',
-  valorVenda: 0,
-  comissaoPct: 4,
-  creditoAmortizado: 0,
-  penalizacaoPct: 0.5,
-  outrosCustos: 0,
-  valorAquisicao: 0,
-  hppOverride: null,
-  movimentos: []
-};
-
-const VendaCasa = ({ G, uG, theme }) => {
-  const vc = { ...VC_DEFAULT, ...(G.vendaCasa || {}) };
-  const contas = G.contas || [];
-  const set = patch => uG('vendaCasa', { ...vc, ...patch });
-
-  const [novo, setNovo] = useState({ data: '', desc: '', val: '', destino: '', tipo: 'parqueado' });
-
-  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
-  const n = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
-
-  // ── Apuramento da venda ──
-  const valorVenda = n(vc.valorVenda);
-  const custoComissao = valorVenda * n(vc.comissaoPct) / 100;
-  const creditoAmort = n(vc.creditoAmortizado);
-  const custoPenal = creditoAmort * n(vc.penalizacaoPct) / 100;
-  const outros = n(vc.outrosCustos);
-  const liquido = valorVenda - custoComissao - creditoAmort - custoPenal - outros;
-
-  // ── Movimentos ──
-  const movs = vc.movimentos || [];
-  const somaTipo = t => movs.filter(m => m.tipo === t).reduce((a, m) => a + n(m.val), 0);
-  const totParqueado = somaTipo('parqueado');
-  const totGasto = somaTipo('gasto');
-  const totInvestido = somaTipo('investido');
-  const porAlocar = liquido - totParqueado - totGasto - totInvestido;
-
-  // Saldo por destino (só o que continua a ser teu: parqueado e investido)
-  const porDestino = {};
-  movs.forEach(m => {
-    if (m.tipo === 'gasto') return;
-    const k = m.destino || '(sem destino)';
-    porDestino[k] = (porDestino[k] || 0) + n(m.val);
-  });
-  const destinos = Object.entries(porDestino).sort((a, b) => b[1] - a[1]);
-
-  // ── Reserva HPP (mais-valias) ──
-  // Regra: para isenção total, reinvestir o valor de realização deduzido do
-  // capital em dívida amortizado. Editável, porque o teu caso pode ter nuances.
-  const hppNecessario = vc.hppOverride != null ? n(vc.hppOverride) : Math.max(0, valorVenda - creditoAmort);
-  const disponivelHPP = porAlocar + totParqueado;       // líquido e ainda teu
-  const faltaHPP = hppNecessario - disponivelHPP;
-  const pctHPP = hppNecessario > 0 ? Math.min(100, (disponivelHPP / hppNecessario) * 100) : 0;
-
-  // Prazo de 36 meses
-  let mesesRestantes = null, dataLimite = null;
-  if (vc.dataVenda) {
-    const d = new Date(vc.dataVenda);
-    if (!isNaN(d)) {
-      dataLimite = new Date(d); dataLimite.setMonth(dataLimite.getMonth() + 36);
-      mesesRestantes = Math.max(0, Math.round((dataLimite - new Date()) / (1000 * 60 * 60 * 24 * 30.44)));
-    }
-  }
-
-  // Estimativa (opcional) da mais-valia exposta por não reinvestir tudo
-  const aquis = n(vc.valorAquisicao);
-  let maisValiaExposta = null;
-  if (aquis > 0 && faltaHPP > 0 && hppNecessario > 0) {
-    const maisValia = Math.max(0, valorVenda - custoComissao - aquis);
-    const propNaoReinv = Math.min(1, faltaHPP / hppNecessario);
-    maisValiaExposta = maisValia * 0.5 * propNaoReinv; // 50% tributável, na proporção não reinvestida
-  }
-
-  // ── Estilos ──
-  const card = theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
-  const inp = theme === 'light'
-    ? 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full'
-    : 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full';
-  const sub = theme === 'light' ? 'text-slate-500' : 'text-slate-400';
-  const line = theme === 'light' ? 'border-slate-200' : 'border-slate-700/50';
-
-  const NumField = ({ label, val, onSave, step, suffix }) => (
-    <label className="flex flex-col gap-1">
-      <span className={`text-xs ${sub}`}>{label}</span>
-      <div className="relative">
-        <input type="number" step={step || 'any'} defaultValue={val} onBlur={e => onSave(e.target.value)} className={inp} />
-        {suffix && <span className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs pointer-events-none ${sub}`}>{suffix}</span>}
-      </div>
-    </label>
-  );
-
-  const TIPOS = {
-    parqueado: { label: 'Parqueado', cor: 'text-blue-400', bg: 'bg-blue-500/15 border-blue-500/40', desc: 'só mudou de sítio, continua teu' },
-    gasto: { label: 'Gasto', cor: 'text-red-400', bg: 'bg-red-500/15 border-red-500/40', desc: 'saiu de vez' },
-    investido: { label: 'Investido', cor: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/40', desc: 'aplicado, pode não estar líquido' }
-  };
-
-  const addMov = () => {
-    if (!novo.desc.trim() && !novo.val) return;
-    const m = {
-      id: Date.now() + Math.random(),
-      data: novo.data || new Date().toISOString().slice(0, 10),
-      desc: novo.desc.trim() || 'Sem descrição',
-      val: n(novo.val),
-      destino: novo.destino.trim(),
-      tipo: novo.tipo
-    };
-    set({ movimentos: [...movs, m] });
-    setNovo({ data: '', desc: '', val: '', destino: '', tipo: novo.tipo });
-  };
-  const delMov = id => set({ movimentos: movs.filter(m => m.id !== id) });
-
-  const movsOrd = [...movs].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
-
-  return (
-    <div className="space-y-4 max-w-5xl mx-auto">
-
-      {/* Resumo topo */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-3">🏠 Venda da Casa</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div>
-            <p className={`text-xs ${sub}`}>Capital líquido</p>
-            <p className="text-xl font-bold text-emerald-400">{f(liquido)}</p>
-          </div>
-          <div>
-            <p className={`text-xs ${sub}`}>Por alocar</p>
-            <p className={`text-xl font-bold ${porAlocar < -0.01 ? 'text-red-400' : 'text-blue-400'}`}>{f(porAlocar)}</p>
-          </div>
-          <div>
-            <p className={`text-xs ${sub}`}>Parqueado + investido</p>
-            <p className="text-xl font-bold">{f(totParqueado + totInvestido)}</p>
-          </div>
-          <div>
-            <p className={`text-xs ${sub}`}>Já gasto</p>
-            <p className="text-xl font-bold text-red-400">{f(totGasto)}</p>
-          </div>
-        </div>
-        {porAlocar < -0.01 && (
-          <p className="text-xs text-red-400 mt-3">⚠️ Os movimentos somam mais do que o capital líquido. Verifica os valores.</p>
-        )}
-      </div>
-
-      {/* Reserva HPP */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-lg font-semibold">🎯 Reserva para a nova HPP</h3>
-            <p className={`text-xs ${sub}`}>Para não pagar mais-valias, tens de reinvestir em habitação própria e permanente dentro de 36 meses.</p>
-          </div>
-          {mesesRestantes != null && (
-            <div className="text-right flex-shrink-0">
-              <p className={`text-xs ${sub}`}>Faltam</p>
-              <p className={`text-lg font-bold ${mesesRestantes <= 6 ? 'text-red-400' : mesesRestantes <= 12 ? 'text-amber-400' : 'text-emerald-400'}`}>{mesesRestantes} meses</p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-between text-sm mb-1">
-          <span className={sub}>Disponível para reinvestir</span>
-          <span className="font-semibold">{f(disponivelHPP)} / {f(hppNecessario)}</span>
-        </div>
-        <div className={`h-2.5 rounded-full overflow-hidden mb-3 ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-          <div className={`h-full rounded-full transition-all ${faltaHPP > 0 ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: pctHPP + '%' }} />
-        </div>
-
-        {faltaHPP > 0 ? (
-          <div className="text-sm space-y-1">
-            <p className="text-amber-400">Faltam <strong>{f(faltaHPP)}</strong> para a isenção total de mais-valias.</p>
-            {maisValiaExposta != null && (
-              <p className={`text-xs ${sub}`}>Estimativa grosseira de mais-valia que ficaria tributável: <strong className="text-amber-400">{f(maisValiaExposta)}</strong> (50% da mais-valia, na proporção não reinvestida).</p>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-emerald-400">✓ Tens capital suficiente reservado para a isenção total.</p>
-        )}
-
-        {totInvestido > 0 && (
-          <p className={`text-xs mt-2 ${sub}`}>⚠️ {f(totInvestido)} está investido e não conta acima — só volta a contar se conseguires resgatá-lo a tempo da compra.</p>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-          <NumField label="Valor a reinvestir (auto: venda − crédito)" val={hppNecessario} onSave={v => set({ hppOverride: v === '' ? null : n(v) })} />
-          <NumField label="Valor de aquisição da casa (opcional)" val={vc.valorAquisicao} onSave={v => set({ valorAquisicao: n(v) })} />
-          <label className="flex flex-col gap-1">
-            <span className={`text-xs ${sub}`}>Data da escritura</span>
-            <input type="date" defaultValue={vc.dataVenda} onBlur={e => set({ dataVenda: e.target.value })} className={inp} />
-          </label>
-        </div>
-        <p className={`text-[11px] mt-3 ${sub}`}>Estimativas simplificadas — não substituem o teu contabilista. A mais-valia real depende do valor de aquisição corrigido, encargos e obras comprovadas.</p>
-      </div>
-
-      {/* Apuramento */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-3">🧾 Apuramento da venda</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-          <NumField label="Valor de venda" val={vc.valorVenda} onSave={v => set({ valorVenda: n(v) })} />
-          <NumField label="Comissão agência" val={vc.comissaoPct} onSave={v => set({ comissaoPct: n(v) })} suffix="%" />
-          <NumField label="Crédito amortizado" val={vc.creditoAmortizado} onSave={v => set({ creditoAmortizado: n(v) })} />
-          <NumField label="Penalização amortização" val={vc.penalizacaoPct} onSave={v => set({ penalizacaoPct: n(v) })} suffix="%" />
-          <NumField label="Outros custos (escritura, etc.)" val={vc.outrosCustos} onSave={v => set({ outrosCustos: n(v) })} />
-        </div>
-        <div className={`border-t ${line} pt-3 space-y-1.5 text-sm`}>
-          <div className="flex justify-between"><span className={sub}>Valor de venda</span><span>{f(valorVenda)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Comissão agência ({vc.comissaoPct}%)</span><span className="text-red-400">−{f(custoComissao)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Amortização do crédito</span><span className="text-red-400">−{f(creditoAmort)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Penalização ({vc.penalizacaoPct}%)</span><span className="text-red-400">−{f(custoPenal)}</span></div>
-          {outros > 0 && <div className="flex justify-between"><span className={sub}>Outros custos</span><span className="text-red-400">−{f(outros)}</span></div>}
-          <div className={`flex justify-between border-t ${line} pt-2 font-semibold`}><span>Capital líquido</span><span className="text-emerald-400">{f(liquido)}</span></div>
-        </div>
-      </div>
-
-      {/* Onde está o dinheiro */}
-      {destinos.length > 0 && (
-        <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-          <h3 className="text-lg font-semibold mb-3">📍 Onde está o dinheiro</h3>
-          <div className="space-y-2">
-            {destinos.map(([nome, val]) => {
-              const pct = liquido > 0 ? (val / liquido) * 100 : 0;
-              return (
-                <div key={nome}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>{nome}</span>
-                    <span className="font-semibold">{f(val)} <span className={`text-xs ${sub}`}>{pct.toFixed(1)}%</span></span>
-                  </div>
-                  <div className={`h-1.5 rounded-full overflow-hidden ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                    <div className="h-full bg-blue-400 rounded-full" style={{ width: Math.min(100, pct) + '%' }} />
-                  </div>
-                </div>
-              );
-            })}
-            {porAlocar > 0.01 && (
-              <div className={`flex justify-between text-sm pt-2 border-t ${line}`}>
-                <span className={sub}>Ainda por alocar</span>
-                <span className="font-semibold text-blue-400">{f(porAlocar)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Movimentos */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-1">💸 Movimentos</h3>
-        <p className={`text-xs mb-3 ${sub}`}>Parqueado = só mudou de sítio · Gasto = saiu de vez · Investido = aplicado</p>
-
-        {/* Novo movimento */}
-        <div className={`rounded-xl border p-3 mb-4 ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-700/50'}`}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
-            <input type="date" value={novo.data} onChange={e => setNovo({ ...novo, data: e.target.value })} className={inp} />
-            <input type="text" value={novo.desc} onChange={e => setNovo({ ...novo, desc: e.target.value })} placeholder="Descrição" className={`${inp} col-span-2 sm:col-span-1`} />
-            <input type="number" value={novo.val} onChange={e => setNovo({ ...novo, val: e.target.value })} placeholder="Valor €" className={inp} />
-            <input type="text" list="vc-destinos" value={novo.destino} onChange={e => setNovo({ ...novo, destino: e.target.value })} placeholder="Destino" className={inp} />
-            <datalist id="vc-destinos">
-              {contas.map(c => <option key={c.id} value={c.nome} />)}
-              <option value="Trade Republic (Ivo)" />
-              <option value="Trade Republic (Sara)" />
-              <option value="Investimento imobiliário" />
-            </datalist>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {Object.entries(TIPOS).map(([k, t]) => (
-              <button key={k} onClick={() => setNovo({ ...novo, tipo: k })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${novo.tipo === k ? `${t.bg} ${t.cor}` : (theme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-500' : 'bg-slate-700/40 border-slate-600 text-slate-400')}`}>
-                {t.label}
-              </button>
-            ))}
-            <button onClick={addMov} className="ml-auto px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-all">+ Adicionar</button>
-          </div>
-        </div>
-
-        {/* Lista */}
-        {movsOrd.length === 0 ? (
-          <p className={`text-sm text-center py-6 ${sub}`}>Ainda sem movimentos. Regista o primeiro acima.</p>
-        ) : (
-          <div className="space-y-1.5">
-            {movsOrd.map(m => {
-              const t = TIPOS[m.tipo] || TIPOS.parqueado;
-              return (
-                <div key={m.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${t.bg} ${t.cor}`}>{t.label}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm truncate">{m.desc}</p>
-                    <p className={`text-[11px] ${sub}`}>{m.data}{m.destino ? ` · ${m.destino}` : ''}</p>
-                  </div>
-                  <span className={`text-sm font-semibold flex-shrink-0 ${m.tipo === 'gasto' ? 'text-red-400' : ''}`}>{f(n(m.val))}</span>
-                  <button onClick={() => delMov(m.id)} className="text-red-400 hover:text-red-300 text-sm flex-shrink-0 px-1">✕</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className={`grid grid-cols-3 gap-2 mt-4 pt-3 border-t ${line} text-center`}>
-          <div><p className={`text-xs ${sub}`}>Parqueado</p><p className="font-semibold text-blue-400">{f(totParqueado)}</p></div>
-          <div><p className={`text-xs ${sub}`}>Gasto</p><p className="font-semibold text-red-400">{f(totGasto)}</p></div>
-          <div><p className={`text-xs ${sub}`}>Investido</p><p className="font-semibold text-purple-400">{f(totInvestido)}</p></div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ══ IMPORTAR TRANSAÇÕES: lógica ═════════════════════════════════════════════
-// Lê o ficheiro de transações da Degiro (CSV) e o extrato da Trade Republic (PDF)
-// e devolve linhas no formato de G.transacoes. Só compras e vendas de investimentos:
-// depósitos, levantamentos, juros e pagamentos com cartão ficam de fora.
-const txNumero = v => {
-  let s = String(v == null ? '' : v).replace(/[\s  €$]/g, '');
-  if (!s) return 0;
-  const p = s.lastIndexOf('.'), c = s.lastIndexOf(',');
-  if (p >= 0 && c >= 0) s = c > p ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  else if (c >= 0) s = s.replace(',', '.');
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
-};
-const txR2 = v => Math.round(v * 100) / 100;
-const txParseCSV = texto => {
-  const t = String(texto || '').replace(/^﻿/, '');
-  const primeira = t.split(/\r?\n/)[0] || '';
-  const sep = (primeira.match(/;/g) || []).length > (primeira.match(/,/g) || []).length ? ';' : ',';
-  const linhas = []; let linha = [], campo = '', aspas = false;
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (aspas) {
-      if (ch === '"') { if (t[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
-      else campo += ch;
-    } else if (ch === '"') aspas = true;
-    else if (ch === sep) { linha.push(campo); campo = ''; }
-    else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && t[i + 1] === '\n') i++;
-      linha.push(campo); campo = ''; linhas.push(linha); linha = [];
-    } else campo += ch;
-  }
-  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
-  return linhas.filter(l => l.some(c => String(c).trim() !== ''));
-};
-const txEhDegiro = texto => /ISIN/i.test(String(texto || '').slice(0, 600)) && /(Order ID|ID da Ordem)/i.test(String(texto || '').slice(0, 600));
-const txLerDegiro = texto => {
-  const linhas = txParseCSV(texto);
-  if (linhas.length < 2) return [];
-  const cab = linhas[0].map(c => String(c).trim().toLowerCase());
-  const col = (re, alt) => { const i = cab.findIndex(c => re.test(c)); return i >= 0 ? i : alt; };
-  const cData = col(/^(date|data)$/, 0), cHora = col(/^(time|hora)$/, 1), cProd = col(/^(product|produto)$/, 2), cIsin = col(/^isin$/, 3);
-  const cQtd = col(/^quant/, 6), cPreco = col(/^(price|pre[cç]o)/, 7);
-  const cValor = col(/^(value eur|valor eur|value|valor)$/, 11);
-  const cFx = col(/autofx/, -1), cCustos = col(/(transaction|custos|comiss)/, 14), cOrdem = col(/(order id|id da ordem)/, cab.length - 1);
-  const ordens = [], porId = {};
-  let ultima = null;
-  linhas.slice(1).forEach(l => {
-    const d = String(l[cData] || '').trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-    if (!d) {
-      // Linha de continuação: o nome do produto era comprido e partiu para a linha seguinte
-      const resto = String(l[cProd] || '').trim();
-      if (ultima && resto && !ultima.produto.includes(resto)) ultima.produto += ' ' + resto;
-      const ord = String(l[cOrdem] || '').trim();
-      if (ultima && ord && ultima.semOrdem) { ultima.ordem += ord; }
-      return;
-    }
-    const data = `${d[3]}-${d[2].padStart(2, '0')}-${d[1].padStart(2, '0')}`;
-    const qtd = txNumero(l[cQtd]);
-    if (!qtd) { ultima = null; return; }
-    const isin = String(l[cIsin] || '').trim();
-    const ordemLida = String(l[cOrdem] || '').trim();
-    const chave = ordemLida || `${data} ${String(l[cHora] || '').trim()} ${isin} ${qtd}`;
-    const custos = Math.abs(txNumero(l[cCustos])) + (cFx >= 0 ? Math.abs(txNumero(l[cFx])) : 0);
-    let o = porId[chave];
-    if (!o || o.data !== data || o.isin !== isin) {
-      o = porId[chave] = { data, isin, produto: String(l[cProd] || '').trim(), qtd: 0, valor: 0, custos: 0, preco: Math.abs(txNumero(l[cPreco])), ordem: chave, semOrdem: !ordemLida };
-      ordens.push(o);
-    }
-    // Uma ordem pode ser executada em várias partes: junta-se tudo numa só linha
-    o.qtd += qtd; o.valor += txNumero(l[cValor]); o.custos += custos;
-    ultima = o;
-  });
-  return ordens.filter(o => o.qtd !== 0).map(o => {
-    const q = Math.abs(o.qtd), v = txR2(Math.abs(o.valor));
-    return {
-      data: o.data, tipo: o.qtd > 0 ? 'compra' : 'venda', categoria: 'ETF',
-      ticker: o.produto.replace(/\s+/g, ' ').trim(), corretora: 'Degiro',
-      quantidade: Math.round(q * 1e6) / 1e6, precoUnitario: q ? Math.round(v / q * 1e4) / 1e4 : 0,
-      valorTotal: v, comissao: txR2(o.custos), notas: o.isin ? `ISIN ${o.isin}` : '',
-      isin: o.isin, importId: `degiro:${o.ordem}`,
-    };
-  });
-};
-const TX_MESES = { jan: 1, fev: 2, feb: 2, mar: 3, 'mär': 3, abr: 4, apr: 4, mai: 5, may: 5, jun: 6, jul: 7, ago: 8, aug: 8, set: 9, sep: 9, out: 10, oct: 10, okt: 10, nov: 11, dez: 12, dec: 12 };
-const txEhTradeRepublic = texto => /trade republic/i.test(String(texto || ''));
-// No extrato da Trade Republic as compras aparecem como
-//   "06 out. 2026 Comércio Buy trade XF000ETH0019 Ethereum, quantity: 0.020598 51,04 €"
-// O valor já inclui a comissão (o extrato não a mostra em separado).
-const txLerTradeRepublic = texto => {
-  const t = String(texto || '').replace(/[\s  ]+/g, ' ');
-  const re = /(\d{1,2}) ([A-Za-zçãäé]{3})[a-zçãäé]*\.? (\d{4}) [^\d€]{0,40}?(Buy trade|Sell trade|Savings plan execution) ([A-Z]{2}[A-Z0-9]{9}\d) (.+?), quantity: ([\d.,]+) ((?:\d{1,3}(?: \d{3})*|\d+)(?:[.,]\d{2}))\s?€/g;
-  const out = []; let m;
-  while ((m = re.exec(t))) {
-    const mes = TX_MESES[m[2].toLowerCase()];
-    if (!mes) continue;
-    const data = `${m[3]}-${String(mes).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-    const isin = m[5], nome = m[6].trim(), q = txNumero(m[7]), v = txR2(txNumero(m[8]));
-    if (!q || !v) continue;
-    const cripto = /^XF000/.test(isin);
-    out.push({
-      data, tipo: /^Sell/i.test(m[4]) ? 'venda' : 'compra', categoria: cripto ? 'CRIPTO' : 'ETF',
-      ticker: nome, corretora: 'Trade Republic', quantidade: q, precoUnitario: Math.round(v / q * 1e4) / 1e4,
-      valorTotal: v, comissao: 0, notas: `ISIN ${isin}`, isin, importId: `tr:${data}:${isin}:${q}:${v}`,
-    });
-  }
-  return out;
-};
-// Marca o que já existe: importado antes (mesma referência) ou registado à mão
-// (mesmo dia, mesmo tipo e valor quase igual — com ou sem a comissão incluída).
-// Uma transação registada à mão "parece" a mesma que uma importada se for do mesmo tipo,
-// tiver até 10 dias de diferença e o valor for quase igual (com ou sem a comissão).
-const txDias = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) / 864e5;
-const txParecida = (manual, imp) => {
-  if (!manual || !imp || manual.tipo !== imp.tipo || !manual.data || !imp.data) return false;
-  if (!(txDias(manual.data, imp.data) <= 10)) return false;
-  const vm = patNum(manual.valorTotal), vi = patNum(imp.valorTotal), ci = patNum(imp.comissao);
-  const tol = Math.max(1.5, vi * 0.01);
-  return Math.abs(vm - vi) <= tol || Math.abs(vm - (vi + ci)) <= tol;
-};
-const txMaisProxima = (alvo, lista, usados, teste) => {
-  let melhor = -1, dist = Infinity;
-  lista.forEach((t, k) => {
-    if (usados.has(k) || !teste(t)) return;
-    const d = txDias(t.data, alvo.data);
-    if (d < dist) { dist = d; melhor = k; }
-  });
-  return melhor;
-};
-const txMarcarDuplicados = (novas, existentes) => {
-  const ex = (existentes || []).filter(Boolean);
-  const ids = new Set(ex.map(t => t.importId).filter(Boolean));
-  const usados = new Set();
-  return (novas || []).map(n => {
-    if (n.importId && ids.has(n.importId)) return { ...n, dup: 'importada' };
-    const i = txMaisProxima(n, ex, usados, t => !t.importId && txParecida(t, n));
-    if (i >= 0) { usados.add(i); return { ...n, dup: 'manual' }; }
-    return { ...n, dup: null };
-  });
-};
-// Pares já gravados que parecem a mesma compra: uma registada à mão e outra importada.
-const txDuplicadosProvaveis = transacoes => {
-  const todas = (transacoes || []).filter(Boolean);
-  const imp = todas.filter(t => t.importId), usados = new Set(), pares = [];
-  todas.filter(t => !t.importId).forEach(m => {
-    const i = txMaisProxima(m, imp, usados, t => txParecida(m, t));
-    if (i >= 0) { usados.add(i); pares.push({ manual: m, importada: imp[i] }); }
-  });
-  return pares;
-};
-// Texto de um PDF (usa a pdf.js, carregada só quando é precisa)
-const txTextoPDF = async arrayBuffer => {
-  if (!window.pdfjsLib) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
-      s.onload = resolve; s.onerror = () => reject(new Error('Não consegui carregar o leitor de PDF. Verifica a ligação à internet.'));
-      document.head.appendChild(s);
-    });
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-  }
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let txt = '';
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const tc = await (await pdf.getPage(p)).getTextContent();
-    txt += tc.items.map(it => it.str).join('\n') + '\n';
-  }
-  return txt;
-};
-// Devolve { origem, linhas } a partir de um ficheiro escolhido pelo utilizador
-const txLerFicheiro = async file => {
-  const nome = String(file.name || '').toLowerCase();
-  if (nome.endsWith('.pdf') || file.type === 'application/pdf') {
-    const txt = await txTextoPDF(await file.arrayBuffer());
-    if (!txEhTradeRepublic(txt)) throw new Error('Este PDF não parece ser um extrato da Trade Republic.');
-    return { origem: 'Trade Republic', linhas: txLerTradeRepublic(txt) };
-  }
-  const txt = await file.text();
-  if (txEhDegiro(txt)) return { origem: 'Degiro', linhas: txLerDegiro(txt) };
-  throw new Error('Não reconheci o ficheiro. Aceito o CSV de transações da Degiro e o extrato em PDF da Trade Republic.');
-};
-
-// ══ PATRIMÓNIO: lógica ══════════════════════════════════════════════════════
-// Um registo por mês, guardado por COMPONENTES (e não só um total), para que
-// qualquer vista futura possa ser recalculada a partir do detalhe.
-//   G.patrimonio = { registos: { 'AAAA-M': registo }, eventos: [{id, data, texto}] }
-//   registo = { investItens:[{desc,cat,val}], liquidez:[{id,nome,val}], imoveis:[…],
-//               outros:[…], dividas:[{…, creditoId?}], aportes, levantamentos, amortizacao,
-//               nota, fechadoEm, importado? }
-const PAT_COMP = [
-  { k: 'invest', label: 'Investimentos', cor: '#3b82f6' },
-  { k: 'liquidez', label: 'Liquidez', cor: '#059669' },
-  { k: 'imoveis', label: 'Imóveis', cor: '#d97706' },
-  { k: 'outros', label: 'Outros ativos', cor: '#8b5cf6' },
-  { k: 'dividas', label: 'Dívidas', cor: '#ef4444' }
-];
-const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Revolut'];
-// Categorias do Portfolio que são dinheiro parado e não investimento exposto ao
-// mercado. Contam como Liquidez, para não distorcerem o retorno dos investimentos.
-const PAT_CATS_LIQUIDEZ = ['FE'];
-const patChave = desc => String(desc || '').trim().toLowerCase();
-// Primeiro vale a tua escolha, linha a linha (G.patrimonio.dinheiro). Sem escolha, a
-// categoria FE e a linha do saldo chamada "Trade Republic" (conta de passagem: recebe
-// receitas e paga impostos e amortizações — não é investimento).
-const patEhLiquidez = (i, regras) => {
-  if (!i) return false;
-  const r = (regras || {})[patChave(i.desc)];
-  if (r === true || r === false) return r;
-  if (PAT_CATS_LIQUIDEZ.includes(i.cat)) return true;
-  // Só a linha do saldo: "Trade Republic", "Trade Republic (saldo)", "TR conta"… Uma linha de
-  // cripto ou de ETF comprados na Trade (ex.: "Trade Republic Cripto") continua a ser investimento.
-  if (i.cat === 'CRIPTO') return false;
-  return /^\s*trade\s*republic\s*(\(?\s*(saldo|conta|cash|dinheiro|juros)\s*\)?)?\s*$/i.test(i.desc || '');
-};
-// Usa a marca já calculada no item, se existir
-const patItemLiq = i => (i && typeof i.liq === 'boolean') ? i.liq : patEhLiquidez(i);
-const patRegras = G => ((G || {}).patrimonio || {}).dinheiro || {};
-
-const patId = () => Date.now() + Math.random();
-const patNum = v => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(x) ? x : 0; };
-const patStr = v => (v === '' || v == null) ? '' : String(v);
-// Aceita 'AAAA-M', 'AAAA-MM' e 'AAAA-MM-DD' (a app usa os três formatos).
-const patIdx = key => { const [y, m] = String(key || '').split('-').map(Number); return (y || 0) * 12 + ((m || 1) - 1); };
-const patKey = idx => `${Math.floor(idx / 12)}-${(idx % 12) + 1}`;
-const patSoma = l => (l || []).reduce((a, x) => a + patNum(x.val), 0);
-// Dia a que se referem os valores do Portfolio de um mês. Por defeito é o último dia
-// do mês; se o Portfolio foi atualizado noutro dia (por exemplo no dia 3 do mês
-// seguinte, já depois de uma compra), é esse dia que separa o que conta para cada mês.
-const patIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const patFimMes = idx => patIso(new Date(Math.floor(idx / 12), (idx % 12) + 1, 0));
-const patDataAceite = (idx, data) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || ''))) return false;
-  const ini = patIso(new Date(Math.floor(idx / 12), idx % 12, 1)), max = patIso(new Date(Math.floor(idx / 12), (idx % 12) + 1, 20));
-  return data >= ini && data <= max;
-};
-// Meses preenchidos antes de a app guardar o dia: ordenado + 2 dias, indicado pelo Ivo.
-// Valem enquanto não houver uma data escolhida à mão nem uma atualização nova do Portfolio.
-const PAT_DATAS_INICIAIS = { '2026-7': '2026-07-04', '2026-8': '2026-08-02', '2026-9': '2026-09-04', '2026-10': '2026-10-07' };
-const patCorte = (G, M, idx) => {
-  const key = patKey(idx);
-  const manual = ((((G || {}).patrimonio || {}).datas) || {})[key];
-  if (patDataAceite(idx, manual)) return manual;
-  const auto = ((M || {})[key] || {}).portfolioData;
-  if (patDataAceite(idx, auto)) return auto;
-  return patDataAceite(idx, PAT_DATAS_INICIAIS[key]) ? PAT_DATAS_INICIAIS[key] : patFimMes(idx);
-};
-const patIdxHoje = () => { const h = new Date(); return h.getFullYear() * 12 + h.getMonth(); };
-// Um mês só "tem portfolio" se tiver valores. Ao editar qualquer outra coisa num mês
-// novo, a app copia a lista por defeito (tudo a zero) — isso não conta como preenchido.
-const patTemPortfolio = p => Array.isArray(p) && p.some(x => patNum(x && x.val) !== 0);
-
-// Histórico do Portfolio SEM depender do botão Snapshot: junta os snapshots
-// antigos com o que está guardado em cada mês (que prevalece).
-const patHistoricoPortfolio = (guardado, M) => {
-  const mapa = {}, hoje = patIdxHoje();
-  (guardado || []).forEach(h => { if (h && h.date) mapa[patIdx(h.date)] = patNum(h.total); });
-  Object.keys(M || {}).forEach(k => {
-    const p = (M[k] || {}).portfolio, i = patIdx(k);
-    if (patTemPortfolio(p) && i <= hoje) mapa[i] = patSoma(p);
-  });
-  return Object.keys(mapa).map(Number).sort((a, b) => a - b).map(i => ({ date: patKey(i), total: mapa[i] }));
-};
-const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx / 12)).slice(2)}`;
-
-const patTotais = rec => {
-  const r = rec || {};
-  const itens = r.investItens || [];
-  const invest = patSoma(itens.filter(i => !patItemLiq(i)));
-  const liquidez = patSoma(r.liquidez) + patSoma(itens.filter(patItemLiq)), imoveis = patSoma(r.imoveis);
-  const outros = patSoma(r.outros), dividas = patSoma(r.dividas);
-  const capital = invest + liquidez + outros;               // sem casa nem dívida
-  // Dinheiro da venda da casa guardado para comprar imóvel: está dentro da liquidez,
-  // mas não é dinheiro "livre". Nunca pode ser mais do que o dinheiro que existe.
-  const reservado = Math.max(0, Math.min(patNum(r.reservado != null ? r.reservado : r.reservadoAuto), liquidez));
-  return { invest, liquidez, imoveis, outros, dividas, capital, reservado, livre: capital - reservado, total: capital + imoveis - dividas };
-};
-
-const patSerie = registos => Object.entries(registos || {})
-  .map(([key, rec]) => ({ key: patKey(patIdx(key)), idx: patIdx(key), rec, ...patTotais(rec) }))
-  .sort((a, b) => a.idx - b.idx);
-
-// Por registo: variações e separação entre o que foi posto (aportes) e o que o
-// mercado rendeu. Snapshots antigos (importados) não entram, nem como ponto de
-// partida: não têm movimentos e podem ter o fundo de emergência misturado no total.
-const patDetalhe = serie => serie.map((s, i) => {
-  const prev = i > 0 ? serie[i - 1] : null;
-  const temFluxos = !!prev && !s.rec.importado && !prev.rec.importado;
-  const fluxo = temFluxos ? patNum(s.rec.aportes) - patNum(s.rec.levantamentos) - patNum(s.rec.amortizacao) : null;
-  return {
-    ...s, prev, fluxo,
-    resultado: temFluxos ? s.invest - prev.invest - fluxo : null,
-    dCapital: prev ? s.capital - prev.capital : null,
-    dTotal: prev ? s.total - prev.total : null,
-    salto: prev ? s.idx - prev.idx : 0
-  };
-});
-
-// Dinheiro da venda da casa que ainda está reservado para imobiliário num dado mês,
-// segundo o separador Venda de Casa: o líquido da venda menos o que já foi gasto ou
-// investido até ao dia do Portfolio desse mês. Antes da data da venda é zero.
-const patReservado = (G, M, idx) => {
-  const vc = { ...VC_DEFAULT, ...((G || {}).vendaCasa || {}) };
-  const corte = patCorte(G, M, idx);
-  if (!vc.dataVenda || String(vc.dataVenda).slice(0, 10) > corte) return 0;
-  const venda = patNum(vc.valorVenda), amort = patNum(vc.creditoAmortizado);
-  const liquido = venda - venda * patNum(vc.comissaoPct) / 100 - amort - amort * patNum(vc.penalizacaoPct) / 100 - patNum(vc.outrosCustos);
-  const saiu = (vc.movimentos || []).filter(m => m && (m.tipo === 'gasto' || m.tipo === 'investido') && (!m.data || String(m.data).slice(0, 10) <= corte))
-    .reduce((a, m) => a + patNum(m.val), 0);
-  return Math.max(0, Math.round((liquido - saiu) * 100) / 100);
-};
-
-// Transações que contam como "pôr ou tirar dinheiro dos investimentos"
-const patTxConta = (t, regras) => !!t && !!t.data && (t.tipo === 'compra' || t.tipo === 'venda')
-  && t.categoria !== 'CREDITO' && !patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras);
-const patTxLiquido = t => t.tipo === 'compra' ? patNum(t.valorTotal) + patNum(t.comissao) : -Math.max(0, patNum(t.valorTotal) - patNum(t.comissao));
-const patTxEntre = (G, M, de, ate) => {
-  const regras = patRegras(G), a = patCorte(G, M, de - 1), b = patCorte(G, M, ate);
-  return ((G || {}).transacoes || []).filter(t => patTxConta(t, regras) && t.data > a && t.data <= b)
-    .sort((a, b) => String(a.data).localeCompare(String(b.data)));
-};
-// Ganho desde a primeira compra, por categoria: o que vale hoje no Portfolio menos
-// tudo o que lá foi posto segundo as Transações. Não depende do histórico mensal.
-const patVida = (G, itens, ateIdx) => {
-  const regras = patRegras(G), cats = {};
-  ((G || {}).transacoes || []).forEach(t => {
-    if (!patTxConta(t, regras) || patIdx(t.data) > ateIdx) return;
-    const c = cats[t.categoria || '—'] = cats[t.categoria || '—'] || { cat: t.categoria || '—', posto: 0, n: 0, desde: t.data, valor: 0 };
-    c.posto += patTxLiquido(t); c.n++; if (t.data < c.desde) c.desde = t.data;
-  });
-  (itens || []).forEach(i => { if (cats[i.cat] && !i.liq && !patEhLiquidez(i, regras)) cats[i.cat].valor += patNum(i.val); });
-  const linhas = Object.values(cats).map(c => ({ ...c, ganho: c.valor - c.posto, pct: c.posto > 0 ? (c.valor - c.posto) / c.posto : null }))
-    .sort((a, b) => b.valor - a.valor);
-  const boas = linhas.filter(l => l.valor > 0 && l.posto > 0);
-  const valor = patSoma(boas.map(l => ({ val: l.valor }))), posto = patSoma(boas.map(l => ({ val: l.posto })));
-  return {
-    linhas, cats: boas.map(l => l.cat), valor, posto, ganho: valor - posto, pct: posto > 0 ? (valor - posto) / posto : null,
-    n: boas.reduce((a, l) => a + l.n, 0), desde: boas.length ? boas.map(l => l.desde).sort()[0] : null
-  };
-};
-
-// Retorno dos investimentos ponderado pelo tempo (Dietz modificado, encadeado).
-const patRetorno = det => {
-  let fator = 1, resultado = 0, aportes = 0, mesesN = 0, periodos = 0, inicio = null, variacao = 0;
-  det.forEach(d => {
-    if (d.resultado == null) return;
-    if (inicio == null) inicio = d.prev.idx;
-    resultado += d.resultado; aportes += d.fluxo; variacao += d.invest - d.prev.invest;
-    const base = d.prev.invest + d.fluxo / 2;
-    if (base > 0) { fator *= 1 + d.resultado / base; mesesN += d.salto; periodos++; }
-  });
-  return {
-    resultado, aportes, periodos, meses: mesesN, inicio, variacao,
-    twr: periodos ? fator - 1 : null,
-    anual: (mesesN >= 12 && fator > 0) ? Math.pow(fator, 12 / mesesN) - 1 : null
-  };
-};
-
-const patInvestDoPortfolio = portfolio => (portfolio || [])
-  .filter(p => p.cat !== 'CREDITO' && patNum(p.val) !== 0)   // amortização não é ativo: já está na dívida
-  .map(p => ({ desc: p.desc || 'Sem nome', cat: p.cat || '—', val: patNum(p.val) }));
-
-const patListaCreditos = G => {
-  if (Array.isArray(G.creditos) && G.creditos.length) return G.creditos;
-  if (G.credito && patNum(G.credito.dividaAtual) > 0) {
-    return [{ ...G.credito, id: 'legado', nome: 'Crédito Habitação', tipo: 'habitacao', estado: 'ativo', valorBem: G.credito.valorCasa }];
-  }
-  return [];
-};
-
-// Dívida (e valor do imóvel) num dado mês, pelo histórico do separador Crédito.
-const patCreditoNoMes = (G, idx) => {
-  const dividas = [], imoveis = [];
-  patListaCreditos(G).forEach(c => {
-    if (c.estado === 'planeado') return;
-    if (c.estado === 'liquidado' && c.dataLiquidacao && patIdx(c.dataLiquidacao) <= idx) return;
-    const ent = (c.historico || []).filter(e => e && e.date && patIdx(e.date) <= idx)
-      .sort((a, b) => patIdx(b.date) - patIdx(a.date))[0];
-    if (!ent) return;
-    dividas.push({ id: patId(), nome: c.nome || 'Crédito', val: patNum(ent.divida), creditoId: c.id });
-    if ((c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0) {
-      imoveis.push({ id: patId(), nome: 'Casa', val: patNum(c.valorBem) });
-    }
-  });
-  return { dividas, imoveis };
-};
-
-// Rascunho do mês: o registo guardado, ou uma proposta pré-preenchida.
-const patRascunho = ({ registos, key, portfolio, G, M }) => {
-  const copia = l => (l || []).map(x => ({ ...x, id: x.id || patId(), val: patStr(x.val) }));
-  const mov = patMovimentos(G, M, registos, key);
-  const z = v => v ? patStr(v) : '';
-  const ex = (registos || {})[key];
-  if (ex) {
-    return {
-      existe: true, importado: !!ex.importado, fechadoEm: ex.fechadoEm || null, movManual: !!ex.movManual,
-      investItens: (ex.investItens || []).map(i => ({ ...i })),
-      liquidez: copia(ex.liquidez), imoveis: copia(ex.imoveis), outros: copia(ex.outros), dividas: copia(ex.dividas),
-      // Um registo importado ainda não tem movimentos: propõe os das Transações
-      aportes: ex.importado ? z(mov.aportes) : patStr(ex.aportes), levantamentos: ex.importado ? z(mov.levantamentos) : patStr(ex.levantamentos),
-      amortizacao: ex.importado ? z(mov.amortizacao) : patStr(ex.amortizacao),
-      origemMov: ex.importado ? mov.origem : null,
-      reservado: ex.reservado != null ? patStr(ex.reservado) : '',
-      nota: ex.nota || ''
-    };
-  }
-  const idx = patIdx(key);
-  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
-  const manuais = prev ? (prev.rec.dividas || []).filter(d => d.creditoId == null) : [];
-  // Mês corrente: valores atuais do separador Crédito. Mês passado: o histórico desse mês.
-  const passado = idx < patIdxHoje();
-  const hist = passado ? patCreditoNoMes(G, idx) : null;
-  const ativos = patListaCreditos(G).filter(c => c.estado === 'ativo');
-  const dividasCredito = passado ? hist.dividas.map(d => ({ ...d, val: patStr(d.val) }))
-    : ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id }));
-  const imoveisCredito = passado ? hist.imoveis.map(d => ({ ...d, val: patStr(d.val) }))
-    : ativos.filter(c => (c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0)
-        .map(c => ({ id: patId(), nome: 'Casa', val: patStr(patNum(c.valorBem)) }));
-  return {
-    existe: false, importado: false, fechadoEm: null,
-    investItens: patInvestDoPortfolio(portfolio),
-    liquidez: prev ? copia(prev.rec.liquidez) : PAT_CONTAS_BASE.map(n => ({ id: patId(), nome: n, val: '' })),
-    imoveis: prev ? copia(prev.rec.imoveis) : imoveisCredito,
-    outros: prev ? copia(prev.rec.outros) : [],
-    dividas: [...dividasCredito, ...copia(manuais)],
-    aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, reservado: '', nota: ''
-  };
-};
-
-const patLimpar = d => {
-  const limpa = l => (l || [])
-    .map(x => ({ id: x.id || patId(), nome: (x.nome || '').trim(), val: patNum(x.val), ...(x.creditoId != null ? { creditoId: x.creditoId } : {}) }))
-    .filter(x => x.nome || x.val);
-  return {
-    investItens: (d.investItens || []).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })),
-    liquidez: limpa(d.liquidez), imoveis: limpa(d.imoveis), outros: limpa(d.outros), dividas: limpa(d.dividas),
-    aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos), amortizacao: patNum(d.amortizacao),
-    ...(d.movManual ? { movManual: true } : {}),
-    ...(d.reservado != null && String(d.reservado).trim() !== '' ? { reservado: patNum(d.reservado) } : {}),
-    nota: (d.nota || '').trim(), fechadoEm: new Date().toISOString()
-  };
-};
-
-// Sugestão de aportes: investimentos marcados como feitos na Alocação, desde o último registo.
-const patSugestaoAportes = (M, registos, key, regras) => {
-  const idx = patIdx(key);
-  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
-  const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
-  let tot = 0;
-  for (let i = de; i <= idx; i++) {
-    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO' && !patEhLiquidez(x, regras)) tot += patNum(x.val); });
-  }
-  return tot;
-};
-
-// Movimentos desde o último registo, lidos do separador Transações:
-//   compra → aporte · venda → levantamento. Categoria CREDITO e dinheiro parado ficam de fora.
-// Dividendos não contam: são resultado, não dinheiro novo. Sem transações no
-// período, usa os investimentos marcados como feitos na Alocação.
-const patMovimentos = (G, M, registos, key) => {
-  const idx = patIdx(key);
-  const prev = patSerie(registos).filter(s => s.idx < idx).pop();
-  const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
-  const r2 = v => Math.round(v * 100) / 100;
-  const regras = patRegras(G);
-  let aportes = 0, levantamentos = 0, amortizacao = 0, nCompras = 0, nVendas = 0;
-  const desdeData = patCorte(G, M, de - 1), ateData = patCorte(G, M, idx);
-  ((G || {}).transacoes || []).forEach(t => {
-    if (!t || !t.data) return;
-    if (!(t.data > desdeData && t.data <= ateData)) return;
-    const v = patNum(t.valorTotal);
-    if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;   // mexer em dinheiro parado não é investir
-    if (t.categoria === 'CREDITO') return;   // amortizações saem do dinheiro (Trade), não dos investimentos
-    const com = patNum(t.comissao);   // a comissão também é dinheiro que saiu do teu bolso
-    if (t.tipo === 'compra') { nCompras++; aportes += v + com; }
-    else if (t.tipo === 'venda') { nVendas++; levantamentos += Math.max(0, v - com); }
-  });
-  if (nCompras + nVendas > 0) {
-    return { origem: 'transacoes', aportes: r2(aportes), levantamentos: r2(levantamentos), amortizacao: r2(amortizacao), nCompras, nVendas };
-  }
-  const aloc = patSugestaoAportes(M || {}, registos, key, regras);
-  return { origem: aloc > 0 ? 'alocacao' : null, aportes: r2(aloc), levantamentos: 0, amortizacao: 0, nCompras: 0, nVendas: 0 };
-};
-
-// Estado dos últimos n meses, para se ver de relance o que falta preencher.
-//   portfolio: 'ok' (tem valores próprios) · 'igual' (valores iguais aos do mês
-//   anterior — provavelmente copiado e não atualizado) · 'falta' (sem valores)
-//   · 'antes' (anterior ao primeiro mês com dados)
-const patEstadoMeses = (G, M, n) => {
-  const mm = M || {}, hoje = patIdxHoje(), regras = patRegras(G);
-  // Só as linhas de investimento: o saldo das contas muda sempre, mas o valor de um ETF
-  // nunca fica igual de um mês para o outro — se ficou, não foi atualizado.
-  const assin = p => JSON.stringify(patInvestDoPortfolio(p).filter(i => !patEhLiquidez(i, regras)).map(i => [patChave(i.desc), i.val]).sort());
-  const tx = {};
-  ((G || {}).transacoes || []).forEach(t => {
-    if (!t || !t.data || (t.tipo !== 'compra' && t.tipo !== 'venda') || t.categoria === 'CREDITO') return;
-    if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;
-    const i = patIdx(t.data); tx[i] = (tx[i] || 0) + 1;
-  });
-  // Meses anteriores ao primeiro mês com dados não são "em falta": ainda não usavas a app
-  const comDados = Object.keys(mm).filter(k => patTemPortfolio((mm[k] || {}).portfolio)).map(patIdx);
-  const primeiro = comDados.length ? Math.min(...comDados) : hoje;
-  const out = [];
-  for (let i = hoje - (n - 1); i <= hoje; i++) {
-    const key = patKey(i), p = (mm[key] || {}).portfolio, ant = (mm[patKey(i - 1)] || {}).portfolio;
-    const tem = patTemPortfolio(p);
-    out.push({
-      idx: i, key, transacoes: tx[i] || 0,
-      portfolio: i < primeiro ? 'antes' : !tem ? 'falta' : (patTemPortfolio(ant) && assin(p) === assin(ant)) ? 'igual' : 'ok'
-    });
-  }
-  return out;
-};
-
-// Importa os snapshots antigos do Portfolio (e o histórico do Crédito) como registos.
-const patImportar = (G, M, existentes) => {
-  const regs = existentes || (G.patrimonio || {}).registos || {};
-  const detalhe = G.portfolioDetail || {};
-  const novos = {};
-  (G.portfolioHist || []).forEach(h => {
-    if (!h || !h.date) return;
-    const idx = patIdx(h.date), key = patKey(idx);
-    if (regs[key] || novos[key]) return;
-    const pm = ((M || {})[key] || {}).portfolio || [];
-    const det = detalhe[h.date] || detalhe[key] || [];
-    const comCat = det.map(d => {
-      const ref = pm.find(p => p.id === d.id) || pm.find(p => p.desc === d.desc);
-      return { desc: d.desc || 'Sem nome', cat: ref ? ref.cat : '—', val: patNum(d.val) };
-    });
-    const excl = patSoma(comCat.filter(i => i.cat === 'CREDITO'));
-    let itens = comCat.filter(i => i.cat !== 'CREDITO' && i.val);
-    const total = patNum(h.total) - excl;
-    if (!itens.length || Math.abs(patSoma(itens) - total) > 1) {
-      itens = total ? [{ desc: 'Portfólio (total)', cat: '—', val: total }] : [];
-    }
-    const { dividas, imoveis } = patCreditoNoMes(G, idx);
-    novos[key] = {
-      investItens: itens, liquidez: [], imoveis, outros: [], dividas,
-      aportes: 0, levantamentos: 0, amortizacao: 0, nota: '', fechadoEm: null, importado: true
-    };
-  });
-  return novos;
-};
-
-// Os registos que a app realmente usa. Nada depende de carregar num botão:
-//   1. o que guardaste (com os investimentos sempre lidos do Portfolio desse mês);
-//   2. meses em que atualizaste o Portfolio mas não guardaste → registo automático;
-//   3. snapshots antigos sem mais dados → registo importado.
-const patRegistosEfetivos = (G, M) => {
-  const guard = ((G || {}).patrimonio || {}).registos || {};
-  const mm = M || {}, hoje = patIdxHoje(), out = {};
-  Object.entries(guard).forEach(([k, r]) => {
-    const key = patKey(patIdx(k)), p = (mm[key] || {}).portfolio;
-    out[key] = patTemPortfolio(p) ? { ...r, investItens: patInvestDoPortfolio(p) } : r;
-  });
-  const autos = [...new Set(Object.keys(mm).map(k => patKey(patIdx(k))))]
-    .filter(k => !out[k] && patTemPortfolio((mm[k] || {}).portfolio) && patIdx(k) <= hoje)
-    .sort((a, b) => patIdx(a) - patIdx(b));
-  Object.entries(patImportar(G || {}, mm, out)).forEach(([k, r]) => { if (!autos.includes(k)) out[k] = r; });
-  autos.forEach(key => {
-    const d = patRascunho({ registos: out, key, portfolio: mm[key].portfolio, G: G || {}, M: mm });
-    out[key] = { ...patLimpar(d), fechadoEm: null, auto: true };
-  });
-  // Um registo guardado não fica preso ao valor do dia em que foi guardado: o que puseste
-  // segue sempre as Transações, a não ser que tenha sido corrigido à mão.
-  Object.keys(guard).map(k => patKey(patIdx(k))).sort((a, b) => patIdx(a) - patIdx(b)).forEach(key => {
-    const r = out[key];
-    if (!r || r.importado || r.movManual) return;
-    const base = { ...out }; delete base[key];
-    const mov = patMovimentos(G || {}, mm, base, key);
-    if (mov.origem !== 'transacoes') return;
-    out[key] = { ...r, aportes: mov.aportes, ...(patNum(r.amortizacao) === 0 ? { levantamentos: mov.levantamentos } : {}) };
-  });
-  const regras = patRegras(G);
-  Object.keys(out).forEach(k => {
-    if (!out[k].importado) out[k] = { ...out[k], reservadoAuto: patReservado(G || {}, mm, patIdx(k)) };
-    out[k] = { ...out[k], investItens: (out[k].investItens || []).map(i => ({ ...i, liq: patEhLiquidez(i, regras) })) };
-  });
-  return out;
-};
-// ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
-
-const patFmtK = v => {
-  const a = Math.abs(v);
-  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace('.', ',') + 'M €';
-  if (a >= 1000) return (v / 1000).toFixed(a >= 100000 ? 0 : 1).replace('.', ',') + 'k €';
-  return Math.round(v) + ' €';
-};
-
-// Linhas editáveis de um componente (contas, imóveis, dívidas…)
-const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder, fixas = [], onMoverFixa }) => {
-  const upd = (id, campo, v) => onChange(linhas.map(l => l.id === id ? { ...l, [campo]: v } : l));
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-sm font-medium flex items-center gap-2">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: cor }} />{titulo}
-        </p>
-        <span className="text-sm font-semibold">{_fmtEUR.format(patSoma(linhas) + patSoma(fixas))}</span>
-      </div>
-      {dica && <p className={`text-[11px] mb-1.5 ${sub}`}>{dica}</p>}
-      {fixas.length > 0 && (
-        <div className="space-y-1 mb-2">
-          {fixas.map((x, k) => (
-            <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
-              <span className="truncate">{x.desc} <span className="text-xs">· do Portfolio</span>
-                {onMoverFixa && <button onClick={() => onMoverFixa(x)} title="Contar esta linha como investimento" className="ml-2 text-[11px] text-blue-400 hover:text-blue-300">← é investimento</button>}
-              </span><span className="flex-shrink-0">{_fmtEUR.format(patNum(x.val))}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="space-y-1.5">
-        {linhas.map(l => (
-          <div key={l.id} className="flex items-center gap-1.5">
-            <input type="text" value={l.nome} onChange={e => upd(l.id, 'nome', e.target.value)} placeholder={placeholder || 'Nome'} className={`${inp} flex-1 min-w-0`} />
-            <input type="number" inputMode="decimal" value={l.val} onChange={e => upd(l.id, 'val', e.target.value)} placeholder="0" className={`${inp} w-28 text-right`} />
-            <button onClick={() => onChange(linhas.filter(x => x.id !== l.id))} aria-label={`Remover ${l.nome || 'linha'}`} className="text-red-400 hover:text-red-300 px-1 flex-shrink-0">✕</button>
-          </div>
-        ))}
-      </div>
-      <button onClick={() => onChange([...linhas, { id: patId(), nome: '', val: '' }])} className={`mt-1.5 text-xs ${sub} hover:text-blue-400`}>+ Adicionar linha</button>
-    </div>
-  );
-};
-
-// Gráfico de evolução: posiciona os pontos pelo mês real, por isso os meses em
-// falta ficam visíveis (segmento tracejado) em vez de serem escondidos.
-const PatChart = ({ pontos, eventos, theme }) => {
-  const [hi, setHi] = useState(null);
-  const [larg, setLarg] = useState(800);
-  const ref = useRef(null);
-  const caixa = useRef(null);
-  useEffect(() => {
-    const medir = () => { if (caixa.current && caixa.current.clientWidth) setLarg(caixa.current.clientWidth); };
-    medir();
-    window.addEventListener('resize', medir);
-    return () => window.removeEventListener('resize', medir);
-  }, []);
-  if (!pontos.length) return null;
-
-  // 1 unidade do viewBox = 1 px real, para o texto manter o tamanho em qualquer ecrã
-  const W = Math.max(300, larg), H = W < 520 ? 220 : 260, pl = W < 520 ? 48 : 58, pr = W < 520 ? 56 : 66, pt = 28, pb = 30;
-  const i0 = pontos[0].idx, i1 = pontos[pontos.length - 1].idx, span = i1 - i0;
-  const X = idx => span ? pl + ((idx - i0) / span) * (W - pl - pr) : (pl + W - pr) / 2;
-  const vals = pontos.map(p => p.v);
-  let lo = Math.min(...vals), top = Math.max(...vals);
-  if (lo >= 0 && lo < top * 0.5) lo = 0;
-  else lo -= ((top - lo) || Math.abs(top) || 1) * 0.15;
-  top += ((top - lo) || 1) * 0.1;
-  const Y = v => pt + (1 - (v - lo) / ((top - lo) || 1)) * (H - pt - pb);
-
-  const bruto = (top - lo) / 4, p10 = Math.pow(10, Math.floor(Math.log10(bruto || 1))), f = bruto / p10;
-  const passo = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p10;
-  const ticks = [];
-  for (let t = Math.ceil(lo / passo) * passo; t <= top; t += passo) ticks.push(t);
-
-  const escuro = theme !== 'light';
-  const grelha = escuro ? '#334155' : '#e2e8f0';
-  const tinta = escuro ? '#94a3b8' : '#64748b';
-  const tintaForte = escuro ? '#e2e8f0' : '#1e293b';
-  const superficie = escuro ? '#1e293b' : '#ffffff';
-  const linha = '#3b82f6';
-
-  const rotulosX = [];
-  pontos.forEach((p, i) => {
-    const x = X(p.idx);
-    const ult = rotulosX[rotulosX.length - 1];
-    if (i === 0 || i === pontos.length - 1 || !ult || x - ult.x > 70) {
-      if (i === pontos.length - 1 && ult && x - ult.x < 50) rotulosX.pop();
-      rotulosX.push({ x, t: patRotulo(p.idx) });
-    }
-  });
-  const evs = (eventos || []).filter(e => e.idx >= i0 && e.idx <= i1);
-
-  const mover = clientX => {
-    const r = ref.current && ref.current.getBoundingClientRect();
-    if (!r || !r.width) return;
-    const xv = ((clientX - r.left) / r.width) * W;
-    let best = 0, bd = Infinity;
-    pontos.forEach((p, i) => { const d = Math.abs(X(p.idx) - xv); if (d < bd) { bd = d; best = i; } });
-    setHi(best);
-  };
-  const h = hi != null && pontos[hi] ? pontos[hi] : null;
-  const hx = h ? X(h.idx) : 0;
-  const ult = pontos[pontos.length - 1];
-
-  return (
-    <div className="relative" ref={caixa}>
-      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" role="img"
-        aria-label="Evolução do património ao longo do tempo"
-        onMouseMove={e => mover(e.clientX)} onMouseLeave={() => setHi(null)}
-        onTouchStart={e => mover(e.touches[0].clientX)} onTouchMove={e => mover(e.touches[0].clientX)}>
-        {ticks.map(t => (
-          <g key={t}>
-            <line x1={pl} x2={W - pr} y1={Y(t)} y2={Y(t)} stroke={grelha} strokeWidth="1" />
-            <text x={pl - 8} y={Y(t) + 4} textAnchor="end" fontSize="11" fill={tinta}>{patFmtK(t)}</text>
-          </g>
-        ))}
-        {rotulosX.map((r, i) => <text key={i} x={r.x} y={H - 8} textAnchor="middle" fontSize="11" fill={tinta}>{r.t}</text>)}
-        {evs.map((e, i) => (
-          <g key={e.id}>
-            <line x1={X(e.idx)} x2={X(e.idx)} y1={pt - 4} y2={H - pb} stroke={tinta} strokeWidth="1" strokeDasharray="2 4" />
-            <circle cx={X(e.idx)} cy={pt - 13} r="9" fill={superficie} stroke={tinta} strokeWidth="1" />
-            <text x={X(e.idx)} y={pt - 9} textAnchor="middle" fontSize="10" fontWeight="600" fill={tintaForte}>{e.n}</text>
-          </g>
-        ))}
-        {pontos.slice(1).map((p, i) => {
-          const a = pontos[i];
-          return <line key={p.idx} x1={X(a.idx)} y1={Y(a.v)} x2={X(p.idx)} y2={Y(p.v)} stroke={linha} strokeWidth="2"
-            strokeLinecap="round" strokeDasharray={p.idx - a.idx > 1 ? '3 6' : undefined} opacity={p.idx - a.idx > 1 ? 0.6 : 1} />;
-        })}
-        {h && <line x1={hx} x2={hx} y1={pt} y2={H - pb} stroke={tinta} strokeWidth="1" />}
-        {pontos.map((p, i) => (
-          <circle key={p.idx} cx={X(p.idx)} cy={Y(p.v)} r={hi === i ? 6 : 4}
-            fill={p.importado ? superficie : linha} stroke={p.importado ? linha : superficie} strokeWidth="2" />
-        ))}
-        <text x={X(ult.idx) + 10} y={Y(ult.v) + 4} fontSize="12" fontWeight="600" fill={tintaForte}>{patFmtK(ult.v)}</text>
-      </svg>
-      {h && (
-        <div className={`absolute top-0 z-10 pointer-events-none rounded-lg border px-3 py-2 text-xs shadow-xl min-w-[170px] ${escuro ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}
-          style={{ left: `${(hx / W) * 100}%`, transform: hx > W * 0.62 ? 'translateX(-104%)' : 'translateX(4%)' }}>
-          <p className="font-semibold mb-1">{patRotulo(h.idx)}{h.importado ? ' · importado' : ''}</p>
-          {h.tip.map(([l, v, forte]) => (
-            <p key={l} className={`flex justify-between gap-4 ${forte ? 'font-semibold' : ''}`}>
-              <span className={forte ? '' : (escuro ? 'text-slate-400' : 'text-slate-500')}>{l}</span><span>{v}</span>
-            </p>
-          ))}
-          {(eventos || []).filter(e => e.idx === h.idx).map(e => (
-            <p key={e.id || e.n} className={`mt-1 pt-1 border-t max-w-[240px] whitespace-normal ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
-              <span className="font-semibold">{e.n}.</span> {e.texto}{e.data ? <span className={escuro ? 'text-slate-500' : 'text-slate-400'}> · {String(e.data).slice(0, 10).split('-').reverse().join('/')}</span> : null}
-            </p>
-          ))}
-          {h.nota && <p className={`mt-1 pt-1 border-t max-w-[240px] whitespace-normal ${escuro ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}>{h.nota}</p>}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, onIrParaMes, onAbrirTab }) => {
-  const pat = G.patrimonio || {};
-  const guardados = pat.registos || {};
-  // Guardados + automáticos + importados. O histórico nunca depende de um clique.
-  const efetivos = useMemo(() => patRegistosEfetivos(G, M), [G, M]);
-  const eventos = pat.eventos || [];
-  const idxSel = patIdx(mesKey);
-  const guardado = guardados[mesKey];
-  // Base para o rascunho deste mês: sem o registo automático dele próprio
-  const registos = useMemo(() => {
-    if (guardado || !(efetivos[mesKey] && efetivos[mesKey].auto)) return efetivos;
-    const r = { ...efetivos }; delete r[mesKey]; return r;
-  }, [efetivos, mesKey, guardado]);
-  const ehAuto = !guardado && !!(efetivos[mesKey] && efetivos[mesKey].auto);
-  const assinatura = JSON.stringify(guardado || null);
-
-  const [vista, setVista] = useState('capital');           // 'capital' | 'total'
-  const [periodo, setPeriodo] = useState(0);               // meses; 0 = tudo
-  const [semReservado, setSemReservado] = useState(true);  // esconder o dinheiro reservado para imobiliário
-  const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G, M }));
-  const [anosAbertos, setAnosAbertos] = useState({});
-  const [novoEv, setNovoEv] = useState({ data: '', texto: '' });
-  const [confirmaApagar, setConfirmaApagar] = useState(false);
-  const [ajuda, setAjuda] = useState(false);          // textos de ajuda
-  const [mais, setMais] = useState(false);            // casa, dívidas, outros
-  const [editMov, setEditMov] = useState(false);      // corrigir movimentos
-  const [sec, setSec] = useState({ ev: false, hist: false });
-
-  // Recriar o rascunho só quando muda o mês ou o registo guardado desse mês —
-  // nunca a meio da edição.
-  useEffect(() => {
-    setDraft(patRascunho({ registos, key: mesKey, portfolio, G, M }));
-    setConfirmaApagar(false); setEditMov(false); setMais(false);
-  }, [mesKey, assinatura]); // eslint-disable-line
-
-  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
-  const sinal = v => (v > 0 ? '+' : '') + f(v);
-  const pct = v => (v > 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
-
-  const setPat = patch => uG('patrimonio', { ...pat, ...patch });
-  const serie = patSerie(efetivos);
-  const det = patDetalhe(serie);
-  const haReservado = serie.some(x => x.reservado > 0);
-  const semRes = vista === 'capital' && semReservado && haReservado;
-  const campo = vista === 'capital' ? (semRes ? 'livre' : 'capital') : 'total';
-  const nomeVista = vista === 'capital' ? (semRes ? 'Património financeiro livre' : 'Património financeiro') : 'Património total';
-
-  const ultimo = det[det.length - 1] || null;
-  // Ponto de partida do período escolhido: o último registo até N meses atrás
-  const primeiro = (periodo && ultimo ? det.filter(d => d.idx <= ultimo.idx - periodo).pop() : null) || det[0] || null;
-  const janela = primeiro ? det.filter(d => d.idx > primeiro.idx) : [];
-  const ret = patRetorno(janela);
-  const vida = ultimo ? patVida(G, ultimo.rec.investItens, ultimo.idx) : { linhas: [], cats: [] };
-  const usaVida = !periodo && vida.cats.length > 0;   // "Início": conta desde a primeira compra, pelas Transações
-  const dups = txDuplicadosProvaveis(G.transacoes);
-  const dupIds = new Set(dups.map(d => d.manual.id));
-  const rotData = d => patRotulo(patIdx(d));
-  const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
-  const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
-  // De onde vem a variação. Um snapshot antigo não separa investimentos de liquidez, por isso aí não se mostra.
-  const partesVar = (ultimo && primeiro && ultimo !== primeiro && !primeiro.rec.importado) ? [
-    ['investimentos', ultimo.invest - primeiro.invest],
-    ['dinheiro nas contas', (ultimo.liquidez - primeiro.liquidez) - (semRes ? ultimo.reservado - primeiro.reservado : 0)],
-    ['outros', ultimo.outros - primeiro.outros],
-    ...(vista === 'total' ? [['casa', ultimo.imoveis - primeiro.imoveis], ['dívida', -(ultimo.dividas - primeiro.dividas)]] : [])
-  ].filter(([, v]) => Math.abs(v) >= 0.5).map(([n, v]) => `${n} ${sinal(v)}`).join(' · ') : '';
-
-  // Rascunho → totais ao vivo
-  const regras = patRegras(G);
-  const itensDraft = draft.investItens.map(i => ({ ...i, liq: patEhLiquidez(i, regras) }));
-  const reservadoAutoSel = patReservado(G, M, idxSel);
-  const tDraft = patTotais({ ...draft, investItens: itensDraft, reservado: String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? patNum(draft.reservado) : null, reservadoAuto: reservadoAutoSel });
-  const itensInvest = itensDraft.filter(i => !i.liq);
-  const itensLiquidez = itensDraft.filter(i => i.liq);
-  // Mover uma linha do Portfolio entre "investimento" e "dinheiro" (vale para todos os meses)
-  const marcarDinheiro = (item, ehDinheiro) => setPat({ dinheiro: { ...regras, [patChave(item.desc)]: ehDinheiro } });
-  const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
-    !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G, M })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
-  const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
-  const mov = patMovimentos(G, M, registos, mesKey);
-  const corteSel = patCorte(G, M, idxSel);
-  const movDifere = mov.origem === 'transacoes' && !!draft.movManual && (patNum(draft.aportes) !== mov.aportes
-    || patNum(draft.levantamentos) + patNum(draft.amortizacao) !== mov.levantamentos + mov.amortizacao);
-  const fluxoDraft = patNum(draft.aportes) - patNum(draft.levantamentos) - patNum(draft.amortizacao);
-  const saidasDraft = patNum(draft.levantamentos) + patNum(draft.amortizacao);
-  // Se a dívida desceu desde o último registo, é provável que parte tenha saído dos investimentos
-  const descidaDivida = anterior ? Math.round((anterior.dividas - tDraft.dividas) * 100) / 100 : 0;
-  const mercadoDraft = anterior ? tDraft.invest - anterior.invest - fluxoDraft : 0;
-  // Amortização paga com os investimentos: desconta dos levantamentos para não contar duas vezes
-  const usarDescida = () => setDraft({
-    ...draft, amortizacao: String(descidaDivida),
-    levantamentos: patNum(draft.levantamentos) > 0 ? (String(Math.max(0, Math.round((patNum(draft.levantamentos) - descidaDivida) * 100) / 100) || '')) : draft.levantamentos
-  });
-
-  const guardar = () => setPat({ registos: { ...guardados, [mesKey]: patLimpar(draft) } });
-  const apagar = () => { const r = { ...guardados }; delete r[mesKey]; setPat({ registos: r }); };
-
-  // Meses sem registo entre o primeiro registo e hoje
-  const estado = useMemo(() => patEstadoMeses(G, M, 12), [G, M]);
-  const estSel = estado.find(e => e.idx === idxSel) || null;
-  const porTratar = estado.filter(e => e.portfolio === 'falta' || e.portfolio === 'igual').length;
-
-  // Eventos numerados por ordem cronológica
-  const evOrd = [...eventos].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
-    .map((e, i) => ({ ...e, n: i + 1, idx: patIdx(e.data) }));
-  const addEvento = () => {
-    if (!novoEv.texto.trim()) return;
-    const data = novoEv.data || `${Math.floor(idxSel / 12)}-${String((idxSel % 12) + 1).padStart(2, '0')}-01`;
-    setPat({ eventos: [...eventos, { id: patId(), data, texto: novoEv.texto.trim() }] });
-    setNovoEv({ data: '', texto: '' });
-  };
-
-  const visiveis = periodo && ultimo ? det.filter(d => d.idx >= ultimo.idx - periodo) : det;
-  const pontos = visiveis.map(d => ({
-    idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
-    tip: [
-      [nomeVista, f(d[campo]), true],
-      ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ...(d.reservado > 0 ? [['— reservado para imobiliário', f(d.reservado)]] : []), ['Outros ativos', f(d.outros)],
-      ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
-      ...(d.resultado != null ? [
-        ...(patNum(d.rec.amortizacao) ? [['Amortização de crédito', '−' + f(patNum(d.rec.amortizacao))]] : []),
-        ['Puseste (líquido)', sinal(d.fluxo)], ['Mercado', sinal(d.resultado)]
-      ] : [])
-    ]
-  }));
-
-  const exportarCSV = () => {
-    const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
-    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Património financeiro', 'Património total', 'Aportes', 'Levantamentos', 'Amortização de crédito', 'Resultado mercado', 'Origem', 'Nota'];
-    const linhasCsv = det.map(d => [
-      `${Math.floor(d.idx / 12)}-${String((d.idx % 12) + 1).padStart(2, '0')}`,
-      n(d.invest), n(d.liquidez), n(d.imoveis), n(d.outros), n(d.dividas), n(d.capital), n(d.total),
-      d.fluxo == null ? '' : n(patNum(d.rec.aportes)), d.fluxo == null ? '' : n(patNum(d.rec.levantamentos)), d.fluxo == null ? '' : n(patNum(d.rec.amortizacao)),
-      n(d.resultado), d.rec.importado ? 'importado' : d.rec.auto ? 'automático' : 'guardado',
-      '"' + (d.rec.nota || '').replace(/"/g, '""') + '"'
-    ].join(';'));
-    const blob = new Blob(['﻿' + [cab.join(';'), ...linhasCsv].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `patrimonio_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
-
-  // ── estilos ──
-  const escuro = theme !== 'light';
-  const card = `backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white/80 border-slate-200 shadow-sm'}`;
-  const inp = escuro
-    ? 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50'
-    : 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
-  const sub = escuro ? 'text-slate-400' : 'text-slate-500';
-  const linhaB = escuro ? 'border-slate-700/50' : 'border-slate-200';
-  const tile = `rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`;
-  const chip = on => `px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${on ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : (escuro ? 'bg-slate-700/40 border-slate-600 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500')}`;
-  const corDelta = v => v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : '';
-  const seta = v => v > 0 ? '▲ ' : v < 0 ? '▼ ' : '';
-
-  // Composição do último registo
-  const ativosComp = ultimo ? PAT_COMP.filter(c => c.k !== 'dividas' && (vista === 'total' || c.k !== 'imoveis'))
-    .map(c => ({ ...c, v: ultimo[c.k] })).filter(c => c.v > 0) : [];
-  const brutos = ativosComp.reduce((a, c) => a + c.v, 0);
-
-  const anosTab = [...new Set(det.map(d => Math.floor(d.idx / 12)))].sort((a, b) => b - a);
-  const anoAberto = y => anosAbertos[y] != null ? anosAbertos[y] : y === anosTab[0];
-
-  return (
-    <div className="space-y-4 max-w-5xl mx-auto">
-
-      {/* Cabeçalho + métricas */}
-      <div className={card}>
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">💎 Património</h3>
-            <p className={`text-xs ${sub}`}>
-              {vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex gap-2">
-              <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
-              <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
-            </div>
-            {vista === 'capital' && haReservado && (
-              <button className={chip(semReservado)} aria-pressed={semReservado} onClick={() => setSemReservado(!semReservado)} title="O dinheiro da venda da casa guardado para comprar imóvel">
-                {semReservado ? '✓ ' : ''}Sem o dinheiro reservado para imobiliário
-              </button>
-            )}
-            <div className="flex gap-1.5" role="group" aria-label="Período">
-              {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Início']].map(([m, l]) => (
-                <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {!ultimo ? (
-          <p className={`text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
-        ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>{nomeVista} · {patRotulo(ultimo.idx)}</p>
-              <p className="text-xl font-bold">{f(ultimo[campo])}</p>
-              {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
-              {vista === 'capital' && ultimo.reservado > 0 && <p className={`text-xs ${sub}`}>{semRes ? `+ ${f(ultimo.reservado)} reservados para imobiliário` : `dos quais ${f(ultimo.reservado)} reservados para imobiliário`}</p>}
-            </div>
-            <div className={tile}>
-              <p className={`text-xs ${sub}`}>{nomeVista} desde {patRotulo(primeiro.idx)}</p>
-              <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}{varPct != null && <span className="text-xs font-normal"> {pct(varPct)}</span>}</p>
-              <p className={`text-xs ${sub}`}>{partesVar || `${det.length} ${det.length === 1 ? 'registo' : 'registos'}`}</p>
-            </div>
-            {usaVida ? (<>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Puseste em {vida.cats.join(' + ')} desde {rotData(vida.desde)}</p>
-                <p className="text-xl font-bold">{sinal(vida.posto)}</p>
-                <p className={`text-xs ${sub}`}>{vida.n} transações · compras e comissões, menos vendas</p>
-              </div>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>{vida.cats.join(' + ')} renderam desde {rotData(vida.desde)}</p>
-                <p className={`text-xl font-bold ${corDelta(vida.ganho)}`}>{seta(vida.ganho)}{sinal(vida.ganho)}{vida.pct != null && <span className="text-xs font-normal"> {pct(vida.pct)}</span>}</p>
-                <p className={`text-xs ${sub}`}>valem {f(vida.valor)} − o que puseste</p>
-              </div>
-            </>) : (<>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-                <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-                <p className={`text-xs ${sub}`}>{ret.periodos ? (periodo && ret.meses < periodo ? `pediste ${periodo} meses, mas só há ${ret.meses} com detalhe (desde ${patRotulo(ret.inicio)})` : `${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação`) : 'a partir do 2.º mês com detalhe'}</p>
-              </div>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-                <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
-                <p className={`text-xs ${sub}`}>
-                  {ret.periodos ? `valor ${sinal(ret.variacao)} − o que puseste` : 'a partir do 2.º mês com detalhe'}{ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}
-                </p>
-              </div>
-            </>)}
-          </div>
-        )}
-
-        {ultimo && (
-          <div className="mt-3">
-            <button onClick={() => setSec({ ...sec, contas: !sec.contas })} aria-expanded={!!sec.contas} className="text-xs text-blue-400 hover:text-blue-300">
-              {sec.contas ? '▾' : '▸'} Ver as contas{dups.length > 0 ? ` · ${dups.length} ${dups.length === 1 ? 'transação parece repetida' : 'transações parecem repetidas'}` : ''}
-            </button>
-            {sec.contas && (
-              <div className="mt-3 space-y-4 text-sm">
-                {dups.length > 0 && (
-                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-                    <p className="text-amber-500 font-medium">{dups.length === 1 ? 'Há 1 compra que parece estar' : `Há ${dups.length} compras que parecem estar`} duas vezes nas Transações: registada à mão e também importada.</p>
-                    <p className={`mt-1 ${sub}`}>Enquanto lá estiverem, o "puseste" fica a mais e o rendimento a menos ({f(patSoma(dups.map(d => ({ val: Math.abs(patTxLiquido(d.manual)) }))))} no total).</p>
-                    {onAbrirTab && <button onClick={() => onAbrirTab('transacoes')} className="mt-1.5 text-blue-400 hover:text-blue-300">Abrir as Transações para as apagar →</button>}
-                  </div>
-                )}
-                {vida.linhas.length > 0 && (
-                  <div>
-                    <p className="font-medium mb-1">Desde a primeira compra, por categoria</p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs tabular-nums">
-                        <thead><tr className={sub}><th className="text-left font-normal py-1">Categoria</th><th className="text-right font-normal">Vale hoje</th><th className="text-right font-normal">Puseste</th><th className="text-right font-normal">Rendeu</th></tr></thead>
-                        <tbody>
-                          {vida.linhas.map(l => (
-                            <tr key={l.cat} className="border-t border-slate-700/30">
-                              <td className="py-1">{l.cat} <span className={sub}>· {l.n} tr. desde {rotData(l.desde)}</span></td>
-                              <td className="text-right">{l.valor > 0 ? f(l.valor) : <span className="text-amber-500">sem valor no Portfolio</span>}</td>
-                              <td className="text-right">{f(l.posto)}</td>
-                              <td className={`text-right ${l.valor > 0 ? corDelta(l.ganho) : ''}`}>{l.valor > 0 ? `${sinal(l.ganho)}${l.pct != null ? ` (${pct(l.pct)})` : ''}` : '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className={`mt-1 text-xs ${sub}`}>Só é fiel se as Transações tiverem todas as compras dessa categoria e a categoria tiver o mesmo nome no Portfolio.</p>
-                  </div>
-                )}
-                <div>
-                  <p className="font-medium mb-1">Mês a mês {periodo ? `(últimos ${periodo} meses)` : '(desde o início)'}</p>
-                  {janela.filter(d => d.resultado != null).length === 0 && <p className={`text-xs ${sub}`}>Ainda não há dois meses seguidos com detalhe neste período.</p>}
-                  <div className="space-y-2">
-                    {janela.filter(d => d.resultado != null).slice().reverse().map(d => {
-                      const txs = patTxEntre(G, M, Math.max(d.prev.idx + 1, d.idx - 23), d.idx);
-                      const somaTx = txs.reduce((a, t) => a + patTxLiquido(t), 0);
-                      return (
-                        <div key={d.idx} className={`rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
-                          <p className="text-xs">
-                            <strong>{patRotulo(d.idx)}</strong> · investimentos {f(d.prev.invest)} → {f(d.invest)} ({sinal(d.invest - d.prev.invest)}) · puseste {f(d.fluxo)} · <span className={corDelta(d.resultado)}>renderam {sinal(d.resultado)}</span>
-                          </p>
-                          {txs.length > 0 ? (
-                            <ul className={`mt-1.5 text-xs ${sub} space-y-0.5`}>
-                              {txs.map(t => (
-                                <li key={t.id} className="flex justify-between gap-2">
-                                  <span className="truncate">{String(t.data).split('-').reverse().join('/')} · {t.tipo === 'venda' ? 'venda' : 'compra'} · {t.ticker || t.categoria} · {t.corretora || '—'} · {t.importId ? 'importada' : 'à mão'}{dupIds.has(t.id) && <span className="text-amber-500"> · repetida?</span>}</span>
-                                  <span className="flex-shrink-0">{sinal(patTxLiquido(t))}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : <p className={`mt-1 text-xs ${sub}`}>Sem compras nem vendas nas Transações neste mês.</p>}
-                          <p className={`mt-1 text-xs ${sub}`}>Conta compras de {patCorte(G, M, Math.max(d.prev.idx, d.idx - 24)).split('-').reverse().join('/')} (exclusive) a {patCorte(G, M, d.idx).split('-').reverse().join('/')}.</p>
-                          {Math.abs(d.invest - d.prev.invest) < 0.005 && <p className="mt-1 text-xs text-amber-500">O Portfolio de {patRotulo(d.idx)} está igual ao de {patRotulo(d.prev.idx)}: não foi atualizado, por isso parece que perdeste tudo o que puseste neste mês. O valor acerta-se no mês seguinte.</p>}
-                          {Math.abs(somaTx - d.fluxo) > 0.5 && <p className="mt-1 text-xs text-amber-500">O valor usado ({f(d.fluxo)}) é diferente da soma das Transações ({f(somaTx)}): foi corrigido à mão nesse mês, ou vem da Alocação.</p>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-      </div>
-
-      {/* Evolução */}
-      {det.length > 0 && (
-        <div className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h3 className="font-semibold">Evolução — {nomeVista}</h3>
-            <span className={`text-xs ${sub}`}>{periodo ? `últimos ${periodo} meses` : 'desde o início'}</span>
-          </div>
-          {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
-            : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
-        </div>
-      )}
-
-      {/* Composição */}
-      {ultimo && brutos > 0 && (
-        <div className={card}>
-          <h3 className="font-semibold mb-3">Composição em {patRotulo(ultimo.idx)}</h3>
-          <div className="flex h-4 w-full gap-0.5 mb-3">
-            {ativosComp.map(c => <div key={c.k} title={`${c.label}: ${f(c.v)}`} className="h-full first:rounded-l last:rounded-r" style={{ width: `${(c.v / brutos) * 100}%`, background: c.cor }} />)}
-          </div>
-          <div className="space-y-1.5 text-sm">
-            {ativosComp.map(c => (
-              <div key={c.k} className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: c.cor }} />{c.label}</span>
-                <span><span className="font-semibold">{f(c.v)}</span> <span className={`text-xs ${sub}`}>{((c.v / brutos) * 100).toFixed(1).replace('.', ',')}%</span></span>
-              </div>
-            ))}
-            {vista === 'total' && (
-              <>
-                <div className={`flex items-center justify-between gap-3 pt-1.5 border-t ${linhaB}`}>
-                  <span className={sub}>Ativos brutos</span><span className="font-semibold">{f(brutos)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#ef4444' }} />Dívidas</span>
-                  <span className="font-semibold">−{f(ultimo.dividas)}</span>
-                </div>
-                <div className={`flex items-center justify-between gap-3 pt-1.5 border-t ${linhaB}`}>
-                  <span className="font-semibold">Património líquido</span><span className="font-bold">{f(ultimo.total)}</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Registo do mês */}
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <h3 className="text-lg font-semibold">📝 {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
-          <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? (ehAuto ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-amber-400 bg-amber-500/15 border-amber-500/40') : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
-              {!draft.existe ? (ehAuto ? 'Automático' : 'Portfolio por atualizar') : draft.importado ? 'Snapshot antigo' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
-            </span>
-            <button onClick={() => setAjuda(!ajuda)} aria-label="Ajuda" aria-expanded={ajuda} className={chip(ajuda)}>?</button>
-          </div>
-        </div>
-
-        {ajuda && (
-          <div className={`mb-4 rounded-xl p-3 text-xs space-y-1.5 ${escuro ? 'bg-slate-700/30 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-            <p>Cada mês entra no histórico sozinho, assim que atualizas o Portfolio — não há snapshot para fazer. Só precisas de guardar aqui se quiseres corrigir saldos, movimentos ou deixar uma nota.</p>
-            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas. O Fundo de Emergência e a Trade Republic do Portfolio entram aqui sozinhos — é dinheiro parado, não conta para o retorno dos investimentos. Se alguma linha estiver do lado errado, usa "é dinheiro →" ou "← é investimento"; a escolha vale para todos os meses.</p>
-            <p><strong>Casa e dívidas</strong> só contam na vista "Património total". Os créditos ativos vêm do separador Crédito.</p>
-            <p><strong>Puseste / tiraste</strong> vem das Transações (compras e vendas) ou, sem transações, da Alocação. Serve para separar o teu esforço do que o mercado fez. Amortização é dinheiro dos investimentos usado para abater dívida — não é perda.</p>
-          </div>
-        )}
-
-        {/* Estado dos últimos 12 meses: o que está preenchido e o que falta */}
-        <div className="mb-5">
-          <div className="flex items-baseline justify-between gap-2 mb-1.5">
-            <p className="text-sm font-medium">Últimos 12 meses</p>
-            <p className={`text-xs ${porTratar ? 'text-amber-400' : sub}`}>{porTratar ? `${porTratar} ${porTratar === 1 ? 'mês' : 'meses'} por confirmar` : 'tudo preenchido'}</p>
-          </div>
-          <div className="grid grid-cols-6 lg:grid-cols-12 gap-1.5">
-            {estado.map(e => {
-              const cor = e.portfolio === 'ok' ? 'text-emerald-400' : e.portfolio === 'igual' ? 'text-amber-400' : e.portfolio === 'antes' ? sub : 'text-red-400';
-              const txt = e.portfolio === 'ok' ? 'Portfolio atualizado' : e.portfolio === 'igual' ? 'Portfolio igual ao mês anterior' : e.portfolio === 'antes' ? 'antes do primeiro mês com dados' : 'Portfolio por atualizar';
-              return (
-                <button key={e.idx} onClick={() => onIrParaMes(e.key)} title={`${patRotulo(e.idx)}: ${txt}, ${e.transacoes} ${e.transacoes === 1 ? 'transação' : 'transações'}`}
-                  aria-label={`${patRotulo(e.idx)}: ${txt}, ${e.transacoes} transações`} aria-pressed={e.idx === idxSel}
-                  className={`rounded-lg border px-1 py-1.5 text-center transition-all ${e.idx === idxSel ? 'border-blue-500/60 bg-blue-500/15' : (escuro ? 'border-slate-700 bg-slate-700/20 hover:bg-slate-700/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100')}`}>
-                  <span className="block text-[11px] font-medium">{patRotulo(e.idx)}</span>
-                  <span className={`block text-sm font-bold leading-tight ${cor}`}>{e.portfolio === 'ok' ? '✓' : e.portfolio === 'igual' ? '=' : e.portfolio === 'antes' ? '–' : '✕'}</span>
-                  <span className={`block text-[10px] ${sub}`}>{e.transacoes} tr.</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className={`text-[11px] mt-1.5 ${sub}`}>✓ Portfolio atualizado · = igual ao mês anterior (confirma se atualizaste) · ✕ por atualizar · "tr." = transações registadas nesse mês. Clica num mês para o abrir.</p>
-        </div>
-
-        {estSel && (estSel.portfolio === 'falta' || estSel.portfolio === 'igual') && (
-          <div className={`mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 ${escuro ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
-            <p className="text-xs flex-1 min-w-[200px]">
-              {estSel.portfolio === 'falta'
-                ? `O Portfolio de ${patRotulo(idxSel)} ainda não tem valores. Enquanto não tiver, este mês não entra no histórico.`
-                : `Os investimentos no Portfolio de ${patRotulo(idxSel)} têm exatamente os mesmos valores do mês anterior. Se foi só uma cópia, falta atualizá-los.`}
-            </p>
-            {onAbrirTab && <button onClick={() => onAbrirTab('portfolio')} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">Abrir o Portfolio deste mês →</button>}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-          {/* Investimentos (vêm do Portfolio) */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-sm font-medium flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#3b82f6' }} />Investimentos</p>
-              <span className="text-sm font-semibold">{f(tDraft.invest)}</span>
-            </div>
-            {itensInvest.length === 0 ? <p className={`text-xs ${sub}`}>Sem investimentos neste registo.</p> : (
-              <div className="space-y-1">
-                {itensInvest.map((i, k) => (
-                  <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
-                    <span className="truncate">{i.desc}
-                      <button onClick={() => marcarDinheiro(i, true)} title="Esta linha é dinheiro parado, não investimento" className="ml-2 text-[11px] text-blue-400 hover:text-blue-300">é dinheiro →</button>
-                    </span><span className="flex-shrink-0">{f(patNum(i.val))}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onMoverFixa={x => marcarDinheiro(x, false)} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
-            {(G.vendaCasa || reservadoAutoSel > 0 || tDraft.reservado > 0) && (
-              <div className={`mt-3 rounded-xl p-3 text-xs ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <label htmlFor="pat-reservado" className="font-medium">Desta liquidez, reservado para imobiliário</label>
-                  <input id="pat-reservado" type="number" inputMode="decimal" value={draft.reservado == null ? '' : draft.reservado} placeholder={String(reservadoAutoSel || 0)}
-                    onChange={e => setDraft({ ...draft, reservado: e.target.value })} className={`${inp} !w-28 !py-1 text-right text-xs`} />
-                </div>
-                <p className={`mt-1 ${sub}`}>
-                  {String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? 'Valor posto à mão para este mês (apaga o campo para voltar ao automático).' : reservadoAutoSel > 0 ? `Automático: ${f(reservadoAutoSel)}, do separador Venda de Casa (líquido da venda menos o que já gastaste ou investiste).` : 'Fica a zero até pores a data da venda no separador Venda de Casa.'}
-                  {' '}Livre: <strong>{f(tDraft.livre)}</strong>.
-                  {(String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? patNum(draft.reservado) : reservadoAutoSel) > tDraft.liquidez + 0.5 && <span className="text-amber-500"> O reservado é maior do que o dinheiro nas contas deste mês: atualiza os saldos da Liquidez.</span>}
-                </p>
-                {onAbrirTab && <button onClick={() => onAbrirTab('vendacasa')} className="mt-1 text-blue-400 hover:text-blue-300">Abrir Venda de Casa →</button>}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Casa, dívidas e outros — recolhido por defeito */}
-        <div className={`mt-5 pt-4 border-t ${linhaB}`}>
-          <button onClick={() => setMais(!mais)} aria-expanded={mais} className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-left">
-            <span className="text-sm font-medium">{mais ? '▾' : '▸'} Casa, dívidas e outros</span>
-            <span className={`text-xs ${sub}`}>Imóveis {f(tDraft.imoveis)} · Dívidas {f(tDraft.dividas)}{tDraft.outros ? ` · Outros ${f(tDraft.outros)}` : ''}</span>
-          </button>
-          {mais && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5 mt-4">
-              <PatLinhas titulo="Imóveis" cor="#d97706" linhas={draft.imoveis} onChange={l => setDraft({ ...draft, imoveis: l })} inp={inp} sub={sub} placeholder="Imóvel" />
-              <PatLinhas titulo="Dívidas" cor="#ef4444" linhas={draft.dividas} onChange={l => setDraft({ ...draft, dividas: l })} inp={inp} sub={sub} placeholder="Dívida" />
-              <PatLinhas titulo="Outros ativos" cor="#8b5cf6" linhas={draft.outros} onChange={l => setDraft({ ...draft, outros: l })} inp={inp} sub={sub} placeholder="Ex.: Investimento imobiliário" />
-            </div>
-          )}
-        </div>
-
-        {/* Movimentos — uma frase, com "corrigir" */}
-        <div className={`mt-4 pt-4 border-t ${linhaB}`}>
-          <label className={`mb-3 flex flex-wrap items-center gap-2 text-xs ${sub}`}>
-          <span>Os valores do Portfolio de {patRotulo(idxSel)} são do dia</span>
-          <input type="date" value={corteSel} min={patIso(new Date(Math.floor(idxSel / 12), idxSel % 12, 1))} max={patIso(new Date(Math.floor(idxSel / 12), (idxSel % 12) + 1, 20))}
-            onChange={e => { if (patDataAceite(idxSel, e.target.value)) setPat({ datas: { ...(pat.datas || {}), [mesKey]: e.target.value } }); }}
-            className={`${inp} !w-auto !py-1 text-xs`} aria-label="Dia a que se referem os valores do Portfolio" />
-          <span>· compras até este dia contam para {patRotulo(idxSel)}, as seguintes para o mês a seguir</span>
-        </label>
-          {!anterior ? (
-            <p className={`text-sm ${sub}`}>Primeiro registo. A partir do próximo, a app mostra quanto puseste e quanto o mercado rendeu.</p>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <p className="text-sm">
-                  Desde {patRotulo(anterior.idx)} puseste <strong>{f(patNum(draft.aportes))}</strong>
-                  {saidasDraft > 0 && <> e tiraste <strong>{f(saidasDraft)}</strong></>}
-                  {patNum(draft.amortizacao) > 0 && <span className={sub}> ({f(patNum(draft.amortizacao))} para amortizar crédito)</span>}
-                  .{anterior.rec.importado
-                    ? <span className={sub}> O mês anterior é um snapshot antigo sem detalhe, por isso o rendimento do mercado só é calculado a partir do próximo.</span>
-                    : <> O mercado {mercadoDraft >= 0 ? 'rendeu' : 'tirou'} <strong className={corDelta(mercadoDraft)}>{f(Math.abs(mercadoDraft))}</strong>.</>}
-                </p>
-                <button onClick={() => setEditMov(!editMov)} aria-expanded={editMov} className="text-xs text-blue-400 hover:text-blue-300">{editMov ? 'fechar' : 'corrigir'}</button>
-              </div>
-              {!editMov && descidaDivida >= 5000 && patNum(draft.amortizacao) === 0 && (anterior.invest - tDraft.invest) >= descidaDivida * 0.5 && (
-                <button onClick={usarDescida} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
-                  A dívida desceu {f(descidaDivida)} — foi amortização paga com os investimentos? Contar como tal
-                </button>
-              )}
-              {editMov && (
-                <div className="mt-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Puseste (aportes)</span>
-                      <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
-                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para gastar</span>
-                      <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
-                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para amortizar crédito</span>
-                      <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
-                  </div>
-                  <p className={`text-xs mt-2 ${sub}`}>
-                    {mov.origem === 'transacoes' ? `Transações neste período: ${mov.nCompras} ${mov.nCompras === 1 ? 'compra' : 'compras'}, ${mov.nVendas} ${mov.nVendas === 1 ? 'venda' : 'vendas'}.`
-                      : mov.origem === 'alocacao' ? 'Sem transações neste período — valor da Alocação.' : 'Sem transações nem Alocação neste período.'}
-                  </p>
-                  {onAbrirTab && <button onClick={() => onAbrirTab('transacoes')} className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">Abrir as Transações →</button>}
-                  {movDifere && (
-                    <button onClick={() => setDraft({ ...draft, movManual: false, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '' })}
-                      className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">↻ Repor os valores das Transações</button>
-                  )}
-                  {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
-                    <button onClick={usarDescida} className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">
-                      A dívida desceu {f(descidaDivida)} — contar como amortização
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <label className="flex flex-col gap-1 mt-4">
-          <span className={`text-xs ${sub}`}>Nota (opcional)</span>
-          <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={1} placeholder="O que explica os números deste mês?" className={`${inp} w-full resize-y`} />
-        </label>
-
-        {ehAuto && <p className={`text-xs mt-3 ${sub}`}>Este mês já está no histórico, calculado sozinho a partir do Portfolio. Não precisas de guardar nada — só se corrigires algum valor.</p>}
-        <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
-          <div><p className={`text-xs ${sub}`}>Património financeiro</p><p className="font-bold">{f(tDraft.capital)}</p></div>
-          <div><p className={`text-xs ${sub}`}>Património total</p><p className="font-bold">{f(tDraft.total)}</p></div>
-          <div className="ml-auto flex items-center gap-2">
-            {draft.existe && (confirmaApagar
-              ? <><span className={`text-xs ${sub}`}>Apagar este registo?</span>
-                  <button onClick={apagar} className="px-3 py-2 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/30">Sim, apagar</button>
-                  <button onClick={() => setConfirmaApagar(false)} className={chip(false)}>Cancelar</button></>
-              : <button onClick={() => setConfirmaApagar(true)} className="px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-500/10">Apagar</button>)}
-            {!confirmaApagar && (
-              <button onClick={guardar} disabled={!sujo && !draft.importado}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all ${(!sujo && !draft.importado) ? 'bg-slate-500/40 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`}>
-                {!draft.existe ? (ehAuto ? 'Guardar correções' : 'Guardar') : draft.importado ? 'Confirmar' : sujo ? 'Guardar alterações' : 'Guardado'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Acontecimentos */}
-      <div className={card}>
-        <button onClick={() => setSec({ ...sec, ev: !sec.ev })} aria-expanded={sec.ev} className="w-full flex items-center justify-between gap-3 text-left">
-          <h3 className="font-semibold">{sec.ev ? '▾' : '▸'} 📌 Acontecimentos</h3>
-          <span className={`text-xs ${sub}`}>{evOrd.length ? `${evOrd.length} ${evOrd.length === 1 ? 'marco' : 'marcos'}` : 'venda da casa, mudança de trabalho…'}</span>
-        </button>
-        {sec.ev && (<div className="mt-3">
-        {evOrd.length > 0 && (
-          <div className="space-y-1.5 mb-3">
-            {evOrd.map(e => (
-              <div key={e.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${escuro ? 'bg-slate-700/30' : 'bg-slate-50'}`}>
-                <span className={`w-5 h-5 rounded-full border text-[10px] font-semibold flex items-center justify-center flex-shrink-0 ${escuro ? 'border-slate-500' : 'border-slate-400'}`}>{e.n}</span>
-                <span className={`text-xs flex-shrink-0 ${sub}`}>{(e.data || '').split('-').reverse().join('/')}</span>
-                <span className="text-sm flex-1 min-w-0 truncate">{e.texto}</span>
-                <button onClick={() => setPat({ eventos: eventos.filter(x => x.id !== e.id) })} aria-label="Remover acontecimento" className="text-red-400 hover:text-red-300 px-1">✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <input type="date" value={novoEv.data} onChange={e => setNovoEv({ ...novoEv, data: e.target.value })} className={inp} />
-          <input type="text" value={novoEv.texto} onChange={e => setNovoEv({ ...novoEv, texto: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addEvento(); }}
-            placeholder="Ex.: Vendi a casa" className={`${inp} flex-1 min-w-[180px]`} />
-          <button onClick={addEvento} className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">+ Adicionar</button>
-        </div>
-        </div>)}
-      </div>
-
-      {/* Histórico detalhado */}
-      {det.length > 0 && (
-        <div className={card}>
-          <div className="flex items-center justify-between gap-2">
-            <button onClick={() => setSec({ ...sec, hist: !sec.hist })} aria-expanded={sec.hist} className="flex-1 text-left">
-              <h3 className="font-semibold">{sec.hist ? '▾' : '▸'} 📚 Histórico detalhado</h3>
-            </button>
-            {sec.hist ? <button onClick={exportarCSV} className={chip(false)}>⬇ Exportar CSV</button>
-              : <span className={`text-xs ${sub}`}>{det.length} {det.length === 1 ? 'registo' : 'registos'}</span>}
-          </div>
-          {sec.hist && (<div className="mt-3">
-          {anosTab.map(y => {
-            const linhasAno = det.filter(d => Math.floor(d.idx / 12) === y).reverse();
-            const fim = linhasAno[0], ini = linhasAno[linhasAno.length - 1];
-            const base = ini.prev || ini;
-            return (
-              <div key={y} className={`border-t ${linhaB} first:border-t-0`}>
-                <button onClick={() => setAnosAbertos({ ...anosAbertos, [y]: !anoAberto(y) })} className="w-full flex items-center justify-between gap-3 py-2.5 text-left">
-                  <span className="font-semibold">{anoAberto(y) ? '▾' : '▸'} {y} <span className={`text-xs font-normal ${sub}`}>{linhasAno.length} {linhasAno.length === 1 ? 'registo' : 'registos'}</span></span>
-                  <span className="text-sm">{f(fim[campo])} <span className={`text-xs ${corDelta(fim[campo] - base[campo])}`}>{base !== fim ? sinal(fim[campo] - base[campo]) : ''}</span></span>
-                </button>
-                {anoAberto(y) && (
-                  <div className="overflow-x-auto pb-2">
-                    <table className="w-full text-xs whitespace-nowrap">
-                      <thead>
-                        <tr className={sub}>
-                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Puseste', 'Amortiz.', 'Mercado'].map((c, i) => (
-                            <th key={c} className={`font-medium py-1.5 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>{c}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {linhasAno.map(d => {
-                          const dv = vista === 'capital' ? d.dCapital : d.dTotal;
-                          return (
-                            <tr key={d.idx} onClick={() => onIrParaMes(d.key)} title={d.rec.nota || 'Abrir este mês'}
-                              className={`cursor-pointer border-t ${linhaB} ${d.idx === idxSel ? (escuro ? 'bg-blue-500/10' : 'bg-blue-50') : (escuro ? 'hover:bg-slate-700/30' : 'hover:bg-slate-50')}`}>
-                              <td className="py-1.5 px-2 text-left font-medium">{patRotulo(d.idx)}{d.rec.importado && <span className={`ml-1 text-[10px] font-normal ${sub}`}>imp.</span>}{d.rec.auto && <span className={`ml-1 text-[10px] font-normal ${sub}`}>auto</span>}{d.rec.nota && <span className={`ml-1 text-[10px] font-normal ${sub}`}>nota</span>}</td>
-                              <td className="py-1.5 px-2 text-right">{f(d.invest)}</td>
-                              <td className="py-1.5 px-2 text-right">{f(d.liquidez)}</td>
-                              <td className="py-1.5 px-2 text-right">{f(d.outros)}</td>
-                              {vista === 'total' && <td className="py-1.5 px-2 text-right">{f(d.imoveis)}</td>}
-                              {vista === 'total' && <td className="py-1.5 px-2 text-right">{d.dividas ? '−' + f(d.dividas) : f(0)}</td>}
-                              <td className="py-1.5 px-2 text-right font-semibold">{f(d[campo])}</td>
-                              <td className={`py-1.5 px-2 text-right ${dv != null ? corDelta(dv) : sub}`}>{dv != null ? sinal(dv) : '—'}</td>
-                              <td className={`py-1.5 px-2 text-right ${d.fluxo == null ? sub : ''}`}>{d.fluxo != null ? sinal(d.fluxo) : '—'}</td>
-                              <td className={`py-1.5 px-2 text-right ${patNum(d.rec.amortizacao) ? '' : sub}`}>{patNum(d.rec.amortizacao) ? '−' + f(patNum(d.rec.amortizacao)) : '—'}</td>
-                              <td className={`py-1.5 px-2 text-right ${d.resultado != null ? corDelta(d.resultado) : sub}`}>{d.resultado != null ? sinal(d.resultado) : '—'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <p className={`text-[11px] mt-2 ${sub}`}>auto = calculado sozinho a partir do Portfolio · imp. = snapshot antigo · clica numa linha para abrir esse mês.</p>
-          </div>)}
-        </div>
-      )}
-    </div>
-  );
-};
+import {
+  StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
+  PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos, _fmtEUR,
+  mapearCategoriaBilance, estimarImpostosRecibo, PROCESS_INVOICE_URLS
+} from './base';
+import {
+  VendaCasa
+} from './vendaCasa';
+import {
+  PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patNum, patIdx, patIso, patDataAceite,
+  patTemPortfolio, patHistoricoPortfolio, patRotulo, patSerie, patRegistosEfetivos, CompararAnos, Patrimonio
+} from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   
@@ -2768,9 +151,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   // Sistema de confirmação (substitui clicks destrutivos sem confirmação)
   const [confirmAction, setConfirmAction] = useState(null);
-  const confirmDelete = useCallback((message, onConfirm) => {
-    setConfirmAction({ message, onConfirm });
+  const confirmDelete = useCallback((message, onConfirm, label) => {
+    setConfirmAction({ message, onConfirm, label });
   }, []);
+  // Pedir valores numa caixa da app (substitui prompt())
+  const [formAction, setFormAction] = useState(null);
   
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
@@ -3338,6 +723,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,metas:metasRaw=defG.metas,credito=defG.credito} = G;
  // Histórico do Portfolio calculado a partir dos meses guardados — já não depende do botão Snapshot
  const portfolioHist = patHistoricoPortfolio(G.portfolioHist, M);
+  // Série do Património (a mesma do separador Património), para o dashboard e a Performance
+  const patSerieApp = useMemo(() => patSerie(patRegistosEfetivos(G, M)), [G, M]);
+  const patUlt = patSerieApp.length ? patSerieApp[patSerieApp.length - 1] : null;
 
   // Credito unificado
   const creditoAtual = useMemo(() => {
@@ -4357,7 +1745,40 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  {/* Os restantes widgets mantêm a estrutura original por agora */}
 
- {/* PATRIMÓNIO LÍQUIDO - Card completo */}
+ {/* PATRIMÓNIO LÍQUIDO - mesmos valores do separador Património */}
+ {patUlt ? (
+ <Card>
+   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+     <div>
+       <h3 className="font-semibold">💎 Património Líquido</h3>
+       <p className="text-xs text-slate-500">{patRotulo(patUlt.idx)} · <button onClick={() => setTab('patrimonio')} className="text-blue-400 hover:text-blue-300">ver detalhe →</button></p>
+     </div>
+     <span className="text-2xl font-bold text-emerald-400">{fmt(patUlt.total)}</span>
+   </div>
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">📊 Investimentos</p>
+       <p className="text-lg font-bold text-blue-400">{fmt(patUlt.invest)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">sem o dinheiro parado</p>
+     </div>
+     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">💶 Dinheiro nas contas</p>
+       <p className="text-lg font-bold text-emerald-400">{fmt(patUlt.liquidez + patUlt.outros)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">{patUlt.reservado > 0 ? `${fmt(patUlt.reservado)} reservados p/ imobiliário` : 'inclui a Trade Republic'}</p>
+     </div>
+     <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">🏠 Imóveis</p>
+       <p className="text-lg font-bold text-purple-400">{fmt(patUlt.imoveis)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">líquido de dívida: {fmt(patUlt.imoveis - patUlt.dividas)}</p>
+     </div>
+     <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+       <p className="text-xs text-slate-400 mb-1">📉 Dívida</p>
+       <p className="text-lg font-bold text-red-400">{fmt(patUlt.dividas)}</p>
+       <p className="text-[10px] text-slate-500 mt-1">Crédito restante</p>
+     </div>
+   </div>
+ </Card>
+ ) : (
  <Card>
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
      <h3 className="font-semibold">💎 Património Líquido</h3>
@@ -4386,6 +1807,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    </div>
  </Card>
+ )}
  
  {/* RECEITAS ANUAIS POR ORIGEM */}
  <Card className="p-3 sm:p-4">
@@ -5097,7 +2519,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      ) : (
                        <>
                          <p className="text-lg font-medium text-slate-500">Por preencher</p>
-                         <p className="text-xs text-slate-600">Atualiza o snapshot mensal</p>
+                         <p className="text-xs text-slate-600">Atualiza os valores no Portfolio</p>
                        </>
                      )}
                    </div>
@@ -5140,85 +2562,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
        )}
        
-       {/* COMPARAÇÃO ANO VS ANO */}
+       {/* COMPARAR ANOS */}
        <Card>
-         <h3 className="font-semibold mb-4">📊 Comparação {ano} vs {ano - 1}</h3>
-         {(() => {
-           // Dados do ano atual
-           const dadosAnoAtual = {
-             receitas: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.regCom || []).reduce((a, r) => a + r.val, 0) + (v.regSem || []).reduce((a, r) => a + r.val, 0), 0),
-             horas: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0),
-             investimentos: Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0),
-             meses: Object.entries(M).filter(([k, v]) => k.startsWith(`${ano}-`) && ((v.regCom || []).length > 0 || (v.regSem || []).length > 0)).length
-           };
-           
-           // Dados do ano anterior (mesmos meses para comparação justa)
-           const dadosAnoAnterior = {
-             receitas: Object.entries(M).filter(([k]) => {
-               const [a, m] = k.split('-').map(Number);
-               return a === ano - 1 && m <= mesAtualNum;
-             }).reduce((acc, [, v]) => acc + (v.regCom || []).reduce((a, r) => a + r.val, 0) + (v.regSem || []).reduce((a, r) => a + r.val, 0), 0),
-             horas: Object.entries(M).filter(([k]) => {
-               const [a, m] = k.split('-').map(Number);
-               return a === ano - 1 && m <= mesAtualNum;
-             }).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0),
-             investimentos: Object.entries(M).filter(([k]) => {
-               const [a, m] = k.split('-').map(Number);
-               return a === ano - 1 && m <= mesAtualNum;
-             }).reduce((acc, [, v]) => acc + (v.inv || []).reduce((a, i) => a + i.val, 0), 0),
-             meses: Object.entries(M).filter(([k, v]) => {
-               const [a, m] = k.split('-').map(Number);
-               return a === ano - 1 && m <= mesAtualNum && ((v.regCom || []).length > 0 || (v.regSem || []).length > 0);
-             }).length
-           };
-           
-           // Valor/hora
-           const valorHoraAtual = dadosAnoAtual.horas > 0 ? dadosAnoAtual.receitas / dadosAnoAtual.horas : 0;
-           const valorHoraAnterior = dadosAnoAnterior.horas > 0 ? dadosAnoAnterior.receitas / dadosAnoAnterior.horas : 0;
-           
-           // Calcular variações
-           const calcVariacao = (atual, anterior) => anterior > 0 ? ((atual - anterior) / anterior * 100) : (atual > 0 ? 100 : 0);
-           
-           const variacoes = [
-             { label: '💰 Receitas', atual: dadosAnoAtual.receitas, anterior: dadosAnoAnterior.receitas, variacao: calcVariacao(dadosAnoAtual.receitas, dadosAnoAnterior.receitas), formato: fmt },
-             { label: '⏱️ Horas', atual: dadosAnoAtual.horas, anterior: dadosAnoAnterior.horas, variacao: calcVariacao(dadosAnoAtual.horas, dadosAnoAnterior.horas), formato: v => `${Math.round(v)}h`, invertido: true },
-             { label: '💵 Valor/Hora', atual: valorHoraAtual, anterior: valorHoraAnterior, variacao: calcVariacao(valorHoraAtual, valorHoraAnterior), formato: fmt },
-             { label: '📈 Investimentos', atual: dadosAnoAtual.investimentos, anterior: dadosAnoAnterior.investimentos, variacao: calcVariacao(dadosAnoAtual.investimentos, dadosAnoAnterior.investimentos), formato: fmt },
-           ];
-           
-           return (
-             <div className="space-y-3">
-               <p className="text-xs text-slate-500 mb-2">
-                 Comparação dos primeiros {mesAtualNum} meses de cada ano
-               </p>
-               {variacoes.map(v => {
-                 const isPositive = v.invertido ? v.variacao <= 0 : v.variacao >= 0;
-                 return (
-                   <div key={v.label} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
-                     <span className="text-sm">{v.label}</span>
-                     <div className="flex items-center gap-4">
-                       <div className="text-right">
-                         <span className="text-xs text-slate-500">{ano - 1}: {v.formato(v.anterior)}</span>
-                       </div>
-                       <div className="text-right">
-                         <span className="font-semibold">{v.formato(v.atual)}</span>
-                       </div>
-                       <span className={`px-2 py-1 rounded text-xs font-medium ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                         {v.variacao >= 0 ? '+' : ''}{v.variacao.toFixed(1)}%
-                       </span>
-                     </div>
-                   </div>
-                 );
-               })}
-               
-               {dadosAnoAnterior.receitas === 0 && (
-                 <p className="text-xs text-slate-500 text-center py-2">
-                   Sem dados de {ano - 1} para comparação
-                 </p>
-               )}
-             </div>
-           );
-         })()}
+         <CompararAnos G={G} M={M} theme={theme} anoAtual={ano} />
        </Card>
        
        {/* GRÁFICO PATRIMÓNIO LÍQUIDO */}
@@ -5268,7 +2614,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const equityCasa = valorCasa > 0 ? valorCasa - dividaMes : 0;
              
              // Património líquido = Portfolio + Equity Casa
-             const patrimonioLiq = portfolioMes !== null ? (portfolioMes + equityCasa) : null;
+             // Se o separador Património tem registo deste mês, é esse o valor que conta
+             const recPat = patSerieApp.find(x => x.key === mesKey);
+             const patrimonioLiq = recPat ? recPat.total : (portfolioMes !== null ? (portfolioMes + equityCasa) : null);
              
              mesesDoAno.push({
                mes: mesNome,
@@ -5286,8 +2634,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            if (mesesComDados.length < 2) {
              return (
                <div className="text-center py-8 text-slate-500">
-                 <p>📊 Adiciona snapshots mensais do portfolio para ver a evolução</p>
-                 <p className="text-xs mt-2">Vai a Portfolio → Snapshot para registar</p>
+                 <p>📊 Atualiza o Portfolio em pelo menos dois meses para ver a evolução</p>
                </div>
              );
            }
@@ -8522,10 +5869,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  const removerCredito = (id) => {
-   if (confirm('Tens a certeza que queres remover este crédito? Esta ação não pode ser desfeita.')) {
+   confirmDelete('Tens a certeza que queres remover este crédito?', () => {
      uG('creditos', creditos.filter(c => c.id !== id));
      if (creditoSelecionado === id) setCreditoSelecionado(null);
-   }
+   });
  };
  
  // Migrar crédito antigo para novo sistema
@@ -9132,18 +6479,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <h3 className="text-lg font-semibold">📈 Histórico de Dívida</h3>
      <button 
        onClick={() => {
-         const novaData = prompt('Data (AAAA-MM):', `${ano}-${String(new Date().getMonth()+1).padStart(2,'0')}`);
-         if (novaData && /^\d{4}-\d{2}$/.test(novaData)) {
-           // Verificar se já existe registo para esta data
-           const existente = historico.find(h => h.date === novaData);
-           if (existente) {
-             if (!confirm(`Já existe um registo para ${novaData} (${fmt(existente.divida)}). Queres substituir?`)) {
-               return;
-             }
-           }
-           
-           const novoValor = prompt('Valor da dívida nessa data:', dividaAtual.toString());
-           if (novoValor && !isNaN(parseFloat(novoValor))) {
+         setFormAction({
+           titulo: 'Novo registo de dívida',
+           campos: [
+             { k: 'data', label: 'Mês', tipo: 'month', valor: `${ano}-${String(new Date().getMonth()+1).padStart(2,'0')}` },
+             { k: 'valor', label: 'Valor da dívida nesse mês (€)', tipo: 'number', valor: String(dividaAtual) }
+           ],
+           botao: 'Adicionar',
+           onOk: (v) => {
+             const novaData = v.data, novoValor = v.valor;
+             if (!/^\d{4}-\d{2}$/.test(novaData || '') || novoValor === '' || isNaN(parseFloat(novoValor))) { showToast('Preenche o mês e o valor.', 'warning'); return; }
+             const gravar = () => {
              // Remover duplicados e adicionar novo
              const historicoSemDuplicado = historico.filter(h => h.date !== novaData);
              const novoHist = [...historicoSemDuplicado, { date: novaData, divida: parseFloat(novoValor) }]
@@ -9166,8 +6512,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              }
              
              showToast(`Registo adicionado: ${novaData} = ${fmt(parseFloat(novoValor))}`);
+             };
+             const existente = historico.find(h => h.date === novaData);
+             if (existente) confirmDelete(`Já existe um registo para ${novaData} (${fmt(existente.divida)}). Queres substituir?`, gravar, 'Substituir');
+             else gravar();
            }
-         }
+         });
        }}
        className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
      >
@@ -9247,14 +6597,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                />
                <button 
                  onClick={() => {
-                   if (confirm(`Remover registo de ${mesNome} ${y}?`)) {
+                   confirmDelete(`Remover registo de ${mesNome} ${y}?`, () => {
                      const novoHist = historico.filter(x => x.date !== h.date);
                      if (creditoSelecionado) {
                        atualizarCredito(creditoSelecionado, 'historico', novoHist);
                      } else {
                        uC('historico', novoHist);
                      }
-                   }
+                   });
                  }}
                  className="text-red-400 hover:text-red-300 p-1"
                >
@@ -9363,7 +6713,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const abrirImportTransacoes = async (file) => {
    try {
      const { origem, linhas } = await txLerFicheiro(file);
-     if (!linhas.length) { showToast(`Não encontrei compras nem vendas neste ficheiro da ${origem}.`, 'error', 6000); return; }
+     if (!linhas.length) { showToast(`Não encontrei compras, vendas nem juros neste ficheiro da ${origem}.`, 'error', 6000); return; }
      const marcadas = txMarcarDuplicados(linhas, G.transacoes || []).sort((a, b) => b.data.localeCompare(a.data));
      setTxImport({ origem, ficheiro: file.name, linhas: marcadas.map(l => ({ ...l, sel: !l.dup })) });
    } catch (err) {
@@ -9491,9 +6841,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
 
    const deleteTransacao = (id) => {
-     if (confirm('Apagar esta transação?')) {
+     confirmDelete('Apagar esta transação?', () => {
        uG('transacoes', transacoes.filter(t => t.id !== id));
-     }
+     });
    };
    
    const addCorretora = () => {
@@ -9567,7 +6917,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <p className="text-xl font-bold text-red-400">{fmt(totalVendas)}</p>
          </Card>
          <Card className="bg-amber-500/10 border-amber-500/30">
-           <p className="text-xs text-slate-400 mb-1">💵 Dividendos</p>
+           <p className="text-xs text-slate-400 mb-1">💵 Dividendos e juros</p>
            <p className="text-xl font-bold text-amber-400">{fmt(totalDividendos)}</p>
          </Card>
          <Card className="bg-purple-500/10 border-purple-500/30">
@@ -10275,9 +7625,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
    
    const deleteFerias = (id) => {
-     if (confirm('Apagar este período de férias?')) {
+     confirmDelete('Apagar este período de férias?', () => {
        uG('feriasCalendario', feriasLista.filter(f => f.id !== id));
-     }
+     });
    };
    
    // Função para clicar num dia e criar projeto
@@ -10329,7 +7679,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
    
    const deleteProjeto = async (id) => {
-     if (confirm('Apagar este projeto?')) {
+     confirmDelete('Apagar este projeto?', async () => {
        const projeto = projetos.find(p => p.id === id);
        
        // Apagar do Google Calendar
@@ -10338,7 +7688,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        }
        
        uG('projetos', projetos.filter(p => p.id !== id));
-     }
+     });
    };
    
    const toggleConcluido = (id) => {
@@ -10945,10 +8295,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    
    const removeTarefa = (id) => {
-     if (confirm('Remover esta tarefa?')) {
+     confirmDelete('Remover esta tarefa?', () => {
        saveUndo();
        uG('tarefas', tarefas.filter(t => t.id !== id));
-     }
+     });
    };
    
 
@@ -11085,10 +8435,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className="flex gap-2">
              <Button variant="secondary" onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+</Button>
              <Button variant="secondary" onClick={() => {
-               if (confirm('Restaurar todas as tarefas para os valores padrão?')) {
+               confirmDelete('Restaurar todas as tarefas para os valores padrão?', () => {
                  saveUndo();
                  uG('tarefas', defG.tarefas);
-               }
+               }, 'Restaurar');
              }}>🔄 Padrão</Button>
            </div>
          </div>
@@ -11413,7 +8763,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        return txs;
      } catch (err) {
        console.error('Erro PDF:', err);
-       alert('Erro ao processar PDF: ' + (err.message || err));
+       showToast('Erro ao processar PDF: ' + (err.message || err), 'error', 7000);
        return [];
      }
    };
@@ -11934,14 +9284,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <span className="text-orange-400">Último import: {lastImportIds.length} registos</span>
                  <button type="button" onClick={() => setSelectedTxs(new Set(lastImportIds))}
                    className="px-2 py-1 rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30">Selecionar</button>
-                 <button type="button" onClick={() => { if (confirm(`Apagar ${lastImportIds.length} registos do último import?`)) removeBatch(lastImportIds); }}
+                 <button type="button" onClick={() => confirmDelete(`Apagar ${lastImportIds.length} registos do último import?`, () => removeBatch(lastImportIds))}
                    className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ Apagar último import</button>
                  <button type="button" onClick={() => setLastImportIds([])}
                    className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">✕</button>
                </>
              )}
              {selectedTxs.size === 0 && lastImportIds.length === 0 && extrato.length > 0 && (
-               <button type="button" onClick={() => { if (confirm(`Tens a certeza que queres apagar TODOS os ${extrato.length} registos de TODAS as contas e meses? Esta acção não pode ser desfeita.`)) { saveUndo(); uG('extrato', []); setSelectedTxs(new Set()); setLastImportIds([]); }}}
+               <button type="button" onClick={() => { confirmDelete(`Tens a certeza que queres apagar TODOS os ${extrato.length} registos de TODAS as contas e meses?`, () => { saveUndo(); uG('extrato', []); setSelectedTxs(new Set()); setLastImportIds([]); }, 'Apagar tudo');}}
                  className="px-2 py-1 rounded bg-red-500/10 text-red-400/70 hover:bg-red-500/20 hover:text-red-400">🗑️ Apagar todos ({extrato.length})</button>
              )}
            </div>
@@ -12121,34 +9471,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          ).sort((a, b) => new Date(b.data) - new Date(a.data));
                          
                          if (candidatas.length === 0) {
-                           alert('Sem receitas disponíveis neste mês para vincular como reembolso.');
+                           showToast('Sem receitas disponíveis neste mês para vincular como reembolso.', 'warning', 5000);
                            return;
                          }
                          
-                         const lista = candidatas.slice(0, 15).map((c, i) => 
-                           `${i + 1}. ${c.data?.slice(5)} | ${c.descricao?.slice(0, 30)} | +${fmt(c.valor)}`
-                         ).join('\n');
-                         
-                         const escolha = prompt(
-                           `Vincular reembolso a "${tx.descricao?.slice(0, 30)}" (${fmt(Math.abs(tx.valor))})\n\n` +
-                           `Receitas disponíveis:\n${lista}\n\n` +
-                           `Insere o(s) número(s) separados por vírgula (ex: 1,3):`,
-                           ''
-                         );
-                         if (!escolha) return;
-                         
-                         const indices = escolha.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < candidatas.length);
-                         if (indices.length === 0) return;
-                         
-                         const reembolsosIds = indices.map(i => candidatas[i].id);
-                         const totalReembolso = indices.reduce((a, i) => a + candidatas[i].valor, 0);
-                         const valorReal = tx.valor + totalReembolso; // tx.valor é negativo, totalReembolso é positivo
-                         
-                         saveUndo(); uG('extrato', extrato.map(t => {
-                           if (t.id === tx.id) return {...t, reembolsos: reembolsosIds, valorReal};
-                           if (reembolsosIds.includes(t.id)) return {...t, _usadoComoReembolso: tx.id, tipo: 'reembolso'};
-                           return t;
-                         }));
+                         setFormAction({
+                           titulo: 'Vincular reembolso',
+                           texto: `Despesa: "${tx.descricao?.slice(0, 40)}" (${fmt(Math.abs(tx.valor))}). Escolhe a(s) receita(s) que a reembolsam.`,
+                           campos: [{ k: 'ids', label: 'Receitas deste mês', tipo: 'lista', valor: [], opcoes: candidatas.slice(0, 30).map(c => ({ id: c.id, label: `${String(c.data || '').slice(5).split('-').reverse().join('/')} · ${String(c.descricao || '').slice(0, 40)} · +${fmt(c.valor)}` })) }],
+                           botao: 'Vincular',
+                           onOk: (v) => {
+                             const reembolsosIds = v.ids || [];
+                             if (reembolsosIds.length === 0) return;
+                             const totalReembolso = candidatas.filter(c => reembolsosIds.includes(c.id)).reduce((a, c) => a + c.valor, 0);
+                             const valorReal = tx.valor + totalReembolso; // tx.valor é negativo, totalReembolso é positivo
+                             saveUndo(); uG('extrato', extrato.map(t => {
+                               if (t.id === tx.id) return {...t, reembolsos: reembolsosIds, valorReal};
+                               if (reembolsosIds.includes(t.id)) return {...t, _usadoComoReembolso: tx.id, tipo: 'reembolso'};
+                               return t;
+                             }));
+                           }
+                         });
                        }} className={`text-xs flex-shrink-0 ${tx.reembolsos?.length ? 'text-orange-400' : 'text-slate-500/40 hover:text-orange-400'}`}>🔗</button>
                      )}
                      <button type="button" onClick={() => removeTx(tx.id)} className="text-red-400/50 hover:text-red-400 text-xs flex-shrink-0">✕</button>
@@ -12754,7 +10097,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div>
                <label className="text-xs text-slate-500 block mb-1">Ficheiro (CSV ou Excel)</label>
                <input type="file" accept=".csv,.txt,.xlsx,.xls,.pdf" onClick={e => {
-                 if (!importConta) { alert('Seleciona uma conta primeiro.'); e.preventDefault(); return; }
+                 if (!importConta) { showToast('Seleciona uma conta primeiro.', 'warning'); e.preventDefault(); return; }
                  e.target.value = '';
                }} onChange={e => {
                  const file = e.target.files?.[0];
@@ -12767,12 +10110,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      try {
                        const txs = await processarPDF(ev.target.result, importConta);
                        if (txs.length === 0) {
-                         alert('Não foi possível extrair transações do PDF. Verifica se o ficheiro contém um extrato com tabela de transações.');
+                         showToast('Não foi possível extrair transações do PDF. Verifica se o ficheiro contém um extrato com tabela de transações.', 'error', 7000);
                        }
                        setImportPreview(txs);
                      } catch (err) {
                        console.error('Erro PDF:', err);
-                       alert('Erro ao ler PDF.');
+                       showToast('Erro ao ler PDF.', 'error', 6000);
                      }
                    };
                    reader.readAsArrayBuffer(file);
@@ -12788,7 +10131,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                        setImportPreview(txs);
                      } catch (err) {
                        console.error('Erro ao ler Excel:', err);
-                       alert('Erro ao ler ficheiro Excel. Tenta exportar como CSV.');
+                       showToast('Erro ao ler ficheiro Excel. Tenta exportar como CSV.', 'error', 7000);
                      }
                    };
                    reader.readAsArrayBuffer(file);
@@ -13591,15 +10934,15 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  // Função para resetar todos os dados
  const handleResetAll = () => {
-   if (window.confirm('⚠️ ATENÇÃO: Isto vai apagar TODOS os teus dados!\n\nReceitas, investimentos, portfolio, histórico - TUDO será perdido.\n\nTens a certeza que queres continuar?')) {
-     if (window.confirm('🔴 ÚLTIMA CONFIRMAÇÃO:\n\nEsta ação é IRREVERSÍVEL!\n\nClica OK para apagar tudo.')) {
+   confirmDelete('⚠️ Isto vai apagar TODOS os teus dados: receitas, investimentos, portfolio, histórico. Tens a certeza?', () => {
+     // segunda confirmação, só depois de a primeira caixa fechar
+     setTimeout(() => confirmDelete('🔴 Última confirmação: queres mesmo apagar tudo?', () => {
        saveUndo();
        setG(defG);
        setM({});
-       setHasChanges(true);
-       showToast('Todos os dados foram resetados para os valores iniciais.');
-     }
-   }
+       showToast('Todos os dados foram repostos nos valores iniciais. Podes desfazer com o botão de voltar atrás.');
+     }, 'Apagar tudo'), 0);
+   }, 'Continuar');
  };
 
  // ========== NOVAS FUNCIONALIDADES ==========
@@ -15204,27 +12547,27 @@ ${transacoesOrdenadas.map(t => `<tr>
    /* Animações globais */
    @keyframes fadeIn {
      from { opacity: 0; transform: translateY(10px); }
-     to { opacity: 1; transform: translateY(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes fadeInUp {
      from { opacity: 0; transform: translateY(20px); }
-     to { opacity: 1; transform: translateY(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes fadeInDown {
      from { opacity: 0; transform: translateY(-20px); }
-     to { opacity: 1; transform: translateY(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes fadeInScale {
      from { opacity: 0; transform: scale(0.95); }
-     to { opacity: 1; transform: scale(1); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes slideInRight {
      from { opacity: 0; transform: translateX(20px); }
-     to { opacity: 1; transform: translateX(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes slideInLeft {
      from { opacity: 0; transform: translateX(-20px); }
-     to { opacity: 1; transform: translateX(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes pulse {
      0%, 100% { opacity: 1; }
@@ -15240,7 +12583,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    @keyframes modalIn {
      from { opacity: 0; transform: scale(0.9) translateY(20px); }
-     to { opacity: 1; transform: scale(1) translateY(0); }
+     to { opacity: 1; transform: none translateY(0); }
    }
    @keyframes backdropIn {
      from { opacity: 0; }
@@ -15248,11 +12591,11 @@ ${transacoesOrdenadas.map(t => `<tr>
    }
    @keyframes listItemIn {
      from { opacity: 0; transform: translateX(-10px); }
-     to { opacity: 1; transform: translateX(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes cardIn {
      from { opacity: 0; transform: translateY(15px); }
-     to { opacity: 1; transform: translateY(0); }
+     to { opacity: 1; transform: none; }
    }
    @keyframes numberChange {
      0% { transform: scale(1); }
@@ -15371,6 +12714,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    </div>
  )}
  
+ {formAction && <PedirDados pedido={formAction} theme={theme} onFechar={() => setFormAction(null)} />}
  {/* Modal de Confirmação */}
  {confirmAction && (
    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setConfirmAction(null)}>
@@ -15378,7 +12722,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <p className={`text-sm mb-4 ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{confirmAction.message}</p>
        <div className="flex justify-end gap-2">
          <button onClick={() => setConfirmAction(null)} className={`px-4 py-2 text-sm rounded-xl ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`}>Cancelar</button>
-         <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }} className="px-4 py-2 text-sm rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium">Apagar</button>
+         <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }} className="px-4 py-2 text-sm rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium">{confirmAction.label || 'Apagar'}</button>
        </div>
      </div>
    </div>
@@ -15551,7 +12895,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  {txImport && (() => {
    const sel = txImport.linhas.filter(l => l.sel);
    const dups = txImport.linhas.filter(l => l.dup).length;
-   const total = sel.reduce((a, l) => a + (l.tipo === 'venda' ? -1 : 1) * (l.valorTotal + (l.tipo === 'venda' ? -l.comissao : l.comissao)), 0);
+   const total = sel.filter(l => l.tipo !== 'dividendo').reduce((a, l) => a + (l.tipo === 'venda' ? -1 : 1) * (l.valorTotal + (l.tipo === 'venda' ? -l.comissao : l.comissao)), 0);
+   const rendimento = sel.filter(l => l.tipo === 'dividendo').reduce((a, l) => a + l.valorTotal, 0);
    const comissoes = sel.reduce((a, l) => a + l.comissao, 0);
    const datas = txImport.linhas.map(l => l.data).sort();
    const fmtD = d => d.split('-').reverse().join('/');
@@ -15568,7 +12913,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            Encontrei <strong className={theme === 'light' ? 'text-slate-800' : 'text-white'}>{txImport.linhas.length}</strong> {txImport.linhas.length === 1 ? 'transação' : 'transações'}, de {fmtD(datas[0])} a {fmtD(datas[datas.length - 1])}.
            {dups > 0 && <> {dups === 1 ? 'Uma já está' : `${dups} já estão`} na app e {dups === 1 ? 'fica' : 'ficam'} de fora, para não {dups === 1 ? 'contar' : 'contarem'} a dobrar.</>}
          </p>
-         {txImport.origem === 'Trade Republic' && <p className="text-xs text-slate-500">Só entram compras e vendas de investimentos. Depósitos, transferências, juros, pagamentos com cartão e o fundo onde está o dinheiro parado ficam de fora.</p>}
+         {txImport.origem === 'Trade Republic' && <p className="text-xs text-slate-500">Entram compras e vendas de investimentos, e os juros e dividendos recebidos (que não contam como dinheiro que puseste). Depósitos, transferências, pagamentos com cartão e o fundo onde está o dinheiro parado ficam de fora.</p>}
          <div className="flex flex-wrap gap-2 text-xs">
            <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: !l.dup })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Só as novas</button>
            <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: true })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Todas</button>
@@ -15582,19 +12927,19 @@ ${transacoesOrdenadas.map(t => `<tr>
                <span className="flex-1 min-w-0">
                  <span className="block truncate">{l.ticker}</span>
                  <span className="block text-xs text-slate-500">
-                   {l.tipo === 'venda' ? 'Venda' : 'Compra'} · {l.quantidade} un. · {l.categoria}
+                   {l.tipo === 'dividendo' ? (l.categoria === 'FE' ? 'Juros' : 'Dividendo') : <>{l.tipo === 'venda' ? 'Venda' : 'Compra'} · {l.quantidade} un. · {l.categoria}</>}
                    {l.comissao > 0 && <> · comissão {fmt(l.comissao)}</>}
                    {l.dup && <span className="ml-1 text-amber-500">· {l.dup === 'importada' ? 'já importada' : 'parece já estar registada à mão'}</span>}
                  </span>
                </span>
-               <span className={`flex-shrink-0 font-medium tabular-nums ${l.tipo === 'venda' ? 'text-emerald-500' : ''}`}>{fmt(l.valorTotal)}</span>
+               <span className={`flex-shrink-0 font-medium tabular-nums ${l.tipo === 'venda' ? 'text-emerald-500' : l.tipo === 'dividendo' ? 'text-amber-500' : ''}`}>{fmt(l.valorTotal)}</span>
              </label>
            ))}
          </div>
        </div>
        <div className="p-4 border-t border-slate-700 space-y-3">
          <p className="text-xs text-slate-400">
-           Selecionadas: {sel.length} · dinheiro posto: <strong>{fmt(total)}</strong>{comissoes > 0 && <> (inclui {fmt(comissoes)} de comissões)</>}
+           Selecionadas: {sel.length} · dinheiro posto: <strong>{fmt(total)}</strong>{comissoes > 0 && <> (inclui {fmt(comissoes)} de comissões)</>}{rendimento > 0 && <> · juros e dividendos recebidos: <strong>{fmt(rendimento)}</strong></>}
          </p>
          <div className="flex gap-2">
            <button onClick={confirmarImportTransacoes} disabled={!sel.length}
