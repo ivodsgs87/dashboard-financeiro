@@ -1309,15 +1309,26 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 </p>
               </>)}
             </div>
-            {/* 3 — Os investimentos estão a render? */}
+            {/* 3 — Os investimentos estão a render? Com "Tudo": desde a primeira compra. Com um período: só esse período. */}
             <div className={`${tile} !p-4`}>
-              <p className={`text-sm ${sub}`}>Investimentos renderam{vida.cats.length > 0 ? ` desde ${rotData(vida.desde)}` : ''}</p>
-              {vida.cats.length > 0 ? (<>
-                <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-base font-semibold"> {pct(vida.pct)}</span>}</p>
-                <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.posto)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.valor)}</strong></p>
+              {periodo > 0 ? (<>
+                <p className={`text-sm ${sub}`}>Investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
+                {ret.periodos ? (<>
+                  <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(ret.resultado)}`}>{sinal(ret.resultado)}{ret.twr != null && <span className="text-base font-semibold"> {pct(ret.twr)}</span>}</p>
+                  <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ret.aportes)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong></p>
+                </>) : (<>
+                  <p className="text-3xl font-bold mt-1">—</p>
+                  <p className={`text-sm mt-2 ${sub}`}>sem detalhe neste período</p>
+                </>)}
               </>) : (<>
-                <p className="text-3xl font-bold mt-1">—</p>
-                <p className={`text-sm mt-2 ${sub}`}>importa as transações para ver</p>
+                <p className={`text-sm ${sub}`}>Investimentos renderam{vida.cats.length > 0 ? ` desde ${rotData(vida.desde)}` : ''}</p>
+                {vida.cats.length > 0 ? (<>
+                  <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-base font-semibold"> {pct(vida.pct)}</span>}</p>
+                  <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.posto)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.valor)}</strong></p>
+                </>) : (<>
+                  <p className="text-3xl font-bold mt-1">—</p>
+                  <p className={`text-sm mt-2 ${sub}`}>importa as transações para ver</p>
+                </>)}
               </>)}
             </div>
           </div>
