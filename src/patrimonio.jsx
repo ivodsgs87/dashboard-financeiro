@@ -1032,6 +1032,17 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const dups = txDuplicadosProvaveis(G.transacoes);
   const dupIds = new Set(dups.map(d => d.manual.id));
   const rotData = d => patRotulo(patIdx(d));
+  // "O que mudou": passos que somam do valor inicial ao de hoje
+  const mud = (() => {
+    const comDet = janela.filter(d => d.resultado != null), semDet = janela.filter(d => d.resultado == null);
+    const dC = d => d[campo] - d.prev[campo];
+    const soma = (l, fn) => l.reduce((a, d) => a + fn(d), 0);
+    const mercado = soma(comDet, d => d.resultado);
+    const casa = vista === 'total' ? soma(comDet, d => (d.imoveis - d.dividas) - (d.prev.imoveis - d.prev.dividas)) : 0;
+    return { nCom: comDet.length, semDetalhe: soma(semDet, dC), nSem: semDet.length, fimSem: semDet.length ? semDet[semDet.length - 1].idx : null,
+      mercado, casa, dinheiro: soma(comDet, dC) - mercado - casa };
+  })();
+  const rendimentoRecebido = (G.transacoes || []).filter(t => t && t.tipo === 'dividendo').reduce((a, t) => a + patNum(t.valorTotal), 0);
   const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
   const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
   // De onde vem a variação. Um snapshot antigo não separa investimentos de liquidez, por isso aí não se mostra.
@@ -1156,7 +1167,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
 
-      {/* Cabeçalho + métricas */}
+      {/* Cabeçalho: três perguntas, três blocos */}
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
@@ -1175,54 +1186,89 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 {semReservado ? '✓ ' : ''}Sem o dinheiro reservado para imobiliário
               </button>
             )}
-            <div className="flex gap-1.5" role="group" aria-label="Período">
-              {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Início']].map(([m, l]) => (
-                <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
-              ))}
-            </div>
           </div>
         </div>
 
         {!ultimo ? (
           <p className={`text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-3">
+            {/* 1 — Quanto tenho hoje */}
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>{nomeVista} · {patRotulo(ultimo.idx)}</p>
-              <p className="text-xl font-bold">{f(ultimo[campo])}</p>
-              {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
-              {vista === 'capital' && ultimo.reservado > 0 && <p className={`text-xs ${sub}`}>{semRes ? `+ ${f(ultimo.reservado)} reservados para imobiliário` : `dos quais ${f(ultimo.reservado)} reservados para imobiliário`}</p>}
+              <p className={`text-xs ${sub}`}>Quanto tens · {patRotulo(ultimo.idx)}</p>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-2xl font-bold">{f(ultimo[campo])}</p>
+                {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
+              </div>
+              <p className={`text-xs mt-1 ${sub}`}>
+                Investimentos <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong>
+                {' · '}dinheiro nas contas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.liquidez - (vista === 'capital' ? ultimo.reservado : 0))}</strong>
+                {ultimo.outros > 0 && <>{' · '}outros <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.outros)}</strong></>}
+                {vista === 'total' && <>{' · '}imóveis <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.imoveis)}</strong>{' · '}dívidas <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>−{f(ultimo.dividas)}</strong></>}
+                {vista === 'capital' && ultimo.reservado > 0 && <>{' · '}reservado para imobiliário <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.reservado)}</strong>{semRes ? ' (fora do total)' : ''}</>}
+              </p>
             </div>
+
+            {/* 2 — O que mudou no período */}
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>{nomeVista} desde {patRotulo(primeiro.idx)}</p>
-              <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}{varPct != null && <span className="text-xs font-normal"> {pct(varPct)}</span>}</p>
-              <p className={`text-xs ${sub}`}>{partesVar || `${det.length} ${det.length === 1 ? 'registo' : 'registos'}`}</p>
-            </div>
-            {usaVida ? (<>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Puseste em {vida.cats.join(' + ')} desde {rotData(vida.desde)}</p>
-                <p className="text-xl font-bold">{sinal(vida.posto)}</p>
-                <p className={`text-xs ${sub}`}>{vida.n} transações · compras e comissões, menos vendas</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <p className={`text-xs ${sub}`}>O que mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}</p>
+                <div className="flex gap-1.5" role="group" aria-label="Período">
+                  {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
+                    <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
+                  ))}
+                </div>
               </div>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>{vida.cats.join(' + ')} renderam desde {rotData(vida.desde)}</p>
-                <p className={`text-xl font-bold ${corDelta(vida.ganho)}`}>{seta(vida.ganho)}{sinal(vida.ganho)}{vida.pct != null && <span className="text-xs font-normal"> {pct(vida.pct)}</span>}</p>
-                <p className={`text-xs ${sub}`}>valem {f(vida.valor)} − o que puseste</p>
-              </div>
-            </>) : (<>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-                <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-                <p className={`text-xs ${sub}`}>{ret.periodos ? (periodo && ret.meses < periodo ? `pediste ${periodo} meses, mas só há ${ret.meses} com detalhe (desde ${patRotulo(ret.inicio)})` : `${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação`) : 'a partir do 2.º mês com detalhe'}</p>
-              </div>
-              <div className={tile}>
-                <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
-                <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
-                <p className={`text-xs ${sub}`}>
-                  {ret.periodos ? `valor ${sinal(ret.variacao)} − o que puseste` : 'a partir do 2.º mês com detalhe'}{ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}
+              {!primeiro || primeiro === ultimo ? (
+                <p className={`text-sm ${sub}`}>Precisa de pelo menos dois meses com dados.</p>
+              ) : (<>
+                <div className="flex flex-wrap items-stretch gap-x-2 gap-y-2 text-sm">
+                  {[
+                    { l: `Em ${patRotulo(primeiro.idx)}`, v: f(primeiro[campo]) },
+                    ...(mud.nSem ? [{ l: `Sem detalhe até ${patRotulo(mud.fimSem)}`, v: sinal(mud.semDetalhe), cor: sub, t: 'Nestes meses a app só tem o total guardado, por isso não sabe separar o que o mercado rendeu do dinheiro que entrou ou saiu.' }] : []),
+                    ...(mud.nCom ? [
+                      { l: mud.mercado >= 0 ? 'O mercado rendeu' : 'O mercado tirou', v: sinal(mud.mercado), cor: corDelta(mud.mercado), t: 'Variação do valor dos investimentos, descontado o dinheiro que lá puseste ou tiraste.' },
+                      ...(vista === 'total' && Math.abs(mud.casa) >= 0.5 ? [{ l: 'Casa e dívida', v: sinal(mud.casa), cor: corDelta(mud.casa), t: 'Variação do valor dos imóveis menos a variação das dívidas (amortizar a dívida faz isto subir).' }] : []),
+                      { l: mud.dinheiro >= 0 ? 'Entrou dinheiro novo' : 'Saiu dinheiro', v: sinal(mud.dinheiro), cor: corDelta(mud.dinheiro), t: mud.dinheiro >= 0 ? 'O que poupaste: dinheiro que entrou nas contas e nos investimentos vindo de fora.' : 'Dinheiro que saiu das contas e dos investimentos: amortizações do crédito, impostos, gastos.' }
+                    ] : []),
+                    { l: `Hoje (${patRotulo(ultimo.idx)})`, v: f(ultimo[campo]), forte: true }
+                  ].map((p, i, arr) => (
+                    <React.Fragment key={p.l}>
+                      <div title={p.t || undefined} className={`rounded-lg px-3 py-2 ${escuro ? 'bg-slate-800/60' : 'bg-white'} ${p.t ? 'cursor-help' : ''}`}>
+                        <p className={`text-[11px] ${sub}`}>{p.l}</p>
+                        <p className={`tabular-nums ${p.forte ? 'font-bold' : 'font-semibold'} ${p.cor || ''}`}>{p.v}</p>
+                      </div>
+                      {i < arr.length - 1 && <span className={`self-center ${sub}`} aria-hidden="true">→</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <p className={`text-xs mt-2 ${sub}`}>
+                  No total: <span className={corDelta(varTotal)}>{sinal(varTotal)}{varPct != null ? ` (${pct(varPct)})` : ''}</span>.
+                  {ret.periodos > 0 && Math.abs(ret.aportes) >= 0.5 && <> Pelo meio passaste <strong>{f(Math.abs(ret.aportes))}</strong> {ret.aportes >= 0 ? 'das contas para os investimentos' : 'dos investimentos para as contas'} (não muda o total).</>}
+                  {mud.nSem > 0 && mud.nCom === 0 && <> Este período ainda não tem meses com detalhe.</>}
                 </p>
-              </div>
-            </>)}
+              </>)}
+            </div>
+
+            {/* 3 — Os investimentos estão a render? */}
+            <div className={tile}>
+              <p className={`text-xs ${sub}`}>Os investimentos estão a render?{vida.cats.length > 0 ? ` · ${vida.cats.join(' + ')} desde ${rotData(vida.desde)}` : ''}</p>
+              {vida.cats.length > 0 ? (<>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mt-1 text-sm">
+                  <span>Puseste <strong className="tabular-nums">{f(vida.posto)}</strong></span>
+                  <span className={sub} aria-hidden="true">→</span>
+                  <span>valem <strong className="tabular-nums">{f(vida.valor)}</strong></span>
+                  <span className={sub} aria-hidden="true">→</span>
+                  <span className={`text-xl font-bold tabular-nums ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-xs font-normal"> {pct(vida.pct)}</span>}</span>
+                </div>
+                <p className={`text-xs mt-1 ${sub}`}>
+                  Desde a primeira compra, pelas {vida.n} transações. Não muda com o período.
+                  {rendimentoRecebido > 0 && <> Além disto, recebeste <strong>{f(rendimentoRecebido)}</strong> em juros e dividendos.</>}
+                </p>
+              </>) : (
+                <p className={`text-sm mt-1 ${sub}`}>Importa as transações da corretora (Transações → Importar ficheiro) para ver quanto puseste e quanto renderam.</p>
+              )}
+            </div>
           </div>
         )}
 
