@@ -1270,7 +1270,19 @@ const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Revolut'];
 // Categorias do Portfolio que são dinheiro parado e não investimento exposto ao
 // mercado. Contam como Liquidez, para não distorcerem o retorno dos investimentos.
 const PAT_CATS_LIQUIDEZ = ['FE'];
-const patEhLiquidez = i => PAT_CATS_LIQUIDEZ.includes(i && i.cat);
+const patChave = desc => String(desc || '').trim().toLowerCase();
+// Primeiro vale a tua escolha, linha a linha (G.patrimonio.dinheiro). Sem escolha, a
+// categoria FE e qualquer linha chamada "Trade Republic" (conta de passagem: recebe
+// receitas e paga impostos e amortizações — não é investimento).
+const patEhLiquidez = (i, regras) => {
+  if (!i) return false;
+  const r = (regras || {})[patChave(i.desc)];
+  if (r === true || r === false) return r;
+  return PAT_CATS_LIQUIDEZ.includes(i.cat) || /trade\s*republic/i.test(i.desc || '');
+};
+// Usa a marca já calculada no item, se existir
+const patItemLiq = i => (i && typeof i.liq === 'boolean') ? i.liq : patEhLiquidez(i);
+const patRegras = G => ((G || {}).patrimonio || {}).dinheiro || {};
 
 const patId = () => Date.now() + Math.random();
 const patNum = v => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(x) ? x : 0; };
@@ -1300,8 +1312,8 @@ const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx
 const patTotais = rec => {
   const r = rec || {};
   const itens = r.investItens || [];
-  const invest = patSoma(itens.filter(i => !patEhLiquidez(i)));
-  const liquidez = patSoma(r.liquidez) + patSoma(itens.filter(patEhLiquidez)), imoveis = patSoma(r.imoveis);
+  const invest = patSoma(itens.filter(i => !patItemLiq(i)));
+  const liquidez = patSoma(r.liquidez) + patSoma(itens.filter(patItemLiq)), imoveis = patSoma(r.imoveis);
   const outros = patSoma(r.outros), dividas = patSoma(r.dividas);
   const capital = invest + liquidez + outros;               // sem casa nem dívida
   return { invest, liquidez, imoveis, outros, dividas, capital, total: capital + imoveis - dividas };
@@ -1426,13 +1438,13 @@ const patLimpar = d => {
 };
 
 // Sugestão de aportes: investimentos marcados como feitos na Alocação, desde o último registo.
-const patSugestaoAportes = (M, registos, key) => {
+const patSugestaoAportes = (M, registos, key, regras) => {
   const idx = patIdx(key);
   const prev = patSerie(registos).filter(s => s.idx < idx).pop();
   const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
   let tot = 0;
   for (let i = de; i <= idx; i++) {
-    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO' && !patEhLiquidez(x)) tot += patNum(x.val); });
+    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO' && !patEhLiquidez(x, regras)) tot += patNum(x.val); });
   }
   return tot;
 };
@@ -1446,20 +1458,21 @@ const patMovimentos = (G, M, registos, key) => {
   const prev = patSerie(registos).filter(s => s.idx < idx).pop();
   const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
   const r2 = v => Math.round(v * 100) / 100;
+  const regras = patRegras(G);
   let aportes = 0, levantamentos = 0, amortizacao = 0, nCompras = 0, nVendas = 0;
   ((G || {}).transacoes || []).forEach(t => {
     if (!t || !t.data) return;
     const i = patIdx(t.data);
     if (i < de || i > idx) return;
     const v = patNum(t.valorTotal);
-    if (PAT_CATS_LIQUIDEZ.includes(t.categoria)) return;   // reforçar o fundo de emergência não é investir
+    if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;   // mexer em dinheiro parado não é investir
     if (t.tipo === 'compra') { nCompras++; if (t.categoria === 'CREDITO') amortizacao += v; else aportes += v; }
     else if (t.tipo === 'venda' && t.categoria !== 'CREDITO') { nVendas++; levantamentos += v; }
   });
   if (nCompras + nVendas > 0) {
     return { origem: 'transacoes', aportes: r2(aportes), levantamentos: r2(levantamentos), amortizacao: r2(amortizacao), nCompras, nVendas };
   }
-  const aloc = patSugestaoAportes(M || {}, registos, key);
+  const aloc = patSugestaoAportes(M || {}, registos, key, regras);
   return { origem: aloc > 0 ? 'alocacao' : null, aportes: r2(aloc), levantamentos: 0, amortizacao: 0, nCompras: 0, nVendas: 0 };
 };
 
@@ -1512,6 +1525,10 @@ const patRegistosEfetivos = (G, M) => {
     const d = patRascunho({ registos: out, key, portfolio: mm[key].portfolio, G: G || {}, M: mm });
     out[key] = { ...patLimpar(d), fechadoEm: null, auto: true };
   });
+  const regras = patRegras(G);
+  Object.keys(out).forEach(k => {
+    out[k] = { ...out[k], investItens: (out[k].investItens || []).map(i => ({ ...i, liq: patEhLiquidez(i, regras) })) };
+  });
   return out;
 };
 // ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
@@ -1524,7 +1541,7 @@ const patFmtK = v => {
 };
 
 // Linhas editáveis de um componente (contas, imóveis, dívidas…)
-const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder, fixas = [] }) => {
+const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder, fixas = [], onMoverFixa }) => {
   const upd = (id, campo, v) => onChange(linhas.map(l => l.id === id ? { ...l, [campo]: v } : l));
   return (
     <div>
@@ -1539,7 +1556,9 @@ const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder,
         <div className="space-y-1 mb-2">
           {fixas.map((x, k) => (
             <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
-              <span className="truncate">{x.desc} <span className="text-xs">· do Portfolio</span></span><span>{_fmtEUR.format(patNum(x.val))}</span>
+              <span className="truncate">{x.desc} <span className="text-xs">· do Portfolio</span>
+                {onMoverFixa && <button onClick={() => onMoverFixa(x)} title="Contar esta linha como investimento" className="ml-2 text-[11px] text-blue-400 hover:text-blue-300">← é investimento</button>}
+              </span><span className="flex-shrink-0">{_fmtEUR.format(patNum(x.val))}</span>
             </div>
           ))}
         </div>
@@ -1710,17 +1729,28 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const det = patDetalhe(serie);
   const ret = patRetorno(det);
   const campo = vista === 'capital' ? 'capital' : 'total';
-  const nomeVista = vista === 'capital' ? 'Capital investido' : 'Património total';
+  const nomeVista = vista === 'capital' ? 'Património financeiro' : 'Património total';
 
   const ultimo = det[det.length - 1] || null;
   const primeiro = det[0] || null;
   const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
   const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
+  // De onde vem a variação. Um snapshot antigo não separa investimentos de liquidez, por isso aí não se mostra.
+  const partesVar = (ultimo && primeiro && ultimo !== primeiro && !primeiro.rec.importado) ? [
+    ['investimentos', ultimo.invest - primeiro.invest],
+    ['dinheiro nas contas', ultimo.liquidez - primeiro.liquidez],
+    ['outros', ultimo.outros - primeiro.outros],
+    ...(vista === 'total' ? [['casa', ultimo.imoveis - primeiro.imoveis], ['dívida', -(ultimo.dividas - primeiro.dividas)]] : [])
+  ].filter(([, v]) => Math.abs(v) >= 0.5).map(([n, v]) => `${n} ${sinal(v)}`).join(' · ') : '';
 
   // Rascunho → totais ao vivo
-  const tDraft = patTotais(draft);
-  const itensInvest = draft.investItens.filter(i => !patEhLiquidez(i));
-  const itensLiquidez = draft.investItens.filter(patEhLiquidez);
+  const regras = patRegras(G);
+  const itensDraft = draft.investItens.map(i => ({ ...i, liq: patEhLiquidez(i, regras) }));
+  const tDraft = patTotais({ ...draft, investItens: itensDraft });
+  const itensInvest = itensDraft.filter(i => !i.liq);
+  const itensLiquidez = itensDraft.filter(i => i.liq);
+  // Mover uma linha do Portfolio entre "investimento" e "dinheiro" (vale para todos os meses)
+  const marcarDinheiro = (item, ehDinheiro) => setPat({ dinheiro: { ...regras, [patChave(item.desc)]: ehDinheiro } });
   const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
     !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G, M })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
   const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
@@ -1777,7 +1807,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   const exportarCSV = () => {
     const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
-    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Capital investido', 'Património total', 'Aportes', 'Levantamentos', 'Amortização de crédito', 'Resultado mercado', 'Origem', 'Nota'];
+    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Património financeiro', 'Património total', 'Aportes', 'Levantamentos', 'Amortização de crédito', 'Resultado mercado', 'Origem', 'Nota'];
     const linhasCsv = det.map(d => [
       `${Math.floor(d.idx / 12)}-${String((d.idx % 12) + 1).padStart(2, '0')}`,
       n(d.invest), n(d.liquidez), n(d.imoveis), n(d.outros), n(d.dividas), n(d.capital), n(d.total),
@@ -1823,11 +1853,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           <div>
             <h3 className="text-lg font-semibold">💎 Património</h3>
             <p className={`text-xs ${sub}`}>
-              {vista === 'capital' ? 'Investimentos + liquidez + outros ativos — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
+              {vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
             </p>
           </div>
           <div className="flex gap-2">
-            <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Capital investido</button>
+            <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
             <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
           </div>
         </div>
@@ -1842,9 +1872,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Desde {patRotulo(primeiro.idx)}</p>
-              <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}</p>
-              <p className={`text-xs ${sub}`}>{varPct != null ? pct(varPct) : '—'} · {det.length} {det.length === 1 ? 'registo' : 'registos'}</p>
+              <p className={`text-xs ${sub}`}>{nomeVista} desde {patRotulo(primeiro.idx)}</p>
+              <p className={`text-xl font-bold ${corDelta(varTotal)}`}>{seta(varTotal)}{sinal(varTotal)}{varPct != null && <span className="text-xs font-normal"> {pct(varPct)}</span>}</p>
+              <p className={`text-xs ${sub}`}>{partesVar || `${det.length} ${det.length === 1 ? 'registo' : 'registos'}`}</p>
             </div>
             <div className={tile}>
               <p className={`text-xs ${sub}`}>Puseste (líquido)</p>
@@ -1852,7 +1882,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xs ${sub}`}>{ret.periodos ? `em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo'}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>O mercado rendeu</p>
+              <p className={`text-xs ${sub}`}>Os investimentos renderam</p>
               <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
               <p className={`text-xs ${sub}`}>
                 {ret.twr != null ? `retorno ${pct(ret.twr)}${ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}` : 'a partir do 2.º registo'}
@@ -1926,7 +1956,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         {ajuda && (
           <div className={`mb-4 rounded-xl p-3 text-xs space-y-1.5 ${escuro ? 'bg-slate-700/30 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
             <p>Cada mês entra no histórico sozinho, assim que atualizas o Portfolio — não há snapshot para fazer. Só precisas de guardar aqui se quiseres corrigir saldos, movimentos ou deixar uma nota.</p>
-            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas. O Fundo de Emergência do Portfolio entra aqui sozinho — é dinheiro parado, não conta para o retorno dos investimentos.</p>
+            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas. O Fundo de Emergência e a Trade Republic do Portfolio entram aqui sozinhos — é dinheiro parado, não conta para o retorno dos investimentos. Se alguma linha estiver do lado errado, usa "é dinheiro →" ou "← é investimento"; a escolha vale para todos os meses.</p>
             <p><strong>Casa e dívidas</strong> só contam na vista "Património total". Os créditos ativos vêm do separador Crédito.</p>
             <p><strong>Puseste / tiraste</strong> vem das Transações (compras e vendas) ou, sem transações, da Alocação. Serve para separar o teu esforço do que o mercado fez. Amortização é dinheiro dos investimentos usado para abater dívida — não é perda.</p>
           </div>
@@ -1950,7 +1980,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <div className="space-y-1">
                 {itensInvest.map((i, k) => (
                   <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
-                    <span className="truncate">{i.desc}</span><span>{f(patNum(i.val))}</span>
+                    <span className="truncate">{i.desc}
+                      <button onClick={() => marcarDinheiro(i, true)} title="Esta linha é dinheiro parado, não investimento" className="ml-2 text-[11px] text-blue-400 hover:text-blue-300">é dinheiro →</button>
+                    </span><span className="flex-shrink-0">{f(patNum(i.val))}</span>
                   </div>
                 ))}
               </div>
@@ -1960,7 +1992,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             )}
           </div>
 
-          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
+          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onMoverFixa={x => marcarDinheiro(x, false)} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
         </div>
 
         {/* Casa, dívidas e outros — recolhido por defeito */}
@@ -2036,7 +2068,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
         {ehAuto && <p className={`text-xs mt-3 ${sub}`}>Este mês já está no histórico, calculado sozinho a partir do Portfolio. Não precisas de guardar nada — só se corrigires algum valor.</p>}
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
-          <div><p className={`text-xs ${sub}`}>Capital investido</p><p className="font-bold">{f(tDraft.capital)}</p></div>
+          <div><p className={`text-xs ${sub}`}>Património financeiro</p><p className="font-bold">{f(tDraft.capital)}</p></div>
           <div><p className={`text-xs ${sub}`}>Património total</p><p className="font-bold">{f(tDraft.total)}</p></div>
           <div className="ml-auto flex items-center gap-2">
             {draft.existe && (confirmaApagar
