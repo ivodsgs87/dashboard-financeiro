@@ -1069,7 +1069,15 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   const ultimo = det[det.length - 1] || null;
   // Ponto de partida do período escolhido: o último registo até N meses atrás
-  const primeiro = (periodo && ultimo ? det.filter(d => d.idx <= ultimo.idx - periodo).pop() : null) || det[0] || null;
+  // Um mês em que o Portfolio ficou igual ao anterior não serve de ponto de partida: o valor
+  // só se acerta no mês seguinte. Recua-se até ao último mês realmente atualizado.
+  const naoAtualizado = d => !!d && d.resultado != null && Math.abs(d.invest - d.prev.invest) < 0.005 && Math.abs(d.fluxo) >= 0.5;
+  const primeiro = (() => {
+    let p0 = (periodo && ultimo ? det.filter(d => d.idx <= ultimo.idx - periodo).pop() : null) || det[0] || null;
+    while (p0 && naoAtualizado(p0)) { const ant = det.find(d => d.idx === p0.prev.idx); if (!ant) break; p0 = ant; }
+    return p0;
+  })();
+  const recuou = !!(periodo && ultimo && primeiro && primeiro.idx < ultimo.idx - periodo && det.some(d => d.idx === ultimo.idx - periodo));
   const janela = primeiro ? det.filter(d => d.idx > primeiro.idx) : [];
   const ret = patRetorno(janela);
   const vida = ultimo ? patVida(G, ultimo.rec.investItens, ultimo.idx) : { linhas: [], cats: [] };
@@ -1159,7 +1167,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     setNovoEv({ data: '', texto: '' });
   };
 
-  const visiveis = periodo && ultimo ? det.filter(d => d.idx >= ultimo.idx - periodo) : det;
+  const visiveis = periodo && ultimo ? det.filter(d => d.idx >= Math.min(ultimo.idx - periodo, primeiro ? primeiro.idx : ultimo.idx)) : det;
   const pontos = visiveis.map(d => ({
     idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
     tip: [
@@ -1292,7 +1300,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             </div>
             {/* 2 — O que mudou no período */}
             <div className={`${tile} !p-4`}>
-              <p className={`text-sm ${sub}`}>Mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}</p>
+              <p className={`text-sm ${sub}`} title={recuou ? `O Portfolio de ${patRotulo(ultimo.idx - periodo)} não foi atualizado, por isso a comparação parte do último mês com valores certos.` : undefined}>Mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}{recuou ? ' *' : ''}</p>
               {!primeiro || primeiro === ultimo ? <p className="text-3xl font-bold mt-1">—</p> : (<>
                 <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
                 <p className={`text-sm mt-2 ${sub}`}>
