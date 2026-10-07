@@ -1252,6 +1252,159 @@ const VendaCasa = ({ G, uG, theme }) => {
   );
 };
 
+// ══ IMPORTAR TRANSAÇÕES: lógica ═════════════════════════════════════════════
+// Lê o ficheiro de transações da Degiro (CSV) e o extrato da Trade Republic (PDF)
+// e devolve linhas no formato de G.transacoes. Só compras e vendas de investimentos:
+// depósitos, levantamentos, juros e pagamentos com cartão ficam de fora.
+const txNumero = v => {
+  let s = String(v == null ? '' : v).replace(/[\s  €$]/g, '');
+  if (!s) return 0;
+  const p = s.lastIndexOf('.'), c = s.lastIndexOf(',');
+  if (p >= 0 && c >= 0) s = c > p ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  else if (c >= 0) s = s.replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
+const txR2 = v => Math.round(v * 100) / 100;
+const txParseCSV = texto => {
+  const t = String(texto || '').replace(/^﻿/, '');
+  const primeira = t.split(/\r?\n/)[0] || '';
+  const sep = (primeira.match(/;/g) || []).length > (primeira.match(/,/g) || []).length ? ';' : ',';
+  const linhas = []; let linha = [], campo = '', aspas = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (aspas) {
+      if (ch === '"') { if (t[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
+      else campo += ch;
+    } else if (ch === '"') aspas = true;
+    else if (ch === sep) { linha.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && t[i + 1] === '\n') i++;
+      linha.push(campo); campo = ''; linhas.push(linha); linha = [];
+    } else campo += ch;
+  }
+  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l => l.some(c => String(c).trim() !== ''));
+};
+const txEhDegiro = texto => /ISIN/i.test(String(texto || '').slice(0, 600)) && /(Order ID|ID da Ordem)/i.test(String(texto || '').slice(0, 600));
+const txLerDegiro = texto => {
+  const linhas = txParseCSV(texto);
+  if (linhas.length < 2) return [];
+  const cab = linhas[0].map(c => String(c).trim().toLowerCase());
+  const col = (re, alt) => { const i = cab.findIndex(c => re.test(c)); return i >= 0 ? i : alt; };
+  const cData = col(/^(date|data)$/, 0), cHora = col(/^(time|hora)$/, 1), cProd = col(/^(product|produto)$/, 2), cIsin = col(/^isin$/, 3);
+  const cQtd = col(/^quant/, 6), cPreco = col(/^(price|pre[cç]o)/, 7);
+  const cValor = col(/^(value eur|valor eur|value|valor)$/, 11);
+  const cFx = col(/autofx/, -1), cCustos = col(/(transaction|custos|comiss)/, 14), cOrdem = col(/(order id|id da ordem)/, cab.length - 1);
+  const ordens = [], porId = {};
+  let ultima = null;
+  linhas.slice(1).forEach(l => {
+    const d = String(l[cData] || '').trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (!d) {
+      // Linha de continuação: o nome do produto era comprido e partiu para a linha seguinte
+      const resto = String(l[cProd] || '').trim();
+      if (ultima && resto && !ultima.produto.includes(resto)) ultima.produto += ' ' + resto;
+      const ord = String(l[cOrdem] || '').trim();
+      if (ultima && ord && ultima.semOrdem) { ultima.ordem += ord; }
+      return;
+    }
+    const data = `${d[3]}-${d[2].padStart(2, '0')}-${d[1].padStart(2, '0')}`;
+    const qtd = txNumero(l[cQtd]);
+    if (!qtd) { ultima = null; return; }
+    const isin = String(l[cIsin] || '').trim();
+    const ordemLida = String(l[cOrdem] || '').trim();
+    const chave = ordemLida || `${data} ${String(l[cHora] || '').trim()} ${isin} ${qtd}`;
+    const custos = Math.abs(txNumero(l[cCustos])) + (cFx >= 0 ? Math.abs(txNumero(l[cFx])) : 0);
+    let o = porId[chave];
+    if (!o || o.data !== data || o.isin !== isin) {
+      o = porId[chave] = { data, isin, produto: String(l[cProd] || '').trim(), qtd: 0, valor: 0, custos: 0, preco: Math.abs(txNumero(l[cPreco])), ordem: chave, semOrdem: !ordemLida };
+      ordens.push(o);
+    }
+    // Uma ordem pode ser executada em várias partes: junta-se tudo numa só linha
+    o.qtd += qtd; o.valor += txNumero(l[cValor]); o.custos += custos;
+    ultima = o;
+  });
+  return ordens.filter(o => o.qtd !== 0).map(o => {
+    const q = Math.abs(o.qtd), v = txR2(Math.abs(o.valor));
+    return {
+      data: o.data, tipo: o.qtd > 0 ? 'compra' : 'venda', categoria: 'ETF',
+      ticker: o.produto.replace(/\s+/g, ' ').trim(), corretora: 'Degiro',
+      quantidade: Math.round(q * 1e6) / 1e6, precoUnitario: q ? Math.round(v / q * 1e4) / 1e4 : 0,
+      valorTotal: v, comissao: txR2(o.custos), notas: o.isin ? `ISIN ${o.isin}` : '',
+      isin: o.isin, importId: `degiro:${o.ordem}`,
+    };
+  });
+};
+const TX_MESES = { jan: 1, fev: 2, feb: 2, mar: 3, 'mär': 3, abr: 4, apr: 4, mai: 5, may: 5, jun: 6, jul: 7, ago: 8, aug: 8, set: 9, sep: 9, out: 10, oct: 10, okt: 10, nov: 11, dez: 12, dec: 12 };
+const txEhTradeRepublic = texto => /trade republic/i.test(String(texto || ''));
+// No extrato da Trade Republic as compras aparecem como
+//   "06 out. 2026 Comércio Buy trade XF000ETH0019 Ethereum, quantity: 0.020598 51,04 €"
+// O valor já inclui a comissão (o extrato não a mostra em separado).
+const txLerTradeRepublic = texto => {
+  const t = String(texto || '').replace(/[\s  ]+/g, ' ');
+  const re = /(\d{1,2}) ([A-Za-zçãäé]{3})[a-zçãäé]*\.? (\d{4}) [^\d€]{0,40}?(Buy trade|Sell trade|Savings plan execution) ([A-Z]{2}[A-Z0-9]{9}\d) (.+?), quantity: ([\d.,]+) ((?:\d{1,3}(?: \d{3})*|\d+)(?:[.,]\d{2}))\s?€/g;
+  const out = []; let m;
+  while ((m = re.exec(t))) {
+    const mes = TX_MESES[m[2].toLowerCase()];
+    if (!mes) continue;
+    const data = `${m[3]}-${String(mes).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    const isin = m[5], nome = m[6].trim(), q = txNumero(m[7]), v = txR2(txNumero(m[8]));
+    if (!q || !v) continue;
+    const cripto = /^XF000/.test(isin);
+    out.push({
+      data, tipo: /^Sell/i.test(m[4]) ? 'venda' : 'compra', categoria: cripto ? 'CRIPTO' : 'ETF',
+      ticker: nome, corretora: 'Trade Republic', quantidade: q, precoUnitario: Math.round(v / q * 1e4) / 1e4,
+      valorTotal: v, comissao: 0, notas: `ISIN ${isin}`, isin, importId: `tr:${data}:${isin}:${q}:${v}`,
+    });
+  }
+  return out;
+};
+// Marca o que já existe: importado antes (mesma referência) ou registado à mão
+// (mesmo dia, mesmo tipo e valor quase igual — com ou sem a comissão incluída).
+const txMarcarDuplicados = (novas, existentes) => {
+  const ex = (existentes || []).filter(Boolean);
+  const ids = new Set(ex.map(t => t.importId).filter(Boolean));
+  const usados = new Set();
+  return (novas || []).map(n => {
+    if (n.importId && ids.has(n.importId)) return { ...n, dup: 'importada' };
+    const i = ex.findIndex((t, k) => !usados.has(k) && !t.importId && t.data === n.data && t.tipo === n.tipo
+      && (Math.abs(patNum(t.valorTotal) - n.valorTotal) <= 1.5 || Math.abs(patNum(t.valorTotal) - (n.valorTotal + n.comissao)) <= 1.5));
+    if (i >= 0) { usados.add(i); return { ...n, dup: 'manual' }; }
+    return { ...n, dup: null };
+  });
+};
+// Texto de um PDF (usa a pdf.js, carregada só quando é precisa)
+const txTextoPDF = async arrayBuffer => {
+  if (!window.pdfjsLib) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+      s.onload = resolve; s.onerror = () => reject(new Error('Não consegui carregar o leitor de PDF. Verifica a ligação à internet.'));
+      document.head.appendChild(s);
+    });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let txt = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    txt += tc.items.map(it => it.str).join('\n') + '\n';
+  }
+  return txt;
+};
+// Devolve { origem, linhas } a partir de um ficheiro escolhido pelo utilizador
+const txLerFicheiro = async file => {
+  const nome = String(file.name || '').toLowerCase();
+  if (nome.endsWith('.pdf') || file.type === 'application/pdf') {
+    const txt = await txTextoPDF(await file.arrayBuffer());
+    if (!txEhTradeRepublic(txt)) throw new Error('Este PDF não parece ser um extrato da Trade Republic.');
+    return { origem: 'Trade Republic', linhas: txLerTradeRepublic(txt) };
+  }
+  const txt = await file.text();
+  if (txEhDegiro(txt)) return { origem: 'Degiro', linhas: txLerDegiro(txt) };
+  throw new Error('Não reconheci o ficheiro. Aceito o CSV de transações da Degiro e o extrato em PDF da Trade Republic.');
+};
+
 // ══ PATRIMÓNIO: lógica ══════════════════════════════════════════════════════
 // Um registo por mês, guardado por COMPONENTES (e não só um total), para que
 // qualquer vista futura possa ser recalculada a partir do detalhe.
@@ -1472,8 +1625,9 @@ const patMovimentos = (G, M, registos, key) => {
     const v = patNum(t.valorTotal);
     if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;   // mexer em dinheiro parado não é investir
     if (t.categoria === 'CREDITO') return;   // amortizações saem do dinheiro (Trade), não dos investimentos
-    if (t.tipo === 'compra') { nCompras++; aportes += v; }
-    else if (t.tipo === 'venda') { nVendas++; levantamentos += v; }
+    const com = patNum(t.comissao);   // a comissão também é dinheiro que saiu do teu bolso
+    if (t.tipo === 'compra') { nCompras++; aportes += v + com; }
+    else if (t.tipo === 'venda') { nVendas++; levantamentos += Math.max(0, v - com); }
   });
   if (nCompras + nVendas > 0) {
     return { origem: 'transacoes', aportes: r2(aportes), levantamentos: r2(levantamentos), amortizacao: r2(amortizacao), nCompras, nVendas };
@@ -2274,6 +2428,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
   const [txSoMes, setTxSoMes] = useState(true); // Transações: mostrar só o mês selecionado no topo
+  const [txImport, setTxImport] = useState(null); // pré-visualização de um ficheiro de transações a importar
   const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
   const [textoCopiado, setTextoCopiado] = useState(false);
   // Escala global da interface. 1 = tamanho original (100%).
@@ -8952,6 +9107,33 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // TRANSAÇÕES DE INVESTIMENTOS
+ // Importar transações de um ficheiro: lê, marca o que já existe e mostra para confirmar
+ const abrirImportTransacoes = async (file) => {
+   try {
+     const { origem, linhas } = await txLerFicheiro(file);
+     if (!linhas.length) { showToast(`Não encontrei compras nem vendas neste ficheiro da ${origem}.`, 'error', 6000); return; }
+     const marcadas = txMarcarDuplicados(linhas, G.transacoes || []).sort((a, b) => b.data.localeCompare(a.data));
+     setTxImport({ origem, ficheiro: file.name, linhas: marcadas.map(l => ({ ...l, sel: !l.dup })) });
+   } catch (err) {
+     showToast(err && err.message ? err.message : 'Não consegui ler o ficheiro.', 'error', 7000);
+   }
+ };
+ const confirmarImportTransacoes = () => {
+   if (!txImport) return;
+   const base = Date.now();
+   const novas = txImport.linhas.filter(l => l.sel).map((l, i) => {
+     const { sel, dup, isin, ...t } = l;
+     return { ...t, id: base + i };
+   });
+   if (!novas.length) { setTxImport(null); return; }
+   const cors = G.corretoras;
+   if (Array.isArray(cors) && !cors.includes(txImport.origem)) uG('corretoras', [...cors, txImport.origem]);
+   uG('transacoes', [...(G.transacoes || []), ...novas]);
+   setTxSoMes(false);
+   setTxImport(null);
+   showToast(`${novas.length} ${novas.length === 1 ? 'transação importada' : 'transações importadas'} da ${txImport.origem}.`, 'success', 5000);
+ };
+
  const Transacoes = () => {
    const transacoes = G.transacoes || [];
    const corretoras = G.corretoras || ['Degiro', 'Trade Republic', 'XTB', 'Interactive Brokers', 'Revolut', 'Binance', 'Coinbase', 'Banco'];
@@ -9198,7 +9380,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card>
          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
            <h3 className="text-lg font-semibold">📝 Histórico de Transações</h3>
-           <Button onClick={() => { setShowAddTransacao(true); setEditTransacao(null); resetForm(); }}>+ Transação</Button>
+           <div className="flex flex-wrap gap-2">
+             <label className="cursor-pointer px-4 py-2 rounded-xl text-sm font-medium bg-slate-700/60 hover:bg-slate-600/60 border border-slate-600 transition-colors" title="Ficheiro de transações da Degiro em CSV ou extrato da Trade Republic em PDF">
+               📥 Importar ficheiro
+               <input type="file" accept=".csv,.pdf,text/csv,application/pdf" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) abrirImportTransacoes(f); }}/>
+             </label>
+             <Button onClick={() => { setShowAddTransacao(true); setEditTransacao(null); resetForm(); }}>+ Transação</Button>
+           </div>
          </div>
          
          {/* Filtros */}
@@ -15074,6 +15262,68 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <Credito/>}
  {tab==='vendacasa' && <VendaCasa G={G} uG={uG} theme={theme}/>}
  {tab==='patrimonio' && <Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/>}
+
+ {/* Modal: confirmar transações lidas de um ficheiro */}
+ {txImport && (() => {
+   const sel = txImport.linhas.filter(l => l.sel);
+   const dups = txImport.linhas.filter(l => l.dup).length;
+   const total = sel.reduce((a, l) => a + (l.tipo === 'venda' ? -1 : 1) * (l.valorTotal + (l.tipo === 'venda' ? -l.comissao : l.comissao)), 0);
+   const comissoes = sel.reduce((a, l) => a + l.comissao, 0);
+   const datas = txImport.linhas.map(l => l.data).sort();
+   const fmtD = d => d.split('-').reverse().join('/');
+   const marcar = (i, v) => setTxImport(p => ({ ...p, linhas: p.linhas.map((l, k) => k === i ? { ...l, sel: v } : l) }));
+   return (
+   <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setTxImport(null); }}>
+     <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col`} onMouseDown={e => e.stopPropagation()}>
+       <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+         <h3 className="text-lg font-semibold">📥 Importar da {txImport.origem}</h3>
+         <button onClick={() => setTxImport(null)} aria-label="Fechar" className="text-slate-400 hover:text-white">✕</button>
+       </div>
+       <div className="p-4 space-y-3 overflow-y-auto">
+         <p className="text-sm text-slate-400">
+           Encontrei <strong className={theme === 'light' ? 'text-slate-800' : 'text-white'}>{txImport.linhas.length}</strong> {txImport.linhas.length === 1 ? 'transação' : 'transações'}, de {fmtD(datas[0])} a {fmtD(datas[datas.length - 1])}.
+           {dups > 0 && <> {dups === 1 ? 'Uma já está' : `${dups} já estão`} na app e {dups === 1 ? 'fica' : 'ficam'} de fora, para não {dups === 1 ? 'contar' : 'contarem'} a dobrar.</>}
+         </p>
+         {txImport.origem === 'Trade Republic' && <p className="text-xs text-slate-500">Só entram compras e vendas de investimentos. Depósitos, transferências, juros, pagamentos com cartão e o fundo onde está o dinheiro parado ficam de fora.</p>}
+         <div className="flex flex-wrap gap-2 text-xs">
+           <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: !l.dup })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Só as novas</button>
+           <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: true })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Todas</button>
+           <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: false })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Nenhuma</button>
+         </div>
+         <div className="rounded-xl border border-slate-700 divide-y divide-slate-700/60">
+           {txImport.linhas.map((l, i) => (
+             <label key={l.importId + i} className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${l.sel ? '' : 'opacity-50'}`}>
+               <input type="checkbox" checked={l.sel} onChange={e => marcar(i, e.target.checked)} className="w-4 h-4 accent-blue-500 flex-shrink-0"/>
+               <span className="w-20 flex-shrink-0 text-xs text-slate-400 tabular-nums">{fmtD(l.data)}</span>
+               <span className="flex-1 min-w-0">
+                 <span className="block truncate">{l.ticker}</span>
+                 <span className="block text-xs text-slate-500">
+                   {l.tipo === 'venda' ? 'Venda' : 'Compra'} · {l.quantidade} un. · {l.categoria}
+                   {l.comissao > 0 && <> · comissão {fmt(l.comissao)}</>}
+                   {l.dup && <span className="ml-1 text-amber-500">· {l.dup === 'importada' ? 'já importada' : 'parece já estar registada à mão'}</span>}
+                 </span>
+               </span>
+               <span className={`flex-shrink-0 font-medium tabular-nums ${l.tipo === 'venda' ? 'text-emerald-500' : ''}`}>{fmt(l.valorTotal)}</span>
+             </label>
+           ))}
+         </div>
+       </div>
+       <div className="p-4 border-t border-slate-700 space-y-3">
+         <p className="text-xs text-slate-400">
+           Selecionadas: {sel.length} · dinheiro posto: <strong>{fmt(total)}</strong>{comissoes > 0 && <> (inclui {fmt(comissoes)} de comissões)</>}
+         </p>
+         <div className="flex gap-2">
+           <button onClick={confirmarImportTransacoes} disabled={!sel.length}
+             className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium hover:opacity-90 transition-opacity text-sm text-white disabled:opacity-40">
+             {sel.length ? `Importar ${sel.length} ${sel.length === 1 ? 'transação' : 'transações'}` : 'Nada selecionado'}
+           </button>
+           <Button variant="secondary" onClick={() => setTxImport(null)}>Cancelar</Button>
+         </div>
+       </div>
+     </div>
+   </div>
+   );
+ })()}
 
  {/* Modal: texto das despesas para colar noutra app */}
  {textoBilance !== null && (
