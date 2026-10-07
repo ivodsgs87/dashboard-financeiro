@@ -1272,13 +1272,17 @@ const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Revolut'];
 const PAT_CATS_LIQUIDEZ = ['FE'];
 const patChave = desc => String(desc || '').trim().toLowerCase();
 // Primeiro vale a tua escolha, linha a linha (G.patrimonio.dinheiro). Sem escolha, a
-// categoria FE e qualquer linha chamada "Trade Republic" (conta de passagem: recebe
+// categoria FE e a linha do saldo chamada "Trade Republic" (conta de passagem: recebe
 // receitas e paga impostos e amortizações — não é investimento).
 const patEhLiquidez = (i, regras) => {
   if (!i) return false;
   const r = (regras || {})[patChave(i.desc)];
   if (r === true || r === false) return r;
-  return PAT_CATS_LIQUIDEZ.includes(i.cat) || /trade\s*republic/i.test(i.desc || '');
+  if (PAT_CATS_LIQUIDEZ.includes(i.cat)) return true;
+  // Só a linha do saldo: "Trade Republic", "Trade Republic (saldo)", "TR conta"… Uma linha de
+  // cripto ou de ETF comprados na Trade (ex.: "Trade Republic Cripto") continua a ser investimento.
+  if (i.cat === 'CRIPTO') return false;
+  return /^\s*trade\s*republic\s*(\(?\s*(saldo|conta|cash|dinheiro|juros)\s*\)?)?\s*$/i.test(i.desc || '');
 };
 // Usa a marca já calculada no item, se existir
 const patItemLiq = i => (i && typeof i.liq === 'boolean') ? i.liq : patEhLiquidez(i);
@@ -1341,15 +1345,16 @@ const patDetalhe = serie => serie.map((s, i) => {
 
 // Retorno dos investimentos ponderado pelo tempo (Dietz modificado, encadeado).
 const patRetorno = det => {
-  let fator = 1, resultado = 0, aportes = 0, mesesN = 0, periodos = 0;
+  let fator = 1, resultado = 0, aportes = 0, mesesN = 0, periodos = 0, inicio = null, variacao = 0;
   det.forEach(d => {
     if (d.resultado == null) return;
-    resultado += d.resultado; aportes += d.fluxo;
+    if (inicio == null) inicio = d.prev.idx;
+    resultado += d.resultado; aportes += d.fluxo; variacao += d.invest - d.prev.invest;
     const base = d.prev.invest + d.fluxo / 2;
     if (base > 0) { fator *= 1 + d.resultado / base; mesesN += d.salto; periodos++; }
   });
   return {
-    resultado, aportes, periodos, meses: mesesN,
+    resultado, aportes, periodos, meses: mesesN, inicio, variacao,
     twr: periodos ? fator - 1 : null,
     anual: (mesesN >= 12 && fator > 0) ? Math.pow(fator, 12 / mesesN) - 1 : null
   };
@@ -1450,7 +1455,7 @@ const patSugestaoAportes = (M, registos, key, regras) => {
 };
 
 // Movimentos desde o último registo, lidos do separador Transações:
-//   compra → aporte · venda → levantamento · compra na categoria CREDITO → amortização.
+//   compra → aporte · venda → levantamento. Categoria CREDITO e dinheiro parado ficam de fora.
 // Dividendos não contam: são resultado, não dinheiro novo. Sem transações no
 // período, usa os investimentos marcados como feitos na Alocação.
 const patMovimentos = (G, M, registos, key) => {
@@ -1466,14 +1471,45 @@ const patMovimentos = (G, M, registos, key) => {
     if (i < de || i > idx) return;
     const v = patNum(t.valorTotal);
     if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;   // mexer em dinheiro parado não é investir
-    if (t.tipo === 'compra') { nCompras++; if (t.categoria === 'CREDITO') amortizacao += v; else aportes += v; }
-    else if (t.tipo === 'venda' && t.categoria !== 'CREDITO') { nVendas++; levantamentos += v; }
+    if (t.categoria === 'CREDITO') return;   // amortizações saem do dinheiro (Trade), não dos investimentos
+    if (t.tipo === 'compra') { nCompras++; aportes += v; }
+    else if (t.tipo === 'venda') { nVendas++; levantamentos += v; }
   });
   if (nCompras + nVendas > 0) {
     return { origem: 'transacoes', aportes: r2(aportes), levantamentos: r2(levantamentos), amortizacao: r2(amortizacao), nCompras, nVendas };
   }
   const aloc = patSugestaoAportes(M || {}, registos, key, regras);
   return { origem: aloc > 0 ? 'alocacao' : null, aportes: r2(aloc), levantamentos: 0, amortizacao: 0, nCompras: 0, nVendas: 0 };
+};
+
+// Estado dos últimos n meses, para se ver de relance o que falta preencher.
+//   portfolio: 'ok' (tem valores próprios) · 'igual' (valores iguais aos do mês
+//   anterior — provavelmente copiado e não atualizado) · 'falta' (sem valores)
+//   · 'antes' (anterior ao primeiro mês com dados)
+const patEstadoMeses = (G, M, n) => {
+  const mm = M || {}, hoje = patIdxHoje(), regras = patRegras(G);
+  // Só as linhas de investimento: o saldo das contas muda sempre, mas o valor de um ETF
+  // nunca fica igual de um mês para o outro — se ficou, não foi atualizado.
+  const assin = p => JSON.stringify(patInvestDoPortfolio(p).filter(i => !patEhLiquidez(i, regras)).map(i => [patChave(i.desc), i.val]).sort());
+  const tx = {};
+  ((G || {}).transacoes || []).forEach(t => {
+    if (!t || !t.data || (t.tipo !== 'compra' && t.tipo !== 'venda') || t.categoria === 'CREDITO') return;
+    if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;
+    const i = patIdx(t.data); tx[i] = (tx[i] || 0) + 1;
+  });
+  // Meses anteriores ao primeiro mês com dados não são "em falta": ainda não usavas a app
+  const comDados = Object.keys(mm).filter(k => patTemPortfolio((mm[k] || {}).portfolio)).map(patIdx);
+  const primeiro = comDados.length ? Math.min(...comDados) : hoje;
+  const out = [];
+  for (let i = hoje - (n - 1); i <= hoje; i++) {
+    const key = patKey(i), p = (mm[key] || {}).portfolio, ant = (mm[patKey(i - 1)] || {}).portfolio;
+    const tem = patTemPortfolio(p);
+    out.push({
+      idx: i, key, transacoes: tx[i] || 0,
+      portfolio: i < primeiro ? 'antes' : !tem ? 'falta' : (patTemPortfolio(ant) && assin(p) === assin(ant)) ? 'igual' : 'ok'
+    });
+  }
+  return out;
 };
 
 // Importa os snapshots antigos do Portfolio (e o histórico do Crédito) como registos.
@@ -1686,7 +1722,7 @@ const PatChart = ({ pontos, eventos, theme }) => {
   );
 };
 
-const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, onIrParaMes }) => {
+const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, onIrParaMes, onAbrirTab }) => {
   const pat = G.patrimonio || {};
   const guardados = pat.registos || {};
   // Guardados + automáticos + importados. O histórico nunca depende de um clique.
@@ -1772,14 +1808,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const apagar = () => { const r = { ...guardados }; delete r[mesKey]; setPat({ registos: r }); };
 
   // Meses sem registo entre o primeiro registo e hoje
-  const hoje = new Date();
-  const idxHoje = hoje.getFullYear() * 12 + hoje.getMonth();
-  const emFalta = [];
-  if (serie.length) {
-    const tem = new Set(serie.map(s => s.idx));
-    for (let i = serie[0].idx; i <= idxHoje; i++) if (!tem.has(i)) emFalta.push(i);
-  }
-
+  const estado = useMemo(() => patEstadoMeses(G, M, 12), [G, M]);
+  const estSel = estado.find(e => e.idx === idxSel) || null;
+  const porTratar = estado.filter(e => e.portfolio === 'falta' || e.portfolio === 'igual').length;
 
   // Eventos numerados por ordem cronológica
   const evOrd = [...eventos].sort((a, b) => (a.data || '').localeCompare(b.data || ''))
@@ -1877,15 +1908,15 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xs ${sub}`}>{partesVar || `${det.length} ${det.length === 1 ? 'registo' : 'registos'}`}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Puseste (líquido)</p>
+              <p className={`text-xs ${sub}`}>Puseste nos investimentos{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
               <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-              <p className={`text-xs ${sub}`}>{ret.periodos ? `em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo'}</p>
+              <p className={`text-xs ${sub}`}>{ret.periodos ? `só ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'} com detalhe · das Transações/Alocação` : 'a partir do 2.º mês com detalhe'}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Os investimentos renderam</p>
+              <p className={`text-xs ${sub}`}>Os investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
               <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
               <p className={`text-xs ${sub}`}>
-                {ret.twr != null ? `retorno ${pct(ret.twr)}${ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}` : 'a partir do 2.º registo'}
+                {ret.periodos ? `valor ${sinal(ret.variacao)} − o que puseste` : 'a partir do 2.º mês com detalhe'}{ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}
               </p>
             </div>
           </div>
@@ -1962,10 +1993,38 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           </div>
         )}
 
-        {emFalta.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-amber-400">Portfolio por atualizar:</span>
-            {emFalta.slice(-8).map(i => <button key={i} onClick={() => onIrParaMes(patKey(i))} className={chip(i === idxSel)}>{patRotulo(i)}</button>)}
+        {/* Estado dos últimos 12 meses: o que está preenchido e o que falta */}
+        <div className="mb-5">
+          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+            <p className="text-sm font-medium">Últimos 12 meses</p>
+            <p className={`text-xs ${porTratar ? 'text-amber-400' : sub}`}>{porTratar ? `${porTratar} ${porTratar === 1 ? 'mês' : 'meses'} por confirmar` : 'tudo preenchido'}</p>
+          </div>
+          <div className="grid grid-cols-6 lg:grid-cols-12 gap-1.5">
+            {estado.map(e => {
+              const cor = e.portfolio === 'ok' ? 'text-emerald-400' : e.portfolio === 'igual' ? 'text-amber-400' : e.portfolio === 'antes' ? sub : 'text-red-400';
+              const txt = e.portfolio === 'ok' ? 'Portfolio atualizado' : e.portfolio === 'igual' ? 'Portfolio igual ao mês anterior' : e.portfolio === 'antes' ? 'antes do primeiro mês com dados' : 'Portfolio por atualizar';
+              return (
+                <button key={e.idx} onClick={() => onIrParaMes(e.key)} title={`${patRotulo(e.idx)}: ${txt}, ${e.transacoes} ${e.transacoes === 1 ? 'transação' : 'transações'}`}
+                  aria-label={`${patRotulo(e.idx)}: ${txt}, ${e.transacoes} transações`} aria-pressed={e.idx === idxSel}
+                  className={`rounded-lg border px-1 py-1.5 text-center transition-all ${e.idx === idxSel ? 'border-blue-500/60 bg-blue-500/15' : (escuro ? 'border-slate-700 bg-slate-700/20 hover:bg-slate-700/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100')}`}>
+                  <span className="block text-[11px] font-medium">{patRotulo(e.idx)}</span>
+                  <span className={`block text-sm font-bold leading-tight ${cor}`}>{e.portfolio === 'ok' ? '✓' : e.portfolio === 'igual' ? '=' : e.portfolio === 'antes' ? '–' : '✕'}</span>
+                  <span className={`block text-[10px] ${sub}`}>{e.transacoes} tr.</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className={`text-[11px] mt-1.5 ${sub}`}>✓ Portfolio atualizado · = igual ao mês anterior (confirma se atualizaste) · ✕ por atualizar · "tr." = transações registadas nesse mês. Clica num mês para o abrir.</p>
+        </div>
+
+        {estSel && (estSel.portfolio === 'falta' || estSel.portfolio === 'igual') && (
+          <div className={`mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 ${escuro ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+            <p className="text-xs flex-1 min-w-[200px]">
+              {estSel.portfolio === 'falta'
+                ? `O Portfolio de ${patRotulo(idxSel)} ainda não tem valores. Enquanto não tiver, este mês não entra no histórico.`
+                : `Os investimentos no Portfolio de ${patRotulo(idxSel)} têm exatamente os mesmos valores do mês anterior. Se foi só uma cópia, falta atualizá-los.`}
+            </p>
+            {onAbrirTab && <button onClick={() => onAbrirTab('portfolio')} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">Abrir o Portfolio deste mês →</button>}
           </div>
         )}
 
@@ -1986,9 +2045,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   </div>
                 ))}
               </div>
-            )}
-            {!draft.existe && !temPortfolioProprio && (
-              <p className="text-xs text-amber-400 mt-2">⚠ O Portfolio deste mês ainda não foi atualizado — estes são os valores do mês anterior.</p>
             )}
           </div>
 
@@ -2046,6 +2102,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                     {mov.origem === 'transacoes' ? `Transações neste período: ${mov.nCompras} ${mov.nCompras === 1 ? 'compra' : 'compras'}, ${mov.nVendas} ${mov.nVendas === 1 ? 'venda' : 'vendas'}.`
                       : mov.origem === 'alocacao' ? 'Sem transações neste período — valor da Alocação.' : 'Sem transações nem Alocação neste período.'}
                   </p>
+                  {onAbrirTab && <button onClick={() => onAbrirTab('transacoes')} className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">Abrir as Transações →</button>}
                   {movDifere && (
                     <button onClick={() => setDraft({ ...draft, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '' })}
                       className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">↻ Repor os valores das Transações</button>
@@ -2216,6 +2273,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
+  const [txSoMes, setTxSoMes] = useState(true); // Transações: mostrar só o mês selecionado no topo
   const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
   const [textoCopiado, setTextoCopiado] = useState(false);
   // Escala global da interface. 1 = tamanho original (100%).
@@ -2412,6 +2470,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   // Verificar se é o mês/ano atual
   const isMesAtual = (m, a) => m === mesAtualSistema && a === anoAtualSistema;
+  // Andar d meses para trás (-1) ou para a frente (+1) a partir do mês selecionado
+  const irMes = (d) => {
+    const i = ano * 12 + meses.indexOf(mes) + d;
+    const y = Math.floor(i / 12);
+    if (y < anos[0] || y > anos[anos.length - 1]) return;
+    setAno(y); setMes(meses[i % 12]);
+  };
+  // Data proposta para uma transação nova: hoje, ou o último dia do mês que se está a ver
+  // (para as transações em atraso ficarem logo no mês certo)
+  const dataNovaTransacao = () => {
+    if (isMesAtual(mes, ano)) return new Date().toISOString().split('T')[0];
+    const m = meses.indexOf(mes) + 1;
+    return `${ano}-${String(m).padStart(2, '0')}-${String(new Date(ano, m, 0).getDate()).padStart(2, '0')}`;
+  };
 
   const defG = {
     clientes: [{id:1,nome:'Marius',cor:'#3b82f6'},{id:2,nome:'Sophie',cor:'#ec4899'}],
@@ -8887,7 +8959,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [showAddTransacao, setShowAddTransacao] = useState(false);
    const [editTransacao, setEditTransacao] = useState(null);
    const [novaTransacao, setNovaTransacao] = useState({
-     data: new Date().toISOString().split('T')[0],
+     data: dataNovaTransacao(),
      tipo: 'compra',
      categoria: catsInv[0] || 'ETF',
      ticker: '',
@@ -8964,7 +9036,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    const resetForm = () => {
      setNovaTransacao({
-       data: new Date().toISOString().split('T')[0],
+       data: dataNovaTransacao(),
        tipo: 'compra',
        categoria: catsInv[0] || 'ETF',
        ticker: '',
@@ -8995,7 +9067,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (filtroCorretora !== 'todas' && t.corretora !== filtroCorretora) return false;
      if (filtroCategoria !== 'todas' && t.categoria !== filtroCategoria) return false;
      if (filtroTipo !== 'todos' && t.tipo !== filtroTipo) return false;
-     if (filtroAno !== 'todos' && !t.data.startsWith(filtroAno)) return false;
+     if (txSoMes) { if (patIdx(t.data) !== patIdx(mesKey)) return false; }
+     else if (filtroAno !== 'todos' && !t.data.startsWith(filtroAno)) return false;
      return true;
    });
    
@@ -9130,6 +9203,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Filtros */}
          <div className="flex flex-wrap gap-2 mb-4 p-3 bg-slate-700/20 rounded-xl">
+           <div className="flex rounded-xl overflow-hidden border border-slate-600 text-sm">
+             <button onClick={() => setTxSoMes(true)} aria-pressed={txSoMes} className={`px-3 py-2 ${txSoMes ? 'bg-blue-500/30 text-blue-300 font-medium' : (theme === 'light' ? 'bg-slate-100 text-slate-600' : 'bg-slate-700/50 text-slate-300')}`}>{mes} {ano}</button>
+             <button onClick={() => setTxSoMes(false)} aria-pressed={!txSoMes} className={`px-3 py-2 ${!txSoMes ? 'bg-blue-500/30 text-blue-300 font-medium' : (theme === 'light' ? 'bg-slate-100 text-slate-600' : 'bg-slate-700/50 text-slate-300')}`}>Todas</button>
+           </div>
            <Select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="text-sm">
              <option value="todos">Todos os tipos</option>
              <option value="compra">Compras</option>
@@ -9144,7 +9221,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <option value="todas">Todas categorias</option>
              {catsInv.map(c => <option key={c} value={c}>{c}</option>)}
            </Select>
-           {anosDisponiveis.length > 0 && (
+           {!txSoMes && anosDisponiveis.length > 0 && (
              <Select value={filtroAno} onChange={e => setFiltroAno(e.target.value)} className="text-sm">
                <option value="todos">Todos os anos</option>
                {anosDisponiveis.map(a => <option key={a} value={a}>{a}</option>)}
@@ -9161,7 +9238,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Lista */}
          {transacoesOrdenadas.length === 0 ? (
            <p className="text-slate-500 text-center py-8">
-             {transacoes.length === 0 ? 'Nenhuma transação registada. Clica em "+ Transação" para começar.' : 'Nenhuma transação corresponde aos filtros.'}
+             {transacoes.length === 0 ? 'Nenhuma transação registada. Clica em "+ Transação" para começar.' : txSoMes ? `Sem transações em ${mes} ${ano}. Usa as setas do topo para mudar de mês, ou "Todas" para ver o histórico completo.` : 'Nenhuma transação corresponde aos filtros.'}
            </p>
          ) : (
            <div className="space-y-2">
@@ -14841,25 +14918,14 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div className="flex items-center justify-between sm:justify-start gap-3">
               <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">💎 Dashboard</h1>
               <div className="flex gap-2">
+                <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`px-2.5 py-1.5 text-sm font-bold rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>‹</button>
                 <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                 </select>
                 <select value={ano} onChange={e=>setAno(+e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                 </select>
-                {/* Botão Mês Anterior */}
-                <button onClick={() => {
-                  const mesIdx = meses.indexOf(mesAtualSistema);
-                  if (mesIdx === 0) {
-                    setMes(meses[11]);
-                    setAno(anoAtualSistema - 1);
-                  } else {
-                    setMes(meses[mesIdx - 1]);
-                    setAno(anoAtualSistema);
-                  }
-                }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400" title="Ir para mês anterior">
-                  Mês Ant.
-                </button>
+                <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`px-2.5 py-1.5 text-sm font-bold rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>›</button>
                 {!isMesAtual(mes, ano) && (
                   <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400" title="Ir para mês atual">Hoje</button>
                 )}
@@ -15007,7 +15073,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
  {tab==='vendacasa' && <VendaCasa G={G} uG={uG} theme={theme}/>}
- {tab==='patrimonio' && <Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }}/>}
+ {tab==='patrimonio' && <Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/>}
 
  {/* Modal: texto das despesas para colar noutra app */}
  {textoBilance !== null && (
