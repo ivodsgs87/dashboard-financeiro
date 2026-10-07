@@ -13,7 +13,8 @@ import {
 } from './vendaCasa';
 import {
   PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patNum, patIdx, patIso, patDataAceite,
-  patTemPortfolio, patHistoricoPortfolio, patRotulo, patSerie, patRegistosEfetivos, CompararAnos, Patrimonio
+  patTemPortfolio, patHistoricoPortfolio, patRotulo, patSerie, patRetornoReal, patInvestDoPortfolio, patRegistosEfetivos, CompararAnos,
+  Patrimonio
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -396,6 +397,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
+  // Cópia de segurança num clique: descarrega tudo num ficheiro e regista a data
+  const fazerBackup = useCallback(() => {
+    try {
+      const hoje = patIso(new Date());
+      const conteudo = JSON.stringify({ g: { ...G, ultimoBackup: hoje }, m: M, version: 1, exportDate: new Date().toISOString() });
+      const url = URL.createObjectURL(new Blob([conteudo], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = `backup-orcamento-${hoje}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setG(p => ({ ...p, ultimoBackup: hoje }));
+      showToast('Cópia de segurança descarregada. Guarda o ficheiro num sítio seguro (Drive, disco externo).', 'success', 7000);
+    } catch (e) {
+      showToast('Não consegui criar a cópia de segurança: ' + (e && e.message ? e.message : e), 'error', 8000);
+    }
+  }, [G, M, showToast]);
+  const diasSemBackup = G.ultimoBackup ? Math.floor((Date.now() - Date.parse(G.ultimoBackup)) / 864e5) : null;
   const isSavingRef = useRef(false);
 
   // Categorias unificadas (derivadas do extrato, partilhadas com casal/pessoais)
@@ -5226,6 +5244,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        return count > 0 ? Math.round(total / count) : 500;
      })();
 
+     // Os teus números reais, pelas Transações e pelo valor atual do Portfolio
+     const real = patRetornoReal(G, patInvestDoPortfolio(portfolio), patIso(new Date()));
+
      // Simulador 1: Projeção Portfolio
      const [simCapInicial, setSimCapInicial] = useState(Math.round(totPortfolio));
      const [simAporteMensal, setSimAporteMensal] = useState(avgInvMensal);
@@ -5346,6 +5367,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </button>
            ))}
          </div>
+
+         {real && (
+           <div className={`mb-4 rounded-xl p-3 text-sm ${theme === 'light' ? 'bg-slate-100' : 'bg-slate-700/30'}`}>
+             <p className="font-medium">Os teus números reais <span className="text-xs font-normal text-slate-500">· {real.cats.join(' + ')}, pelas Transações</span></p>
+             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mt-1">
+               <p>Pões <strong className="text-lg tabular-nums">{fmt(Math.round(real.mediaMensal))}</strong> <span className="text-slate-500">por mês (últimos 12 meses)</span></p>
+               {real.taxa != null && <p>Renderam <strong className={`text-lg tabular-nums ${real.taxa >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>{(real.taxa * 100).toFixed(1).replace('.', ',')}%</strong> <span className="text-slate-500">por ano desde {patRotulo(patIdx(real.desde))}</span></p>}
+             </div>
+             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+               <button onClick={() => { setSimAporteMensal(Math.max(0, Math.round(real.mediaMensal))); }} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-400">Usar o que realmente ponho</button>
+               {real.taxa != null && <span className="text-xs text-slate-500">{real.taxa * 100 < 5 ? 'Abaixo do cenário pessimista (5%).' : real.taxa * 100 < 7 ? 'Entre o cenário pessimista (5%) e o base (7%).' : real.taxa * 100 < 9 ? 'Entre o cenário base (7%) e o otimista (9%).' : 'Acima do cenário otimista (9%).'} O passado não garante o futuro: para projetar, 7% continua a ser a hipótese prudente.</span>}
+             </div>
+           </div>
+         )}
 
          {/* PROJEÇÃO PORTFOLIO */}
          {simTab === 'projecao' && (
@@ -12530,6 +12565,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <button onClick={() => { exportExtratoPDF(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato PDF</button>
        <button onClick={() => { exportExtratoExcel(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato Excel</button>
        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
+       <button onClick={() => { fazerBackup(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Cópia de segurança (descarregar){diasSemBackup != null ? ` · há ${diasSemBackup} ${diasSemBackup === 1 ? 'dia' : 'dias'}` : ''}</button>
        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
        <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
      </div>
@@ -12877,6 +12913,12 @@ ${transacoesOrdenadas.map(t => `<tr>
 
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto" style={{overflowX: "clip"}}>
         <div key={tab} className="animate-fadeIn">
+        {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
+          <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
+            <span>💾 {diasSemBackup == null ? 'Ainda não fizeste nenhuma cópia de segurança dos teus dados.' : `A última cópia de segurança foi há ${diasSemBackup} dias.`}</span>
+            <button onClick={fazerBackup} className="px-3 py-1.5 rounded-lg font-medium bg-amber-500/20 hover:bg-amber-500/30">Descarregar cópia agora</button>
+          </div>
+        )}
         {tab==='resumo' && <Resumo/>}
  {tab==='performance' && <Performance/>}
  {tab==='receitas' && <Receitas/>}
