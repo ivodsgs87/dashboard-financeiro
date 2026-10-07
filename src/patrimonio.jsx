@@ -1182,7 +1182,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
             </div>
             <div className="flex gap-1.5" role="group" aria-label="Período da caixa do meio e do gráfico">
-              {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
+              {[[1, '1M'], [3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
                 <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
               ))}
             </div>
@@ -1299,7 +1299,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   </div>
                 )}
                 <div>
-                  <p className="font-medium mb-1">Mês a mês {periodo ? `(últimos ${periodo} meses)` : '(desde o início)'}</p>
+                  <p className="font-medium mb-1">Mês a mês {periodo ? (periodo === 1 ? '(último mês)' : `(últimos ${periodo} meses)`) : '(desde o início)'}</p>
                   {janela.filter(d => d.resultado != null).length === 0 && <p className={`text-xs ${sub}`}>Ainda não há dois meses seguidos com detalhe neste período.</p>}
                   <div className="space-y-2">
                     {janela.filter(d => d.resultado != null).slice().reverse().map(d => {
@@ -1340,7 +1340,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <h3 className="font-semibold">Evolução — {nomeVista}</h3>
-            <span className={`text-xs ${sub}`}>{periodo ? `últimos ${periodo} meses` : 'desde o início'}</span>
+            <span className={`text-xs ${sub}`}>{periodo ? (periodo === 1 ? 'último mês' : `últimos ${periodo} meses`) : 'desde o início'}</span>
           </div>
           {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
