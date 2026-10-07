@@ -1476,6 +1476,27 @@ const patStr = v => (v === '' || v == null) ? '' : String(v);
 const patIdx = key => { const [y, m] = String(key || '').split('-').map(Number); return (y || 0) * 12 + ((m || 1) - 1); };
 const patKey = idx => `${Math.floor(idx / 12)}-${(idx % 12) + 1}`;
 const patSoma = l => (l || []).reduce((a, x) => a + patNum(x.val), 0);
+// Dia a que se referem os valores do Portfolio de um mês. Por defeito é o último dia
+// do mês; se o Portfolio foi atualizado noutro dia (por exemplo no dia 3 do mês
+// seguinte, já depois de uma compra), é esse dia que separa o que conta para cada mês.
+const patIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const patFimMes = idx => patIso(new Date(Math.floor(idx / 12), (idx % 12) + 1, 0));
+const patDataAceite = (idx, data) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || ''))) return false;
+  const ini = patIso(new Date(Math.floor(idx / 12), idx % 12, 1)), max = patIso(new Date(Math.floor(idx / 12), (idx % 12) + 1, 20));
+  return data >= ini && data <= max;
+};
+// Meses preenchidos antes de a app guardar o dia: ordenado + 2 dias, indicado pelo Ivo.
+// Valem enquanto não houver uma data escolhida à mão nem uma atualização nova do Portfolio.
+const PAT_DATAS_INICIAIS = { '2026-7': '2026-07-04', '2026-8': '2026-08-02', '2026-9': '2026-09-04', '2026-10': '2026-10-07' };
+const patCorte = (G, M, idx) => {
+  const key = patKey(idx);
+  const manual = ((((G || {}).patrimonio || {}).datas) || {})[key];
+  if (patDataAceite(idx, manual)) return manual;
+  const auto = ((M || {})[key] || {}).portfolioData;
+  if (patDataAceite(idx, auto)) return auto;
+  return patDataAceite(idx, PAT_DATAS_INICIAIS[key]) ? PAT_DATAS_INICIAIS[key] : patFimMes(idx);
+};
 const patIdxHoje = () => { const h = new Date(); return h.getFullYear() * 12 + h.getMonth(); };
 // Um mês só "tem portfolio" se tiver valores. Ao editar qualquer outra coisa num mês
 // novo, a app copia a lista por defeito (tudo a zero) — isso não conta como preenchido.
@@ -1528,9 +1549,9 @@ const patDetalhe = serie => serie.map((s, i) => {
 const patTxConta = (t, regras) => !!t && !!t.data && (t.tipo === 'compra' || t.tipo === 'venda')
   && t.categoria !== 'CREDITO' && !patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras);
 const patTxLiquido = t => t.tipo === 'compra' ? patNum(t.valorTotal) + patNum(t.comissao) : -Math.max(0, patNum(t.valorTotal) - patNum(t.comissao));
-const patTxEntre = (G, de, ate) => {
-  const regras = patRegras(G);
-  return ((G || {}).transacoes || []).filter(t => patTxConta(t, regras) && patIdx(t.data) >= de && patIdx(t.data) <= ate)
+const patTxEntre = (G, M, de, ate) => {
+  const regras = patRegras(G), a = patCorte(G, M, de - 1), b = patCorte(G, M, ate);
+  return ((G || {}).transacoes || []).filter(t => patTxConta(t, regras) && t.data > a && t.data <= b)
     .sort((a, b) => String(a.data).localeCompare(String(b.data)));
 };
 // Ganho desde a primeira compra, por categoria: o que vale hoje no Portfolio menos
@@ -1607,7 +1628,7 @@ const patRascunho = ({ registos, key, portfolio, G, M }) => {
   const ex = (registos || {})[key];
   if (ex) {
     return {
-      existe: true, importado: !!ex.importado, fechadoEm: ex.fechadoEm || null,
+      existe: true, importado: !!ex.importado, fechadoEm: ex.fechadoEm || null, movManual: !!ex.movManual,
       investItens: (ex.investItens || []).map(i => ({ ...i })),
       liquidez: copia(ex.liquidez), imoveis: copia(ex.imoveis), outros: copia(ex.outros), dividas: copia(ex.dividas),
       // Um registo importado ainda não tem movimentos: propõe os das Transações
@@ -1648,6 +1669,7 @@ const patLimpar = d => {
     investItens: (d.investItens || []).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })),
     liquidez: limpa(d.liquidez), imoveis: limpa(d.imoveis), outros: limpa(d.outros), dividas: limpa(d.dividas),
     aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos), amortizacao: patNum(d.amortizacao),
+    ...(d.movManual ? { movManual: true } : {}),
     nota: (d.nota || '').trim(), fechadoEm: new Date().toISOString()
   };
 };
@@ -1675,10 +1697,10 @@ const patMovimentos = (G, M, registos, key) => {
   const r2 = v => Math.round(v * 100) / 100;
   const regras = patRegras(G);
   let aportes = 0, levantamentos = 0, amortizacao = 0, nCompras = 0, nVendas = 0;
+  const desdeData = patCorte(G, M, de - 1), ateData = patCorte(G, M, idx);
   ((G || {}).transacoes || []).forEach(t => {
     if (!t || !t.data) return;
-    const i = patIdx(t.data);
-    if (i < de || i > idx) return;
+    if (!(t.data > desdeData && t.data <= ateData)) return;
     const v = patNum(t.valorTotal);
     if (patEhLiquidez({ desc: t.ticker, cat: t.categoria }, regras)) return;   // mexer em dinheiro parado não é investir
     if (t.categoria === 'CREDITO') return;   // amortizações saem do dinheiro (Trade), não dos investimentos
@@ -1771,6 +1793,16 @@ const patRegistosEfetivos = (G, M) => {
   autos.forEach(key => {
     const d = patRascunho({ registos: out, key, portfolio: mm[key].portfolio, G: G || {}, M: mm });
     out[key] = { ...patLimpar(d), fechadoEm: null, auto: true };
+  });
+  // Um registo guardado não fica preso ao valor do dia em que foi guardado: o que puseste
+  // segue sempre as Transações, a não ser que tenha sido corrigido à mão.
+  Object.keys(guard).map(k => patKey(patIdx(k))).sort((a, b) => patIdx(a) - patIdx(b)).forEach(key => {
+    const r = out[key];
+    if (!r || r.importado || r.movManual) return;
+    const base = { ...out }; delete base[key];
+    const mov = patMovimentos(G || {}, mm, base, key);
+    if (mov.origem !== 'transacoes') return;
+    out[key] = { ...r, aportes: mov.aportes, ...(patNum(r.amortizacao) === 0 ? { levantamentos: mov.levantamentos } : {}) };
   });
   const regras = patRegras(G);
   Object.keys(out).forEach(k => {
@@ -2009,7 +2041,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G, M })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
   const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
   const mov = patMovimentos(G, M, registos, mesKey);
-  const movDifere = mov.origem === 'transacoes' && (patNum(draft.aportes) !== mov.aportes
+  const corteSel = patCorte(G, M, idxSel);
+  const movDifere = mov.origem === 'transacoes' && !!draft.movManual && (patNum(draft.aportes) !== mov.aportes
     || patNum(draft.levantamentos) + patNum(draft.amortizacao) !== mov.levantamentos + mov.amortizacao);
   const fluxoDraft = patNum(draft.aportes) - patNum(draft.levantamentos) - patNum(draft.amortizacao);
   const saidasDraft = patNum(draft.levantamentos) + patNum(draft.amortizacao);
@@ -2200,7 +2233,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   {janela.filter(d => d.resultado != null).length === 0 && <p className={`text-xs ${sub}`}>Ainda não há dois meses seguidos com detalhe neste período.</p>}
                   <div className="space-y-2">
                     {janela.filter(d => d.resultado != null).slice().reverse().map(d => {
-                      const txs = patTxEntre(G, d.prev.idx + 1, d.idx);
+                      const txs = patTxEntre(G, M, Math.max(d.prev.idx + 1, d.idx - 23), d.idx);
                       const somaTx = txs.reduce((a, t) => a + patTxLiquido(t), 0);
                       return (
                         <div key={d.idx} className={`rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
@@ -2217,7 +2250,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                               ))}
                             </ul>
                           ) : <p className={`mt-1 text-xs ${sub}`}>Sem compras nem vendas nas Transações neste mês.</p>}
-                          {Math.abs(somaTx - d.fluxo) > 0.5 && <p className="mt-1 text-xs text-amber-500">O valor usado ({f(d.fluxo)}) é diferente da soma das Transações ({f(somaTx)}): foi gravado ou corrigido à mão neste mês, ou vem da Alocação. Abre esse mês e usa "corrigir".</p>}
+                          <p className={`mt-1 text-xs ${sub}`}>Conta compras de {patCorte(G, M, Math.max(d.prev.idx, d.idx - 24)).split('-').reverse().join('/')} (exclusive) a {patCorte(G, M, d.idx).split('-').reverse().join('/')}.</p>
+                          {Math.abs(d.invest - d.prev.invest) < 0.005 && <p className="mt-1 text-xs text-amber-500">O Portfolio de {patRotulo(d.idx)} está igual ao de {patRotulo(d.prev.idx)}: não foi atualizado, por isso parece que perdeste tudo o que puseste neste mês. O valor acerta-se no mês seguinte.</p>}
+                          {Math.abs(somaTx - d.fluxo) > 0.5 && <p className="mt-1 text-xs text-amber-500">O valor usado ({f(d.fluxo)}) é diferente da soma das Transações ({f(somaTx)}): foi corrigido à mão nesse mês, ou vem da Alocação.</p>}
                         </div>
                       );
                     })}
@@ -2370,6 +2405,13 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
         {/* Movimentos — uma frase, com "corrigir" */}
         <div className={`mt-4 pt-4 border-t ${linhaB}`}>
+          <label className={`mb-3 flex flex-wrap items-center gap-2 text-xs ${sub}`}>
+          <span>Os valores do Portfolio de {patRotulo(idxSel)} são do dia</span>
+          <input type="date" value={corteSel} min={patIso(new Date(Math.floor(idxSel / 12), idxSel % 12, 1))} max={patIso(new Date(Math.floor(idxSel / 12), (idxSel % 12) + 1, 20))}
+            onChange={e => { if (patDataAceite(idxSel, e.target.value)) setPat({ datas: { ...(pat.datas || {}), [mesKey]: e.target.value } }); }}
+            className={`${inp} !w-auto !py-1 text-xs`} aria-label="Dia a que se referem os valores do Portfolio" />
+          <span>· compras até este dia contam para {patRotulo(idxSel)}, as seguintes para o mês a seguir</span>
+        </label>
           {!anterior ? (
             <p className={`text-sm ${sub}`}>Primeiro registo. A partir do próximo, a app mostra quanto puseste e quanto o mercado rendeu.</p>
           ) : (
@@ -2394,11 +2436,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 <div className="mt-3">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Puseste (aportes)</span>
-                      <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                      <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
                     <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para gastar</span>
-                      <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                      <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
                     <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para amortizar crédito</span>
-                      <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                      <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value, movManual: true })} placeholder="0" className={`${inp} text-right`} /></label>
                   </div>
                   <p className={`text-xs mt-2 ${sub}`}>
                     {mov.origem === 'transacoes' ? `Transações neste período: ${mov.nCompras} ${mov.nCompras === 1 ? 'compra' : 'compras'}, ${mov.nVendas} ${mov.nVendas === 1 ? 'venda' : 'vendas'}.`
@@ -2406,7 +2448,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   </p>
                   {onAbrirTab && <button onClick={() => onAbrirTab('transacoes')} className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">Abrir as Transações →</button>}
                   {movDifere && (
-                    <button onClick={() => setDraft({ ...draft, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '' })}
+                    <button onClick={() => setDraft({ ...draft, movManual: false, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '' })}
                       className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">↻ Repor os valores das Transações</button>
                   )}
                   {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
@@ -3113,7 +3155,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const uM = useCallback((f, v) => {
    saveUndo();
-   setM(p => ({...p, [mesKey]: {...(p[mesKey]||defM), [f]:v}}));
+   setM(p => {
+     const antes = p[mesKey] || defM;
+     const novo = {...antes, [f]: v};
+     // Ao mudar valores do Portfolio, guarda-se o dia: é ele que separa as compras deste mês das do seguinte
+     if (f === 'portfolio') {
+       const vals = l => JSON.stringify((Array.isArray(l) ? l : []).map(x => [x.id, patNum(x.val)]));
+       const hoje = patIso(new Date());
+       if (vals(antes.portfolio) !== vals(v) && patDataAceite(patIdx(mesKey), hoje)) novo.portfolioData = hoje;
+     }
+     return {...p, [mesKey]: novo};
+   });
  }, [mesKey, saveUndo]);
  
  const uG = useCallback((f,v) => {
@@ -9469,6 +9521,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <Card className="bg-purple-500/10 border-purple-500/30">
            <p className="text-xs text-slate-400 mb-1">📊 Comissões</p>
            <p className="text-xl font-bold text-purple-400">{fmt(totalComissoes)}</p>
+           {totalCompras > 0 && <p className="text-xs text-slate-400 mt-0.5">{(totalComissoes / totalCompras * 100).toFixed(2).replace('.', ',')}% do que investiste</p>}
          </Card>
        </div>
        
