@@ -1618,12 +1618,16 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const [anosAbertos, setAnosAbertos] = useState({});
   const [novoEv, setNovoEv] = useState({ data: '', texto: '' });
   const [confirmaApagar, setConfirmaApagar] = useState(false);
+  const [ajuda, setAjuda] = useState(false);          // textos de ajuda
+  const [mais, setMais] = useState(false);            // casa, dívidas, outros
+  const [editMov, setEditMov] = useState(false);      // corrigir movimentos
+  const [sec, setSec] = useState({ ev: false, hist: false });
 
   // Recriar o rascunho só quando muda o mês ou o registo guardado desse mês —
   // nunca a meio da edição.
   useEffect(() => {
     setDraft(patRascunho({ registos, key: mesKey, portfolio, G, M }));
-    setConfirmaApagar(false);
+    setConfirmaApagar(false); setEditMov(false); setMais(false);
   }, [mesKey, assinatura]); // eslint-disable-line
 
   const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
@@ -1653,8 +1657,15 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const movDifere = mov.origem === 'transacoes' && (patNum(draft.aportes) !== mov.aportes
     || patNum(draft.levantamentos) + patNum(draft.amortizacao) !== mov.levantamentos + mov.amortizacao);
   const fluxoDraft = patNum(draft.aportes) - patNum(draft.levantamentos) - patNum(draft.amortizacao);
+  const saidasDraft = patNum(draft.levantamentos) + patNum(draft.amortizacao);
   // Se a dívida desceu desde o último registo, é provável que parte tenha saído dos investimentos
   const descidaDivida = anterior ? Math.round((anterior.dividas - tDraft.dividas) * 100) / 100 : 0;
+  const mercadoDraft = anterior ? tDraft.invest - anterior.invest - fluxoDraft : 0;
+  // Amortização paga com os investimentos: desconta dos levantamentos para não contar duas vezes
+  const usarDescida = () => setDraft({
+    ...draft, amortizacao: String(descidaDivida),
+    levantamentos: patNum(draft.levantamentos) > 0 ? (String(Math.max(0, Math.round((patNum(draft.levantamentos) - descidaDivida) * 100) / 100) || '')) : draft.levantamentos
+  });
 
   const guardar = () => setPat({ registos: { ...registos, [mesKey]: patLimpar(draft) } });
   const apagar = () => { const r = { ...registos }; delete r[mesKey]; setPat({ registos: r }); };
@@ -1690,7 +1701,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
       ...(d.resultado != null ? [
         ...(patNum(d.rec.amortizacao) ? [['Amortização de crédito', '−' + f(patNum(d.rec.amortizacao))]] : []),
-        ['Entradas − saídas', sinal(d.fluxo)], ['Resultado mercado', sinal(d.resultado)]
+        ['Puseste (líquido)', sinal(d.fluxo)], ['Mercado', sinal(d.resultado)]
       ] : [])
     ]
   }));
@@ -1767,15 +1778,15 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xs ${sub}`}>{varPct != null ? pct(varPct) : '—'} · {det.length} {det.length === 1 ? 'registo' : 'registos'}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Entradas − saídas</p>
+              <p className={`text-xs ${sub}`}>Puseste (líquido)</p>
               <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-              <p className={`text-xs ${sub}`}>{ret.periodos ? `aportes menos levantamentos e amortizações, em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo com movimentos'}</p>
+              <p className={`text-xs ${sub}`}>{ret.periodos ? `em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo'}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Resultado dos investimentos</p>
+              <p className={`text-xs ${sub}`}>O mercado rendeu</p>
               <p className={`text-xl font-bold ${ret.periodos ? corDelta(ret.resultado) : ''}`}>{ret.periodos ? seta(ret.resultado) + sinal(ret.resultado) : '—'}</p>
               <p className={`text-xs ${sub}`}>
-                {ret.twr != null ? `retorno ${pct(ret.twr)}${ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}` : 'o que o mercado rendeu'}
+                {ret.twr != null ? `retorno ${pct(ret.twr)}${ret.anual != null ? ` · ${pct(ret.anual)}/ano` : ''}` : 'a partir do 2.º registo'}
               </p>
             </div>
           </div>
@@ -1802,9 +1813,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           </div>
           {pontos.length > 1 ? <PatChart pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
-          <p className={`text-[11px] mt-1 ${sub}`}>
-            Linha tracejada = meses sem registo pelo meio · ponto vazio = registo importado{evOrd.length ? ' · números = acontecimentos' : ''}
-          </p>
         </div>
       )}
 
@@ -1842,20 +1850,29 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Registo do mês */}
       <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-          <h3 className="text-lg font-semibold">📝 Registo de {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
-          <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? 'text-amber-400 bg-amber-500/15 border-amber-500/40' : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
-            {!draft.existe ? 'Por registar' : draft.importado ? 'Importado — revê e guarda' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold">📝 {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? 'text-amber-400 bg-amber-500/15 border-amber-500/40' : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
+              {!draft.existe ? 'Por registar' : draft.importado ? 'Importado — confirma' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
+            </span>
+            <button onClick={() => setAjuda(!ajuda)} aria-label="Ajuda" aria-expanded={ajuda} className={chip(ajuda)}>?</button>
+          </div>
         </div>
-        <p className={`text-xs mb-4 ${sub}`}>Uma fotografia do fim do mês. Muda o mês no topo da app para registar ou corrigir outro.</p>
+
+        {ajuda && (
+          <div className={`mb-4 rounded-xl p-3 text-xs space-y-1.5 ${escuro ? 'bg-slate-700/30 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+            <p>Isto é uma fotografia do fim do mês. Confirma os números e guarda. Para outro mês, muda o mês no topo da app.</p>
+            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas; não repitas o que já está no Portfolio (ex.: Fundo de Emergência).</p>
+            <p><strong>Casa e dívidas</strong> só contam na vista "Património total". Os créditos ativos vêm do separador Crédito.</p>
+            <p><strong>Puseste / tiraste</strong> vem das Transações (compras e vendas) ou, sem transações, da Alocação. Serve para separar o teu esforço do que o mercado fez. Amortização é dinheiro dos investimentos usado para abater dívida — não é perda.</p>
+          </div>
+        )}
 
         {emFalta.length > 0 && (
-          <div className={`mb-4 rounded-xl border p-3 ${escuro ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
-            <p className="text-xs mb-2">⚠ {emFalta.length} {emFalta.length === 1 ? 'mês sem registo' : 'meses sem registo'} desde {patRotulo(serie[0].idx)}:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {emFalta.slice(-12).map(i => <button key={i} onClick={() => onIrParaMes(patKey(i))} className={chip(i === idxSel)}>{patRotulo(i)}</button>)}
-            </div>
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-amber-400">Sem registo:</span>
+            {emFalta.slice(-8).map(i => <button key={i} onClick={() => onIrParaMes(patKey(i))} className={chip(i === idxSel)}>{patRotulo(i)}</button>)}
           </div>
         )}
 
@@ -1866,12 +1883,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className="text-sm font-medium flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#3b82f6' }} />Investimentos</p>
               <span className="text-sm font-semibold">{f(tDraft.invest)}</span>
             </div>
-            <p className={`text-[11px] mb-1.5 ${sub}`}>Vêm do separador Portfolio — é lá que se editam.</p>
             {draft.investItens.length === 0 ? <p className={`text-xs ${sub}`}>Sem investimentos neste registo.</p> : (
               <div className="space-y-1">
                 {draft.investItens.map((i, k) => (
-                  <div key={k} className="flex justify-between gap-3 text-sm">
-                    <span className="truncate">{i.desc} <span className={`text-xs ${sub}`}>{i.cat}</span></span><span>{f(patNum(i.val))}</span>
+                  <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
+                    <span className="truncate">{i.desc}</span><span>{f(patNum(i.val))}</span>
                   </div>
                 ))}
               </div>
@@ -1881,70 +1897,81 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             )}
             {podeSincronizar && (
               <button onClick={() => setDraft({ ...draft, investItens: patInvestDoPortfolio(portfolio) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
-                ↻ O Portfolio diz {f(investVivo)} — atualizar este registo
+                ↻ O Portfolio diz {f(investVivo)} — atualizar
               </button>
             )}
           </div>
 
-          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub}
-            placeholder="Conta" dica="Saldos das contas. Não repitas o que já está no Portfolio (ex.: Fundo de Emergência)." />
-          <PatLinhas titulo="Imóveis" cor="#d97706" linhas={draft.imoveis} onChange={l => setDraft({ ...draft, imoveis: l })} inp={inp} sub={sub}
-            placeholder="Imóvel" dica="Valor de mercado estimado. É uma estimativa tua — só conta no Património total." />
-          <PatLinhas titulo="Outros ativos" cor="#8b5cf6" linhas={draft.outros} onChange={l => setDraft({ ...draft, outros: l })} inp={inp} sub={sub}
-            placeholder="Ex.: Investimento imobiliário" dica="Capital aplicado fora do Portfolio: participações, empréstimos a receber, etc." />
-          <PatLinhas titulo="Dívidas" cor="#ef4444" linhas={draft.dividas} onChange={l => setDraft({ ...draft, dividas: l })} inp={inp} sub={sub}
-            placeholder="Dívida" dica={draft.existe ? 'Capital em dívida no fim do mês.' : 'Os créditos ativos vêm do separador Crédito; acrescenta aqui outras dívidas.'} />
-
-          {/* Fluxos */}
-          <div>
-            <p className="text-sm font-medium mb-1.5">Movimentos nos investimentos</p>
-            <p className={`text-[11px] mb-2 ${sub}`}>
-              {anterior ? `Desde o registo de ${patRotulo(anterior.idx)}.` : 'Sem registo anterior — só contam a partir do próximo.'} É isto que separa o que puseste do que o mercado rendeu.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Aportes</span>
-                <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
-              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Levantamentos</span>
-                <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
-              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Amortização de crédito</span>
-                <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
-            </div>
-            <p className={`text-[11px] mt-1.5 ${sub}`}>Aportes = dinheiro novo. Levantamentos = retirado para gastar. Amortização = saiu dos investimentos para abater dívida; não é perda, no Património total a dívida desce no mesmo valor.</p>
-            {draft.origemMov === 'transacoes' && !movDifere && (
-              <p className={`text-xs mt-2 ${sub}`}>
-                ✓ Preenchido a partir das Transações{anterior ? ` desde ${patRotulo(anterior.idx)}` : ' deste mês'}: {mov.nCompras} {mov.nCompras === 1 ? 'compra' : 'compras'}, {mov.nVendas} {mov.nVendas === 1 ? 'venda' : 'vendas'}. Dividendos não contam — são resultado.
-              </p>
-            )}
-            {draft.origemMov === 'alocacao' && patNum(draft.aportes) === mov.aportes && (
-              <p className={`text-xs mt-2 ${sub}`}>✓ Sem transações neste período — aportes preenchidos com os investimentos marcados como feitos na Alocação.</p>
-            )}
-            {movDifere && (
-              <button onClick={() => setDraft({ ...draft, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '', origemMov: 'transacoes' })}
-                className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
-                ↻ As Transações dizem: {f(mov.aportes)} de compras e {f(mov.levantamentos)} de vendas{mov.amortizacao ? `, ${f(mov.amortizacao)} de amortização` : ''} — usar estes valores
-              </button>
-            )}
-            {mov.origem === null && !draft.existe && (
-              <p className={`text-xs mt-2 ${sub}`}>Sem transações nem investimentos marcados na Alocação neste período — preenche à mão se houve movimentos.</p>
-            )}
-            {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
-              <button onClick={() => setDraft({ ...draft, amortizacao: String(descidaDivida), levantamentos: patNum(draft.levantamentos) > 0 ? String(Math.max(0, Math.round((patNum(draft.levantamentos) - descidaDivida) * 100) / 100) || '') : draft.levantamentos })}
-                className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
-                A dívida desceu {f(descidaDivida)} desde {patRotulo(anterior.idx)} — contar como amortização{patNum(draft.levantamentos) > 0 ? ' (desconta dos levantamentos, para não contar duas vezes)' : ''}. Inclui a parte normal das prestações; ajusta se for o caso.
-              </button>
-            )}
-            {anterior && (
-              <p className={`text-xs mt-2 ${sub}`}>
-                Investimentos: {sinal(tDraft.invest - anterior.invest)} = {sinal(fluxoDraft)} de movimentos teus
-                {' '}+ <span className={corDelta(tDraft.invest - anterior.invest - fluxoDraft)}>{sinal(tDraft.invest - anterior.invest - fluxoDraft)} de mercado</span>
-              </p>
-            )}
-          </div>
+          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
         </div>
 
-        <label className="flex flex-col gap-1 mt-5">
-          <span className={`text-xs ${sub}`}>Nota do mês (opcional) — o que explica os números deste mês?</span>
-          <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={2} placeholder="Ex.: mercado caiu 8%; reforcei o fundo de emergência antes da mudança de casa" className={`${inp} w-full resize-y`} />
+        {/* Casa, dívidas e outros — recolhido por defeito */}
+        <div className={`mt-5 pt-4 border-t ${linhaB}`}>
+          <button onClick={() => setMais(!mais)} aria-expanded={mais} className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-left">
+            <span className="text-sm font-medium">{mais ? '▾' : '▸'} Casa, dívidas e outros</span>
+            <span className={`text-xs ${sub}`}>Imóveis {f(tDraft.imoveis)} · Dívidas {f(tDraft.dividas)}{tDraft.outros ? ` · Outros ${f(tDraft.outros)}` : ''}</span>
+          </button>
+          {mais && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5 mt-4">
+              <PatLinhas titulo="Imóveis" cor="#d97706" linhas={draft.imoveis} onChange={l => setDraft({ ...draft, imoveis: l })} inp={inp} sub={sub} placeholder="Imóvel" />
+              <PatLinhas titulo="Dívidas" cor="#ef4444" linhas={draft.dividas} onChange={l => setDraft({ ...draft, dividas: l })} inp={inp} sub={sub} placeholder="Dívida" />
+              <PatLinhas titulo="Outros ativos" cor="#8b5cf6" linhas={draft.outros} onChange={l => setDraft({ ...draft, outros: l })} inp={inp} sub={sub} placeholder="Ex.: Investimento imobiliário" />
+            </div>
+          )}
+        </div>
+
+        {/* Movimentos — uma frase, com "corrigir" */}
+        <div className={`mt-4 pt-4 border-t ${linhaB}`}>
+          {!anterior ? (
+            <p className={`text-sm ${sub}`}>Primeiro registo. A partir do próximo, a app mostra quanto puseste e quanto o mercado rendeu.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <p className="text-sm">
+                  Desde {patRotulo(anterior.idx)} puseste <strong>{f(patNum(draft.aportes))}</strong>
+                  {saidasDraft > 0 && <> e tiraste <strong>{f(saidasDraft)}</strong></>}
+                  {patNum(draft.amortizacao) > 0 && <span className={sub}> ({f(patNum(draft.amortizacao))} para amortizar crédito)</span>}
+                  . O mercado {mercadoDraft >= 0 ? 'rendeu' : 'tirou'} <strong className={corDelta(mercadoDraft)}>{f(Math.abs(mercadoDraft))}</strong>.
+                </p>
+                <button onClick={() => setEditMov(!editMov)} aria-expanded={editMov} className="text-xs text-blue-400 hover:text-blue-300">{editMov ? 'fechar' : 'corrigir'}</button>
+              </div>
+              {!editMov && descidaDivida >= 5000 && patNum(draft.amortizacao) === 0 && (
+                <button onClick={usarDescida} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
+                  A dívida desceu {f(descidaDivida)} — foi amortização paga com os investimentos? Contar como tal
+                </button>
+              )}
+              {editMov && (
+                <div className="mt-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Puseste (aportes)</span>
+                      <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para gastar</span>
+                      <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                    <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Tiraste para amortizar crédito</span>
+                      <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+                  </div>
+                  <p className={`text-xs mt-2 ${sub}`}>
+                    {mov.origem === 'transacoes' ? `Transações neste período: ${mov.nCompras} ${mov.nCompras === 1 ? 'compra' : 'compras'}, ${mov.nVendas} ${mov.nVendas === 1 ? 'venda' : 'vendas'}.`
+                      : mov.origem === 'alocacao' ? 'Sem transações neste período — valor da Alocação.' : 'Sem transações nem Alocação neste período.'}
+                  </p>
+                  {movDifere && (
+                    <button onClick={() => setDraft({ ...draft, aportes: mov.aportes ? String(mov.aportes) : '', levantamentos: mov.levantamentos ? String(mov.levantamentos) : '', amortizacao: mov.amortizacao ? String(mov.amortizacao) : '' })}
+                      className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">↻ Repor os valores das Transações</button>
+                  )}
+                  {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
+                    <button onClick={usarDescida} className="mt-1.5 block text-left text-xs text-blue-400 hover:text-blue-300">
+                      A dívida desceu {f(descidaDivida)} — contar como amortização
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <label className="flex flex-col gap-1 mt-4">
+          <span className={`text-xs ${sub}`}>Nota (opcional)</span>
+          <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={1} placeholder="O que explica os números deste mês?" className={`${inp} w-full resize-y`} />
         </label>
 
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
@@ -1959,7 +1986,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             {!confirmaApagar && (
               <button onClick={guardar} disabled={!sujo && !draft.importado}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all ${(!sujo && !draft.importado) ? 'bg-slate-500/40 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`}>
-                {!draft.existe ? 'Guardar registo' : draft.importado ? 'Confirmar registo' : sujo ? 'Guardar alterações' : 'Guardado'}
+                {!draft.existe ? 'Guardar' : draft.importado ? 'Confirmar' : sujo ? 'Guardar alterações' : 'Guardado'}
               </button>
             )}
           </div>
@@ -1968,8 +1995,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Acontecimentos */}
       <div className={card}>
-        <h3 className="font-semibold mb-1">📌 Acontecimentos</h3>
-        <p className={`text-xs mb-3 ${sub}`}>Marcos que explicam os degraus do gráfico daqui a uns anos: venda da casa, mudança de trabalho, um investimento grande.</p>
+        <button onClick={() => setSec({ ...sec, ev: !sec.ev })} aria-expanded={sec.ev} className="w-full flex items-center justify-between gap-3 text-left">
+          <h3 className="font-semibold">{sec.ev ? '▾' : '▸'} 📌 Acontecimentos</h3>
+          <span className={`text-xs ${sub}`}>{evOrd.length ? `${evOrd.length} ${evOrd.length === 1 ? 'marco' : 'marcos'}` : 'venda da casa, mudança de trabalho…'}</span>
+        </button>
+        {sec.ev && (<div className="mt-3">
         {evOrd.length > 0 && (
           <div className="space-y-1.5 mb-3">
             {evOrd.map(e => (
@@ -1988,15 +2018,20 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             placeholder="Ex.: Vendi a casa" className={`${inp} flex-1 min-w-[180px]`} />
           <button onClick={addEvento} className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white">+ Adicionar</button>
         </div>
+        </div>)}
       </div>
 
       {/* Histórico detalhado */}
       {det.length > 0 && (
         <div className={card}>
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <h3 className="font-semibold">📚 Histórico detalhado</h3>
-            <button onClick={exportarCSV} className={chip(false)}>⬇ Exportar CSV</button>
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={() => setSec({ ...sec, hist: !sec.hist })} aria-expanded={sec.hist} className="flex-1 text-left">
+              <h3 className="font-semibold">{sec.hist ? '▾' : '▸'} 📚 Histórico detalhado</h3>
+            </button>
+            {sec.hist ? <button onClick={exportarCSV} className={chip(false)}>⬇ Exportar CSV</button>
+              : <span className={`text-xs ${sub}`}>{det.length} {det.length === 1 ? 'registo' : 'registos'}</span>}
           </div>
+          {sec.hist && (<div className="mt-3">
           {anosTab.map(y => {
             const linhasAno = det.filter(d => Math.floor(d.idx / 12) === y).reverse();
             const fim = linhasAno[0], ini = linhasAno[linhasAno.length - 1];
@@ -2012,7 +2047,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                     <table className="w-full text-xs whitespace-nowrap">
                       <thead>
                         <tr className={sub}>
-                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Entr. − saíd.', 'Amortiz.', 'Mercado'].map((c, i) => (
+                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Puseste', 'Amortiz.', 'Mercado'].map((c, i) => (
                             <th key={c} className={`font-medium py-1.5 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>{c}</th>
                           ))}
                         </tr>
@@ -2044,7 +2079,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               </div>
             );
           })}
-          <p className={`text-[11px] mt-2 ${sub}`}>imp. = importado, sem aportes registados · nota = passa o rato para a ler · clica numa linha para abrir esse mês.</p>
+          <p className={`text-[11px] mt-2 ${sub}`}>imp. = importado · clica numa linha para abrir esse mês.</p>
+          </div>)}
         </div>
       )}
     </div>
