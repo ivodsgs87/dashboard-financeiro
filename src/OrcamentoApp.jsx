@@ -1522,7 +1522,10 @@ const patTotais = rec => {
   const liquidez = patSoma(r.liquidez) + patSoma(itens.filter(patItemLiq)), imoveis = patSoma(r.imoveis);
   const outros = patSoma(r.outros), dividas = patSoma(r.dividas);
   const capital = invest + liquidez + outros;               // sem casa nem dívida
-  return { invest, liquidez, imoveis, outros, dividas, capital, total: capital + imoveis - dividas };
+  // Dinheiro da venda da casa guardado para comprar imóvel: está dentro da liquidez,
+  // mas não é dinheiro "livre". Nunca pode ser mais do que o dinheiro que existe.
+  const reservado = Math.max(0, Math.min(patNum(r.reservado != null ? r.reservado : r.reservadoAuto), liquidez));
+  return { invest, liquidez, imoveis, outros, dividas, capital, reservado, livre: capital - reservado, total: capital + imoveis - dividas };
 };
 
 const patSerie = registos => Object.entries(registos || {})
@@ -1544,6 +1547,20 @@ const patDetalhe = serie => serie.map((s, i) => {
     salto: prev ? s.idx - prev.idx : 0
   };
 });
+
+// Dinheiro da venda da casa que ainda está reservado para imobiliário num dado mês,
+// segundo o separador Venda de Casa: o líquido da venda menos o que já foi gasto ou
+// investido até ao dia do Portfolio desse mês. Antes da data da venda é zero.
+const patReservado = (G, M, idx) => {
+  const vc = { ...VC_DEFAULT, ...((G || {}).vendaCasa || {}) };
+  const corte = patCorte(G, M, idx);
+  if (!vc.dataVenda || String(vc.dataVenda).slice(0, 10) > corte) return 0;
+  const venda = patNum(vc.valorVenda), amort = patNum(vc.creditoAmortizado);
+  const liquido = venda - venda * patNum(vc.comissaoPct) / 100 - amort - amort * patNum(vc.penalizacaoPct) / 100 - patNum(vc.outrosCustos);
+  const saiu = (vc.movimentos || []).filter(m => m && (m.tipo === 'gasto' || m.tipo === 'investido') && (!m.data || String(m.data).slice(0, 10) <= corte))
+    .reduce((a, m) => a + patNum(m.val), 0);
+  return Math.max(0, Math.round((liquido - saiu) * 100) / 100);
+};
 
 // Transações que contam como "pôr ou tirar dinheiro dos investimentos"
 const patTxConta = (t, regras) => !!t && !!t.data && (t.tipo === 'compra' || t.tipo === 'venda')
@@ -1635,6 +1652,7 @@ const patRascunho = ({ registos, key, portfolio, G, M }) => {
       aportes: ex.importado ? z(mov.aportes) : patStr(ex.aportes), levantamentos: ex.importado ? z(mov.levantamentos) : patStr(ex.levantamentos),
       amortizacao: ex.importado ? z(mov.amortizacao) : patStr(ex.amortizacao),
       origemMov: ex.importado ? mov.origem : null,
+      reservado: ex.reservado != null ? patStr(ex.reservado) : '',
       nota: ex.nota || ''
     };
   }
@@ -1657,7 +1675,7 @@ const patRascunho = ({ registos, key, portfolio, G, M }) => {
     imoveis: prev ? copia(prev.rec.imoveis) : imoveisCredito,
     outros: prev ? copia(prev.rec.outros) : [],
     dividas: [...dividasCredito, ...copia(manuais)],
-    aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, nota: ''
+    aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, reservado: '', nota: ''
   };
 };
 
@@ -1670,6 +1688,7 @@ const patLimpar = d => {
     liquidez: limpa(d.liquidez), imoveis: limpa(d.imoveis), outros: limpa(d.outros), dividas: limpa(d.dividas),
     aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos), amortizacao: patNum(d.amortizacao),
     ...(d.movManual ? { movManual: true } : {}),
+    ...(d.reservado != null && String(d.reservado).trim() !== '' ? { reservado: patNum(d.reservado) } : {}),
     nota: (d.nota || '').trim(), fechadoEm: new Date().toISOString()
   };
 };
@@ -1806,6 +1825,7 @@ const patRegistosEfetivos = (G, M) => {
   });
   const regras = patRegras(G);
   Object.keys(out).forEach(k => {
+    if (!out[k].importado) out[k] = { ...out[k], reservadoAuto: patReservado(G || {}, mm, patIdx(k)) };
     out[k] = { ...out[k], investItens: (out[k].investItens || []).map(i => ({ ...i, liq: patEhLiquidez(i, regras) })) };
   });
   return out;
@@ -1983,6 +2003,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   const [vista, setVista] = useState('capital');           // 'capital' | 'total'
   const [periodo, setPeriodo] = useState(0);               // meses; 0 = tudo
+  const [semReservado, setSemReservado] = useState(true);  // esconder o dinheiro reservado para imobiliário
   const [draft, setDraft] = useState(() => patRascunho({ registos, key: mesKey, portfolio, G, M }));
   const [anosAbertos, setAnosAbertos] = useState({});
   const [novoEv, setNovoEv] = useState({ data: '', texto: '' });
@@ -2006,8 +2027,10 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const setPat = patch => uG('patrimonio', { ...pat, ...patch });
   const serie = patSerie(efetivos);
   const det = patDetalhe(serie);
-  const campo = vista === 'capital' ? 'capital' : 'total';
-  const nomeVista = vista === 'capital' ? 'Património financeiro' : 'Património total';
+  const haReservado = serie.some(x => x.reservado > 0);
+  const semRes = vista === 'capital' && semReservado && haReservado;
+  const campo = vista === 'capital' ? (semRes ? 'livre' : 'capital') : 'total';
+  const nomeVista = vista === 'capital' ? (semRes ? 'Património financeiro livre' : 'Património financeiro') : 'Património total';
 
   const ultimo = det[det.length - 1] || null;
   // Ponto de partida do período escolhido: o último registo até N meses atrás
@@ -2024,7 +2047,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   // De onde vem a variação. Um snapshot antigo não separa investimentos de liquidez, por isso aí não se mostra.
   const partesVar = (ultimo && primeiro && ultimo !== primeiro && !primeiro.rec.importado) ? [
     ['investimentos', ultimo.invest - primeiro.invest],
-    ['dinheiro nas contas', ultimo.liquidez - primeiro.liquidez],
+    ['dinheiro nas contas', (ultimo.liquidez - primeiro.liquidez) - (semRes ? ultimo.reservado - primeiro.reservado : 0)],
     ['outros', ultimo.outros - primeiro.outros],
     ...(vista === 'total' ? [['casa', ultimo.imoveis - primeiro.imoveis], ['dívida', -(ultimo.dividas - primeiro.dividas)]] : [])
   ].filter(([, v]) => Math.abs(v) >= 0.5).map(([n, v]) => `${n} ${sinal(v)}`).join(' · ') : '';
@@ -2032,7 +2055,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   // Rascunho → totais ao vivo
   const regras = patRegras(G);
   const itensDraft = draft.investItens.map(i => ({ ...i, liq: patEhLiquidez(i, regras) }));
-  const tDraft = patTotais({ ...draft, investItens: itensDraft });
+  const reservadoAutoSel = patReservado(G, M, idxSel);
+  const tDraft = patTotais({ ...draft, investItens: itensDraft, reservado: String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? patNum(draft.reservado) : null, reservadoAuto: reservadoAutoSel });
   const itensInvest = itensDraft.filter(i => !i.liq);
   const itensLiquidez = itensDraft.filter(i => i.liq);
   // Mover uma linha do Portfolio entre "investimento" e "dinheiro" (vale para todos os meses)
@@ -2078,7 +2102,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     idx: d.idx, v: d[campo], importado: !!d.rec.importado, nota: d.rec.nota,
     tip: [
       [nomeVista, f(d[campo]), true],
-      ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ['Outros ativos', f(d.outros)],
+      ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ...(d.reservado > 0 ? [['— reservado para imobiliário', f(d.reservado)]] : []), ['Outros ativos', f(d.outros)],
       ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
       ...(d.resultado != null ? [
         ...(patNum(d.rec.amortizacao) ? [['Amortização de crédito', '−' + f(patNum(d.rec.amortizacao))]] : []),
@@ -2143,6 +2167,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
               <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
             </div>
+            {vista === 'capital' && haReservado && (
+              <button className={chip(semReservado)} aria-pressed={semReservado} onClick={() => setSemReservado(!semReservado)} title="O dinheiro da venda da casa guardado para comprar imóvel">
+                {semReservado ? '✓ ' : ''}Sem o dinheiro reservado para imobiliário
+              </button>
+            )}
             <div className="flex gap-1.5" role="group" aria-label="Período">
               {[[3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Início']].map(([m, l]) => (
                 <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
@@ -2159,6 +2188,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xs ${sub}`}>{nomeVista} · {patRotulo(ultimo.idx)}</p>
               <p className="text-xl font-bold">{f(ultimo[campo])}</p>
               {ultimo.prev && <p className={`text-xs ${corDelta(ultimo[campo] - ultimo.prev[campo])}`}>{seta(ultimo[campo] - ultimo.prev[campo])}{sinal(ultimo[campo] - ultimo.prev[campo])} vs {patRotulo(ultimo.prev.idx)}</p>}
+              {vista === 'capital' && ultimo.reservado > 0 && <p className={`text-xs ${sub}`}>{semRes ? `+ ${f(ultimo.reservado)} reservados para imobiliário` : `dos quais ${f(ultimo.reservado)} reservados para imobiliário`}</p>}
             </div>
             <div className={tile}>
               <p className={`text-xs ${sub}`}>{nomeVista} desde {patRotulo(primeiro.idx)}</p>
@@ -2385,7 +2415,24 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             )}
           </div>
 
-          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onMoverFixa={x => marcarDinheiro(x, false)} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
+          <div>
+            <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onMoverFixa={x => marcarDinheiro(x, false)} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
+            {(G.vendaCasa || reservadoAutoSel > 0 || tDraft.reservado > 0) && (
+              <div className={`mt-3 rounded-xl p-3 text-xs ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="pat-reservado" className="font-medium">Desta liquidez, reservado para imobiliário</label>
+                  <input id="pat-reservado" type="number" inputMode="decimal" value={draft.reservado == null ? '' : draft.reservado} placeholder={String(reservadoAutoSel || 0)}
+                    onChange={e => setDraft({ ...draft, reservado: e.target.value })} className={`${inp} !w-28 !py-1 text-right text-xs`} />
+                </div>
+                <p className={`mt-1 ${sub}`}>
+                  {String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? 'Valor posto à mão para este mês (apaga o campo para voltar ao automático).' : reservadoAutoSel > 0 ? `Automático: ${f(reservadoAutoSel)}, do separador Venda de Casa (líquido da venda menos o que já gastaste ou investiste).` : 'Fica a zero até pores a data da venda no separador Venda de Casa.'}
+                  {' '}Livre: <strong>{f(tDraft.livre)}</strong>.
+                  {(String(draft.reservado == null ? '' : draft.reservado).trim() !== '' ? patNum(draft.reservado) : reservadoAutoSel) > tDraft.liquidez + 0.5 && <span className="text-amber-500"> O reservado é maior do que o dinheiro nas contas deste mês: atualiza os saldos da Liquidez.</span>}
+                </p>
+                {onAbrirTab && <button onClick={() => onAbrirTab('vendacasa')} className="mt-1 text-blue-400 hover:text-blue-300">Abrir Venda de Casa →</button>}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Casa, dívidas e outros — recolhido por defeito */}
