@@ -1266,7 +1266,11 @@ const PAT_COMP = [
   { k: 'outros', label: 'Outros ativos', cor: '#8b5cf6' },
   { k: 'dividas', label: 'Dívidas', cor: '#ef4444' }
 ];
-const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Trade Republic (saldo)', 'Revolut'];
+const PAT_CONTAS_BASE = ['ABanca', 'Activo Bank', 'Revolut'];
+// Categorias do Portfolio que são dinheiro parado e não investimento exposto ao
+// mercado. Contam como Liquidez, para não distorcerem o retorno dos investimentos.
+const PAT_CATS_LIQUIDEZ = ['FE'];
+const patEhLiquidez = i => PAT_CATS_LIQUIDEZ.includes(i && i.cat);
 
 const patId = () => Date.now() + Math.random();
 const patNum = v => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(x) ? x : 0; };
@@ -1279,7 +1283,9 @@ const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx
 
 const patTotais = rec => {
   const r = rec || {};
-  const invest = patSoma(r.investItens), liquidez = patSoma(r.liquidez), imoveis = patSoma(r.imoveis);
+  const itens = r.investItens || [];
+  const invest = patSoma(itens.filter(i => !patEhLiquidez(i)));
+  const liquidez = patSoma(r.liquidez) + patSoma(itens.filter(patEhLiquidez)), imoveis = patSoma(r.imoveis);
   const outros = patSoma(r.outros), dividas = patSoma(r.dividas);
   const capital = invest + liquidez + outros;               // sem casa nem dívida
   return { invest, liquidez, imoveis, outros, dividas, capital, total: capital + imoveis - dividas };
@@ -1390,7 +1396,7 @@ const patSugestaoAportes = (M, registos, key) => {
   const de = Math.max(prev ? prev.idx + 1 : idx, idx - 23);
   let tot = 0;
   for (let i = de; i <= idx; i++) {
-    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO') tot += patNum(x.val); });
+    ((M[patKey(i)] || {}).inv || []).forEach(x => { if (x.done && x.cat !== 'CREDITO' && !patEhLiquidez(x)) tot += patNum(x.val); });
   }
   return tot;
 };
@@ -1410,6 +1416,7 @@ const patMovimentos = (G, M, registos, key) => {
     const i = patIdx(t.data);
     if (i < de || i > idx) return;
     const v = patNum(t.valorTotal);
+    if (PAT_CATS_LIQUIDEZ.includes(t.categoria)) return;   // reforçar o fundo de emergência não é investir
     if (t.tipo === 'compra') { nCompras++; if (t.categoria === 'CREDITO') amortizacao += v; else aportes += v; }
     else if (t.tipo === 'venda' && t.categoria !== 'CREDITO') { nVendas++; levantamentos += v; }
   });
@@ -1470,7 +1477,7 @@ const patFmtK = v => {
 };
 
 // Linhas editáveis de um componente (contas, imóveis, dívidas…)
-const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder }) => {
+const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder, fixas = [] }) => {
   const upd = (id, campo, v) => onChange(linhas.map(l => l.id === id ? { ...l, [campo]: v } : l));
   return (
     <div>
@@ -1478,9 +1485,18 @@ const PatLinhas = ({ titulo, cor, linhas, onChange, inp, sub, dica, placeholder 
         <p className="text-sm font-medium flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: cor }} />{titulo}
         </p>
-        <span className="text-sm font-semibold">{_fmtEUR.format(patSoma(linhas))}</span>
+        <span className="text-sm font-semibold">{_fmtEUR.format(patSoma(linhas) + patSoma(fixas))}</span>
       </div>
       {dica && <p className={`text-[11px] mb-1.5 ${sub}`}>{dica}</p>}
+      {fixas.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {fixas.map((x, k) => (
+            <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
+              <span className="truncate">{x.desc} <span className="text-xs">· do Portfolio</span></span><span>{_fmtEUR.format(patNum(x.val))}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-1.5">
         {linhas.map(l => (
           <div key={l.id} className="flex items-center gap-1.5">
@@ -1649,7 +1665,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   // Rascunho → totais ao vivo
   const tDraft = patTotais(draft);
   const investVivo = patSoma(patInvestDoPortfolio(portfolio));
-  const podeSincronizar = draft.existe && temPortfolioProprio && investVivo > 0 && Math.abs(investVivo - tDraft.invest) > 0.5;
+  const podeSincronizar = draft.existe && temPortfolioProprio && investVivo > 0 && Math.abs(investVivo - patSoma(draft.investItens)) > 0.5;
+  const itensInvest = draft.investItens.filter(i => !patEhLiquidez(i));
+  const itensLiquidez = draft.investItens.filter(patEhLiquidez);
   const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
     !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G, M })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
   const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
@@ -1863,7 +1881,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         {ajuda && (
           <div className={`mb-4 rounded-xl p-3 text-xs space-y-1.5 ${escuro ? 'bg-slate-700/30 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
             <p>Isto é uma fotografia do fim do mês. Confirma os números e guarda. Para outro mês, muda o mês no topo da app.</p>
-            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas; não repitas o que já está no Portfolio (ex.: Fundo de Emergência).</p>
+            <p><strong>Investimentos</strong> vêm do separador Portfolio — é lá que se editam. <strong>Liquidez</strong> são os saldos das contas. O Fundo de Emergência do Portfolio entra aqui sozinho — é dinheiro parado, não conta para o retorno dos investimentos.</p>
             <p><strong>Casa e dívidas</strong> só contam na vista "Património total". Os créditos ativos vêm do separador Crédito.</p>
             <p><strong>Puseste / tiraste</strong> vem das Transações (compras e vendas) ou, sem transações, da Alocação. Serve para separar o teu esforço do que o mercado fez. Amortização é dinheiro dos investimentos usado para abater dívida — não é perda.</p>
           </div>
@@ -1883,9 +1901,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className="text-sm font-medium flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#3b82f6' }} />Investimentos</p>
               <span className="text-sm font-semibold">{f(tDraft.invest)}</span>
             </div>
-            {draft.investItens.length === 0 ? <p className={`text-xs ${sub}`}>Sem investimentos neste registo.</p> : (
+            {itensInvest.length === 0 ? <p className={`text-xs ${sub}`}>Sem investimentos neste registo.</p> : (
               <div className="space-y-1">
-                {draft.investItens.map((i, k) => (
+                {itensInvest.map((i, k) => (
                   <div key={k} className={`flex justify-between gap-3 text-sm ${sub}`}>
                     <span className="truncate">{i.desc}</span><span>{f(patNum(i.val))}</span>
                   </div>
@@ -1897,12 +1915,12 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             )}
             {podeSincronizar && (
               <button onClick={() => setDraft({ ...draft, investItens: patInvestDoPortfolio(portfolio) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
-                ↻ O Portfolio diz {f(investVivo)} — atualizar
+                ↻ O Portfolio mudou — atualizar este registo
               </button>
             )}
           </div>
 
-          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
+          <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
         </div>
 
         {/* Casa, dívidas e outros — recolhido por defeito */}
@@ -1935,7 +1953,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 </p>
                 <button onClick={() => setEditMov(!editMov)} aria-expanded={editMov} className="text-xs text-blue-400 hover:text-blue-300">{editMov ? 'fechar' : 'corrigir'}</button>
               </div>
-              {!editMov && descidaDivida >= 5000 && patNum(draft.amortizacao) === 0 && (
+              {!editMov && descidaDivida >= 5000 && patNum(draft.amortizacao) === 0 && (anterior.invest - tDraft.invest) >= descidaDivida * 0.5 && (
                 <button onClick={usarDescida} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
                   A dívida desceu {f(descidaDivida)} — foi amortização paga com os investimentos? Contar como tal
                 </button>
