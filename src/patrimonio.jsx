@@ -650,11 +650,18 @@ const patRegistosEfetivos = (G, M) => {
   });
   // Um registo guardado não fica preso ao valor do dia em que foi guardado: o que puseste
   // segue sempre as Transações, a não ser que tenha sido corrigido à mão.
-  Object.keys(guard).map(k => patKey(patIdx(k))).sort((a, b) => patIdx(a) - patIdx(b)).forEach(key => {
+  // Um snapshot antigo cujo Portfolio desse mês tem as linhas com categoria deixa de ser "sem detalhe":
+  // sabe-se o que é investimento e o que é dinheiro, e o que lá puseste vem das Transações.
+  const temCategorias = r => (r.investItens || []).some(i => i.cat && i.cat !== '—');
+  const guardados = new Set(Object.keys(guard).map(k => patKey(patIdx(k))));
+  Object.keys(out).sort((a, b) => patIdx(a) - patIdx(b)).forEach(key => {
     const r = out[key];
-    if (!r || r.importado || r.movManual) return;
+    if (!r || r.movManual || r.auto) return;
+    if (r.importado && !temCategorias(r)) return;
+    if (!r.importado && !guardados.has(key)) return;
     const base = { ...out }; delete base[key];
     const mov = patMovimentos(G || {}, mm, base, key);
+    if (r.importado) { out[key] = { ...r, importado: false, deSnapshot: true, aportes: mov.aportes, levantamentos: mov.levantamentos }; return; }
     if (mov.origem !== 'transacoes') return;
     out[key] = { ...r, aportes: mov.aportes, ...(patNum(r.amortizacao) === 0 ? { levantamentos: mov.levantamentos } : {}) };
   });
@@ -1043,6 +1050,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     return { nCom: comDet.length, semDetalhe: soma(semDet, dC), nSem: semDet.length, fimSem: semDet.length ? semDet[semDet.length - 1].idx : null,
       mercado, casa, dinheiro: soma(comDet, dC) - mercado - casa };
   })();
+  // Quanto a dívida desceu no mesmo período (pelo histórico do Crédito): explica saídas grandes de dinheiro
+  const descidaDividaPeriodo = primeiro && ultimo && primeiro !== ultimo
+    ? Math.round((patSoma(patCreditoNoMes(G, primeiro.idx).dividas) - patSoma(patCreditoNoMes(G, ultimo.idx).dividas)) * 100) / 100 : 0;
   const rendimentoRecebido = (G.transacoes || []).filter(t => t && t.tipo === 'dividendo').reduce((a, t) => a + patNum(t.valorTotal), 0);
   const varTotal = ultimo && primeiro ? ultimo[campo] - primeiro[campo] : 0;
   const varPct = primeiro && primeiro[campo] > 0 ? varTotal / primeiro[campo] : null;
@@ -1132,8 +1142,10 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
     if (!com.length) return [];
     let acum = 0;
     const out = [{ idx: com[0].prev.idx, v: 0, tip: [['Ponto de partida', f(0), true]] }];
-    com.forEach(d => {
+    com.forEach((d, i) => {
       acum += d.resultado;
+      // Mês em que o Portfolio não foi atualizado: o valor acerta-se no seguinte, por isso não se desenha este ponto
+      if (Math.abs(d.invest - d.prev.invest) < 0.005 && Math.abs(d.fluxo) >= 0.5 && i < com.length - 1) return;
       out.push({ idx: d.idx, v: acum, nota: d.rec.nota, tip: [
         ['Mercado, acumulado', sinal(acum), true], ['Mercado neste mês', sinal(d.resultado)],
         ['Investimentos', f(d.invest)], ['Puseste (líquido)', sinal(d.fluxo)]
@@ -1233,7 +1245,13 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                 <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
                 <p className={`text-sm mt-2 ${sub}`}>
                   {mud.nCom > 0
-                    ? <><button onClick={() => setGraf(graf === 'mercado' ? 'valor' : 'mercado')} aria-pressed={graf === 'mercado'} title="Ver no gráfico só o que o mercado rendeu" className={`underline decoration-dotted underline-offset-4 hover:text-blue-400 ${graf === 'mercado' ? 'text-blue-400' : ''}`}>mercado</button> <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {vista === 'total' || mud.nSem > 0 ? 'resto' : (varTotal - mud.mercado >= 0 ? 'entrou' : 'saiu')} <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{vista === 'total' || mud.nSem > 0 ? sinal(varTotal - mud.mercado) : f(Math.abs(varTotal - mud.mercado))}</strong></>
+                    ? <><button onClick={() => setGraf(graf === 'mercado' ? 'valor' : 'mercado')} aria-pressed={graf === 'mercado'} title="Ver no gráfico só o que o mercado rendeu" className={`underline decoration-dotted underline-offset-4 hover:text-blue-400 ${graf === 'mercado' ? 'text-blue-400' : ''}`}>mercado</button> <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {(() => {
+                        const resto = varTotal - mud.mercado;
+                        const forteCls = escuro ? 'text-slate-200' : 'text-slate-700';
+                        if (vista === 'total') return <>resto <strong className={forteCls}>{sinal(resto)}</strong></>;
+                        return <>{resto >= 0 ? 'entrou' : 'saiu'} <strong className={forteCls}>{f(Math.abs(resto))}</strong>
+                          {resto < -1000 && descidaDividaPeriodo >= 1000 && <> · a dívida desceu <strong className={forteCls}>{f(descidaDividaPeriodo)}</strong></>}</>;
+                      })()}</>
                     : 'ainda sem detalhe neste período'}
                 </p>
               </>)}
