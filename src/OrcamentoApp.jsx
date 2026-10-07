@@ -1257,7 +1257,7 @@ const VendaCasa = ({ G, uG, theme }) => {
 // qualquer vista futura possa ser recalculada a partir do detalhe.
 //   G.patrimonio = { registos: { 'AAAA-M': registo }, eventos: [{id, data, texto}] }
 //   registo = { investItens:[{desc,cat,val}], liquidez:[{id,nome,val}], imoveis:[…],
-//               outros:[…], dividas:[{…, creditoId?}], aportes, levantamentos,
+//               outros:[…], dividas:[{…, creditoId?}], aportes, levantamentos, amortizacao,
 //               nota, fechadoEm, importado? }
 const PAT_COMP = [
   { k: 'invest', label: 'Investimentos', cor: '#3b82f6' },
@@ -1294,7 +1294,7 @@ const patSerie = registos => Object.entries(registos || {})
 const patDetalhe = serie => serie.map((s, i) => {
   const prev = i > 0 ? serie[i - 1] : null;
   const temFluxos = !!prev && !s.rec.importado;
-  const fluxo = temFluxos ? patNum(s.rec.aportes) - patNum(s.rec.levantamentos) : null;
+  const fluxo = temFluxos ? patNum(s.rec.aportes) - patNum(s.rec.levantamentos) - patNum(s.rec.amortizacao) : null;
   return {
     ...s, prev, fluxo,
     resultado: temFluxos ? s.invest - prev.invest - fluxo : null,
@@ -1342,6 +1342,7 @@ const patRascunho = ({ registos, key, portfolio, G }) => {
       investItens: (ex.investItens || []).map(i => ({ ...i })),
       liquidez: copia(ex.liquidez), imoveis: copia(ex.imoveis), outros: copia(ex.outros), dividas: copia(ex.dividas),
       aportes: ex.importado ? '' : patStr(ex.aportes), levantamentos: ex.importado ? '' : patStr(ex.levantamentos),
+      amortizacao: ex.importado ? '' : patStr(ex.amortizacao),
       nota: ex.nota || ''
     };
   }
@@ -1362,7 +1363,7 @@ const patRascunho = ({ registos, key, portfolio, G }) => {
       ...ativos.map(c => ({ id: patId(), nome: c.nome || 'Crédito', val: patStr(patNum(c.dividaAtual)), creditoId: c.id })),
       ...copia(manuais)
     ],
-    aportes: '', levantamentos: '', nota: ''
+    aportes: '', levantamentos: '', amortizacao: '', nota: ''
   };
 };
 
@@ -1373,7 +1374,7 @@ const patLimpar = d => {
   return {
     investItens: (d.investItens || []).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })),
     liquidez: limpa(d.liquidez), imoveis: limpa(d.imoveis), outros: limpa(d.outros), dividas: limpa(d.dividas),
-    aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos),
+    aportes: patNum(d.aportes), levantamentos: patNum(d.levantamentos), amortizacao: patNum(d.amortizacao),
     nota: (d.nota || '').trim(), fechadoEm: new Date().toISOString()
   };
 };
@@ -1425,7 +1426,7 @@ const patImportar = (G, M) => {
     });
     novos[key] = {
       investItens: itens, liquidez: [], imoveis, outros: [], dividas,
-      aportes: 0, levantamentos: 0, nota: '', fechadoEm: new Date().toISOString(), importado: true
+      aportes: 0, levantamentos: 0, amortizacao: 0, nota: '', fechadoEm: new Date().toISOString(), importado: true
     };
   });
   return novos;
@@ -1615,11 +1616,14 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   // Rascunho → totais ao vivo
   const tDraft = patTotais(draft);
   const investVivo = patSoma(patInvestDoPortfolio(portfolio));
-  const podeSincronizar = draft.existe && temPortfolioProprio && Math.abs(investVivo - tDraft.invest) > 0.5;
+  const podeSincronizar = draft.existe && temPortfolioProprio && investVivo > 0 && Math.abs(investVivo - tDraft.invest) > 0.5;
   const sujo = !draft.existe || JSON.stringify(patLimpar(draft), (k, v) => k === 'fechadoEm' ? undefined : v)
     !== JSON.stringify({ ...patLimpar(patRascunho({ registos, key: mesKey, portfolio, G })) }, (k, v) => k === 'fechadoEm' ? undefined : v);
   const anterior = serie.filter(s => s.idx < idxSel).pop() || null;
   const sugestao = patSugestaoAportes(M, registos, mesKey);
+  const fluxoDraft = patNum(draft.aportes) - patNum(draft.levantamentos) - patNum(draft.amortizacao);
+  // Se a dívida desceu desde o último registo, é provável que parte tenha saído dos investimentos
+  const descidaDivida = anterior ? Math.round((anterior.dividas - tDraft.dividas) * 100) / 100 : 0;
 
   const guardar = () => setPat({ registos: { ...registos, [mesKey]: patLimpar(draft) } });
   const apagar = () => { const r = { ...registos }; delete r[mesKey]; setPat({ registos: r }); };
@@ -1653,17 +1657,21 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       [nomeVista, f(d[campo]), true],
       ['Investimentos', f(d.invest)], ['Liquidez', f(d.liquidez)], ['Outros ativos', f(d.outros)],
       ...(vista === 'total' ? [['Imóveis', f(d.imoveis)], ['Dívidas', '−' + f(d.dividas)]] : []),
-      ...(d.resultado != null ? [['Aportes líquidos', sinal(d.fluxo)], ['Resultado mercado', sinal(d.resultado)]] : [])
+      ...(d.resultado != null ? [
+        ...(patNum(d.rec.amortizacao) ? [['Amortização de crédito', '−' + f(patNum(d.rec.amortizacao))]] : []),
+        ['Entradas − saídas', sinal(d.fluxo)], ['Resultado mercado', sinal(d.resultado)]
+      ] : [])
     ]
   }));
 
   const exportarCSV = () => {
     const n = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
-    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Capital investido', 'Património total', 'Aportes líquidos', 'Resultado mercado', 'Origem', 'Nota'];
+    const cab = ['Mês', 'Investimentos', 'Liquidez', 'Imóveis', 'Outros ativos', 'Dívidas', 'Capital investido', 'Património total', 'Aportes', 'Levantamentos', 'Amortização de crédito', 'Resultado mercado', 'Origem', 'Nota'];
     const linhasCsv = det.map(d => [
       `${Math.floor(d.idx / 12)}-${String((d.idx % 12) + 1).padStart(2, '0')}`,
       n(d.invest), n(d.liquidez), n(d.imoveis), n(d.outros), n(d.dividas), n(d.capital), n(d.total),
-      n(d.fluxo), n(d.resultado), d.rec.importado ? 'importado' : 'registado',
+      d.fluxo == null ? '' : n(patNum(d.rec.aportes)), d.fluxo == null ? '' : n(patNum(d.rec.levantamentos)), d.fluxo == null ? '' : n(patNum(d.rec.amortizacao)),
+      n(d.resultado), d.rec.importado ? 'importado' : 'registado',
       '"' + (d.rec.nota || '').replace(/"/g, '""') + '"'
     ].join(';'));
     const blob = new Blob(['﻿' + [cab.join(';'), ...linhasCsv].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1728,9 +1736,9 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               <p className={`text-xs ${sub}`}>{varPct != null ? pct(varPct) : '—'} · {det.length} {det.length === 1 ? 'registo' : 'registos'}</p>
             </div>
             <div className={tile}>
-              <p className={`text-xs ${sub}`}>Aportes líquidos</p>
+              <p className={`text-xs ${sub}`}>Entradas − saídas</p>
               <p className="text-xl font-bold">{ret.periodos ? sinal(ret.aportes) : '—'}</p>
-              <p className={`text-xs ${sub}`}>{ret.periodos ? `o que puseste, em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo com fluxos'}</p>
+              <p className={`text-xs ${sub}`}>{ret.periodos ? `aportes menos levantamentos e amortizações, em ${ret.meses} ${ret.meses === 1 ? 'mês' : 'meses'}` : 'a partir do 2.º registo com movimentos'}</p>
             </div>
             <div className={tile}>
               <p className={`text-xs ${sub}`}>Resultado dos investimentos</p>
@@ -1862,21 +1870,29 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             <p className={`text-[11px] mb-2 ${sub}`}>
               {anterior ? `Desde o registo de ${patRotulo(anterior.idx)}.` : 'Sem registo anterior — só contam a partir do próximo.'} É isto que separa o que puseste do que o mercado rendeu.
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Aportes (dinheiro novo)</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Aportes</span>
                 <input type="number" inputMode="decimal" value={draft.aportes} onChange={e => setDraft({ ...draft, aportes: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
               <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Levantamentos</span>
                 <input type="number" inputMode="decimal" value={draft.levantamentos} onChange={e => setDraft({ ...draft, levantamentos: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
+              <label className="flex flex-col gap-1"><span className={`text-xs ${sub}`}>Amortização de crédito</span>
+                <input type="number" inputMode="decimal" value={draft.amortizacao} onChange={e => setDraft({ ...draft, amortizacao: e.target.value })} placeholder="0" className={`${inp} text-right`} /></label>
             </div>
+            <p className={`text-[11px] mt-1.5 ${sub}`}>Aportes = dinheiro novo. Levantamentos = retirado para gastar. Amortização = saiu dos investimentos para abater dívida; não é perda, no Património total a dívida desce no mesmo valor.</p>
             {sugestao > 0 && patNum(draft.aportes) !== sugestao && (
-              <button onClick={() => setDraft({ ...draft, aportes: String(sugestao) })} className="mt-2 text-xs text-blue-400 hover:text-blue-300">
-                Usar {f(sugestao)} — investimentos marcados como feitos na Alocação
+              <button onClick={() => setDraft({ ...draft, aportes: String(sugestao) })} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
+                Usar {f(sugestao)} em aportes — investimentos marcados como feitos na Alocação
+              </button>
+            )}
+            {descidaDivida > 0 && patNum(draft.amortizacao) === 0 && (
+              <button onClick={() => setDraft({ ...draft, amortizacao: String(descidaDivida) })} className="mt-2 block text-left text-xs text-blue-400 hover:text-blue-300">
+                A dívida desceu {f(descidaDivida)} desde {patRotulo(anterior.idx)} — usar como amortização (inclui a parte normal das prestações; ajusta se for o caso)
               </button>
             )}
             {anterior && (
               <p className={`text-xs mt-2 ${sub}`}>
-                Investimentos: {sinal(tDraft.invest - anterior.invest)} = {sinal(patNum(draft.aportes) - patNum(draft.levantamentos))} teus
-                {' '}+ <span className={corDelta(tDraft.invest - anterior.invest - patNum(draft.aportes) + patNum(draft.levantamentos))}>{sinal(tDraft.invest - anterior.invest - patNum(draft.aportes) + patNum(draft.levantamentos))} de mercado</span>
+                Investimentos: {sinal(tDraft.invest - anterior.invest)} = {sinal(fluxoDraft)} de movimentos teus
+                {' '}+ <span className={corDelta(tDraft.invest - anterior.invest - fluxoDraft)}>{sinal(tDraft.invest - anterior.invest - fluxoDraft)} de mercado</span>
               </p>
             )}
           </div>
@@ -1952,7 +1968,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                     <table className="w-full text-xs whitespace-nowrap">
                       <thead>
                         <tr className={sub}>
-                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Aportes', 'Mercado'].map((c, i) => (
+                          {['Mês', 'Investim.', 'Liquidez', 'Outros', ...(vista === 'total' ? ['Imóveis', 'Dívidas'] : []), nomeVista, 'Variação', 'Entr. − saíd.', 'Amortiz.', 'Mercado'].map((c, i) => (
                             <th key={c} className={`font-medium py-1.5 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>{c}</th>
                           ))}
                         </tr>
@@ -1972,6 +1988,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                               <td className="py-1.5 px-2 text-right font-semibold">{f(d[campo])}</td>
                               <td className={`py-1.5 px-2 text-right ${dv != null ? corDelta(dv) : sub}`}>{dv != null ? sinal(dv) : '—'}</td>
                               <td className={`py-1.5 px-2 text-right ${d.fluxo == null ? sub : ''}`}>{d.fluxo != null ? sinal(d.fluxo) : '—'}</td>
+                              <td className={`py-1.5 px-2 text-right ${patNum(d.rec.amortizacao) ? '' : sub}`}>{patNum(d.rec.amortizacao) ? '−' + f(patNum(d.rec.amortizacao)) : '—'}</td>
                               <td className={`py-1.5 px-2 text-right ${d.resultado != null ? corDelta(d.resultado) : sub}`}>{d.resultado != null ? sinal(d.resultado) : '—'}</td>
                             </tr>
                           );
