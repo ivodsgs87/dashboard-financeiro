@@ -9380,6 +9380,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      });
    };
    
+   // Eliminar diretamente da lista, sem abrir o editar. Fica desfeito com o botão de voltar atrás.
+   const apagarTransacaoDireto = (t) => {
+     uG('transacoes', transacoes.filter(x => x.id !== t.id));
+     showToast(`Transação eliminada: ${t.ticker || t.categoria} · ${fmt(t.valorTotal)}. Podes desfazer com o botão de voltar atrás.`, 'success', 6000);
+   };
+
    const deleteTransacao = (id) => {
      if (confirm('Apagar esta transação?')) {
        uG('transacoes', transacoes.filter(t => t.id !== id));
@@ -9637,9 +9643,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button 
                    onClick={() => { setEditTransacao(t); setNovaTransacao({...t, quantidade: t.quantidade.toString(), precoUnitario: t.precoUnitario.toString(), valorTotal: t.valorTotal.toString(), comissao: t.comissao || 0}); setShowAddTransacao(true); }}
                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg transition-colors"
-                   title="Editar"
+                   title="Editar" aria-label="Editar transação"
                  >
                    ✏️
+                 </button>
+                 <button
+                   onClick={() => apagarTransacaoDireto(t)}
+                   className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
+                   title="Eliminar" aria-label="Eliminar transação"
+                 >
+                   🗑️
                  </button>
                </div>
              ))}
@@ -9660,9 +9673,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </Card>
        
        {/* Modal Adicionar/Editar Transação */}
-       {showAddTransacao && (
-         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4">
-           <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto`}>
+       {showAddTransacao && createPortal(
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] animate-backdropIn flex items-center justify-center p-4">
+           <div className={`${modalBg} ${theme === 'light' ? 'text-slate-900' : 'text-slate-100'} border rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto`}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                <h3 className="text-lg font-semibold">{editTransacao ? '✏️ Editar Transação' : '➕ Nova Transação'}</h3>
                <div className="flex items-center gap-2">
@@ -9763,7 +9776,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
            </div>
          </div>
-       )}
+       , document.body)}
      </div>
    );
  };
