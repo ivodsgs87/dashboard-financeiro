@@ -6,7 +6,7 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
   PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos, _fmtEUR,
-  mapearCategoriaBilance, estimarImpostosRecibo, PROCESS_INVOICE_URLS
+  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -3103,6 +3103,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [importLoading, setImportLoading] = useState(false);
    const [importError, setImportError] = useState('');
    const [importedData, setImportedData] = useState(null);
+   const [importCid, setImportCid] = useState(null);       // cliente escolhido à mão no import
+   const [importLembrar, setImportLembrar] = useState(true); // guardar o nome da empresa nesse cliente
    
    const paisOptions = ['PT', 'UE', 'Fora UE'];
    
@@ -3168,6 +3170,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        
        if (result.result?.success && result.result?.data) {
          setImportedData(result.result.data);
+        setImportCid(null); setImportLembrar(true);
        } else {
          throw new Error('Resposta inválida da função');
        }
@@ -3184,16 +3187,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const aplicarDadosImportados = () => {
      if (!importedData) return;
      
-     // Encontrar ou criar cliente
-     let clienteId = clientes[0]?.id || 0;
-     if (importedData.nomeCliente) {
-       const clienteExistente = clientes.find(c => 
-         c.nome.toLowerCase().includes(importedData.nomeCliente.toLowerCase()) ||
-         importedData.nomeCliente.toLowerCase().includes(c.nome.toLowerCase())
-       );
-       if (clienteExistente) {
-         clienteId = clienteExistente.id;
-       }
+     // Cliente: o escolhido no ecrã, ou o reconhecido pelo nome da empresa (incluindo os nomes guardados)
+     const detetado = clienteDoNome(clientes, importedData.nomeCliente);
+     const clienteId = importCid != null ? importCid : (detetado ? detetado.id : (clientes[0]?.id || 0));
+     // Lembrar a ligação empresa → cliente para os próximos recibos
+     const nomeEmpresa = String(importedData.nomeCliente || '').trim();
+     if (importLembrar && nomeEmpresa && !(detetado && detetado.id === clienteId)) {
+       uG('clientes', clientes.map(c => c.id === clienteId
+         ? { ...c, aliases: [...new Set([...(Array.isArray(c.aliases) ? c.aliases : []), nomeEmpresa])] } : c));
      }
      
      const novoRecibo = {
@@ -3280,7 +3281,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <div className="space-y-3 text-sm">
                    <div className="grid grid-cols-2 gap-3">
                      <div className="p-2 bg-slate-700/50 rounded-lg">
-                       <p className="text-slate-400 text-xs">Cliente</p>
+                       <p className="text-slate-400 text-xs">No recibo</p>
                        <p className="font-medium">{importedData.nomeCliente || '-'}</p>
                      </div>
                      <div className="p-2 bg-slate-700/50 rounded-lg">
@@ -3289,6 +3290,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      </div>
                    </div>
                    
+                   {(() => {
+                     const detetado = clienteDoNome(clientes, importedData.nomeCliente);
+                     const cid = importCid != null ? importCid : (detetado ? detetado.id : (clientes[0]?.id || 0));
+                     const escolhido = clientes.find(c => c.id === cid);
+                     const vaiLembrar = !!importedData.nomeCliente && !(detetado && detetado.id === cid);
+                     return (
+                       <div className="p-2 bg-slate-700/50 rounded-lg space-y-1.5">
+                         <div className="flex items-center justify-between gap-2">
+                           <p className="text-slate-400 text-xs">Cliente na app</p>
+                           {detetado && detetado.id === cid && <span className="text-[11px] text-emerald-400">✓ reconhecido</span>}
+                           {!detetado && <span className="text-[11px] text-amber-400">não reconhecido, escolhe</span>}
+                         </div>
+                         <select className={`w-full ${inputClass}`} value={cid} onChange={e => setImportCid(+e.target.value)}>
+                           {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                         </select>
+                         {vaiLembrar && escolhido && (
+                           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                             <input type="checkbox" className="accent-blue-500" checked={importLembrar} onChange={e => setImportLembrar(e.target.checked)} />
+                             Lembrar que «{importedData.nomeCliente}» é {escolhido.nome}
+                           </label>
+                         )}
+                       </div>
+                     );
+                   })()}
                    <div className="p-2 bg-slate-700/50 rounded-lg">
                      <p className="text-slate-400 text-xs">Descrição</p>
                      <p className="font-medium">{importedData.descricao || '-'}</p>
@@ -3713,7 +3738,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex flex-wrap gap-2">
  {clientes.map(c => (
  <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 bg-slate-700/30 rounded-xl border-2" style={{borderColor: c.cor}}>
- <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm">{c.nome}</span>
+ <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm" title={(c.aliases || []).length ? `Nos recibos: ${c.aliases.join(', ')}` : undefined}>{c.nome}</span>
+ {(c.aliases || []).length > 0 && <span className="text-[10px] text-slate-400">· {(c.aliases || []).length === 1 ? c.aliases[0] : `${c.aliases.length} empresas`}</span>}
+ <button className="text-slate-400 hover:text-blue-400 text-xs" title="Nomes das empresas nos recibos" aria-label={`Nomes nos recibos de ${c.nome}`}
+   onClick={() => setFormAction({ titulo: `Empresas de ${c.nome}`, texto: 'Nomes que aparecem nos recibos e no extrato para este cliente. Ao ler um recibo, a app usa-os para escolher o cliente certo.', campos: [{ k: 'al', label: 'Nomes, separados por vírgulas (ex.: Everboost Lda, Everboost Games)', tipo: 'text', valor: (c.aliases || []).join(', ') }], botao: 'Guardar',
+     onOk: v => uG('clientes', clientes.map(x => x.id === c.id ? { ...x, aliases: [...new Set(String(v.al || '').split(',').map(a => a.trim()).filter(Boolean))] } : x)) })}>✎</button>
  <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>confirmDelete(`Apagar o cliente "${c.nome}"? As receitas associadas não serão apagadas.`, ()=>uG('clientes',clientes.filter(x=>x.id!==c.id)))}>✕</button>
  </div>
  ))}
@@ -9443,7 +9472,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div className="space-y-1">
                  {_naoR.slice(0,3).map((tx,i)=>(<div key={i} className="flex items-center gap-2 text-xs">
                    <span className="text-slate-500">{tx.data.split("-").reverse().join("/")}</span>
-                   <span className="flex-1 truncate">{tx.descricao||"-"}{tx._isExcess?" (liquido)":""}</span>
+                   <span className="flex-1 truncate">{tx.descricao||"-"}{tx._isExcess?" (liquido)":""}{(()=>{ const cl = clienteDoNome(clientes, tx.descricao); return cl ? <span className="text-blue-400"> · {cl.nome}</span> : null; })()}</span>
                    <span className="font-medium text-emerald-400">+{tx._displayVal.toFixed(2)}</span>
                    <button type="button" onClick={()=>setTab("receitas")} className="text-blue-400 hover:underline">Registar</button>
                  </div>))}
@@ -11073,7 +11102,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    // Pesquisar em clientes
    clientes.forEach(c => {
-     if (c.nome.toLowerCase().includes(q)) {
+     if (c.nome.toLowerCase().includes(q) || (c.aliases || []).some(a => String(a).toLowerCase().includes(q))) {
        results.push({type: 'cliente', item: c, label: `Cliente: ${c.nome}`});
      }
    });
@@ -13350,6 +13379,9 @@ ${transacoesOrdenadas.map(t => `<tr>
                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
                      <input type="text" value={c.nome} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, nome: e.target.value}; uG('clientes', novos); }}
                        className={`flex-1 text-sm bg-transparent border-none outline-none ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
+                     <input type="text" defaultValue={(c.aliases || []).join(', ')} placeholder="Empresas nos recibos" title="Nomes das empresas nos recibos, separados por vírgulas"
+                       onBlur={e => { const al = [...new Set(e.target.value.split(',').map(a => a.trim()).filter(Boolean))]; if (al.join('|') !== (c.aliases || []).join('|')) { saveUndo(); uG('clientes', (G.clientes || []).map(x => x.id === c.id ? { ...x, aliases: al } : x)); } }}
+                       className={`w-28 sm:w-40 text-xs bg-transparent border-b outline-none ${theme === 'light' ? 'border-slate-300 text-slate-600' : 'border-slate-600 text-slate-400'}`} />
                      <ColorPicker value={c.cor} onChange={v => { saveUndo(); uG('clientes', clientes.map((x,j) => j===i ? {...x, cor: v} : x)); }} />
                      {G.clientes.length > 1 && (
                        <button onClick={() => { saveUndo(); uG('clientes', G.clientes.filter(x => x.id !== c.id)); }}
