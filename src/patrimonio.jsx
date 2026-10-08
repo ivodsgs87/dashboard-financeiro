@@ -859,6 +859,92 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
   );
 };
 
+// ══ CHAT COM O GEMINI ═══════════════════════════════════════════════════════
+// Painel de conversa. A pergunta e um resumo dos números (sem nomes, NIF nem IBAN) vão para a
+// Firebase Function "chatFinancas", que fala com o Gemini com a mesma chave da leitura de faturas.
+const CHAT_URLS = [
+  'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/chatFinancas'
+];
+const ChatTexto = ({ texto }) => (
+  <div className="space-y-1.5">
+    {String(texto || '').split(/\n{2,}/).map((par, i) => (
+      <p key={i} className="whitespace-pre-wrap">
+        {par.split(/(\*\*[^*]+\*\*)/g).map((b, j) => /^\*\*[^*]+\*\*$/.test(b) ? <strong key={j}>{b.slice(2, -2)}</strong> : <React.Fragment key={j}>{b.replace(/^\s*[*-]\s+/gm, '• ')}</React.Fragment>)}
+      </p>
+    ))}
+  </div>
+);
+const ChatGemini = ({ aberto, onFechar, mensagens, setMensagens, obterContexto, user, theme }) => {
+  const [texto, setTexto] = useState('');
+  const [aEnviar, setAEnviar] = useState(false);
+  const [verResumo, setVerResumo] = useState(false);
+  const fimRef = useRef(null);
+  const claro = theme === 'light';
+  useEffect(() => { if (fimRef.current) fimRef.current.scrollIntoView({ block: 'end' }); }, [mensagens, aEnviar, aberto]);
+  if (!aberto) return null;
+  const enviar = async (pergunta) => {
+    const q = String(pergunta || '').trim();
+    if (!q || aEnviar) return;
+    const nova = [...mensagens, { papel: 'user', texto: q }];
+    setMensagens(nova); setTexto(''); setAEnviar(true);
+    try {
+      const token = user && user.getIdToken ? await user.getIdToken() : '';
+      let resp = null, erro = null;
+      for (const url of CHAT_URLS) {
+        try {
+          const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ mensagens: nova.filter(m => !m.erro), contexto: obterContexto() }) });
+          const j = await r.json().catch(() => ({}));
+          if (r.ok && j.resposta) { resp = j.resposta; break; }
+          erro = r.status === 404 ? 'O chat ainda não está publicado no servidor. Faz "firebase deploy --only functions" no teu computador.' : (j.error && j.error.message) || `Erro ${r.status}`;
+        } catch (e) { erro = 'Não consegui ligar ao servidor. Se ainda não publicaste a função, faz "firebase deploy --only functions".'; }
+      }
+      setMensagens([...nova, resp ? { papel: 'model', texto: resp } : { papel: 'model', texto: erro || 'Sem resposta.', erro: true }]);
+    } finally { setAEnviar(false); }
+  };
+  const sugestoes = ['Como estou este ano comparado com o anterior?', 'Quanto devo pôr de lado para impostos?', 'Estou a poupar o suficiente para o FIRE?', 'Resume o meu património em 3 frases.'];
+  return createPortal(
+    <div className={`fixed z-[70] bottom-0 right-0 sm:bottom-4 sm:right-4 w-full sm:w-[400px] h-[80vh] sm:h-[600px] flex flex-col rounded-t-2xl sm:rounded-2xl border shadow-2xl ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-slate-100'}`} role="dialog" aria-label="Chat com o Gemini">
+      <div className={`flex items-center justify-between px-4 py-3 border-b ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+        <div>
+          <p className="font-semibold">✨ Perguntar ao Gemini</p>
+          <button onClick={() => setVerResumo(!verResumo)} className="text-[11px] text-blue-400 hover:text-blue-300">{verResumo ? 'esconder' : 'ver'} o que é enviado</button>
+        </div>
+        <div className="flex items-center gap-1">
+          {mensagens.length > 0 && <button onClick={() => setMensagens([])} className="text-xs px-2 py-1 rounded-lg text-slate-400 hover:text-slate-200" title="Começar conversa nova">Limpar</button>}
+          <button onClick={onFechar} aria-label="Fechar" className="px-2 py-1 text-slate-400 hover:text-slate-200">✕</button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
+        {verResumo && <pre className={`text-[11px] whitespace-pre-wrap rounded-xl p-3 ${claro ? 'bg-slate-100 text-slate-600' : 'bg-slate-800 text-slate-400'}`}>{obterContexto()}</pre>}
+        {mensagens.length === 0 && (
+          <div className="space-y-3">
+            <p className={claro ? 'text-slate-600' : 'text-slate-400'}>Pergunta o que quiseres sobre as tuas finanças. Cada pergunta leva um resumo dos teus números, sem nomes, NIF nem IBAN.</p>
+            <p className="text-xs text-amber-500">Usa o nível gratuito do Gemini: a Google pode usar estas conversas para melhorar os produtos dela.</p>
+            <div className="flex flex-wrap gap-2">
+              {sugestoes.map(q => <button key={q} onClick={() => enviar(q)} className={`text-left text-xs px-3 py-2 rounded-xl border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-slate-800'}`}>{q}</button>)}
+            </div>
+          </div>
+        )}
+        {mensagens.map((m, i) => (
+          <div key={i} className={`flex ${m.papel === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${m.papel === 'user' ? 'bg-blue-500 text-white' : m.erro ? 'bg-red-500/10 text-red-400 border border-red-500/30' : (claro ? 'bg-slate-100' : 'bg-slate-800')}`}>
+              {m.papel === 'user' ? <p className="whitespace-pre-wrap">{m.texto}</p> : <ChatTexto texto={m.texto} />}
+            </div>
+          </div>
+        ))}
+        {aEnviar && <p className="text-slate-400 text-xs">A pensar…</p>}
+        <div ref={fimRef} />
+      </div>
+      <form onSubmit={e => { e.preventDefault(); enviar(texto); }} className={`flex gap-2 p-3 border-t ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+        <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={1} placeholder="Escreve a tua pergunta…"
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(texto); } }}
+          className={`flex-1 resize-none rounded-xl px-3 py-2 text-sm border outline-none focus:ring-2 focus:ring-blue-500/40 ${claro ? 'bg-white border-slate-300' : 'bg-slate-800 border-slate-600 text-white'}`} />
+        <button type="submit" disabled={aEnviar || !texto.trim()} className="px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-40">Enviar</button>
+      </form>
+    </div>, document.body);
+};
+
 // ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
 
 const patFmtK = v => {
@@ -1836,6 +1922,6 @@ export {
   PAT_DATAS_INICIAIS, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio, patRotulo, patTotais, patSerie,
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
-  patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, patFmtK, PatLinhas,
-  PatChart, Patrimonio
+  patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
+  ChatGemini, patFmtK, PatLinhas, PatChart, Patrimonio
 };
