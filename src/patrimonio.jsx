@@ -374,7 +374,8 @@ const patReservado = (G, M, idx) => {
   const corte = patCorte(G, M, idx);
   if (!vc.dataVenda || String(vc.dataVenda).slice(0, 10) > corte) return 0;
   const venda = patNum(vc.valorVenda), amort = patNum(vc.creditoAmortizado);
-  const liquido = venda - venda * patNum(vc.comissaoPct) / 100 - amort - amort * patNum(vc.penalizacaoPct) / 100 - patNum(vc.outrosCustos);
+  const liquido = venda - venda * patNum(vc.comissaoPct) / 100 - amort - amort * patNum(vc.penalizacaoPct) / 100
+    - patNum(vc.custoEscritura) - patNum(vc.rendasAdiantadas) - patNum(vc.outrosCustos);
   const saiu = (vc.movimentos || []).filter(m => m && (m.tipo === 'gasto' || m.tipo === 'investido') && (!m.data || String(m.data).slice(0, 10) <= corte))
     .reduce((a, m) => a + patNum(m.val), 0);
   const aRepor = (vc.repor || []).reduce((a, r) => a + patNum(r && r.val), 0);
