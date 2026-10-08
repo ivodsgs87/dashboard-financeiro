@@ -756,7 +756,7 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
   const [anoA, setAnoA] = useState(anoAtual - 1);
   const hoje = new Date();
   const envolveAnoCorrente = anoA === hoje.getFullYear() || anoB === hoje.getFullYear();
-  const [mesmosMeses, setMesmosMeses] = useState(true);
+  const [mesmosMeses, setMesmosMeses] = useState(false);
   const ateMes = mesmosMeses && envolveAnoCorrente ? hoje.getMonth() + 1 : 12;
   const serie = useMemo(() => patSerie(patRegistosEfetivos(G, M)), [G, M]);
   const dA = useMemo(() => cmpDadosAno(G, M, anoA, ateMes), [G, M, anoA, ateMes]);
@@ -808,12 +808,12 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
           )}
         </div>
       </div>
-      <p className={`text-xs mb-3 ${sub}`}>{ateMes < 12 ? `Janeiro a ${meses[ateMes - 1]} de cada ano, para a comparação ser justa.` : 'Ano inteiro de cada lado.'}</p>
+      <p className={`text-xs mb-3 ${sub}`}>{ateMes < 12 ? `Janeiro a ${meses[ateMes - 1]} de cada ano, para a comparação ser justa.` : envolveAnoCorrente ? `Ano inteiro de cada lado. ${hoje.getFullYear()} ainda não acabou: para comparar os mesmos meses, marca «só Janeiro a ${meses[hoje.getMonth()]}».` : 'Ano inteiro de cada lado.'}</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm tabular-nums">
           <thead><tr className={`text-xs ${sub}`}><th className="text-left font-normal py-1"></th>
-            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corA }} />{anoA}</th>
-            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corB }} />{anoB}</th>
+            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corA }} />{anoA}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoA === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
+            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corB }} />{anoB}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoB === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
             <th className="text-right font-normal">Diferença</th></tr></thead>
           <tbody>
             {linhas.map(r => (
