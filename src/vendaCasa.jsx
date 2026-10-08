@@ -13,7 +13,8 @@ const VC_DEFAULT = {
   outrosCustos: 0,
   valorAquisicao: 0,
   hppOverride: null,
-  movimentos: []
+  movimentos: [],
+  repor: []   // dinheiro teu adiantado que vais tirar da venda: {id, desc, val, quando: 'sinal'|'escritura', reposto: 'YYYY-MM-DD'|null}
 };
 
 const VendaCasa = ({ G, uG, theme }) => {
@@ -22,6 +23,7 @@ const VendaCasa = ({ G, uG, theme }) => {
   const set = patch => uG('vendaCasa', { ...vc, ...patch });
 
   const [novo, setNovo] = useState({ data: '', desc: '', val: '', destino: '', tipo: 'parqueado' });
+  const [novoRepor, setNovoRepor] = useState({ desc: '', val: '', quando: 'sinal' });
 
   const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
   const n = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
@@ -40,7 +42,11 @@ const VendaCasa = ({ G, uG, theme }) => {
   const totParqueado = somaTipo('parqueado');
   const totGasto = somaTipo('gasto');
   const totInvestido = somaTipo('investido');
-  const porAlocar = liquido - totParqueado - totGasto - totInvestido;
+  // ── A repor: dinheiro teu que vais tirar da venda (não fica para reinvestir) ──
+  const repor = vc.repor || [];
+  const totRepor = repor.reduce((a, r) => a + n(r.val), 0);
+  const totReporPendente = repor.filter(r => !r.reposto).reduce((a, r) => a + n(r.val), 0);
+  const porAlocar = liquido - totParqueado - totGasto - totInvestido - totRepor;
 
   // Saldo por destino (só o que continua a ser teu: parqueado e investido)
   const porDestino = {};
@@ -133,6 +139,7 @@ const VendaCasa = ({ G, uG, theme }) => {
           <div>
             <p className={`text-xs ${sub}`}>Por alocar</p>
             <p className={`text-xl font-bold ${porAlocar < -0.01 ? 'text-red-400' : 'text-blue-400'}`}>{f(porAlocar)}</p>
+            {totRepor > 0 && <p className={`text-xs ${sub}`}>já sem os {f(totRepor)} a repor</p>}
           </div>
           <div>
             <p className={`text-xs ${sub}`}>Parqueado + investido</p>
@@ -245,6 +252,47 @@ const VendaCasa = ({ G, uG, theme }) => {
           </div>
         </div>
       )}
+
+      {/* A repor com a venda */}
+      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+          <h3 className="text-lg font-semibold">↩️ A repor com a venda</h3>
+          {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
+        </div>
+        <p className={`text-xs mb-3 ${sub}`}>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</p>
+        {repor.length > 0 && (
+          <div className="space-y-2 mb-3">
+            {repor.map(r => (
+              <div key={r.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 ${r.reposto ? (theme === 'light' ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : 'border-amber-500/40 bg-amber-500/5'}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={!!r.reposto}
+                    onChange={e => set({ repor: repor.map(x => x.id === r.id ? { ...x, reposto: e.target.checked ? new Date().toISOString().slice(0, 10) : null } : x) })} aria-label="Já reposto" />
+                  <span className={r.reposto ? 'line-through' : ''}>{r.desc || 'Sem descrição'}</span>
+                </label>
+                <span className={`text-xs ${sub}`}>{r.reposto ? `reposto a ${String(r.reposto).split('-').reverse().join('/')}` : r.quando === 'escritura' ? 'repor na escritura' : 'repor ao receber o sinal'}</span>
+                <span className="ml-auto font-semibold tabular-nums">{f(n(r.val))}</span>
+                <button onClick={() => set({ repor: repor.filter(x => x.id !== r.id) })} className="text-red-400/60 hover:text-red-400 text-sm" aria-label="Apagar">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className={`rounded-xl border p-3 ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-700/50'}`}>
+          <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-2 mb-2">
+            <input placeholder="Descrição (ex.: 5 rendas adiantadas)" value={novoRepor.desc} onChange={e => setNovoRepor({ ...novoRepor, desc: e.target.value })} className={inp} />
+            <input type="number" inputMode="decimal" placeholder="Valor €" value={novoRepor.val} onChange={e => setNovoRepor({ ...novoRepor, val: e.target.value })} className={inp} />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex gap-1.5">
+              {[['sinal', 'Ao receber o sinal'], ['escritura', 'Na escritura']].map(([k, l]) => (
+                <button key={k} onClick={() => setNovoRepor({ ...novoRepor, quando: k })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${novoRepor.quando === k ? 'bg-amber-500/15 border-amber-500/40 text-amber-400' : (theme === 'light' ? 'border-slate-300 text-slate-600' : 'border-slate-600 text-slate-400')}`}>{l}</button>
+              ))}
+            </div>
+            <button onClick={() => { if (!n(novoRepor.val)) return; set({ repor: [...repor, { id: Date.now(), desc: novoRepor.desc.trim(), val: n(novoRepor.val), quando: novoRepor.quando, reposto: null }] }); setNovoRepor({ desc: '', val: '', quando: novoRepor.quando }); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white">+ Adicionar</button>
+          </div>
+        </div>
+      </div>
 
       {/* Movimentos */}
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
