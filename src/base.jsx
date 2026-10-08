@@ -941,6 +941,22 @@ const estimarImpostosRecibo = ({ valIliq = 0, retIRS = 0, coef = 0.35, taxaMarg 
 // Endereços da Firebase Function de OCR de faturas. O primeiro é o URL directo
 // do Cloud Run (funções de 2ª geração), que é o que o deploy reporta; o segundo
 // é o alias clássico, usado como recurso se o primeiro falhar na rede.
+// Nome que vem num recibo/extrato → cliente da app. Cada cliente pode ter "aliases":
+// os nomes das empresas que aparecem nos documentos (ex.: cliente "Sophie" ↔ "Everboost Lda").
+const _normNome = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/[.,;:()"'’&/\\-]/g, ' ')
+  .replace(/\b(lda|limitada|unipessoal|sa|s a|ltd|limited|inc|llc|gmbh|bv|oy|ab|sl|sas|srl|plc|corp|corporation|company|co)\b/g, ' ')
+  .replace(/\s+/g, ' ').trim();
+const clienteDoNome = (clientes, nome) => {
+  const alvo = _normNome(nome);
+  if (!alvo) return null;
+  const nomesDe = c => [c.nome, ...(Array.isArray(c.aliases) ? c.aliases : [])].map(_normNome).filter(x => x.length >= 3);
+  const lista = clientes || [];
+  return lista.find(c => nomesDe(c).some(x => x === alvo))
+    || lista.find(c => nomesDe(c).some(x => alvo.includes(x) || x.includes(alvo)))
+    || null;
+};
+
 const PROCESS_INVOICE_URLS = [
   'https://processinvoice-lwlsrb4r2q-uc.a.run.app',
   'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
@@ -953,5 +969,5 @@ export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos,
   _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra,
-  mapearCategoriaBilance, estimarImpostosRecibo, PROCESS_INVOICE_URLS
+  mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
