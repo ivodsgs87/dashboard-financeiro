@@ -12,9 +12,9 @@ import {
   VendaCasa
 } from './vendaCasa';
 import {
-  PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patNum, patIdx, patIso, patDataAceite,
-  patTemPortfolio, patHistoricoPortfolio, patRotulo, patSerie, patRetornoReal, patInvestDoPortfolio, patRegistosEfetivos, CompararAnos,
-  Patrimonio
+  PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras, patNum,
+  patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio,
+  patRotulo, patSerie, patRetornoReal, patInvestDoPortfolio, patRegistosEfetivos, CompararAnos, Patrimonio
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -592,6 +592,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // true quando o que se vê é a cópia do mês anterior (o mês atual ainda não foi
  // tocado). Basta editar/adicionar qualquer valor para deixar de estar "por atualizar".
  const portfolioPorAtualizar = !patTemPortfolio(mesD.portfolio);
+ // Estado do mês escolhido no topo: Portfolio atualizado? Transações registadas?
+ const estadoMesSel = (() => {
+   const idx = patIdx(mesKey);
+   const p = (M[mesKey] || {}).portfolio, ant = (M[patKey(idx - 1)] || {}).portfolio;
+   const regras = patRegras(G);
+   const assin = pp => JSON.stringify(patInvestDoPortfolio(pp).filter(i => !patEhLiquidez(i, regras)).map(i => [patChave(i.desc), patNum(i.val)]).sort());
+   const port = !patTemPortfolio(p) ? 'falta' : (patTemPortfolio(ant) && assin(p) === assin(ant)) ? 'igual' : 'ok';
+   const nTx = (G.transacoes || []).filter(t => t && (t.tipo === 'compra' || t.tipo === 'venda') && t.data && patIdx(t.data) === idx).length;
+   const aloc = ((M[mesKey] || {}).inv || []).filter(i => i && i.done && patNum(i.val) > 0).reduce((a, i) => a + patNum(i.val), 0);
+   return { idx, futuro: idx > patIdxHoje(), atual: idx === patIdxHoje(), port, data: patCorte(G, M, idx), nTx, aloc, mesAnt: meses[(idx - 1 + 12) % 12] };
+ })();
+ const avisoCls = cor => `rounded-xl border px-4 py-2.5 text-sm flex flex-wrap items-center gap-x-3 gap-y-1 ${cor === 'verde' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : cor === 'vermelho' ? 'bg-red-500/10 border-red-500/30 text-red-400' : (theme === 'light' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-700/30 border-slate-600/50 text-slate-400')}`;
+ const dataPt = iso => String(iso || '').slice(0, 10).split('-').reverse().join('/');
   
   const mesKeyRef = useRef(mesKey);
   
@@ -4958,6 +4971,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  return (
  <div className="space-y-6 max-w-4xl mx-auto">
+ {!estadoMesSel.futuro && (
+   <div className={avisoCls(estadoMesSel.port === 'ok' ? 'verde' : 'vermelho')} role="status">
+     {estadoMesSel.port === 'ok'
+       ? <span><strong>✓ Portfolio de {mes} atualizado</strong> · valores do dia {dataPt(estadoMesSel.data)}</span>
+       : estadoMesSel.port === 'igual'
+         ? <span><strong>✕ Portfolio de {mes} igual ao de {estadoMesSel.mesAnt}</strong> · muda os valores para o atualizar</span>
+         : <span><strong>✕ Portfolio de {mes} por atualizar</strong> · põe os valores de hoje de cada investimento</span>}
+   </div>
+ )}
 
  {/* Layout Editor para Portfolio */}
  {showLayoutEditor && (
@@ -6766,6 +6788,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const cors = G.corretoras;
    if (Array.isArray(cors) && !cors.includes(txImport.origem)) uG('corretoras', [...cors, txImport.origem]);
    uG('transacoes', [...(G.transacoes || []), ...novas]);
+   uG('ultimaImportacao', { ...(G.ultimaImportacao || {}), [txImport.origem]: patIso(new Date()) });
    setTxSoMes(false);
    setTxImport(null);
    showToast(`${novas.length} ${novas.length === 1 ? 'transação importada' : 'transações importadas'} da ${txImport.origem}.`, 'success', 5000);
@@ -6939,8 +6962,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const catCores = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444','Ações':'#8b5cf6','Obrigações':'#06b6d4','Imobiliário':'#84cc16'};
    const tiposLabels = { compra: 'Compra', venda: 'Venda', dividendo: 'Dividendo', transferencia: 'Transferência' };
    
+   const imp = G.ultimaImportacao || {};
+   const textoImp = Object.entries(imp).filter(([, d]) => d).map(([c, d]) => `${c} ${dataPt(d)}`).join(', ');
    return (
      <div className="space-y-4">
+       {!estadoMesSel.futuro && (
+         <div className={avisoCls(estadoMesSel.nTx > 0 ? 'verde' : (estadoMesSel.aloc > 0 || estadoMesSel.atual) ? 'vermelho' : 'cinza')} role="status">
+           {estadoMesSel.nTx > 0
+             ? <span><strong>✓ {estadoMesSel.nTx} {estadoMesSel.nTx === 1 ? 'transação' : 'transações'} em {mes}</strong></span>
+             : estadoMesSel.aloc > 0
+               ? <span><strong>✕ Sem transações em {mes}</strong> · na Alocação marcaste {fmt(estadoMesSel.aloc)} como investido. Importa o ficheiro da corretora.</span>
+               : estadoMesSel.atual
+                 ? <span><strong>✕ Ainda sem transações em {mes}</strong> · quando investires, importa o ficheiro da Degiro e da Trade Republic.</span>
+                 : <span>Sem compras nem vendas em {mes}.</span>}
+           {textoImp && <span className="text-xs opacity-80">Última importação: {textoImp}</span>}
+         </div>
+       )}
        {/* Header com estatísticas */}
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
          <Card className="bg-green-500/10 border-green-500/30">
