@@ -377,7 +377,8 @@ const patReservado = (G, M, idx) => {
   const liquido = venda - venda * patNum(vc.comissaoPct) / 100 - amort - amort * patNum(vc.penalizacaoPct) / 100 - patNum(vc.outrosCustos);
   const saiu = (vc.movimentos || []).filter(m => m && (m.tipo === 'gasto' || m.tipo === 'investido') && (!m.data || String(m.data).slice(0, 10) <= corte))
     .reduce((a, m) => a + patNum(m.val), 0);
-  return Math.max(0, Math.round((liquido - saiu) * 100) / 100);
+  const aRepor = (vc.repor || []).reduce((a, r) => a + patNum(r && r.val), 0);
+  return Math.max(0, Math.round((liquido - saiu - aRepor) * 100) / 100);
 };
 
 // Saldo de cada conta num dado dia, tirado dos extratos importados (separador Extrato):
