@@ -10,6 +10,8 @@ const VC_DEFAULT = {
   comissaoPct: 4,
   creditoAmortizado: 0,
   penalizacaoPct: 0.5,
+  custoEscritura: 0,
+  rendasAdiantadas: 0,
   outrosCustos: 0,
   valorAquisicao: 0,
   hppOverride: null,
@@ -33,8 +35,10 @@ const VendaCasa = ({ G, uG, theme }) => {
   const custoComissao = valorVenda * n(vc.comissaoPct) / 100;
   const creditoAmort = n(vc.creditoAmortizado);
   const custoPenal = creditoAmort * n(vc.penalizacaoPct) / 100;
+  const escritura = n(vc.custoEscritura);
+  const rendasAdiant = n(vc.rendasAdiantadas);
   const outros = n(vc.outrosCustos);
-  const liquido = valorVenda - custoComissao - creditoAmort - custoPenal - outros;
+  const liquido = valorVenda - custoComissao - creditoAmort - custoPenal - escritura - rendasAdiant - outros;
 
   // ── Movimentos ──
   const movs = vc.movimentos || [];
@@ -212,14 +216,18 @@ const VendaCasa = ({ G, uG, theme }) => {
           <NumField label="Comissão agência" val={vc.comissaoPct} onSave={v => set({ comissaoPct: n(v) })} suffix="%" />
           <NumField label="Crédito amortizado" val={vc.creditoAmortizado} onSave={v => set({ creditoAmortizado: n(v) })} />
           <NumField label="Penalização amortização" val={vc.penalizacaoPct} onSave={v => set({ penalizacaoPct: n(v) })} suffix="%" />
-          <NumField label="Outros custos (escritura, etc.)" val={vc.outrosCustos} onSave={v => set({ outrosCustos: n(v) })} />
+          <NumField label="Escritura" val={vc.custoEscritura} onSave={v => set({ custoEscritura: n(v) })} />
+          <NumField label="Rendas adiantadas" val={vc.rendasAdiantadas} onSave={v => set({ rendasAdiantadas: n(v) })} />
+          <NumField label="Outros" val={vc.outrosCustos} onSave={v => set({ outrosCustos: n(v) })} />
         </div>
         <div className={`border-t ${line} pt-3 space-y-1.5 text-sm`}>
           <div className="flex justify-between"><span className={sub}>Valor de venda</span><span>{f(valorVenda)}</span></div>
           <div className="flex justify-between"><span className={sub}>Comissão agência ({vc.comissaoPct}%)</span><span className="text-red-400">−{f(custoComissao)}</span></div>
           <div className="flex justify-between"><span className={sub}>Amortização do crédito</span><span className="text-red-400">−{f(creditoAmort)}</span></div>
           <div className="flex justify-between"><span className={sub}>Penalização ({vc.penalizacaoPct}%)</span><span className="text-red-400">−{f(custoPenal)}</span></div>
-          {outros > 0 && <div className="flex justify-between"><span className={sub}>Outros custos</span><span className="text-red-400">−{f(outros)}</span></div>}
+          {escritura > 0 && <div className="flex justify-between"><span className={sub}>Escritura</span><span className="text-red-400">−{f(escritura)}</span></div>}
+          {rendasAdiant > 0 && <div className="flex justify-between"><span className={sub}>Rendas adiantadas (voltam para ti)</span><span className="text-red-400">−{f(rendasAdiant)}</span></div>}
+          {outros > 0 && <div className="flex justify-between"><span className={sub}>Outros</span><span className="text-red-400">−{f(outros)}</span></div>}
           <div className={`flex justify-between border-t ${line} pt-2 font-semibold`}><span>Capital líquido</span><span className="text-emerald-400">{f(liquido)}</span></div>
         </div>
       </div>
@@ -260,6 +268,9 @@ const VendaCasa = ({ G, uG, theme }) => {
           {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
         </div>
         <p className={`text-xs mb-3 ${sub}`}>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</p>
+        {rendasAdiant > 0 && repor.some(r => /renda/i.test(r.desc || '')) && (
+          <p className="text-xs mb-3 text-amber-400">As rendas adiantadas já estão no Apuramento da venda. Se esta linha é a mesma coisa, apaga uma delas para não contar duas vezes.</p>
+        )}
         {repor.length > 0 && (
           <div className="space-y-2 mb-3">
             {repor.map(r => (
