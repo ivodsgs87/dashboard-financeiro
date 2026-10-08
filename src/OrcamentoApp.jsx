@@ -14,7 +14,8 @@ import {
 import {
   PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras, patNum,
   patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio,
-  patRotulo, patSerie, patRetornoReal, patInvestDoPortfolio, patRegistosEfetivos, CompararAnos, Patrimonio
+  patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio, patRegistosEfetivos,
+  CompararAnos, ChatGemini, Patrimonio
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -155,6 +156,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const confirmDelete = useCallback((message, onConfirm, label) => {
     setConfirmAction({ message, onConfirm, label });
   }, []);
+  // Chat com o Gemini: a conversa fica guardada enquanto a app está aberta
+  const [chatAberto, setChatAberto] = useState(false);
+  const [chatMensagens, setChatMensagens] = useState([]);
   // Pedir valores numa caixa da app (substitui prompt())
   const [formAction, setFormAction] = useState(null);
   
@@ -1588,6 +1592,48 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
  };
  const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
+ // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
+ const resumoParaIA = () => {
+   const e = v => _fmtEUR.format(isFinite(v) ? v : 0);
+   const L = [];
+   const hojeD = new Date();
+   L.push(`Data de hoje: ${hojeD.toLocaleDateString('pt-PT')}. Mês aberto na app: ${mes} ${ano}.`);
+   try {
+     if (patUlt) {
+       L.push(`\nPATRIMÓNIO (${patRotulo(patUlt.idx)}): total ${e(patUlt.total)}; investimentos ${e(patUlt.invest)}; dinheiro nas contas ${e(patUlt.liquidez + patUlt.outros)}${patUlt.reservado > 0 ? ` (dos quais ${e(patUlt.reservado)} reservados para comprar imóvel)` : ''}; imóveis ${e(patUlt.imoveis)}; dívidas ${e(patUlt.dividas)}.`);
+       const cats = {};
+       (patUlt.rec.investItens || []).forEach(i => { if (!i.liq) cats[i.cat || '—'] = (cats[i.cat || '—'] || 0) + patNum(i.val); });
+       L.push(`Investimentos por categoria: ${Object.entries(cats).map(([c, v]) => `${c} ${e(v)}`).join(', ')}.`);
+       const ult = patSerieApp.slice(-12);
+       L.push(`Evolução do património total (mês: valor): ${ult.map(x => `${patRotulo(x.idx)} ${e(x.total)}`).join('; ')}.`);
+       const vida = patVida(G, patUlt.rec.investItens, patUlt.idx);
+       if (vida.cats.length) L.push(`Desde a primeira compra (${vida.desde}), em ${vida.cats.join('+')}: puseste ${e(vida.posto)}, valem ${e(vida.valor)}, ganho ${e(vida.ganho)}${vida.pct != null ? ` (${(vida.pct * 100).toFixed(1)}%)` : ''}.`);
+       const real = patRetornoReal(G, patUlt.rec.investItens, patIso(hojeD));
+       if (real) L.push(`Investimento médio por mês nos últimos 12 meses: ${e(real.mediaMensal)}.${real.taxa != null ? ` Retorno anual real (XIRR): ${(real.taxa * 100).toFixed(1)}%.` : ''}`);
+       const poupL = patPoupanca(patDetalhe(patSerieApp), M).slice(-6).filter(x => !x.casaMudou);
+       if (poupL.length) L.push(`Poupança mensal recente (património total sem o mercado): ${poupL.map(x => `${patRotulo(x.idx)} ${e(x.poupanca)}`).join('; ')}.`);
+     }
+   } catch (err) { /* resumo parcial */ }
+   const recMes = Array(12).fill(0);
+   Object.entries(M).forEach(([k, v]) => { const [a, m] = k.split('-').map(Number); if (a === ano && v) recMes[m - 1] += [...(v.regCom || []), ...(v.regSem || [])].reduce((s2, r) => s2 + patNum(r.val), 0); });
+   L.push(`\nRECEITAS ${ano} por mês (antes de impostos): ${recMes.map((v, i) => `${meses[i].slice(0, 3)} ${e(v)}`).join(', ')}. Total ${e(recMes.reduce((a, b) => a + b, 0))}.`);
+   const recAnt = Object.entries(M).filter(([k]) => Number(k.split('-')[0]) === ano - 1).reduce((a, [, v]) => a + [...(v.regCom || []), ...(v.regSem || [])].reduce((s2, r) => s2 + patNum(r.val), 0), 0);
+   if (recAnt) L.push(`Receitas ${ano - 1} (ano inteiro): ${e(recAnt)}.`);
+   L.push(`Trabalhador independente em Portugal (recibos verdes, regime simplificado). Reserva para impostos na app: ${taxa}% das receitas.`);
+   try {
+     const pi = previsaoImpostos || {};
+     L.push(`Previsão de impostos ${anoAtualSistema}: IRS estimado ${e(pi.irsEstimado)}, retenções ${e(pi.irsRetencoes)}, IRS a pagar(+)/receber(−) ${e(pi.irsAPagarReceber)}; Segurança Social por mês ${e(pi.ssMensal)}; IVA a pagar no ano ${e(pi.ivaAPagar)}.`);
+   } catch (err) { /* sem previsão */ }
+   L.push(`\nDESPESAS FIXAS por mês: casal ${e(totAB)} (a parte dele é ${contrib}%: ${e(minhaAB)}); pessoais ${e(totPess)}.`);
+   const cr = (G.creditos || []).filter(c => c.estado === 'ativo');
+   cr.forEach(c => L.push(`Crédito "${c.nome || 'crédito'}": dívida ${e(patNum(c.dividaAtual))}, taxa ${patNum(c.taxaJuro)}%, prestação ${e(patNum(c.prestacao))}${c.dataFim ? `, fim ${c.dataFim}` : ''}.`));
+   const vc = G.vendaCasa || {};
+   if (patNum(vc.valorVenda) > 0) L.push(`Venda da casa: valor ${e(patNum(vc.valorVenda))}${vc.dataVenda ? `, data ${vc.dataVenda}` : ' (ainda sem data)'}; crédito a amortizar ${e(patNum(vc.creditoAmortizado))}. Objetivo: reinvestir em imobiliário.`);
+   const txAno = (G.transacoes || []).filter(t => t && String(t.data).startsWith(String(ano)));
+   const juros = txAno.filter(t => t.tipo === 'dividendo').reduce((a, t) => a + patNum(t.valorTotal), 0);
+   if (juros) L.push(`Juros e dividendos recebidos em ${ano}: ${e(juros)}.`);
+   return L.join('\n');
+ };
 
  const Resumo = () => {
  const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
@@ -12788,6 +12834,10 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
  
  {formAction && <PedirDados pedido={formAction} theme={theme} onFechar={() => setFormAction(null)} />}
+ {!chatAberto && dataLoaded && (
+   <button onClick={() => setChatAberto(true)} className="fixed bottom-4 right-4 z-40 no-print px-4 py-3 rounded-full shadow-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-sm font-medium hover:opacity-90" aria-label="Perguntar ao Gemini">✨ Perguntar</button>
+ )}
+ <ChatGemini aberto={chatAberto} onFechar={() => setChatAberto(false)} mensagens={chatMensagens} setMensagens={setChatMensagens} obterContexto={resumoParaIA} user={user} theme={theme} />
  {/* Modal de Confirmação */}
  {confirmAction && (
    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setConfirmAction(null)}>
