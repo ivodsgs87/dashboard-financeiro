@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
-  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, impCalc, anos, _fmtEUR,
-  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, retencaoPadrao, impCalc, anos,
+  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -839,10 +839,57 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        { k: 'saraBruto', label: 'Salário bruto da Sara no ano, com subsídios (€)', tipo: 'number', valor: c.saraBruto ? String(c.saraBruto) : '' },
        { k: 'saraRetencao', label: 'IRS retido no salário da Sara no ano (€)', tipo: 'number', valor: c.saraRetencao ? String(c.saraRetencao) : '' },
        { k: 'deducoes', label: 'Deduções à coleta (€): filhos, saúde, educação, renda… (na nota de liquidação)', tipo: 'number', valor: String(c.deducoes ?? '') },
-       { k: 'coef', label: 'Coeficiente do regime simplificado (0,35 para «outras prestações de serviços»)', tipo: 'number', valor: String(c.coef ?? 0.35) }
+       { k: 'coef', label: 'Coeficiente do regime simplificado (0,35 para «outras prestações de serviços»)', tipo: 'number', valor: String(G.coefSimpl ?? 0.35) }
      ],
      botao: 'Guardar',
-     onOk: v => uG('irsConfig', { conjunto: (v.conj || []).includes('c'), saraBruto: txNumero(v.saraBruto), saraRetencao: txNumero(v.saraRetencao), deducoes: txNumero(v.deducoes), coef: txNumero(v.coef) || 0.35 })
+     onOk: v => {
+       uG('irsConfig', { conjunto: (v.conj || []).includes('c'), saraBruto: txNumero(v.saraBruto), saraRetencao: txNumero(v.saraRetencao), deducoes: txNumero(v.deducoes) });
+       const cf = txNumero(v.coef);
+       if (cf > 0 && cf !== (G.coefSimpl ?? 0.35)) uG('coefSimpl', cf);
+     }
+   });
+ };
+ // Recibos em "SEM Taxas" que parecem recibos verdes (vieram da importação, que antes os punha lá
+ // por não terem retenção): têm ficheiro, país ou valor ilíquido. O que ficar desmarcado não volta a aparecer.
+ const recibosSemSuspeitos = (() => {
+   const ok = new Set(G.recibosSemOk || []);
+   const reemb = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
+   const out = [];
+   Object.entries(M || {}).forEach(([k, v]) => (v && v.regSem || []).forEach(r => {
+     if (r && !ok.has(`${k}|${r.id}`) && !reemb.has(r.cid) && (r.ficheiro || r.valIliq != null || r.pais)) out.push({ k, r });
+   }));
+   const idx = k => { const [y, m] = k.split('-').map(Number); return y * 12 + m; };
+   return out.sort((x, y) => idx(y.k) - idx(x.k));
+ })();
+ const corrigirRecibosSem = () => {
+   const lista = recibosSemSuspeitos;
+   if (!lista.length) return;
+   const nomeCli = id => ((G.clientes || []).find(c => c.id === id) || {}).nome || '—';
+   const rot = k => { const [y, m] = k.split('-').map(Number); return `${meses[m - 1].slice(0, 3)} ${y}`; };
+   const todos = lista.map(({ k, r }) => `${k}|${r.id}`);
+   setFormAction({
+     titulo: 'Passar para «COM Taxas»',
+     texto: 'Estes recibos estão em «SEM Taxas», mas têm dados de recibo verde (ficheiro, país ou valor ilíquido). Devem ter vindo da importação, que antes punha lá os recibos sem retenção. Desmarca os que não são recibos verdes.',
+     campos: [{ k: 'ids', tipo: 'lista', label: `${lista.length} recibo${lista.length === 1 ? '' : 's'}`, valor: todos,
+       opcoes: lista.map(({ k, r }) => ({ id: `${k}|${r.id}`, label: `${rot(k)} · ${nomeCli(r.cid)} · ${fmt(patNum(r.valIliq != null ? r.valIliq : r.val))}${r.pais ? ` · ${r.pais}` : ''}${r.ficheiro ? ' · 📎' : ''}` })) }],
+     botao: 'Passar os marcados',
+     onOk: v => {
+       const sel = new Set(v.ids || []);
+       const ficam = todos.filter(id => !sel.has(id));
+       saveUndo();
+       if (sel.size) setM(p => {
+         const n = { ...p };
+         Object.keys(n).forEach(k => {
+           const md = n[k];
+           const mover = (md && md.regSem || []).filter(r => sel.has(`${k}|${r.id}`));
+           if (!mover.length) return;
+           n[k] = { ...md, regSem: md.regSem.filter(r => !sel.has(`${k}|${r.id}`)), regCom: [...(md.regCom || []), ...mover] };
+         });
+         return n;
+       });
+       if (ficam.length) setG(p => ({ ...p, recibosSemOk: [...new Set([...(p.recibosSemOk || []), ...ficam])] }));
+       showToast(sel.size ? `${sel.size} recibo${sel.size === 1 ? '' : 's'} passado${sel.size === 1 ? '' : 's'} para «COM Taxas»` : 'Ficam todos em «SEM Taxas»');
+     }
    });
  };
  const handleUpdatePagamento = useCallback((id, field, value) => {
@@ -2939,19 +2986,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        data: importedData.data || new Date().toISOString().split('T')[0],
        valIliq: importedData.valorIliquido || 0,
        iva: importedData.valorIva || 0,
-       taxaIva: importedData.taxaIva != null ? importedData.taxaIva : 23,
+       taxaIva: importedData.taxaIva != null ? importedData.taxaIva : ((importedData.pais || 'PT') === 'PT' ? 23 : 0),
        retIRS: importedData.retencaoIRS || 0,
        pais: importedData.pais || 'PT'
      };
      
-     // Auto-detectar: se tem retenção IRS, vai para "Com Taxas"
-     const temRetencao = importedData.temRetencao === true || (importedData.retencaoIRS && importedData.retencaoIRS > 0);
-     
-     if (temRetencao) {
-       uM('regCom', [...regCom, novoRecibo]);
-     } else {
-       uM('regSem', [...regSem, novoRecibo]);
-     }
+     // Um documento importado é um recibo verde: vai sempre para "COM Taxas",
+     // tenha ou não retenção (clientes estrangeiros não retêm IRS nem levam IVA)
+     uM('regCom', [...regCom, novoRecibo]);
      
      setShowImportModal(false);
      setImportedData(null);
@@ -3076,8 +3118,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const _ret = parseFloat(importedData.retencaoIRS) || 0;
                      const _totDoc = importedData.totalDocumento != null ? parseFloat(importedData.totalDocumento) : _ili + _iva;
                      const _totReceber = importedData.totalPagar != null ? parseFloat(importedData.totalPagar) : _totDoc - _ret;
-                     // Vai para "Com Retenção" (conta para SS) ou "Sem Retenção"
-                     const _comSS = !!(importedData.temRetencao || _ret > 0);
+                     // Recibo verde: conta sempre para a Segurança Social
+                     const _comSS = true;
                      const est = estimarImpostosRecibo({
                        valIliq: _ili, retIRS: _ret,
                        coef: G.coefSimpl ?? 0.35,
@@ -3123,11 +3165,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                  
                  <div className="pt-4 border-t border-slate-700">
-                   <p className="text-xs text-slate-400 mb-3">
-                     {importedData.temRetencao || importedData.retencaoIRS > 0 
-                       ? '💼 Será adicionado como "Com Retenção IRS"' 
-                       : '💵 Será adicionado como "Sem Retenção IRS"'}
-                   </p>
+                   <p className="text-xs text-slate-400 mb-3">💼 Vai para «COM Taxas» (recibo verde){importedData.retencaoIRS > 0 ? '' : ' — sem retenção, como é normal em clientes estrangeiros'}</p>
                    <button
                      onClick={aplicarDadosImportados}
                      className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium hover:opacity-90 transition-opacity"
@@ -3250,7 +3288,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const isSara = editRecibo.emitidoPorSara || false;
                      const newTaxaIva = isSara ? 0 : (np === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0);
                      const newIva = (editRecibo.valIliq || 0) * newTaxaIva / 100;
-                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? 25 : 0);
+                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.35) : 0);
                      const newRetIRS = (editRecibo.valIliq || 0) * newTaxaRet / 100;
                      setEditRecibo({...editRecibo, pais: np, taxaIva: newTaxaIva, iva: newIva, taxaRetIRS: newTaxaRet, retIRS: newRetIRS});
                    }}
@@ -3269,7 +3307,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onChange={e => {
                      const isSara = e.target.checked;
                      const pais = editRecibo.pais || 'PT';
-                     const taxaRet = isSara ? (pais === 'PT' ? 11.5 : 0) : (pais === 'PT' ? 25 : 0);
+                     const taxaRet = isSara ? (pais === 'PT' ? 11.5 : 0) : (pais === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.35) : 0);
                      const retIRS = (editRecibo.valIliq || 0) * taxaRet / 100;
                      setEditRecibo({...editRecibo, emitidoPorSara: isSara, taxaIva: isSara ? 0 : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23), iva: isSara ? 0 : editRecibo.iva, taxaRetIRS: taxaRet, retIRS});
                    }}
@@ -3316,7 +3354,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const pais = editRecibo.pais || 'PT';
                      const taxaIva = pais === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0;
                      const iva = val * taxaIva / 100;
-                     const retIRS = pais === 'PT' ? val * 0.23 : 0; // 23% retenção IRS (art. 101.º CIRS)
+                     const retIRS = pais === 'PT' ? val * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)) / 100 : 0; // retenção na fonte (art. 101.º CIRS)
                      setEditRecibo({...editRecibo, valIliq: val, iva, retIRS, val: val});
                    }}
                    
@@ -3368,7 +3406,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
                  {(editRecibo.pais || 'PT') === 'PT' && editRecibo.valIliq > 0 && (
-                   <p className="text-[10px] text-slate-500 mt-1">Sugestão {editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS || 11.5) : 25}%: {fmt((editRecibo.valIliq || 0) * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS || 11.5) : 25) / 100)}</p>
+                   <p className="text-[10px] text-slate-500 mt-1">Sugestão {editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)}%: {fmt((editRecibo.valIliq || 0) * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)) / 100)}</p>
                  )}
                </div>
              </div>
@@ -3451,6 +3489,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      onUpdateLayout={(layout) => updateTabLayout('receitas', layout)}
      onReset={() => resetTabLayout('receitas')}
    />
+ )}
+
+ {recibosSemSuspeitos.length > 0 && (
+   <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-sm">
+     <span className="text-amber-400">⚠️ {recibosSemSuspeitos.length} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} em «SEM Taxas» parece{recibosSemSuspeitos.length === 1 ? '' : 'm'} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} verde{recibosSemSuspeitos.length === 1 ? '' : 's'}</span>
+     <button onClick={corrigirRecibosSem} className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium">Rever e passar para «COM Taxas»</button>
+   </div>
  )}
 
  {/* Botão de importar fatura */}
@@ -12568,14 +12613,16 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div className="flex items-center justify-between sm:justify-start gap-3">
               <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">💎 Dashboard</h1>
               <div className="flex gap-2">
-                <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`px-2.5 py-1.5 text-sm font-bold rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>‹</button>
                 <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                 </select>
                 <select value={ano} onChange={e=>setAno(+e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                 </select>
-                <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`px-2.5 py-1.5 text-sm font-bold rounded-lg ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>›</button>
+                <div className={`flex rounded-lg overflow-hidden divide-x ${theme === 'light' ? 'divide-slate-200' : 'divide-slate-600'}`}>
+                  <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`px-2.5 py-1.5 text-sm font-bold ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>‹</button>
+                  <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`px-2.5 py-1.5 text-sm font-bold ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>›</button>
+                </div>
                 {!isMesAtual(mes, ano) && (
                   <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400" title="Ir para mês atual">Hoje</button>
                 )}
