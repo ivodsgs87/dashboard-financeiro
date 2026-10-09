@@ -1434,7 +1434,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Último passo: preparar o mês seguinte (a partir do dia 20) — rever despesas e mandar a ABanca antes do dia 1
    const cOk = despOk('despABanca'), pOk = despOk('despPess');
    const kProx = patKey(idx + 1), nomeProx = meses[(idx + 1) % 12];
-   const abProx = !!(((M[kProx] || {}).transf || {}).g_abanca);
+   const _tp = (M[kProx] || {}).transf || {};
+   const abProx = !!(_tp.g_abanca || _tp.g_adiant);
    const cedo = atual && new Date().getDate() < 20;
    const despTudo = cOk && pOk;
    L.push({ id: 'prep', icon: '🗓️', titulo: `Preparar ${nomeProx}`, estado: cedo ? 'na' : despTudo && abProx ? 'ok' : despTudo || abProx ? 'parcial' : idx > hojeIdx ? 'na' : 'falta',
@@ -2027,15 +2028,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {(() => {
        const claro = theme === 'light';
        const obrig = guia.passos.filter(x => !x.opcional);
-       const feitos = obrig.filter(x => transf[x.id]).length;
+       const feitos = obrig.filter(x => transf[x.id] || x.dispensado).length;
        let num = 0;
        const passo = x => {
          if (!x.opcional) num++;
          return (
-         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
-           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" checked={!!transf[x.id]} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked })} />
+         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${x.dispensado ? (claro ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
+           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" disabled={!!x.dispensado} checked={!!transf[x.id] || !!x.dispensado} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked, ...(x.id === 'g_adiant' && e.target.checked ? { g_abanca: false } : {}), ...(x.id === 'g_abanca' && e.target.checked ? { g_adiant: false } : {}) })} />
            <div className="flex-1 min-w-0">
-             <p className="text-sm"><span className="text-slate-500 mr-1">{x.opcional ? 'Se preciso:' : `${num}.`}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
+             <p className="text-sm"><span className="text-slate-500 mr-1">{x.opcional ? 'Ou, se ainda não recebeste:' : `${num}.`}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
+             {x.dispensado && <p className="text-[11px] text-emerald-400">Não é preciso: adiantaste pela Trade Republic</p>}
              {x.linhas.length > 1 && (
                <div className="mt-1 space-y-0.5">
                  {x.linhas.map(([l, v]) => <p key={l} className="text-xs text-slate-500 flex justify-between gap-2"><span>{l}</span><span>{fmt(v)}</span></p>)}
@@ -10942,7 +10944,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        data.push(['═══ TRANSFERÊNCIAS (por ordem) ═══', '', '']);
        data.push(['Movimento', 'Valor', 'Feito?']);
        _g.passos.forEach((x, k) => {
-         data.push([`${k + 1}. ${x.de} → ${x.para}${x.opcional ? ' (se preciso)' : ''}`, x.valor, transf[x.id] ? '✓' : '']);
+         data.push([`${k + 1}. ${x.de} → ${x.para}${x.opcional ? ' (alternativa, se ainda não recebeste)' : ''}`, x.valor, (transf[x.id] || x.dispensado) ? '✓' : '']);
          if (x.linhas.length > 1) x.linhas.forEach(([l, v]) => data.push([`     ${l}`, v, '']));
        });
        data.push(['']);
@@ -11191,7 +11193,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    if (diaHoje >= 25 && guia.valAB > 0.5) {
      const _prox = new Date(anoHoje, mesHoje, 1);
      const _kProx = `${_prox.getFullYear()}-${_prox.getMonth() + 1}`;
-     if (!(((M[_kProx] || {}).transf || {}).g_abanca)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} para a ABanca (${meses[_prox.getMonth()]}). Se ainda não recebeste, adianta pela Trade Republic.`, severity: 'warning'});
+     const _tp = (M[_kProx] || {}).transf || {};
+     if (!(_tp.g_abanca || _tp.g_adiant)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} para a ABanca (${meses[_prox.getMonth()]}), do Activo ou, se ainda não recebeste, adiantado pela Trade Republic.`, severity: 'warning'});
    }
    if (totRec > 0) {
      const faltam = guia.passos.filter(x => !transf[x.id] && !x.opcional);
