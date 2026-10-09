@@ -736,7 +736,7 @@ const CategoryDropdown = ({ value, options, onChange, theme: th, className: cls 
       if (wrapRef.current && wrapRef.current.contains(e.target)) return;
       setOpen(false);
     };
-    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onEsc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
     const t = setTimeout(() => {
       document.addEventListener('mousedown', onClick);
       document.addEventListener('keydown', onEsc);
