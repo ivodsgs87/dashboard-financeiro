@@ -609,19 +609,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  })();
  const avisoCls = cor => `rounded-xl border px-4 py-2.5 text-sm flex flex-wrap items-center gap-x-3 gap-y-1 ${cor === 'verde' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : cor === 'vermelho' ? 'bg-red-500/10 border-red-500/30 text-red-400' : (theme === 'light' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-700/30 border-slate-600/50 text-slate-400')}`;
  const dataPt = iso => String(iso || '').slice(0, 10).split('-').reverse().join('/');
- // Despesas fixas (casal / pessoais) revistas para o mês escolhido? Contam as revisões a partir do
- // dia 20 do mês anterior, porque o planeamento faz-se antes de o mês começar (a prestação sai dia 1).
- const avisoDesp = (f, nome) => {
-   const idx = patIdx(mesKey);
-   if (idx < patIdxHoje()) return null;
-   const ant = idx - 1;
-   const limite = `${Math.floor(ant / 12)}-${String(ant % 12 + 1).padStart(2, '0')}-20`;
+ // Despesas fixas (casal / pessoais): revêem-se a partir do dia 20 para o mês seguinte
+ // (a prestação sai dia 1). Antes do dia 20 conta a revisão feita no fim do mês anterior.
+ const revisaoDesp = f => {
+   const h = new Date(), dia = h.getDate(), y = h.getFullYear(), m = h.getMonth();
+   const lim = (yy, mm) => `${yy}-${String(mm + 1).padStart(2, '0')}-20`;
+   const ant = new Date(y, m - 1, 1);
+   const limite = dia >= 20 ? lim(y, m) : lim(ant.getFullYear(), ant.getMonth());
+   const alvo = dia >= 20 ? meses[(m + 1) % 12] : meses[m];
    const d = (G.despRevistas || {})[f];
    const ok = !!d && d >= limite;
+   return { ok, d, alvo, prox: meses[(m + 1) % 12], cedo: dia < 20 };
+ };
+ const avisoDesp = (f, nome) => {
+   const r = revisaoDesp(f);
+   const cor = r.ok ? 'verde' : r.cedo ? 'cinza' : 'vermelho';
    return (
-     <div className={avisoCls(ok ? 'verde' : 'vermelho')}>
-       <span>{ok ? `✓ ${nome} revistas a ${dataPt(d)}, prontas para ${mes}` : `✕ ${nome} ainda não revistas para ${mes}${d ? ` (última vez: ${dataPt(d)})` : ''}`}</span>
-       {!ok && <button onClick={() => uG('despRevistas', { ...(G.despRevistas || {}), [f]: patIso(new Date()) })} className="ml-auto text-xs px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300">Está tudo certo</button>}
+     <div className={avisoCls(cor)}>
+       <span>{r.ok ? `✓ ${nome} revistas a ${dataPt(r.d)}, prontas para ${r.alvo}` : r.cedo ? `${nome}: próxima revisão a partir de dia 20, para ${r.prox}` : `✕ Rever as ${nome.toLowerCase()} para ${r.alvo} (a prestação sai dia 1)${r.d ? ` · última vez ${dataPt(r.d)}` : ''}`}</span>
+       {!r.ok && <button onClick={() => uG('despRevistas', { ...(G.despRevistas || {}), [f]: patIso(new Date()) })} className="ml-auto text-xs px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300">Está tudo certo</button>}
      </div>
    );
  };
@@ -1397,22 +1403,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const getPassosMes = () => {
    const idx = patIdx(mesKey), hojeIdx = patIdxHoje();
    const atual = idx === hojeIdx, passado = idx < hojeIdx;
-   const despOk = f => { const ant = idx - 1; const lim = `${Math.floor(ant / 12)}-${String(ant % 12 + 1).padStart(2, '0')}-20`; const d = (G.despRevistas || {})[f]; return !!d && d >= lim; };
+   const despOk = f => { const lim = `${Math.floor(idx / 12)}-${String(idx % 12 + 1).padStart(2, '0')}-20`; const d = (G.despRevistas || {})[f]; return !!d && d >= lim; };
    const pi = previsaoImpostos;
    const nRec = regCom.length + regSem.length;
    const itensInv = (inv || []).filter(i => i && i.cat !== 'CREDITO' && patNum(i.val) > 0);
    const pInv = (restante > 0 ? restante : 0) * ((100 - alocAmort) / 100);
    const folga = Math.max(10, pInv * 0.01);
-   const obrig = guia.passos.filter(x => !x.opcional);
+   const obrig = guia.passos.filter(x => !x.opcional && x.fase === 2);
    const feitas = obrig.filter(x => transf[x.id]).length;
    const mesIdx = idx % 12 + 1;
    const mesIva = [2, 5, 8, 11].includes(mesIdx);
    const L = [];
-   const cOk = despOk('despABanca'), pOk = despOk('despPess');
-   L.push({ id: 'desp', icon: '📝', titulo: 'Definir despesas', estado: passado ? 'na' : (cOk && pOk ? 'ok' : 'falta'),
-     detalhe: passado ? 'Iguais em todos os meses' : `Casal ${cOk ? '✓' : '✕'} · Pessoais ${pOk ? '✓' : '✕'}`, ir: () => setTab(!cOk || pOk ? 'abanca' : 'pessoais') });
-   L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : 'falta'),
-     detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : 'Ainda sem recibos', ir: () => setTab('receitas') });
+   L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : atual ? 'parcial' : 'falta'),
+     detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : atual ? 'À espera dos pagamentos' : 'Sem recibos', ir: () => setTab('receitas') });
    L.push({ id: 'aloc', icon: '📈', titulo: 'Alocação', estado: !nRec || pInv <= 0 ? 'na' : (itensInv.length && Math.abs(guia.porAlocar) <= folga ? 'ok' : 'falta'),
      detalhe: !nRec || pInv <= 0 ? 'Nada para alocar ainda' : guia.porAlocar > folga ? `Falta alocar ${fmt(guia.porAlocar)}` : guia.porAlocar < -folga ? `Alocado a mais ${fmt(-guia.porAlocar)}` : `${fmt(pInv)} alocados`, ir: () => setTab('invest') });
    L.push({ id: 'transf', icon: '💸', titulo: 'Transferências', estado: !obrig.length ? 'na' : feitas === obrig.length ? 'ok' : feitas ? 'parcial' : 'falta',
@@ -1428,6 +1431,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      detalhe: ep.port === 'ok' ? `Valores do dia ${dataPt(ep.data)}` : ep.port === 'igual' ? 'Iguais ao mês anterior' : 'Ainda por atualizar', ir: () => setTab('portfolio') });
    L.push({ id: 'tx', icon: '📥', titulo: 'Importar transações', estado: ep.nTx ? 'ok' : idx > hojeIdx ? 'na' : ep.aloc > 0 ? 'falta' : 'na',
      detalhe: ep.nTx ? `${ep.nTx} compra${ep.nTx === 1 ? '' : 's'}/venda${ep.nTx === 1 ? '' : 's'}` : ep.aloc > 0 ? `Marcaste ${fmt(ep.aloc)} investido` : 'Sem compras registadas', ir: () => setTab('transacoes') });
+   // Último passo: preparar o mês seguinte (a partir do dia 20) — rever despesas e mandar a ABanca antes do dia 1
+   const cOk = despOk('despABanca'), pOk = despOk('despPess');
+   const kProx = patKey(idx + 1), nomeProx = meses[(idx + 1) % 12];
+   const abProx = !!(((M[kProx] || {}).transf || {}).g_abanca);
+   const cedo = atual && new Date().getDate() < 20;
+   const despTudo = cOk && pOk;
+   L.push({ id: 'prep', icon: '🗓️', titulo: `Preparar ${nomeProx}`, estado: cedo ? 'na' : despTudo && abProx ? 'ok' : despTudo || abProx ? 'parcial' : idx > hojeIdx ? 'na' : 'falta',
+     detalhe: cedo ? 'A partir de dia 20: rever despesas e mandar a ABanca' : `Despesas ${despTudo ? '✓' : '✕'} · ABanca ${fmt(guia.valAB)} ${abProx ? '✓' : '✕'}`,
+     ir: () => {
+       if (!despTudo) { setTab(cOk ? 'pessoais' : 'abanca'); return; }
+       const pi2 = idx + 1; setAno(Math.floor(pi2 / 12)); setMes(meses[pi2 % 12]); setTab('resumo');
+       setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+     } });
    return L;
  };
  // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
