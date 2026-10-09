@@ -3710,6 +3710,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <div><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
      <div><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(parteSaraAB)}</p></div>
    </div>
+   {investFilhos > 0 && (
+     <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border bg-pink-500/10 border-pink-500/30 text-sm">
+       <span>Transferes para a ABanca <strong className="text-pink-400">{fmt(Math.max(0, minhaAB - investFilhos))}</strong></span>
+       <span className="text-xs text-slate-500">a tua parte {fmt(minhaAB)} − {fmt(investFilhos)} dos investimentos dos filhos, que pagas direto do Activo (a parte da Sara fica na ABanca a pagar despesas)</span>
+     </div>
+   )}
    <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
      <p className="text-xs text-slate-500 mb-2">Ajustes Parceiro/a:</p>
      <div className="flex items-center gap-2 flex-wrap text-sm">
