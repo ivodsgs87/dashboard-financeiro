@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
-  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, retencaoPadrao, impCalc, anos,
-  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, retencaoPadrao, guiaTransfCalc, impCalc,
+  anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -819,6 +819,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const recebidoMes = totRec + ivaMes - retMes;
  // Fica na TR para impostos: a reserva menos o que já foi retido, mais o IVA cobrado (é do Estado)
  const impostosNaTR = Math.max(0, valTax - retMes) + ivaMes;
+ const guia = guiaTransfCalc({ minhaAB, investFilhos, impostosNaTR, inv, restante, alocAmort, alocFerias, totalFerias, recebidoMes, totPess });
  const totSaraR = sara.rend.reduce((a,r)=>a+r.val,0);
  const totSaraD = sara.desp.reduce((a,d)=>a+d.val,0);
  const sobraSara = totSaraR - totSaraD - contribSaraAB;
@@ -1906,71 +1907,43 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </Card>
 
    <Card>
-     <h3 className="font-semibold mb-3">💸 Transferências</h3>
+     {(() => {
+       const feitos = guia.passos.filter(x => transf[x.id]).length;
+       const claro = theme === 'light';
+       return (<>
+     <div className="flex items-center justify-between mb-1">
+       <h3 className="font-semibold">💸 Transferências do mês</h3>
+       {guia.passos.length > 0 && <span className={`text-xs ${feitos === guia.passos.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{guia.passos.length} feitas</span>}
+     </div>
+     <p className="text-xs text-slate-500 mb-3">Tudo sai do <strong>Activo Bank</strong>, por esta ordem. Precisas de ter lá pelo menos <strong>{fmt(guia.saidas)}</strong>; se algum cliente ainda não pagou, a reserva adianta.</p>
      <div className="space-y-2">
-       {/* Entrada: Activo → Trade Republic */}
-       <div className={`flex items-center gap-2 p-2 rounded-lg border-2 ${transf.toTR ? 'bg-blue-500/10 border-blue-500/30' : 'bg-slate-700/30 border-slate-600/30'}`}>
-         <input type="checkbox" className="w-4 h-4 accent-blue-500" checked={transf.toTR || false} onChange={e=>uM('transf',{...transf,toTR:e.target.checked})}/>
-         <div className="flex-1">
-           <p className="text-sm font-medium">📥 Activo → Trade Republic</p>
-           <p className="text-xs text-slate-500">{Math.abs(recebidoMes - totRec) > 0.5 ? `O que recebeste: ${fmt(totRec)}${ivaMes > 0 ? ` + IVA ${fmt(ivaMes)}` : ''}${retMes > 0 ? ` − retido ${fmt(retMes)}` : ''}` : 'Transferir receitas do mês'}</p>
-         </div>
-         <span className="font-bold text-blue-400">{fmt(recebidoMes)}</span>
-       </div>
-       
-       <div className="border-t border-slate-700/50 my-2 pt-2">
-         <p className="text-xs text-slate-500 mb-2">📤 Da Trade Republic para:</p>
-       </div>
-       
-       {/* Saídas: TR → outras contas */}
-       {[
-         {l:'ABanca',s:'Despesas Casal',v:minhaAB,k:'abanca'},
-         {l:'Activo Bank',s:'Despesas Pessoais',v:totPess,k:'activo'},
-         {l:'Revolut',s:`Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,k:'revolut'}
-       ].map(t => (
-         <div key={t.k} className={`flex items-center gap-2 p-2 rounded-lg ${transf[t.k] ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-700/30'}`}>
-           <input type="checkbox" className="w-4 h-4 accent-emerald-500" checked={transf[t.k]} onChange={e=>uM('transf',{...transf,[t.k]:e.target.checked})}/>
-           <div className="flex-1"><p className="text-sm">{t.l}</p><p className="text-xs text-slate-500">{t.s}</p></div>
-           <span className="font-bold">{fmt(t.v)}</span>
+       {guia.passos.map((x, k) => (
+         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
+           <input type="checkbox" aria-label={`Transferência para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" checked={!!transf[x.id]} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked })} />
+           <div className="flex-1 min-w-0">
+             <p className="text-sm"><span className="text-slate-500 mr-1">{k + 1}.</span>Activo → <strong>{x.icon} {x.para}</strong></p>
+             {x.linhas.length > 1 && (
+               <div className="mt-1 space-y-0.5">
+                 {x.linhas.map(([l, v]) => <p key={l} className="text-xs text-slate-500 flex justify-between gap-2"><span>{l}</span><span>{fmt(v)}</span></p>)}
+               </div>
+             )}
+             {x.linhas.length === 1 && x.linhas[0][0] !== x.para && <p className="text-xs text-slate-500">{x.linhas[0][0]}</p>}
+             {x.nota && <p className="text-[11px] text-slate-500 italic mt-0.5">{x.nota}</p>}
+           </div>
+           <span className="font-bold whitespace-nowrap">{fmt(x.valor)}</span>
          </div>
        ))}
-       
-       {/* Transferência entre contas: ABanca → Activo Bank */}
-       {investFilhos > 0 && (
-         <>
-           <div className="border-t border-slate-700/50 my-2 pt-2">
-             <p className="text-xs text-slate-500 mb-2">🔄 Entre contas:</p>
-           </div>
-           <div className={`flex items-center gap-2 p-2 rounded-lg ${transf.investFilhos ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-slate-700/30'}`}>
-             <input type="checkbox" className="w-4 h-4 accent-cyan-500" checked={transf.investFilhos || false} onChange={e=>uM('transf',{...transf,investFilhos:e.target.checked})}/>
-             <div className="flex-1">
-               <p className="text-sm">ABanca → Activo Bank</p>
-               <p className="text-xs text-slate-500">Investimentos Filhos</p>
-             </div>
-             <span className="font-bold text-cyan-400">{fmt(investFilhos)}</span>
-           </div>
-         </>
-       )}
-       
-       {/* Resumo: o que fica na TR, separado entre impostos e o que é teu */}
-       <div className="border-t border-slate-700/50 mt-3 pt-3 space-y-2">
-         <p className="text-xs text-slate-500">💎 Fica na Trade Republic: {fmt(recebidoMes - minhaAB - totPess - totalFerias)}</p>
-         <div className="flex items-center justify-between p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-           <div>
-             <p className="text-sm font-medium text-orange-300">🧾 Para impostos</p>
-             <p className="text-xs text-slate-500">Reserva de {fmtP(taxa)}{retMes > 0 ? ' menos o já retido' : ''}{ivaMes > 0 ? ' + IVA cobrado' : ''} · não mexer</p>
-           </div>
-           <span className="font-bold text-orange-400">{fmt(impostosNaTR)}</span>
-         </div>
-         <div className="flex items-center justify-between p-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-           <div>
-             <p className="text-sm font-medium text-purple-300">💎 Amortização + Investimentos</p>
-             <p className="text-xs text-slate-500">O que é mesmo teu para pôr a render</p>
-           </div>
-           <span className="font-bold text-purple-400">{fmt(restante - feriasExtra)}</span>
-         </div>
-       </div>
      </div>
+     <div className={`mt-3 p-2 rounded-lg border ${guia.fica < guia.totPess - 0.5 ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+       <div className="flex items-center justify-between">
+         <p className="text-sm font-medium">🏦 Fica no Activo Bank</p>
+         <span className="font-bold text-blue-400">{fmt(guia.fica)}</span>
+       </div>
+       <p className="text-xs text-slate-500">Despesas pessoais {fmt(guia.totPess)}{guia.porAlocar > 0.5 ? ` + por investir ${fmt(guia.porAlocar)} (ainda não está na Alocação)` : ''}</p>
+       {guia.fica < guia.totPess - 0.5 && <p className="text-xs text-red-400 mt-1">Fica menos do que precisas para as despesas pessoais: a Alocação tem mais investimentos do que o disponível.</p>}
+     </div>
+       </>);
+     })()}
    </Card>
  </div>
 
@@ -10813,18 +10786,18 @@ ${transacoesOrdenadas.map(t => `<tr>
        }
        
        // Transferências
-       const ficaNaTR = totRec - minhaABanca - totPess - totalFeriasExcel;
-       data.push(['═══ TRANSFERÊNCIAS ═══', '', '']);
+       const _iva = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.iva) || 0), 0);
+       const _ret = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.retIRS) || 0), 0);
+       const _filhos = (G.despABanca || []).find(d => String(d.desc || '').toLowerCase().includes('investimentos filhos'))?.val || 0;
+       const _g = guiaTransfCalc({ minhaAB: minhaABanca, investFilhos: _filhos, impostosNaTR: Math.max(0, valTax - _ret) + _iva, inv, restante, alocAmort: G.alocAmort, alocFerias: alocFeriasVal, totalFerias: totalFeriasExcel, recebidoMes: totRec + _iva - _ret, totPess });
+       data.push(['═══ TRANSFERÊNCIAS (do Activo Bank, por ordem) ═══', '', '']);
        data.push(['Movimento', 'Valor', 'Feito?']);
-       const _rec = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.iva) || 0) - (parseFloat(r.retIRS) || 0), totRec);
-       data.push(['📥 Activo → Trade Republic', _rec, transf.toTR ? '✓' : '']);
+       _g.passos.forEach((x, k) => {
+         data.push([`${k + 1}. Activo → ${x.para}`, x.valor, transf[x.id] ? '✓' : '']);
+         if (x.linhas.length > 1) x.linhas.forEach(([l, v]) => data.push([`     ${l}`, v, '']));
+       });
        data.push(['']);
-       data.push(['📤 Da Trade Republic para:', '', '']);
-       data.push(['  → ABanca (Casal)', minhaABanca, transf.abanca ? '✓' : '']);
-       data.push(['  → Activo Bank (Pessoais)', totPess, transf.activo ? '✓' : '']);
-       data.push([`  → Revolut (Férias${alocFeriasVal > 0 ? ' fixo+extra' : ''})`, totalFeriasExcel, transf.revolut ? '✓' : '']);
-       data.push(['']);
-       data.push(['💎 Fica na TR (Invest+Amort)', ficaNaTR, '']);
+       data.push(['🏦 Fica no Activo Bank', _g.fica, '']);
        data.push([]);
        
        // Crédito Habitação
@@ -11058,16 +11031,9 @@ ${transacoesOrdenadas.map(t => `<tr>
    });
    
    // Verificar transferências do mês
-   if (!transf.toTR && totRec > 0) {
-     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(recebidoMes)}`, severity: 'info'});
-   }
-   
-   if (diaHoje >= 24 && diaHoje <= 26) {
-     if (!transf.abanca) alerts.push({tipo: 'transf', msg: `💳 TR → ABanca (Casal): ${fmt(minhaAB)}`, severity: 'info'});
-     if (!transf.activo) alerts.push({tipo: 'transf', msg: `💳 TR → Activo Bank (Pessoais): ${fmt(totPess)}`, severity: 'info'});
-   }
-   if (diaHoje >= 30 || diaHoje <= 2) {
-     if (!transf.revolut) alerts.push({tipo: 'transf', msg: `💳 TR → Revolut (Férias): ${fmt(totalFerias)}`, severity: 'info'});
+   if (totRec > 0) {
+     const faltam = guia.passos.filter(x => !transf[x.id]);
+     if (faltam.length) alerts.push({tipo: 'transf', msg: `💸 Faltam ${faltam.length} transferência${faltam.length === 1 ? '' : 's'} do mês: ${faltam.map(x => `${x.para} ${fmt(x.valor)}`).join(' · ')}`, severity: 'info'});
    }
    
    // Alertas de faturacao (clientes sem receita 45+ dias)
