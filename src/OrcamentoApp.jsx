@@ -2148,8 +2148,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {ab && (
        <div className="space-y-2 mt-4 pt-3 border-t border-slate-700/40">
          <p className="text-xs font-medium text-amber-400">🗓️ No fim do mês: preparar {nomeProx} (antes do dia 1, a prestação sai dia 1)</p>
-         {passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]] }, tProx, marcarProx, '')}
-         {adi && passo({ ...adi, nota: `Repões em ${nomeProx}, quando os clientes pagarem (entra no passo da Trade Republic).` }, tProx, marcarProx, 'Ou, se ainda não recebeste:')}
+         {tProx.g_abanca
+           ? passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]], nota: 'Mandaste do Activo. Desmarca se afinal foi pela Trade Republic.' }, tProx, marcarProx, '')
+           : adi && passo({ ...adi, opcional: false, linhas: [[`Despesas do casal de ${nomeProx}`, adi.valor]], nota: `Os clientes só pagam no início de ${nomeProx}: a TR adianta e repões no passo da Trade Republic de ${nomeProx}.` }, tProx, marcarProx, '')}
        </div>
      )}
        </>);
@@ -11297,7 +11298,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      const _prox = new Date(anoHoje, mesHoje, 1);
      const _kProx = `${_prox.getFullYear()}-${_prox.getMonth() + 1}`;
      const _tp = (M[_kProx] || {}).transf || {};
-     if (!(_tp.g_abanca || _tp.g_adiant)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} para a ABanca (${meses[_prox.getMonth()]}), do Activo ou, se ainda não recebeste, adiantado pela Trade Republic.`, severity: 'warning'});
+     if (!(_tp.g_abanca || _tp.g_adiant)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} da Trade Republic para a ABanca (${meses[_prox.getMonth()]}). Repões quando os clientes pagarem.`, severity: 'warning'});
    }
    if (totRec > 0) {
      const faltam = guia.passos.filter(x => !transf[x.id] && !x.opcional);
