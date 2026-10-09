@@ -12955,7 +12955,7 @@ ${transacoesOrdenadas.map(t => `<tr>
         );
       })()}
       
-      <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto" style={{overflowX: "clip"}}>
+      <main className={`px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         <div key={tab} className="animate-fadeIn">
         {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
