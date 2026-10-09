@@ -5,17 +5,17 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
-  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos,
-  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, impCalc, anos, _fmtEUR,
+  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
 } from './vendaCasa';
 import {
-  PedirDados, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras, patNum,
-  patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio,
-  patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio, patRegistosEfetivos,
-  CompararAnos, ChatGemini, Patrimonio
+  PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
+  patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
+  patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
+  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -828,6 +828,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    uG('impostosPagos', [...(G.impostosPagos || []), novo]);
    showToast(`${valor < 0 ? 'Reembolso' : 'Pagamento'} ${tipo} de ${fmt(Math.abs(valor))} registado`);
  }, [G.impostosPagos]);
+ // Parâmetros do IRS (conjunto com a Sara, salário dela, deduções, coeficiente)
+ const abrirIrsConfig = () => {
+   const c = { ...IRS_CFG_PADRAO, ...(G.irsConfig || {}) };
+   setFormAction({
+     titulo: 'Como calcular o IRS',
+     texto: 'Valores aproximados chegam. As deduções e o coeficiente estão na nota de liquidação do IRS do ano passado; o salário e o IRS retido da Sara estão nos recibos de vencimento dela.',
+     campos: [
+       { k: 'conj', label: 'Declaração', tipo: 'lista', opcoes: [{ id: 'c', label: 'Entrego em conjunto com a Sara' }], valor: c.conjunto ? ['c'] : [] },
+       { k: 'saraBruto', label: 'Salário bruto da Sara no ano, com subsídios (€)', tipo: 'number', valor: c.saraBruto ? String(c.saraBruto) : '' },
+       { k: 'saraRetencao', label: 'IRS retido no salário da Sara no ano (€)', tipo: 'number', valor: c.saraRetencao ? String(c.saraRetencao) : '' },
+       { k: 'deducoes', label: 'Deduções à coleta (€): filhos, saúde, educação, renda… (na nota de liquidação)', tipo: 'number', valor: String(c.deducoes ?? '') },
+       { k: 'coef', label: 'Coeficiente do regime simplificado (0,35 para «outras prestações de serviços»)', tipo: 'number', valor: String(c.coef ?? 0.35) }
+     ],
+     botao: 'Guardar',
+     onOk: v => uG('irsConfig', { conjunto: (v.conj || []).includes('c'), saraBruto: txNumero(v.saraBruto), saraRetencao: txNumero(v.saraRetencao), deducoes: txNumero(v.deducoes), coef: txNumero(v.coef) || 0.35 })
+   });
+ };
  const handleUpdatePagamento = useCallback((id, field, value) => {
    saveUndo();
    uG('impostosPagos', (G.impostosPagos || []).map(x => x.id === id ? {...x, [field]: value} : x));
@@ -1303,294 +1320,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  // RESUMO
 
- const calcPrevisaoImpostos = () => {
-   // Inline previsaoIRS calculation (evita dependência de useCallback não hoisted)
-   const hIRS = getHist();
-   const hAnoIRS = hIRS.filter(x => x.ano === anoAtualSistema);
-   const receitasAteAgoraIRS = hAnoIRS.reduce((a, x) => a + x.tot, 0);
-   const mesesComDadosIRS = hAnoIRS.length;
-   const mesAtualNumIRS = new Date().getMonth() + 1;
-   // Projetar receitas anuais: usar dados reais + projeção para meses restantes
-   const receitasAnuaisIRS = mesesComDadosIRS >= 2 && mesAtualNumIRS < 12
-     ? receitasAteAgoraIRS + (receitasAteAgoraIRS / mesesComDadosIRS) * (12 - mesAtualNumIRS)
-     : receitasAteAgoraIRS;
-   const escaloesIRS = ESCALOES_IRS;
-   const rendColetavelIRS = receitasAnuaisIRS * COEF_SIMPL;
-   let impostoIRS = 0, anteriorIRS = 0;
-   for (const e of escaloesIRS) {
-     if (rendColetavelIRS > anteriorIRS) { impostoIRS += (Math.min(rendColetavelIRS, e.limite) - anteriorIRS) * e.taxa; anteriorIRS = e.limite; }
-   }
-   const deducoesIRS = DEDUCAO_CATB + Math.min(receitasAnuaisIRS * 0.15, 250);
-   const impostoFinalIRS = Math.max(0, impostoIRS - deducoesIRS);
-   const receitasComTaxasIRS = hAnoIRS.reduce((a, x) => a + x.com, 0);
-   // Retenções: projetar também para estimar retenções anuais
-   const retencoesProjetadasIRS = mesesComDadosIRS >= 2 && mesAtualNumIRS < 12
-     ? (receitasComTaxasIRS + (receitasComTaxasIRS / mesesComDadosIRS) * (12 - mesAtualNumIRS)) * (taxa / 100)
-     : receitasComTaxasIRS * (taxa / 100);
-   const retencoesIRS = retencoesProjetadasIRS;
-   const previsaoIRS = {
-     receitasAnuais: receitasAnuaisIRS, rendColetavel: rendColetavelIRS,
-     impostoEstimado: impostoFinalIRS, retencoes: retencoesIRS,
-     aPagarReceber: retencoesIRS - impostoFinalIRS,
-     taxaEfetiva: receitasAnuaisIRS > 0 ? (impostoFinalIRS / receitasAnuaisIRS * 100) : 0
-   };
-   
-   let totalIliquido = 0, totalIVA = 0, totalRetIRS = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0;
-   const mesAtualNum = meses.indexOf(mesAtualSistema) + 1; // Converter para número (1-12)
-   
-   Object.entries(M).forEach(([key, mesData]) => {
-     if (!key.startsWith(anoAtualSistema.toString())) return;
-     (mesData.regCom || []).forEach(r => {
-       const valIliq = r.valIliq || r.val || 0;
-       totalIliquido += valIliq;
-       totalIVA += r.iva || 0;
-       totalRetIRS += r.retIRS || 0;
-       const pais = r.pais || 'PT';
-       if (pais === 'PT') totalPT += valIliq;
-       else if (pais === 'UE') totalUE += valIliq;
-       else totalForaUE += valIliq;
-     });
-     (mesData.regSem || []).forEach(r => {
-       const valIliq = r.valIliq || r.val || 0;
-       totalIliquido += valIliq;
-       const pais = r.pais || 'PT';
-       if (pais === 'PT') totalPT += valIliq;
-       else if (pais === 'UE') totalUE += valIliq;
-       else totalForaUE += valIliq;
-     });
-   });
-   
-   // ===== CÁLCULO SS (TRIMESTRAL - CORRETO) =====
-   // A SS funciona assim:
-   // 1. Declaração trimestral (Jan, Abr, Jul, Out) com receitas dos 3 meses ANTERIORES
-   // 2. SS calcula: rendimentos_trimestre × 70% ÷ 3 × 21.4%
-   // 3. Esse valor é pago mensalmente nos 3 meses seguintes (incluindo o mês da declaração)
-   //
-   // Exemplo: Declaração de Janeiro declara Out+Nov+Dez → paga-se em Jan, Fev, Mar
-   //          Declaração de Abril declara Jan+Fev+Mar → paga-se em Abr, Mai, Jun
-   
-   // Função para obter receitas DECLARÁVEIS de um mês (SÓ regCom - com taxas)
-   // Receitas sem taxas (regSem) são de clientes fora da UE e não entram na SS
-   const getReceitasMesDeclaraveis = (anoR, mesR) => {
-     const k = `${anoR}-${mesR}`;
-     const md = M[k] || {};
-     return (md.regCom || []).filter(r => !r.emitidoPorSara).reduce((acc, r) => acc + (r.valIliq || r.val || 0), 0);
-   };
-   
-   // Determinar qual declaração trimestral está ativa AGORA
-   // Mês atual -> última declaração feita -> meses declarados
-   // Jan-Mar: declaração de Jan (declara Out,Nov,Dez anterior)
-   // Abr-Jun: declaração de Abr (declara Jan,Fev,Mar)
-   // Jul-Set: declaração de Jul (declara Abr,Mai,Jun)
-   // Out-Dez: declaração de Out (declara Jul,Ago,Set)
-   const trimestrePagamento = Math.ceil(mesAtualNum / 3); // 1=Jan-Mar, 2=Abr-Jun, etc.
-   
-   // Meses que foram DECLARADOS para o trimestre de pagamento atual
-   let mesesDeclarados = [];
-   if (trimestrePagamento === 1) {
-     // Jan-Mar: declarou Out, Nov, Dez do ano anterior
-     mesesDeclarados = [{ano: anoAtualSistema - 1, mes: 10}, {ano: anoAtualSistema - 1, mes: 11}, {ano: anoAtualSistema - 1, mes: 12}];
-   } else if (trimestrePagamento === 2) {
-     // Abr-Jun: declarou Jan, Fev, Mar
-     mesesDeclarados = [{ano: anoAtualSistema, mes: 1}, {ano: anoAtualSistema, mes: 2}, {ano: anoAtualSistema, mes: 3}];
-   } else if (trimestrePagamento === 3) {
-     // Jul-Set: declarou Abr, Mai, Jun
-     mesesDeclarados = [{ano: anoAtualSistema, mes: 4}, {ano: anoAtualSistema, mes: 5}, {ano: anoAtualSistema, mes: 6}];
-   } else {
-     // Out-Dez: declarou Jul, Ago, Set
-     mesesDeclarados = [{ano: anoAtualSistema, mes: 7}, {ano: anoAtualSistema, mes: 8}, {ano: anoAtualSistema, mes: 9}];
-   }
-   
-   // Receitas do trimestre declarado
-   const receitasTrimestreDeclarado = mesesDeclarados.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
-   
-   // Cálculo SS mensal correto: receitas_trimestre × 70% ÷ 3 × 21.4%
-   // Ou equivalente: receitas_trimestre × 70% × 21.4% ÷ 3
-   const rendimentoRelevanteTrimestreAtual = receitasTrimestreDeclarado * 0.70;
-   const ssBaseIncidenciaMensal = rendimentoRelevanteTrimestreAtual / 3;
-   const ssMesAtual = Math.max(20, ssBaseIncidenciaMensal * 0.214); // mínimo 20€
-   
-   // Calcular também o PRÓXIMO trimestre (para previsão)
-   // Próxima declaração = meses do trimestre que estamos a viver agora
-   let mesesProximaDeclaracao = [];
-   if (trimestrePagamento === 1) {
-     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 1}, {ano: anoAtualSistema, mes: 2}, {ano: anoAtualSistema, mes: 3}];
-   } else if (trimestrePagamento === 2) {
-     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 4}, {ano: anoAtualSistema, mes: 5}, {ano: anoAtualSistema, mes: 6}];
-   } else if (trimestrePagamento === 3) {
-     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 7}, {ano: anoAtualSistema, mes: 8}, {ano: anoAtualSistema, mes: 9}];
-   } else {
-     mesesProximaDeclaracao = [{ano: anoAtualSistema, mes: 10}, {ano: anoAtualSistema, mes: 11}, {ano: anoAtualSistema, mes: 12}];
-   }
-   const receitasProximoTrimestre = mesesProximaDeclaracao.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
-   const ssProximoTrimestre = Math.max(20, (receitasProximoTrimestre * 0.70 / 3) * 0.214);
-   
-   // SS anual estimada (baseada na média dos trimestres com dados)
-   const ssAnual = ssMesAtual * 12; // estimativa baseada no trimestre atual
-   const ssMensal = ssMesAtual;
-   
-   // Meses de referência para mostrar na UI
-   const nomeMesesDeclarados = mesesDeclarados.map(m => meses[m.mes - 1]?.substring(0, 3)).join('+');
-   const anoMesesDeclarados = mesesDeclarados[0]?.ano;
-   const nomeMesesProximos = mesesProximaDeclaracao.map(m => meses[m.mes - 1]?.substring(0, 3)).join('+');
-   
-   // Para compatibilidade (usado noutros sítios)
-   const rendimentoRelevanteSS = totalIliquido * 0.70;
-   const ssProximoMes = ssMesAtual; // agora é o valor correto do mês atual
-   
-   // IVA trimestre atual
-   const trimestreAtual = Math.ceil(mesAtualNum / 3);
-   const mesesDoTrimestre = [trimestreAtual * 3 - 2, trimestreAtual * 3 - 1, trimestreAtual * 3];
-   let ivaTrimestreAtual = 0;
-   mesesDoTrimestre.forEach(m => {
-     const mKey = `${anoAtualSistema}-${m}`;
-     const mesData = M[mKey] || {};
-     (mesData.regCom || []).forEach(r => { ivaTrimestreAtual += r.iva || 0; });
-   });
-   const proximoTrimestre = trimestreAtual < 4 ? trimestreAtual + 1 : 1;
-   const anoProximoTrimestre = trimestreAtual < 4 ? anoAtualSistema : anoAtualSistema + 1;
-   
-   // IVA trimestre anterior (o que tens de pagar agora)
-   const trimestreAnterior = trimestreAtual === 1 ? 4 : trimestreAtual - 1;
-   const anoTrimestreAnterior = trimestreAtual === 1 ? anoAtualSistema - 1 : anoAtualSistema;
-   const mesesDoTrimestreAnterior = [trimestreAnterior * 3 - 2, trimestreAnterior * 3 - 1, trimestreAnterior * 3];
-   let ivaTrimestreAnterior = 0;
-   mesesDoTrimestreAnterior.forEach(m => {
-     const mKey = `${anoTrimestreAnterior}-${m}`;
-     const mesData = M[mKey] || {};
-     (mesData.regCom || []).forEach(r => { ivaTrimestreAnterior += r.iva || 0; });
-   });
-   
-   // Chave para IVA pago (ex: "2025-T4")
-   const chaveIvaAnterior = `${anoTrimestreAnterior}-T${trimestreAnterior}`;
-   const ivaPagoAnterior = G.ivaPago?.[chaveIvaAnterior] || null;
-   
-   // Data limite de pagamento do IVA (dia 25 do 2º mês após fim do trimestre)
-   // T1 (Jan-Mar) -> pagar até 25 Maio, T2 (Abr-Jun) -> 25 Ago, T3 (Jul-Set) -> 25 Nov, T4 (Out-Dez) -> 25 Fev
-   const mesesPagamentoIva = { 1: 5, 2: 8, 3: 11, 4: 2 };
-   const mesPagamentoIva = mesesPagamentoIva[trimestreAnterior];
-   const anoPagamentoIva = trimestreAnterior === 4 ? anoTrimestreAnterior + 1 : anoTrimestreAnterior;
-   const dataLimiteIva = new Date(anoPagamentoIva, mesPagamentoIva - 1, 25);
-   const diasParaIva = Math.ceil((dataLimiteIva - new Date()) / (1000 * 60 * 60 * 24));
-   
-   const retencoesReais = totalRetIRS > 0 ? totalRetIRS : previsaoIRS.retencoes;
-   const irsAPagarReceber = retencoesReais - previsaoIRS.impostoEstimado;
-   
-   // ===== CALIBRAÇÃO COM BASE NO HISTÓRICO DE PAGAMENTOS =====
-   // Compara previsão vs real dos anos anteriores para ajustar estimativas
-   const calibracao = { SS: null, IVA: null, IRS: null };
-   const pagamentos = G.impostosPagos || [];
-   
-   // Recolher anos com pagamentos (excluindo o ano atual)
-   const anosComDados = [...new Set(pagamentos.filter(p => !p.data?.startsWith(anoAtualSistema.toString())).map(p => parseInt(p.data?.split('-')[0])))].filter(a => !isNaN(a)).sort();
-   
-   if (anosComDados.length > 0) {
-     // Para cada ano anterior, calcular o que a fórmula teria previsto
-     anosComDados.forEach(anoHist => {
-       const pagosAno = pagamentos.filter(p => p.data?.startsWith(anoHist.toString()));
-       
-       // SS: soma de pagamentos reais de SS nesse ano
-       const ssRealAno = pagosAno.filter(p => p.tipo === 'SS' && p.valor > 0).reduce((a, p) => a + p.valor, 0);
-       // SS previsto: recalcular com as receitas declaráveis desse ano
-       if (ssRealAno > 0) {
-         let ssPrevistoAno = 0;
-         for (let q = 1; q <= 4; q++) {
-           // Para cada trimestre de pagamento, determinar os meses declarados
-           let mesesDecl;
-           if (q === 1) mesesDecl = [{ano: anoHist - 1, mes: 10}, {ano: anoHist - 1, mes: 11}, {ano: anoHist - 1, mes: 12}];
-           else { const base = (q - 1) * 3; mesesDecl = [{ano: anoHist, mes: base - 2}, {ano: anoHist, mes: base - 1}, {ano: anoHist, mes: base}]; }
-           const recTrim = mesesDecl.reduce((acc, m) => acc + getReceitasMesDeclaraveis(m.ano, m.mes), 0);
-           const ssTrim = Math.max(20, (recTrim * 0.70 / 3) * 0.214) * 3; // 3 meses por trimestre
-           ssPrevistoAno += ssTrim;
-         }
-         if (ssPrevistoAno > 0) {
-           const fator = ssRealAno / ssPrevistoAno;
-           if (!calibracao.SS) calibracao.SS = { fatores: [], totalReal: 0, totalPrevisto: 0 };
-           calibracao.SS.fatores.push(fator);
-           calibracao.SS.totalReal += ssRealAno;
-           calibracao.SS.totalPrevisto += ssPrevistoAno;
-         }
-       }
-       
-       // IVA: soma de IVA pago nesse ano
-       const ivaRealAno = pagosAno.filter(p => p.tipo === 'IVA' && p.valor > 0).reduce((a, p) => a + p.valor, 0);
-       if (ivaRealAno > 0) {
-         // IVA previsto: soma de r.iva de todas as receitas desse ano
-         let ivaPrevistoAno = 0;
-         Object.entries(M).forEach(([key, mesData]) => {
-           if (!key.startsWith(anoHist.toString())) return;
-           (mesData.regCom || []).forEach(r => { ivaPrevistoAno += r.iva || 0; });
-         });
-         if (ivaPrevistoAno > 0) {
-           const fator = ivaRealAno / ivaPrevistoAno;
-           if (!calibracao.IVA) calibracao.IVA = { fatores: [], totalReal: 0, totalPrevisto: 0 };
-           calibracao.IVA.fatores.push(fator);
-           calibracao.IVA.totalReal += ivaRealAno;
-           calibracao.IVA.totalPrevisto += ivaPrevistoAno;
-         }
-       }
-       
-       // IRS: valor pago (positivo) ou recebido (negativo) nesse ano
-       const irsPagosAno = pagosAno.filter(p => p.tipo === 'IRS');
-       const irsRealAno = irsPagosAno.reduce((a, p) => a + p.valor, 0); // negativo = reembolso
-       if (irsPagosAno.length > 0) {
-         // IRS previsto: recalcular com receitas desse ano
-         const hAno = getHist().filter(x => x.ano === anoHist);
-         const recAnuais = hAno.reduce((a, x) => a + x.tot, 0);
-         if (recAnuais > 0) {
-           const rendCol = recAnuais * 0.75;
-           let impostoHist = 0, anterior = 0;
-           const escaloesHist = ESCALOES_IRS;
-           for (const e of escaloesHist) {
-             if (rendCol > anterior) { impostoHist += (Math.min(rendCol, e.limite) - anterior) * e.taxa; anterior = e.limite; }
-           }
-           const deducoesHist = DEDUCAO_CATB + Math.min(recAnuais * 0.15, 250);
-           const irsEstimadoHist = Math.max(0, impostoHist - deducoesHist);
-           const recComTaxas = hAno.reduce((a, x) => a + x.com, 0);
-           const retencoesHist = recComTaxas * (taxa / 100);
-           const irsPrevistoHist = -(retencoesHist - irsEstimadoHist); // positivo = a pagar, negativo = reembolso
-           
-           if (Math.abs(irsPrevistoHist) > 0) {
-             // Desvio absoluto: quanto a previsão errou
-             const desvio = irsRealAno - irsPrevistoHist;
-             if (!calibracao.IRS) calibracao.IRS = { desvios: [], totalReal: 0, totalPrevisto: 0 };
-             calibracao.IRS.desvios.push(desvio);
-             calibracao.IRS.totalReal += irsRealAno;
-             calibracao.IRS.totalPrevisto += irsPrevistoHist;
-           }
-         }
-       }
-     });
-   }
-   
-   // Calcular fatores de ajuste médios
-   const ssFatorAjuste = calibracao.SS ? calibracao.SS.totalReal / calibracao.SS.totalPrevisto : 1;
-   const ivaFatorAjuste = calibracao.IVA ? calibracao.IVA.totalReal / calibracao.IVA.totalPrevisto : 1;
-   const irsDesvioMedio = calibracao.IRS ? calibracao.IRS.desvios.reduce((a, d) => a + d, 0) / calibracao.IRS.desvios.length : 0;
-   
-   // Aplicar calibração
-   const ssMesAtualCalibrado = ssMesAtual * ssFatorAjuste;
-   const ssProximoTrimestreCalibrado = ssProximoTrimestre * ssFatorAjuste;
-   const ssAnualCalibrado = ssMesAtualCalibrado * 12;
-   const ivaTrimestreAtualCalibrado = ivaTrimestreAtual * ivaFatorAjuste;
-   const ivaTrimestreAnteriorCalibrado = ivaTrimestreAnterior * ivaFatorAjuste;
-   const irsAPagarReceberCalibrado = irsAPagarReceber + irsDesvioMedio;
-   
-   // Total impostos com calibração
-   const totalImpostos = ssAnualCalibrado + (totalIVA * ivaFatorAjuste) + Math.max(0, -irsAPagarReceberCalibrado);
-   const temCalibracao = calibracao.SS || calibracao.IVA || calibracao.IRS;
-   
-   return { totalIliquido, totalPT, totalUE, totalForaUE, totalSaraIliq, totalSaraRetIRS, ssAnual: ssAnualCalibrado, ssMensal: ssMesAtualCalibrado, ssProximoMes: ssMesAtualCalibrado, rendimentoRelevanteSS, receitasTrimestreDeclarado, nomeMesesDeclarados, anoMesesDeclarados, ssBaseIncidenciaMensal, ssProximoTrimestre: ssProximoTrimestreCalibrado, nomeMesesProximos, trimestrePagamento, ivaAPagar: totalIVA * ivaFatorAjuste, ivaTrimestral: totalIVA * ivaFatorAjuste / 4, ivaTrimestreAtual: ivaTrimestreAtualCalibrado, trimestreAtual, proximoTrimestre, anoProximoTrimestre, ivaTrimestreAnterior: ivaTrimestreAnteriorCalibrado, trimestreAnterior, anoTrimestreAnterior, chaveIvaAnterior, ivaPagoAnterior, dataLimiteIva, diasParaIva, irsEstimado: previsaoIRS.impostoEstimado, irsRetencoes: retencoesReais, irsAPagarReceber: irsAPagarReceberCalibrado, irsTaxaEfetiva: previsaoIRS.taxaEfetiva, mesesComDados: mesesComDadosIRS, totalImpostos,
-     // Dados de calibração para UI
-     calibracao: {
-       ativa: !!temCalibracao,
-       anosBase: anosComDados,
-       SS: calibracao.SS ? { fator: ssFatorAjuste, original: ssMesAtual, calibrado: ssMesAtualCalibrado } : null,
-       IVA: calibracao.IVA ? { fator: ivaFatorAjuste, original: ivaTrimestreAtual, calibrado: ivaTrimestreAtualCalibrado } : null,
-       IRS: calibracao.IRS ? { desvio: irsDesvioMedio, original: irsAPagarReceber, calibrado: irsAPagarReceberCalibrado } : null
-     }
-   };
- };
+ const calcPrevisaoImpostos = () => impCalc(G, M);
  const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
  // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
  const resumoParaIA = () => {
@@ -1904,91 +1634,96 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
  <Card>
+   {(() => {
+     const pi = previsaoImpostos;
+     const nm = i => meses[((i % 12) + 12) % 12];
+     const mm = i => String(((i % 12) + 12) % 12 + 1).padStart(2, '0');
+     const ss = pi.ssEste.pago ? pi.ssProx : pi.ssEste;
+     const sub = 'text-[10px] text-slate-500';
+     const fx = f => `×${f.toFixed(2).replace('.', ',')}`;
+     const ivaZero = !pi.ivaAntPago && pi.ivaTrimestreAnterior < 0.5;
+     const mesIva = pi.dataLimiteIva.getMonth() + 1;
+     const cfg = pi.irsCfg;
+     const receber = pi.irsAPagarReceber >= 0;
+     return (<>
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
      <div className="flex items-center gap-2">
-       <h3 className="font-semibold">📊 Previsão Impostos {anoAtualSistema}</h3>
-       {previsaoImpostos.calibracao?.ativa && (
-         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title={`Calibrado com dados de ${(previsaoImpostos.calibracao?.anosBase || []).join(', ')}`}>
-           🎯 Calibrado
+       <h3 className="font-semibold">📊 Impostos {anoAtualSistema}</h3>
+       {pi.calibracao?.ativa && (
+         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title="As previsões de SS e IVA estão afinadas com os pagamentos que registaste">
+           🎯 Afinado com os teus pagamentos
          </span>
        )}
      </div>
-     <div className="flex items-center gap-4">
-       <span className="text-xs text-slate-500">Total anual:</span>
-       <span className="text-lg font-bold text-orange-400">{fmt(previsaoImpostos.totalImpostos)}</span>
+     <div className="flex items-center gap-2" title={`SS paga em ${anoAtualSistema} + IVA dos trimestres de ${anoAtualSistema} + IRS de ${anoAtualSistema}`}>
+       <span className="text-xs text-slate-500">Total previsto no ano:</span>
+       <span className="text-lg font-bold text-orange-400">{fmt(pi.totalImpostos)}</span>
      </div>
    </div>
-   
-   {/* Grid horizontal com todos os impostos */}
+
    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     {/* SS Mensal (baseada na declaração trimestral ativa) */}
+     {/* SS: o próximo pagamento */}
      <div className="p-3 bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl">
        <div className="flex items-center gap-2 mb-1">
          <span className="text-blue-400">🏛️</span>
-         <span className="text-xs text-slate-400">SS este mês</span>
+         <span className="text-xs text-slate-400">SS a pagar em {nm(ss.mes)}</span>
        </div>
-       <p className="text-xl font-bold text-blue-400">{fmt(previsaoImpostos.ssMesAtual || previsaoImpostos.ssProximoMes)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">Base: {previsaoImpostos.nomeMesesDeclarados}{previsaoImpostos.anoMesesDeclarados !== anoAtualSistema ? `/${previsaoImpostos.anoMesesDeclarados}` : ''} ({fmt(previsaoImpostos.receitasTrimestreDeclarado)})</p>
-       <p className="text-[10px] text-slate-500">Próx. trim: ~{fmt(previsaoImpostos.ssProximoTrimestre)}/mês</p>
-       {previsaoImpostos.calibracao?.SS && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.SS.original || 0)} (×{(previsaoImpostos.calibracao.SS.fator || 1).toFixed(2)})</p>}
-       {(() => {
-         const mesNome = meses[new Date().getMonth()].substring(0,3);
-         const anoShort = anoAtualSistema.toString().substring(2);
-         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && impRefAuto(p) === `${mesNome}/${anoShort}`);
-         return <p className="text-[10px] mt-0.5">{ssPago ? <span className="text-emerald-400">✓ Pago {fmt(ssPago.valor)}</span> : <span className="text-amber-400">⏳ Por pagar</span>}</p>;
-       })()}
+       <p className="text-xl font-bold text-blue-400">{fmt(ss.valor)}</p>
+       <p className={`${sub} mt-1`}>Entre 10 e 20/{mm(ss.mes)} · base {ss.nomeBase}{ss.anoBase !== anoAtualSistema ? `/${ss.anoBase}` : ''}{ss.rec > 0 ? ` (${fmt(ss.rec)})` : ''}</p>
+       {ss.igualA != null
+         ? <p className="text-[10px] text-slate-400">Igual ao que pagaste em {nm(ss.igualA)} (mesma declaração)</p>
+         : ss.ajustado && Math.abs(pi.fatorSS - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title={`A fórmula dá ${fmt(ss.formula)}; ajustada pela diferença entre a fórmula e o que pagaste na última declaração`}>🎯 Fórmula {fmt(ss.formula)} {fx(pi.fatorSS)}</p>}
+       <p className="text-[10px] mt-0.5">{pi.ssEste.pago ? <span className="text-emerald-400">✓ {nm(pi.ssEste.mes)} pago: {fmt(pi.ssEste.valor)}</span> : <span className="text-amber-400">⏳ Por pagar</span>}</p>
+       <p className={sub}>Depois, a partir de {nm(pi.ssDepois.mes)}: {pi.ssDepois.incompleto ? `depende de ${pi.ssDepois.nomeBase}` : `~${fmt(pi.ssDepois.valor)}/mês`}</p>
      </div>
-     
-     {/* IVA a Pagar - Previsão do trimestre anterior */}
-     <div className={`p-3 rounded-xl ${previsaoImpostos.diasParaIva <= 7 ? 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30' : 'bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30'}`}>
+
+     {/* IVA do trimestre que se paga agora */}
+     <div className={`p-3 rounded-xl ${!pi.ivaAntPago && !ivaZero && pi.diasParaIva > 0 && pi.diasParaIva <= 7 ? 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30' : 'bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30'}`}>
        <div className="flex items-center justify-between mb-1">
          <div className="flex items-center gap-2">
            <span className="text-orange-400">💶</span>
-           <span className="text-xs text-slate-400">IVA T{previsaoImpostos.trimestreAnterior}/{previsaoImpostos.anoTrimestreAnterior}</span>
+           <span className="text-xs text-slate-400">IVA T{pi.trimestreAnterior}/{pi.anoTrimestreAnterior}</span>
          </div>
-         {previsaoImpostos.diasParaIva > 0 && (
-           <span className={`text-[10px] px-1.5 py-0.5 rounded ${previsaoImpostos.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-400'}`}>
-             {previsaoImpostos.diasParaIva}d
-           </span>
+         {!pi.ivaAntPago && pi.diasParaIva > 0 && (
+           <span className={`text-[10px] px-1.5 py-0.5 rounded ${pi.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-300'}`}>{pi.diasParaIva}d</span>
          )}
        </div>
-       <p className="text-xl font-bold text-orange-400">{fmt(previsaoImpostos.ivaTrimestreAnterior)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">
-         Prazo: 25/{(previsaoImpostos.dataLimiteIva || new Date()).getMonth() + 1}
-         {(() => {
-           const tAnt = previsaoImpostos.trimestreAnterior;
-           const aAnt = previsaoImpostos.anoTrimestreAnterior;
-           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && impRefAuto(p) === `T${tAnt}/${String(aAnt).slice(2)}`);
-           return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
-         })()}
-       </p>
-       {previsaoImpostos.calibracao?.IVA && <p className="text-[10px] text-purple-400/70">🎯 Fórmula: {fmt(previsaoImpostos.calibracao.IVA.original || 0)} (×{(previsaoImpostos.calibracao.IVA.fator || 1).toFixed(2)})</p>}
+       <p className="text-xl font-bold text-orange-400">{fmt(pi.ivaTrimestreAnterior)}</p>
+       {pi.ivaAntPago
+         ? <p className="text-[10px] mt-1 text-emerald-400">✓ Pago</p>
+         : ivaZero
+           ? <p className={`${sub} mt-1`}>Sem IVA nas faturas deste trimestre. A declaração entrega-se na mesma, até 20/{String(mesIva).padStart(2, '0')}.</p>
+           : <p className={`${sub} mt-1`}>Pagar até 25/{String(mesIva).padStart(2, '0')} <span className="text-amber-400 ml-1">⏳ Por pagar</span></p>}
+       {!pi.ivaAntPago && !ivaZero && pi.paresIVA > 0 && Math.abs(pi.fatorIVA - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title="Ajustado pela diferença entre o IVA das faturas e o que pagaste (por exemplo, IVA que deduziste)">🎯 Ajustado aos teus pagamentos {fx(pi.fatorIVA)}</p>}
      </div>
-     
-     {/* Previsão IVA (trimestre atual) */}
+
+     {/* IVA do trimestre a decorrer */}
      <div className="p-3 bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl">
        <div className="flex items-center gap-2 mb-1">
          <span className="text-purple-400">📊</span>
-         <span className="text-xs text-slate-400">Previsão IVA T{previsaoImpostos.trimestreAtual}/{anoAtualSistema}</span>
+         <span className="text-xs text-slate-400">IVA T{pi.trimestreAtual}/{pi.anoTrimestreAtual} (a acumular)</span>
        </div>
-       <p className="text-xl font-bold text-purple-400">{fmt(previsaoImpostos.ivaTrimestreAtual)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">A acumular (pagar em {previsaoImpostos.proximoTrimestre === 1 ? 'Fev' : previsaoImpostos.proximoTrimestre === 2 ? 'Mai' : previsaoImpostos.proximoTrimestre === 3 ? 'Ago' : 'Nov'})</p>
+       <p className="text-xl font-bold text-purple-400">{fmt(pi.ivaTrimestreAtual)}</p>
+       <p className={`${sub} mt-1`}>Até agora, das faturas deste trimestre · paga-se em {pi.mesPagarIvaAtual}</p>
      </div>
-     
-     {/* IRS Anual */}
-     <div className={`p-3 rounded-xl ${previsaoImpostos.irsAPagarReceber >= 0 ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30' : 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30'}`}>
-       <div className="flex items-center gap-2 mb-1">
-         <span className={previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}>📋</span>
-         <span className="text-xs text-slate-400">IRS Anual</span>
+
+     {/* IRS do ano */}
+     <div className={`p-3 rounded-xl ${receber ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/30' : 'bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30'}`}>
+       <div className="flex items-center justify-between mb-1">
+         <div className="flex items-center gap-2">
+           <span className={receber ? 'text-emerald-400' : 'text-red-400'}>📋</span>
+           <span className="text-xs text-slate-400">IRS {anoAtualSistema} · {receber ? 'a receber' : 'a pagar'} em {anoAtualSistema + 1}</span>
+         </div>
+         <button onClick={abrirIrsConfig} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 hover:bg-slate-600 text-slate-300" title="Salário da Sara, deduções e coeficiente">⚙️ Ajustar</button>
        </div>
-       <p className={`text-xl font-bold ${previsaoImpostos.irsAPagarReceber >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-         {previsaoImpostos.irsAPagarReceber >= 0 ? '+' : ''}{fmt(previsaoImpostos.irsAPagarReceber)}
-       </p>
-       <p className="text-[10px] text-slate-500 mt-1">Ret: {fmt(previsaoImpostos.irsRetencoes)} | Est: {fmt(previsaoImpostos.irsEstimado)}</p>
-       <p className="text-[10px] text-slate-500/60">📊 Projeção anual baseada em {previsaoImpostos.mesesComDados || '?'} meses de dados</p>
-       {previsaoImpostos.calibracao?.IRS && <p className="text-[10px] text-purple-400/70">🎯 Ajuste: {(previsaoImpostos.calibracao.IRS.desvio || 0) >= 0 ? '+' : ''}{fmt(previsaoImpostos.calibracao.IRS.desvio || 0)} (s/ ajuste: {fmt(previsaoImpostos.calibracao.IRS.original || 0)})</p>}
+       <p className={`text-xl font-bold ${receber ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(pi.irsAPagarReceber))}</p>
+       <p className={`${sub} mt-1`}>Imposto {fmt(pi.irsEstimado)} · já retido{pi.porConta > 0 ? ' e pago' : ''} {fmt(pi.irsRetencoes)}</p>
+       <p className={sub}>{cfg.conjunto ? 'Em conjunto com a Sara' : 'Declaração separada'} · coeficiente {String(cfg.coef).replace('.', ',')} · {pi.mesesComDados} meses de receitas</p>
+       {pi.faltaSara && <button onClick={abrirIrsConfig} className="text-[10px] text-amber-400 hover:underline text-left">⚠️ Falta o salário da Sara — a conta ainda não está completa</button>}
      </div>
    </div>
+     </>);
+   })()}
    
    {/* PAGAMENTOS DE IMPOSTOS */}
    <PagamentosImpostos
@@ -4585,9 +4320,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const irsPago = pagosAno.filter(p => p.tipo === 'IRS').reduce((acc, p) => acc + p.valor, 0);
              
              // Se não há pagamentos reais, estimar
-             const ssVal = ssPago > 0 ? ssPago : (a === anoAtualSistema ? (previsaoImpostos.ssAnual || 0) : 0);
-             const ivaVal = ivaPago > 0 ? ivaPago : (ivaAno > 0 ? ivaAno : (a === anoAtualSistema ? (previsaoImpostos.ivaAPagar || 0) : 0));
-             const irsVal = irsPago !== 0 ? irsPago : (a === anoAtualSistema ? Math.max(0, (previsaoImpostos.irsEstimado || 0)) : 0);
+             // Ano corrente: o que já pagaste mais o que falta (previsão); IRS é o imposto estimado do ano
+             const atual = a === anoAtualSistema;
+             const ssVal = atual ? (previsaoImpostos.ssAnual || 0) : ssPago;
+             const ivaVal = atual ? (previsaoImpostos.ivaAPagar || 0) : (ivaPago > 0 ? ivaPago : ivaAno);
+             const irsVal = atual ? Math.max(0, previsaoImpostos.irsEstimado || 0) : irsPago;
              
              const totalImp = ssVal + ivaVal + Math.max(0, irsVal);
              const liquido = receitas - totalImp;
@@ -4595,7 +4332,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              
              totRec += receitas; totSS += ssVal; totIVA += ivaVal; totIRS += Math.max(0, irsVal);
              
-             const isEst = ssPago === 0 && a === anoAtualSistema;
+             const isEst = atual;
              
              return (
                <tr key={a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
@@ -4632,7 +4369,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Impostos baseados em pagamentos reais. Ano atual usa estimativas (est.) se não há registos. IRS ↓ = reembolso.</p>
+   <p className="text-[10px] text-slate-500 mt-3">Anos passados: pagamentos registados. Ano atual (est.): o que já pagaste mais a previsão do que falta. IRS ↓ = reembolso.</p>
  </Card>
 
  {/* TABELA DESPESAS & POUPANÇA */}
@@ -11315,60 +11052,6 @@ ${transacoesOrdenadas.map(t => `<tr>
  // Taxa de poupança
  const taxaPoupanca = recLiq > 0 ? ((totInv + (restante > 0 ? restante : 0)) / recLiq * 100) : 0;
 
- // Previsão de IRS (simplificada para freelancers)
- const getPrevisaoIRS = useCallback(() => {
-   const h = getHist();
-   const hAno = h.filter(x => x.ano === anoAtualSistema);
-   const receitasAteAgora = hAno.reduce((a, x) => a + x.tot, 0);
-   const mesesComDados = hAno.length;
-   const mesAtualNumCb = new Date().getMonth() + 1;
-   // Projetar receitas anuais: usar dados reais + projeção para meses restantes
-   const receitasAnuais = mesesComDados >= 2 && mesAtualNumCb < 12
-     ? receitasAteAgora + (receitasAteAgora / mesesComDados) * (12 - mesAtualNumCb)
-     : receitasAteAgora;
-   
-   const escaloes = ESCALOES_IRS;
-   
-   // Rendimento coletável (75% para trabalhadores independentes - regime simplificado, art.151 CIRS)
-   const coeficiente = COEF_SIMPL;
-   const rendColetavel = receitasAnuais * coeficiente;
-   
-   // Calcular imposto por escalões (taxas normais/marginais)
-   let imposto = 0;
-   let anterior = 0;
-   for (const e of escaloes) {
-     if (rendColetavel > anterior) {
-       const base = Math.min(rendColetavel, e.limite) - anterior;
-       imposto += base * e.taxa;
-       anterior = e.limite;
-     }
-   }
-   
-   // Deduções estimadas
-   // Cat B (independentes): dedução específica = 4.587,09€ ou SS pago (se superior) - art.28 CIRS
-   // + despesas gerais familiares (max 250€) + eventuais deduções saúde/educação
-   const deducoes = DEDUCAO_CATB + Math.min(receitasAnuais * 0.15, 250);
-   const impostoFinal = Math.max(0, imposto - deducoes);
-   
-   // Retenções já feitas (estimada com base na taxa configurada)
-   const receitasComTaxas = hAno.reduce((a, x) => a + x.com, 0);
-   // Retenções: projetar para estimar retenções anuais
-   const retencoesProjetadas = mesesComDados >= 2 && mesAtualNumCb < 12
-     ? (receitasComTaxas + (receitasComTaxas / mesesComDados) * (12 - mesAtualNumCb)) * (taxa / 100)
-     : receitasComTaxas * (taxa / 100);
-   const retencoes = retencoesProjetadas;
-   
-   const aPagarReceber = retencoes - impostoFinal;
-   
-   return {
-     receitasAnuais,
-     rendColetavel,
-     impostoEstimado: impostoFinal,
-     retencoes,
-     aPagarReceber,
-     taxaEfetiva: receitasAnuais > 0 ? (impostoFinal / receitasAnuais * 100) : 0
-   };
- }, [getHist, taxa]);
 
  // Comparação de despesas mês a mês
  const getComparacaoDespesas = useCallback(() => {
@@ -13282,7 +12965,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                      <span className="text-blue-400">🏛️ Segurança Social</span>
                      <span className="font-bold">{fmt(pi.ssAnual || 0)}/ano</span>
                    </div>
-                   <p className="text-[10px] text-slate-500 mt-0.5">Mensal: {fmt(pi.ssMensal || 0)} · Base: {fmt(pi.rendimentoRelevanteSS || 0)} (70% receitas declaradas)</p>
+                   <p className="text-[10px] text-slate-500 mt-0.5">Já pago + previsto até Dezembro · próximo mês: {fmt(pi.ssMensal || 0)}</p>
                  </div>
                  {/* IVA */}
                  <div>
@@ -13290,7 +12973,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                      <span className="text-orange-400">💶 IVA</span>
                      <span className="font-bold">{fmt(pi.ivaAPagar || 0)}/ano</span>
                    </div>
-                   <p className="text-[10px] text-slate-500 mt-0.5">Soma IVA cobrado em todas as faturas {anoAtualSistema}</p>
+                   <p className="text-[10px] text-slate-500 mt-0.5">Trimestres de {anoAtualSistema}: pago ou previsto</p>
                  </div>
                  {/* IRS */}
                  <div>
@@ -13303,7 +12986,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                    <p className="text-[10px] text-slate-500 mt-0.5">
                      Estimado: {fmt(pi.irsEstimado || 0)} · Retenções: {fmt(pi.irsRetencoes || 0)} · Taxa: {(pi.irsTaxaEfetiva || 0).toFixed(1)}%
                    </p>
-                   <p className="text-[10px] text-slate-500">{irsVal >= 0 ? 'Reembolso previsto' : 'A pagar na declaração'} · Rend. coletável: {fmt((pi.totalIliquido || 0) * 0.75)}</p>
+                   <p className="text-[10px] text-slate-500">{irsVal >= 0 ? 'Reembolso previsto' : 'A pagar na declaração'} · Rend. coletável: {fmt(pi.rendColetavel || 0)}</p>
                  </div>
                   {/* Recibos pela Sara */}
                   {(pi.totalSaraIliq || 0) > 0 && (
