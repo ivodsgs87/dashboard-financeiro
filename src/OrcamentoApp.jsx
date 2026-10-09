@@ -1392,7 +1392,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // RESUMO
 
  const calcPrevisaoImpostos = () => impCalc(G, M);
- const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
+ const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, ssEste: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0 }, ssProx: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0 }, ssDepois: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0, incompleto: true }, irsCfg: { ...IRS_CFG_PADRAO }, anoTrimestreAtual: anoAtualSistema, mesPagarIvaAtual: '', fatorSS: 1, fatorIVA: 1, paresIVA: 0, porConta: 0, taxaReservaSugerida: null, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
+ // ══ Passos do mês (checklist no topo do Resumo) — cada um lê o estado real dos dados ══
+ const getPassosMes = () => {
+   const idx = patIdx(mesKey), hojeIdx = patIdxHoje();
+   const atual = idx === hojeIdx, passado = idx < hojeIdx;
+   const despOk = f => { const ant = idx - 1; const lim = `${Math.floor(ant / 12)}-${String(ant % 12 + 1).padStart(2, '0')}-20`; const d = (G.despRevistas || {})[f]; return !!d && d >= lim; };
+   const pi = previsaoImpostos;
+   const nRec = regCom.length + regSem.length;
+   const itensInv = (inv || []).filter(i => i && i.cat !== 'CREDITO' && patNum(i.val) > 0);
+   const pInv = (restante > 0 ? restante : 0) * ((100 - alocAmort) / 100);
+   const folga = Math.max(10, pInv * 0.01);
+   const obrig = guia.passos.filter(x => !x.opcional);
+   const feitas = obrig.filter(x => transf[x.id]).length;
+   const mesIdx = idx % 12 + 1;
+   const mesIva = [2, 5, 8, 11].includes(mesIdx);
+   const L = [];
+   const cOk = despOk('despABanca'), pOk = despOk('despPess');
+   L.push({ id: 'desp', icon: '📝', titulo: 'Definir despesas', estado: passado ? 'na' : (cOk && pOk ? 'ok' : 'falta'),
+     detalhe: passado ? 'Iguais em todos os meses' : `Casal ${cOk ? '✓' : '✕'} · Pessoais ${pOk ? '✓' : '✕'}`, ir: () => setTab(!cOk || pOk ? 'abanca' : 'pessoais') });
+   L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : 'falta'),
+     detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : 'Ainda sem recibos', ir: () => setTab('receitas') });
+   L.push({ id: 'aloc', icon: '📈', titulo: 'Alocação', estado: !nRec || pInv <= 0 ? 'na' : (itensInv.length && Math.abs(guia.porAlocar) <= folga ? 'ok' : 'falta'),
+     detalhe: !nRec || pInv <= 0 ? 'Nada para alocar ainda' : guia.porAlocar > folga ? `Falta alocar ${fmt(guia.porAlocar)}` : guia.porAlocar < -folga ? `Alocado a mais ${fmt(-guia.porAlocar)}` : `${fmt(pInv)} alocados`, ir: () => setTab('invest') });
+   L.push({ id: 'transf', icon: '💸', titulo: 'Transferências', estado: !obrig.length ? 'na' : feitas === obrig.length ? 'ok' : feitas ? 'parcial' : 'falta',
+     detalhe: obrig.length ? `${feitas}/${obrig.length} feitas` : '—', ir: () => { setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); } });
+   if (atual) {
+     const ivaPend = mesIva && !pi.ivaAntPago && pi.ivaTrimestreAnterior >= 0.5;
+     const ok = pi.ssEste.pago && !ivaPend;
+     L.push({ id: 'imp', icon: '🏛️', titulo: 'Pagar impostos', estado: ok ? 'ok' : 'falta',
+       detalhe: [pi.ssEste.pago ? 'SS ✓' : `SS ${fmt(pi.ssEste.valor)} até dia 20`, mesIva ? (pi.ivaAntPago ? 'IVA ✓' : pi.ivaTrimestreAnterior < 0.5 ? 'IVA: só declarar' : `IVA ${fmt(pi.ivaTrimestreAnterior)} até dia 25`) : null].filter(Boolean).join(' · '), ir: () => { setTab('resumo'); setTimeout(() => document.getElementById('cartao-impostos')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); } });
+   }
+   const ep = estadoMesSel;
+   L.push({ id: 'port', icon: '💎', titulo: 'Atualizar Portfolio', estado: idx > hojeIdx ? 'na' : ep.port === 'ok' ? 'ok' : ep.port === 'igual' ? 'parcial' : 'falta',
+     detalhe: ep.port === 'ok' ? `Valores do dia ${dataPt(ep.data)}` : ep.port === 'igual' ? 'Iguais ao mês anterior' : 'Ainda por atualizar', ir: () => setTab('portfolio') });
+   L.push({ id: 'tx', icon: '📥', titulo: 'Importar transações', estado: ep.nTx ? 'ok' : idx > hojeIdx ? 'na' : ep.aloc > 0 ? 'falta' : 'na',
+     detalhe: ep.nTx ? `${ep.nTx} compra${ep.nTx === 1 ? '' : 's'}/venda${ep.nTx === 1 ? '' : 's'}` : ep.aloc > 0 ? `Marcaste ${fmt(ep.aloc)} investido` : 'Sem compras registadas', ir: () => setTab('transacoes') });
+   return L;
+ };
  // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
  const resumoParaIA = () => {
    const e = v => _fmtEUR.format(isFinite(v) ? v : 0);
@@ -1618,6 +1655,36 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
+ {/* Passos do mês: o que falta fazer, por ordem, ligado aos dados reais */}
+ {(() => {
+   const passos = getPassosMes();
+   const conta = passos.filter(x => x.estado !== 'na');
+   const feitos = conta.filter(x => x.estado === 'ok').length;
+   const claro = theme === 'light';
+   const cor = { ok: 'border-emerald-500/40 bg-emerald-500/10', parcial: 'border-amber-500/40 bg-amber-500/10', falta: 'border-red-500/40 bg-red-500/10', na: claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/30' };
+   const sinal = { ok: <span className="text-emerald-400">✓</span>, parcial: <span className="text-amber-400">◐</span>, falta: <span className="text-red-400">✕</span>, na: <span className="text-slate-500">•</span> };
+   return (
+     <Card>
+       <div className="flex items-center justify-between mb-3">
+         <h3 className="font-semibold">🧭 Passos de {mes}</h3>
+         <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
+       </div>
+       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+         {passos.map((x, k) => (
+           <button key={x.id} onClick={x.ir} className={`text-left p-2.5 rounded-xl border transition-colors hover:brightness-110 ${cor[x.estado]}`}>
+             <div className="flex items-center gap-2">
+               <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
+               <span className="text-sm font-medium flex-1">{x.icon} {x.titulo}</span>
+               <span className="text-sm">{sinal[x.estado]}</span>
+             </div>
+             <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.detalhe}</p>
+           </button>
+         ))}
+       </div>
+     </Card>
+   );
+ })()}
+
  {/* Renderizar widgets na ordem configurada - tarefas e stats */}
  {fullLayout.filter(id => ['tarefas', 'stats'].includes(id)).map(id => renderWidget(id))}
  
@@ -1704,7 +1771,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
 
  {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
- <Card>
+ <div id="cartao-impostos" className="scroll-mt-24"><Card>
    {(() => {
      const pi = previsaoImpostos;
      const nm = i => meses[((i % 12) + 12) % 12];
@@ -1808,7 +1875,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      showToast={showToast}
      confirmDelete={confirmDelete}
    />
- </Card>
+ </Card></div>
 
  {/* METAS ANUAIS */}
  <Card>
@@ -1923,7 +1990,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    </Card>
 
-   <Card>
+   <div id="guia-transf" className="scroll-mt-24"><Card>
      {(() => {
        const claro = theme === 'light';
        const obrig = guia.passos.filter(x => !x.opcional);
@@ -1970,7 +2037,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
        </>);
      })()}
-   </Card>
+   </Card></div>
  </div>
 
  {ultReg.length > 0 && (
