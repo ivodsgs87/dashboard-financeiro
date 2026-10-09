@@ -6,7 +6,7 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
   impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc,
-  impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -1401,6 +1401,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const calcPrevisaoImpostos = () => impCalc(G, M);
  const previsaoImpostos = (() => { try { return calcPrevisaoImpostos(); } catch(e) { console.error('calcPrevisaoImpostos error:', e); return { totalIliquido: 0, totalPT: 0, totalUE: 0, totalForaUE: 0, ssAnual: 0, ssMensal: 0, ssProximoMes: 0, rendimentoRelevanteSS: 0, receitasTrimestreDeclarado: 0, nomeMesesDeclarados: '', anoMesesDeclarados: anoAtualSistema, ssBaseIncidenciaMensal: 0, ssProximoTrimestre: 0, nomeMesesProximos: '', trimestrePagamento: '', ivaAPagar: 0, ivaTrimestral: 0, ivaTrimestreAtual: 0, trimestreAtual: 1, proximoTrimestre: 2, anoProximoTrimestre: anoAtualSistema, ivaTrimestreAnterior: 0, trimestreAnterior: 4, anoTrimestreAnterior: anoAtualSistema - 1, chaveIvaAnterior: '', ivaPagoAnterior: null, dataLimiteIva: new Date(), diasParaIva: 0, irsEstimado: 0, irsRetencoes: 0, irsAPagarReceber: 0, irsTaxaEfetiva: 0, totalImpostos: 0, ssEste: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0 }, ssProx: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0 }, ssDepois: { mes: 0, base: 0, rec: 0, formula: 0, nomeBase: '', anoBase: anoAtualSistema, valor: 0, incompleto: true }, irsCfg: { ...IRS_CFG_PADRAO }, anoTrimestreAtual: anoAtualSistema, mesPagarIvaAtual: '', fatorSS: 1, fatorIVA: 1, paresIVA: 0, porConta: 0, taxaReservaSugerida: null, calibracao: { ativa: false, anosBase: [], SS: null, IVA: null, IRS: null } }; } })();
+ // ══ Eventos do calendário financeiro de um mês (y, m 1-12) ══
+ const eventosCalendario = (y, m) => {
+   const idx = y * 12 + m - 1, hojeD = new Date(), hIdx = hojeD.getFullYear() * 12 + hojeD.getMonth(), hDia = hojeD.getDate();
+   const conc = G.tarefasConcluidas || {};
+   const pi = previsaoImpostos || {};
+   const nDias = new Date(y, m, 0).getDate();
+   const est = (feito, d) => feito ? 'ok' : (idx < hIdx || (idx === hIdx && d < hDia)) ? 'atrasado' : 'futuro';
+   const pagos = tipo => (G.impostosPagos || []).filter(p => p.tipo === tipo && patNum(p.valor) > 0 && String(p.data || '').startsWith(`${y}-${String(m).padStart(2, '0')}`));
+   const irImp = () => { setTab('resumo'); setTimeout(() => document.getElementById('cartao-impostos')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); };
+   const L = [];
+   // Prestação da casa (dia 1)
+   const prest = patNum((creditoAtual || {}).prestacao);
+   if (prest > 0) L.push({ id: 'prest', dia: 1, cat: 'Casa', titulo: 'Prestação da casa (sai da ABanca)', curto: 'Prestação', valor: prest, estado: idx < hIdx || (idx === hIdx && hDia > 1) ? 'ok' : 'futuro' });
+   // Tarefas da Agenda
+   (G.tarefas || []).filter(t => t && t.ativo !== false && (t.freq === 'mensal' || ((t.freq === 'anual' || t.freq === 'trimestral') && Array.isArray(t.meses) && t.meses.includes(m)))).forEach(t => {
+     const d = Math.min(nDias, Math.max(1, parseInt(t.dia) || 1));
+     const chave = `${y}-${m}-${t.id}`;
+     let feito = conc[chave] === true, valor = 0, nota = '';
+     const pagar = /pagar|pagamento/i.test(t.desc || '');
+     if (t.cat === 'SS' && pagar && pi.ssPara) {
+       const s = pi.ssPara(idx); valor = s.valor; nota = `Contribuição de ${meses[(idx - 1 + 12) % 12]} · base ${s.nomeBase}`;
+       if (pagos('SS').length) feito = true;
+     }
+     if (t.cat === 'IVA' && pagar && pi.ivaPag) {
+       const v = pi.ivaPag(idx); valor = v.valor; nota = `IVA do ${v.t}.º trimestre de ${v.ano}${v.valor < 0.5 ? ' · sem IVA a pagar, só declarar' : ''}`;
+       if (v.pago) feito = true;
+     }
+     L.push({ id: 't' + t.id, dia: d, cat: t.cat || 'Rotina', titulo: t.desc, curto: t.cat && t.cat !== 'Transf' && t.cat !== 'Invest' ? `${t.cat}: ${String(t.desc).replace(/^(Pagar|Entregar)\s+/i, '')}` : t.desc, valor, nota, chave, estado: est(feito, d), ir: t.cat === 'SS' || t.cat === 'IVA' || t.cat === 'IRS' ? irImp : () => setTab('agenda') });
+   });
+   // Rotina: início do mês e preparar o seguinte
+   const mk = patKey(idx), md = M[mk] || {};
+   const temRec = ((md.regCom || []).length + (md.regSem || []).length) > 0;
+   L.push({ id: 'r-inicio', dia: Math.min(3, nDias), cat: 'Rotina', titulo: 'Recibos, Alocação e transferências (quando os clientes pagarem)', curto: 'Recibos e alocação', estado: temRec ? 'ok' : est(false, 3), ir: () => { setAno(y); setMes(meses[m - 1]); setTab('resumo'); } });
+   const kp = patKey(idx + 1), tp = (M[kp] || {}).transf || {};
+   const prepFeito = !!(tp.g_abanca || tp.g_adiant);
+   L.push({ id: 'r-prep', dia: Math.min(20, nDias), cat: 'Rotina', titulo: `Preparar ${meses[m % 12]}: rever despesas e mandar a ABanca antes do dia 1`, curto: `Preparar ${meses[m % 12]}`, valor: guia.valAB, estado: prepFeito ? 'ok' : est(false, nDias), ir: () => { setAno(Math.floor((idx + 1) / 12)); setMes(meses[(idx + 1) % 12]); setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); } });
+   return L.sort((a, b) => a.dia - b.dia);
+ };
  // ══ Passos do mês (checklist no topo do Resumo) — cada um lê o estado real dos dados ══
  const getPassosMes = () => {
    const idx = patIdx(mesKey), hojeIdx = patIdxHoje();
@@ -10334,7 +10372,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛️',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
-   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
+   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calfin',icon:'🗓️',label:'Calendário'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
  // Ao voltar a um grupo, abre o último separador que usaste nele.
@@ -12873,7 +12911,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           return t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
-            <button key={t.id} data-grupo-menu
+            <button key={t.id} data-grupo-menu aria-label={t.label}
               aria-haspopup="menu" aria-expanded={menuAberto === t.id}
               onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
               onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
@@ -12890,7 +12928,7 @@ ${transacoesOrdenadas.map(t => `<tr>
               <span className={`ml-1 text-xs inline-block transition-transform ${menuAberto === t.id ? 'rotate-180' : ''}`}>▾</span>
             </button>
           ) : (
-            <button key={t.id} onMouseEnter={() => setMenuAberto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+            <button key={t.id} aria-label={t.label} onMouseEnter={() => setMenuAberto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           );
         })}
       </nav>
@@ -13029,7 +13067,9 @@ ${transacoesOrdenadas.map(t => `<tr>
      </div>
    </div>
  )}
- {tab==='calendario' && <Calendario/>}
+ {tab==='calfin' && <CalendarioFinanceiro eventosDoMes={eventosCalendario} theme={theme} fmt={fmt} anoInicial={anoAtualSistema} mesInicial={new Date().getMonth() + 1}
+  onToggle={(k, v) => { const n = { ...(G.tarefasConcluidas || {}) }; if (v) n[k] = true; else delete n[k]; uG('tarefasConcluidas', n); }} />}
+{tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
  {tab==='extrato' && renderExtrato()}
         </div>
