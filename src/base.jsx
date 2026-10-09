@@ -553,6 +553,17 @@ const DraggableList = memo(({items, onReorder, renderItem, className}) => {
  );
 });
 
+// Referência de um pagamento de impostos, tirada da data:
+// SS → mês em que pagaste ("Out/26"); IVA → trimestre a que respeita (pago em Maio → "T1/26");
+// IRS → ano dos rendimentos (pago em 2026 → "2025").
+const impRefAuto = p => {
+  const d = String((p && p.data) || '');
+  const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
+  if (!y || !m) return (p && p.referencia) || '—';
+  if (p.tipo === 'IVA') { const i = y * 12 + (m - 1) - 3; return `T${Math.floor((i % 12) / 3) + 1}/${String(Math.floor(i / 12)).slice(2)}`; }
+  if (p.tipo === 'IRS') return String(y - 1);
+  return `${meses[m - 1].substring(0, 3)}/${String(y).slice(2)}`;
+};
 // Componente isolado para pagamentos de impostos - memo evita re-renders do pai
 const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpdate, onDelete, fmt, showToast, confirmDelete }) => {
   const [expanded, setExpanded] = useState(false);
@@ -561,7 +572,6 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
   const direcaoRef = useRef(null);
   const dataRef = useRef(null);
   const valorRef = useRef(null);
-  const refRef = useRef(null);
 
   const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
   const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
@@ -621,21 +631,15 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
               <input ref={valorRef} type="number" step="0.01" placeholder="0.00"
                 className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-24`} />
             </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">Ref.</span>
-              <input ref={refRef} type="text" placeholder="Jan/26"
-                className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs w-20`} />
-            </div>
             <button onClick={() => {
               const tipo = tipoRef.current?.value || 'SS';
               const direcao = direcaoRef.current?.value || 'pago';
               const data = dataRef.current?.value || new Date().toISOString().split('T')[0];
               const valRaw = parseFloat(valorRef.current?.value);
-              const referencia = refRef.current?.value || '';
+              const referencia = impRefAuto({ tipo, data });
               if (!valRaw || valRaw <= 0) { showToast('Insere um valor válido', 'warning'); return; }
               onAdd({ tipo, data, valor: direcao === 'recebido' ? -valRaw : valRaw, referencia });
               if (valorRef.current) valorRef.current.value = '';
-              if (refRef.current) refRef.current.value = '';
             }}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30"
             >+ Adicionar</button>
@@ -674,9 +678,8 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
                       <input type="date" defaultValue={p.data}
                         className={`${theme === 'light' ? 'bg-transparent text-slate-600' : 'bg-transparent text-slate-400'} text-xs w-28`}
                         onBlur={e => { if (e.target.value !== p.data) onUpdate(p.id, 'data', e.target.value); }} />
-                      <input type="text" defaultValue={p.referencia} placeholder="—"
-                        className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}
-                        onBlur={e => { if (e.target.value !== p.referencia) onUpdate(p.id, 'referencia', e.target.value); }} />
+                      <span title={p.tipo === 'IVA' ? 'Trimestre a que respeita, pela data do pagamento' : p.tipo === 'IRS' ? 'Ano dos rendimentos, pela data do pagamento' : 'Mês do pagamento'}
+                        className={`${theme === 'light' ? 'bg-slate-200 text-slate-600' : 'bg-slate-700 text-slate-400'} px-1.5 py-0.5 rounded text-[10px] w-16 text-center`}>{impRefAuto(p)}</span>
                       <div className="flex-1" />
                       <span className={`text-[10px] flex-shrink-0 ${p.valor < 0 ? 'text-emerald-400' : 'text-red-400'}`}>{p.valor < 0 ? '↓' : '↑'}</span>
                       <input type="number" step="0.01" defaultValue={Math.abs(p.valor)}
@@ -967,7 +970,7 @@ const PROCESS_INVOICE_URLS = [
 
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
-  DraggableList, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos,
-  _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra,
-  mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL,
+  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
+  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
