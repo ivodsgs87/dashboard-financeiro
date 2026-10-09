@@ -819,7 +819,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const recebidoMes = totRec + ivaMes - retMes;
  // Fica na TR para impostos: a reserva menos o que já foi retido, mais o IVA cobrado (é do Estado)
  const impostosNaTR = Math.max(0, valTax - retMes) + ivaMes;
- const guia = guiaTransfCalc({ minhaAB, investFilhos, impostosNaTR, inv, restante, alocAmort, alocFerias, totalFerias, recebidoMes, totPess });
+ const guia = guiaTransfCalc({ minhaAB, investFilhos, impostosNaTR, inv, restante, alocAmort, alocFerias, totalFerias, recebidoMes, totPess, adiantou: !!(transf && transf.g_adiant) });
  const totSaraR = sara.rend.reduce((a,r)=>a+r.val,0);
  const totSaraD = sara.desp.reduce((a,d)=>a+d.val,0);
  const sobraSara = totSaraR - totSaraD - contribSaraAB;
@@ -1908,20 +1908,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
    <Card>
      {(() => {
-       const feitos = guia.passos.filter(x => transf[x.id]).length;
        const claro = theme === 'light';
-       return (<>
-     <div className="flex items-center justify-between mb-1">
-       <h3 className="font-semibold">💸 Transferências do mês</h3>
-       {guia.passos.length > 0 && <span className={`text-xs ${feitos === guia.passos.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{guia.passos.length} feitas</span>}
-     </div>
-     <p className="text-xs text-slate-500 mb-3">Tudo sai do <strong>Activo Bank</strong>, por esta ordem. Precisas de ter lá pelo menos <strong>{fmt(guia.saidas)}</strong>; se algum cliente ainda não pagou, a reserva adianta.</p>
-     <div className="space-y-2">
-       {guia.passos.map((x, k) => (
-         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
-           <input type="checkbox" aria-label={`Transferência para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" checked={!!transf[x.id]} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked })} />
+       const obrig = guia.passos.filter(x => !x.opcional);
+       const feitos = obrig.filter(x => transf[x.id]).length;
+       let num = 0;
+       const passo = x => {
+         if (!x.opcional) num++;
+         return (
+         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
+           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" checked={!!transf[x.id]} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked })} />
            <div className="flex-1 min-w-0">
-             <p className="text-sm"><span className="text-slate-500 mr-1">{k + 1}.</span>Activo → <strong>{x.icon} {x.para}</strong></p>
+             <p className="text-sm"><span className="text-slate-500 mr-1">{x.opcional ? 'Se preciso:' : `${num}.`}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
              {x.linhas.length > 1 && (
                <div className="mt-1 space-y-0.5">
                  {x.linhas.map(([l, v]) => <p key={l} className="text-xs text-slate-500 flex justify-between gap-2"><span>{l}</span><span>{fmt(v)}</span></p>)}
@@ -1930,9 +1927,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {x.linhas.length === 1 && x.linhas[0][0] !== x.para && <p className="text-xs text-slate-500">{x.linhas[0][0]}</p>}
              {x.nota && <p className="text-[11px] text-slate-500 italic mt-0.5">{x.nota}</p>}
            </div>
-           <span className="font-bold whitespace-nowrap">{fmt(x.valor)}</span>
+           <span className={`font-bold whitespace-nowrap ${x.opcional ? 'text-slate-400' : ''}`}>{fmt(x.valor)}</span>
          </div>
-       ))}
+         );
+       };
+       const f1 = guia.passos.filter(x => x.fase === 1), f2 = guia.passos.filter(x => x.fase === 2);
+       return (<>
+     <div className="flex items-center justify-between mb-1">
+       <h3 className="font-semibold">💸 Transferências do mês</h3>
+       {obrig.length > 0 && <span className={`text-xs ${feitos === obrig.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{obrig.length} feitas</span>}
+     </div>
+     <div className="space-y-2 mt-2">
+       {f1.length > 0 && <p className="text-xs font-medium text-amber-400">① Antes do dia 1 (no fim do mês anterior)</p>}
+       {f1.map(passo)}
+       {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-2">② Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
+       {f2.map(passo)}
      </div>
      <div className={`mt-3 p-2 rounded-lg border ${guia.fica < guia.totPess - 0.5 ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
        <div className="flex items-center justify-between">
@@ -10789,11 +10798,11 @@ ${transacoesOrdenadas.map(t => `<tr>
        const _iva = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.iva) || 0), 0);
        const _ret = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.retIRS) || 0), 0);
        const _filhos = (G.despABanca || []).find(d => String(d.desc || '').toLowerCase().includes('investimentos filhos'))?.val || 0;
-       const _g = guiaTransfCalc({ minhaAB: minhaABanca, investFilhos: _filhos, impostosNaTR: Math.max(0, valTax - _ret) + _iva, inv, restante, alocAmort: G.alocAmort, alocFerias: alocFeriasVal, totalFerias: totalFeriasExcel, recebidoMes: totRec + _iva - _ret, totPess });
-       data.push(['═══ TRANSFERÊNCIAS (do Activo Bank, por ordem) ═══', '', '']);
+       const _g = guiaTransfCalc({ minhaAB: minhaABanca, investFilhos: _filhos, impostosNaTR: Math.max(0, valTax - _ret) + _iva, inv, restante, alocAmort: G.alocAmort, alocFerias: alocFeriasVal, totalFerias: totalFeriasExcel, recebidoMes: totRec + _iva - _ret, totPess, adiantou: !!transf.g_adiant });
+       data.push(['═══ TRANSFERÊNCIAS (por ordem) ═══', '', '']);
        data.push(['Movimento', 'Valor', 'Feito?']);
        _g.passos.forEach((x, k) => {
-         data.push([`${k + 1}. Activo → ${x.para}`, x.valor, transf[x.id] ? '✓' : '']);
+         data.push([`${k + 1}. ${x.de} → ${x.para}${x.opcional ? ' (se preciso)' : ''}`, x.valor, transf[x.id] ? '✓' : '']);
          if (x.linhas.length > 1) x.linhas.forEach(([l, v]) => data.push([`     ${l}`, v, '']));
        });
        data.push(['']);
@@ -11031,8 +11040,13 @@ ${transacoesOrdenadas.map(t => `<tr>
    });
    
    // Verificar transferências do mês
+   if (diaHoje >= 25 && guia.valAB > 0.5) {
+     const _prox = new Date(anoHoje, mesHoje, 1);
+     const _kProx = `${_prox.getFullYear()}-${_prox.getMonth() + 1}`;
+     if (!(((M[_kProx] || {}).transf || {}).g_abanca)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} para a ABanca (${meses[_prox.getMonth()]}). Se ainda não recebeste, adianta pela Trade Republic.`, severity: 'warning'});
+   }
    if (totRec > 0) {
-     const faltam = guia.passos.filter(x => !transf[x.id]);
+     const faltam = guia.passos.filter(x => !transf[x.id] && !x.opcional);
      if (faltam.length) alerts.push({tipo: 'transf', msg: `💸 Faltam ${faltam.length} transferência${faltam.length === 1 ? '' : 's'} do mês: ${faltam.map(x => `${x.para} ${fmt(x.valor)}`).join(' · ')}`, severity: 'info'});
    }
    
