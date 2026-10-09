@@ -805,7 +805,9 @@ const impIRSEscaloes = rend => {
 // ABanca (casal), investimentos dos filhos, Trade Republic (impostos + FE + cripto/ETF da TR +
 // amortização a juntar), cada corretora/plataforma e a Revolut (férias). Fica no Activo o das
 // despesas pessoais e o que ainda não foi alocado.
-const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv = [], restante = 0, alocAmort = 0, alocFerias = 0, totalFerias = 0, recebidoMes = 0, totPess = 0 }) => {
+// Em duas fases: (1) antes do dia 1, a ABanca — se os clientes ainda não pagaram, adianta-se pela TR;
+// (2) quando os clientes pagam, o resto; a transferência para a TR já inclui repor o adiantamento.
+const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv = [], restante = 0, alocAmort = 0, alocFerias = 0, totalFerias = 0, recebidoMes = 0, totPess = 0, adiantou = false }) => {
   const n = v => { const x = parseFloat(v); return Number.isFinite(x) ? x : 0; };
   const r2 = v => Math.round(v * 100) / 100;
   const ehTR = i => i.cat === 'CRIPTO' || i.cat === 'FE' || /trade\s*republic|^tr\b/i.test(String(i.desc || '').trim());
@@ -815,11 +817,15 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   const pInv = disp * ((100 - alocAmort) / 100);
   const passos = [];
   const filhos = n(investFilhos);
-  if (minhaAB - filhos > 0.5) passos.push({ id: 'g_abanca', para: 'ABanca', icon: '🏠', valor: r2(minhaAB - filhos), linhas: [['Despesas do casal', r2(minhaAB - filhos)]], nota: filhos > 0 ? 'Já sem os investimentos dos filhos, que saem diretamente do Activo' : '' });
+  const valAB = r2(Math.max(0, minhaAB - filhos));
+  if (valAB > 0.5) {
+    passos.push({ id: 'g_adiant', fase: 1, de: 'Trade Republic', para: 'Activo Bank', icon: '↩️', valor: valAB, linhas: [['Adiantamento para a ABanca', valAB]], opcional: true, nota: 'Só se os clientes ainda não pagaram. Repões quando receberes (já vai incluído no passo da Trade Republic).' });
+    passos.push({ id: 'g_abanca', fase: 1, para: 'ABanca', icon: '🏠', valor: valAB, linhas: [['Despesas do casal (a prestação sai dia 1)', valAB]], nota: filhos > 0 ? 'Já sem os investimentos dos filhos, que saem diretamente do Activo' : '' });
+  }
   if (filhos > 0) passos.push({ id: 'g_filhos', para: 'Investimentos dos filhos', icon: '👶', valor: r2(filhos), linhas: [] });
   const tr = itens.filter(ehTR);
   const nomeTR = i => (/trade\s*republic|^tr\b/i.test(String(i.desc || '').trim()) || !i.desc ? i.cat : i.desc);
-  const linhasTR = [['Impostos (não mexer)', r2(impostosNaTR)], ...tr.map(i => [i.cat === 'FE' ? 'Fundo de emergência' : nomeTR(i), r2(n(i.val))]), ...(amort > 0.5 ? [['Amortização (fica a juntar)', amort]] : [])].filter(l => l[1] > 0.004);
+  const linhasTR = [['Impostos (não mexer)', r2(impostosNaTR)], ...tr.map(i => [i.cat === 'FE' ? 'Fundo de emergência' : nomeTR(i), r2(n(i.val))]), ...(amort > 0.5 ? [['Amortização (fica a juntar)', amort]] : []), ...(adiantou && valAB > 0.5 ? [['Repor o adiantamento da ABanca', valAB]] : [])].filter(l => l[1] > 0.004);
   const valTR = r2(linhasTR.reduce((s, l) => s + l[1], 0));
   const compraNaTR = [...new Set(tr.filter(i => i.cat !== 'FE').map(nomeTR))];
   if (valTR > 0.5) passos.push({ id: 'g_tr', para: 'Trade Republic', icon: '📈', valor: valTR, linhas: linhasTR, nota: compraNaTR.length ? `Depois, lá dentro: comprar ${compraNaTR.join(', ')}` : '' });
@@ -832,9 +838,12 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   });
   Object.values(grupos).forEach(g => passos.push({ id: 'g_inv_' + g.nome.toLowerCase().replace(/[^a-z0-9]+/g, '_'), para: g.nome, icon: '💼', valor: r2(g.valor), linhas: [[[...g.cats].join(' + '), r2(g.valor)]] }));
   if (totalFerias > 0.5) passos.push({ id: 'g_revolut', para: 'Revolut', icon: '🏖️', valor: r2(totalFerias), linhas: [['Férias', r2(totalFerias)]] });
-  const saidas = r2(passos.reduce((s, x) => s + x.valor, 0));
+  passos.forEach(x => { if (!x.fase) x.fase = 2; if (!x.de) x.de = 'Activo'; });
+  const doActivo = f => r2(passos.filter(x => x.de === 'Activo' && (f == null || x.fase === f)).reduce((s, x) => s + x.valor, 0));
+  const saidas = doActivo(2);
   const porAlocar = r2(pInv - itens.reduce((s, i) => s + n(i.val), 0));
-  return { passos, saidas, fica: r2(recebidoMes - saidas), porAlocar, totPess: r2(totPess) };
+  const fica = r2(recebidoMes - doActivo() + (adiantou ? valAB : 0));
+  return { passos, saidas, fica, porAlocar, totPess: r2(totPess), valAB };
 };
 
 // ══ PREVISÃO DE IMPOSTOS ════════════════════════════════════════════════════
