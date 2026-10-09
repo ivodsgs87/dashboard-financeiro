@@ -10468,6 +10468,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
  // Ao voltar a um grupo, abre o último separador que usaste nele.
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
+ // Telemóvel: 5 secções no menu de baixo (estilo app), cada uma com os seus separadores no topo
+ const subInfo = { receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
+ tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
+ const gruposMob = [
+   { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'performance', 'historico'] },
+   { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
+   { id: 'chat', label: 'Chat IA' },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['calfin', 'agenda', 'calendario', 'credito', 'vendacasa'] },
+   { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
+ ];
+ const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
+ const ultMobRef = useRef({});
+ if (grupoMob) ultMobRef.current[grupoMob.id] = tab;
  const ultimaSubRef = useRef({});
  if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
  // Menu de cada grupo: abre ao passar o rato e fica aberto até passares por outro grupo,
@@ -12919,9 +12932,9 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  <div className="sticky top-0 z-50 no-print">
  <header className={`${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4`}>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-            <div className="flex items-center justify-between sm:justify-start gap-3">
-              <h1 className="text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
+          <div className="flex flex-row flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-3">
+            <div className="flex items-center justify-start gap-3">
+              <h1 className="hidden sm:block text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
               <div className="flex gap-2">
                 <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
@@ -12938,10 +12951,10 @@ ${transacoesOrdenadas.map(t => `<tr>
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
+            <div className="flex items-center justify-end gap-2 sm:gap-4">
               <div className="flex gap-1 sm:gap-2 flex-wrap items-center">
                 {/* Undo/Redo */}
-                <div className="flex gap-0.5">
+                <div className="hidden sm:flex gap-0.5">
                   <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-l-lg ${undoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${undoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️</button>
                   <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-r-lg ${redoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${redoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
                 </div>
@@ -12953,13 +12966,13 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alertas">🔔{getActiveAlerts().length > 0 && <span className="ml-0.5">({getActiveAlerts().length})</span>}</button>
                 
                 {/* Menu Export */}
-                <div className="relative">
+                <div className="relative hidden sm:block">
                   <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar">📤 <span className="hidden sm:inline">Export</span></button>
                 </div>
                 
                 {/* Layout Editor - disponível em tabs com personalização */}
                 {['resumo', 'receitas', 'abanca', 'pessoais', 'invest', 'portfolio'].includes(tab) && (
-                  <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${showLayoutEditor ? 'bg-purple-500/20 text-purple-400' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Personalizar layout">🎨</button>
+                  <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={`hidden sm:inline-block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${showLayoutEditor ? 'bg-purple-500/20 text-purple-400' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Personalizar layout">🎨</button>
                 )}
               </div>
               
@@ -12989,7 +13002,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
+      <nav className={`hidden sm:flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
         <button onClick={irInicio} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Resumo)" title="Início (Resumo) · tecla Esc"
           className={`flex-shrink-0 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all ${theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
@@ -13046,8 +13059,50 @@ ${transacoesOrdenadas.map(t => `<tr>
         );
       })()}
       
+      {/* Telemóvel: menu fixo em baixo (no computador fica a barra de cima) */}
+      <nav aria-label="Menu principal" className="sm:hidden fixed bottom-0 inset-x-0 z-40 px-3 pt-2 no-print" style={{ paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
+        <div className={`flex items-stretch justify-between rounded-[2rem] border p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur-xl ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/95 border-slate-700/60'}`}>
+          {gruposMob.map(g => {
+            const ativo = g.id === 'chat' ? chatAberto : (!chatAberto && grupoMob && grupoMob.id === g.id);
+            const ir = () => {
+              if (g.id === 'chat') { setChatAberto(true); return; }
+              setChatAberto(false);
+              setTab(grupoMob && grupoMob.id === g.id ? g.subs[0] : (ultMobRef.current[g.id] || g.subs[0]));
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+            const ic = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+            const icone = {
+              painel: <svg {...ic}><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/></svg>,
+              dinheiro: <svg {...ic}><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1.2" fill="currentColor"/></svg>,
+              chat: <svg {...ic}><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z" fill={ativo ? 'currentColor' : 'none'}/></svg>,
+              planear: <svg {...ic}><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><rect x="13" y="13.5" width="4" height="4" rx=".5" fill="currentColor"/></svg>,
+              patrimonio: <svg {...ic}><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v9h9a9 9 0 0 0-9-9z"/></svg>,
+            }[g.id];
+            return (
+              <button key={g.id} onClick={ir} aria-label={g.label} aria-current={ativo ? 'page' : undefined}
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 rounded-[1.5rem] transition-colors ${ativo ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+                {icone}
+                <span className={`text-[11px] leading-none truncate max-w-full ${ativo ? 'font-semibold' : ''}`}>{g.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
       <style>{CSS_MOBILE}</style>
       <main className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+        {grupoMob && (
+          <div className="sm:hidden no-print">
+            <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
+            <div className="-mx-3 px-3 mb-4 flex gap-2 overflow-x-auto scrollbar-hide">
+              {grupoMob.subs.map(id => (
+                <button key={id} onClick={() => setTab(id)}
+                  className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === id ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-violet-500/25 text-violet-200') : theme === 'light' ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-800/70 text-slate-400'}`}>
+                  {subInfo[id]?.icon} {subInfo[id]?.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div key={tab} className="animate-fadeIn">
         {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
