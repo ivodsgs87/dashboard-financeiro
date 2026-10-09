@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
-  PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos, _fmtEUR,
-  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL, anos,
+  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -1934,8 +1934,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {(() => {
          const mesNome = meses[new Date().getMonth()].substring(0,3);
          const anoShort = anoAtualSistema.toString().substring(2);
-         const anoFull = anoAtualSistema.toString();
-         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && (p.referencia === `${mesNome}/${anoShort}` || p.referencia === `${mesNome}/${anoFull}`));
+         const ssPago = (G.impostosPagos || []).find(p => p.tipo === 'SS' && impRefAuto(p) === `${mesNome}/${anoShort}`);
          return <p className="text-[10px] mt-0.5">{ssPago ? <span className="text-emerald-400">✓ Pago {fmt(ssPago.valor)}</span> : <span className="text-amber-400">⏳ Por pagar</span>}</p>;
        })()}
      </div>
@@ -1959,7 +1958,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {(() => {
            const tAnt = previsaoImpostos.trimestreAnterior;
            const aAnt = previsaoImpostos.anoTrimestreAnterior;
-           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && (p.referencia === `T${tAnt}/${aAnt}` || p.referencia === `T${tAnt}/${String(aAnt).slice(2)}`));
+           const ivaPago = (G.impostosPagos || []).find(p => p.tipo === 'IVA' && impRefAuto(p) === `T${tAnt}/${String(aAnt).slice(2)}`);
            return ivaPago ? <span className="text-emerald-400 ml-1">✓ Pago {fmt(ivaPago.valor)}</span> : <span className="text-amber-400 ml-1">⏳ Por pagar</span>;
          })()}
        </p>
@@ -13346,7 +13345,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                    <div key={p.id} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
                      <span>{p.tipo === 'SS' ? '🏛️' : p.tipo === 'IVA' ? '💶' : '📋'}</span>
                      <span className="text-slate-500">{p.data}</span>
-                     <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{p.referencia || '—'}</span>
+                     <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{impRefAuto(p)}</span>
                      <span className="flex-1" />
                      <span className={`font-bold ${p.valor < 0 ? 'text-emerald-400' : ''}`}>{fmt(Math.abs(p.valor || 0))}</span>
                    </div>
