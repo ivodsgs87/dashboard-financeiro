@@ -886,13 +886,18 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
   const atrasados = eventosDoMes(hoje.getFullYear(), hoje.getMonth() + 1).filter(e => e.estado === 'atrasado');
   const cel = claro ? 'bg-white border-slate-200' : 'bg-slate-800/40 border-slate-700/50';
   const Linha = ({ e, data }) => (
-    <div className={`flex items-center gap-2 p-2 rounded-lg ${claro ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
+    <div className={`flex ${!data && e.lista ? 'items-start' : 'items-center'} gap-2 p-2 rounded-lg ${claro ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
       {e.chave ? <input type="checkbox" aria-label={`${e.titulo} feito`} className="w-4 h-4 accent-emerald-500 flex-shrink-0" checked={e.estado === 'ok'} onChange={ev => onToggle(e.chave, ev.target.checked)} />
         : <span className="w-4 text-center flex-shrink-0">{e.estado === 'ok' ? '✓' : '•'}</span>}
       {data && <span className="text-xs text-slate-500 w-14 flex-shrink-0">{data}</span>}
       <span className="w-1.5 h-6 rounded-full flex-shrink-0" style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina }} />
       <button onClick={e.ir} disabled={!e.ir} className={`flex-1 min-w-0 text-left text-sm ${e.estado === 'ok' ? 'line-through text-slate-500' : ''} ${e.ir ? 'hover:underline' : ''}`}>
         {e.titulo}{e.nota && <span className="block text-xs text-slate-500 no-underline">{e.nota}</span>}
+        {!data && Array.isArray(e.lista) && e.lista.length > 0 && (
+          <span className="block mt-1.5 space-y-1">
+            {e.lista.map((x, i) => <span key={i} className={`flex gap-1.5 text-xs ${claro ? 'text-slate-600' : 'text-slate-400'}`}><span className="flex-shrink-0">{i + 1}.</span><span>{x}</span></span>)}
+          </span>
+        )}
       </button>
       {e.valor > 0 && <span className="text-sm font-semibold whitespace-nowrap">{fmt(e.valor)}</span>}
       {e.estado === 'atrasado' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 flex-shrink-0">atrasado</span>}
