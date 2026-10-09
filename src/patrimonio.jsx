@@ -18,7 +18,7 @@ const PedirDados = ({ pedido, theme, onFechar }) => {
   const ok = () => { const fn = pedido.onOk; onFechar(); if (fn) fn(v); };
   return createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
-      <form onSubmit={e => { e.preventDefault(); ok(); }} onKeyDown={e => { if (e.key === 'Escape') onFechar(); }}
+      <form onSubmit={e => { e.preventDefault(); ok(); }} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }}
         className={`${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'} border rounded-2xl p-5 max-w-md w-full shadow-2xl max-h-[85vh] overflow-y-auto`}>
         <h3 className="text-lg font-semibold mb-1">{pedido.titulo}</h3>
         {pedido.texto && <p className={`text-sm mb-3 ${claro ? 'text-slate-600' : 'text-slate-400'}`}>{pedido.texto}</p>}
