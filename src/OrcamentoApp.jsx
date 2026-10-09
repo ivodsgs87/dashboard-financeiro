@@ -2080,17 +2080,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <div id="guia-transf" className="scroll-mt-24"><Card>
      {(() => {
        const claro = theme === 'light';
-       const obrig = guia.passos.filter(x => !x.opcional);
-       const feitos = obrig.filter(x => transf[x.id] || x.dispensado).length;
+       const f2 = guia.passos.filter(x => x.fase === 2);
+       const obrig = f2.filter(x => !x.opcional);
+       const feitos = obrig.filter(x => transf[x.id]).length;
+       // Despesas do casal: a deste mês já foi mandada no fim do mês anterior;
+       // a do mês seguinte prepara-se no fim deste — por isso aparece no fim do cartão.
+       const ab = guia.passos.find(x => x.id === 'g_abanca'), adi = guia.passos.find(x => x.id === 'g_adiant');
+       const idxSel = patIdx(mesKey), kProx = patKey(idxSel + 1);
+       const nomeEste = meses[idxSel % 12], nomeProx = meses[(idxSel + 1) % 12], nomeAnt = meses[(idxSel + 11) % 12];
+       const tProx = (M[kProx] || {}).transf || {};
+       const marcar = (t, set) => (id, v) => set({ ...t, [id]: v, ...(v && id === 'g_adiant' ? { g_abanca: false } : {}), ...(v && id === 'g_abanca' ? { g_adiant: false } : {}) });
+       const marcarEste = marcar(transf, t => uM('transf', t));
+       const marcarProx = marcar(tProx, t => { saveUndo(); setM(p => { const a = p[kProx] || defM; return { ...p, [kProx]: { ...a, transf: t } }; }); });
        let num = 0;
-       const passo = x => {
-         if (!x.opcional) num++;
+       const passo = (x, t = transf, onSet = marcarEste, rotulo = null) => {
+         if (!x.opcional && rotulo == null) num++;
+         const disp = x.id === 'g_abanca' && !!t.g_adiant;
          return (
-         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${x.dispensado ? (claro ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : transf[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
-           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" disabled={!!x.dispensado} checked={!!transf[x.id] || !!x.dispensado} onChange={e => uM('transf', { ...transf, [x.id]: e.target.checked, ...(x.id === 'g_adiant' && e.target.checked ? { g_abanca: false } : {}), ...(x.id === 'g_abanca' && e.target.checked ? { g_adiant: false } : {}) })} />
+         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${disp ? (claro ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : t[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
+           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" disabled={disp} checked={!!t[x.id] || disp} onChange={e => onSet(x.id, e.target.checked)} />
            <div className="flex-1 min-w-0">
-             <p className="text-sm"><span className="text-slate-500 mr-1">{x.opcional ? 'Ou, se ainda não recebeste:' : `${num}.`}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
-             {x.dispensado && <p className="text-[11px] text-emerald-400">Não é preciso: adiantaste pela Trade Republic</p>}
+             <p className="text-sm"><span className="text-slate-500 mr-1">{rotulo != null ? rotulo : (x.opcional ? 'Ou, se ainda não recebeste:' : `${num}.`)}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
+             {disp && <p className="text-[11px] text-emerald-400">Não é preciso: adiantaste pela Trade Republic</p>}
              {x.linhas.length > 1 && (
                <div className="mt-1 space-y-0.5">
                  {x.linhas.map(([l, v]) => <p key={l} className="text-xs text-slate-500 flex justify-between gap-2"><span>{l}</span><span>{fmt(v)}</span></p>)}
@@ -2103,26 +2114,44 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
          );
        };
-       const f1 = guia.passos.filter(x => x.fase === 1), f2 = guia.passos.filter(x => x.fase === 2);
+       const abFeito = transf.g_abanca ? 'do Activo' : transf.g_adiant ? 'adiantado pela Trade Republic' : null;
+       const semReceitas = guia.fica < guia.totPess - 0.5 && (regCom.length + regSem.length) === 0;
        return (<>
      <div className="flex items-center justify-between mb-1">
-       <h3 className="font-semibold">💸 Transferências do mês</h3>
+       <h3 className="font-semibold">💸 Transferências de {nomeEste}</h3>
        {obrig.length > 0 && <span className={`text-xs ${feitos === obrig.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{obrig.length} feitas</span>}
      </div>
      <div className="space-y-2 mt-2">
-       {f1.length > 0 && <p className="text-xs font-medium text-amber-400">① Antes do dia 1 (no fim do mês anterior)</p>}
-       {f1.map(passo)}
-       {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-2">② Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
-       {f2.map(passo)}
+       {ab && (abFeito ? (
+         <p className="text-xs text-emerald-400 flex items-center justify-between gap-2"><span>✓ ABanca de {nomeEste} já mandada no fim de {nomeAnt} ({abFeito})</span><span className="whitespace-nowrap">{fmt(ab.valor)}</span></p>
+       ) : (
+         <div className={`text-xs p-2 rounded-lg border ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/30 bg-amber-500/10'}`}>
+           <p className="text-amber-400">⚠️ A ABanca de {nomeEste} ({fmt(ab.valor)}) devia ter ido no fim de {nomeAnt} e não está marcada.</p>
+           <div className="flex flex-wrap gap-2 mt-1.5">
+             <button onClick={() => marcarEste('g_abanca', true)} className="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Já foi, do Activo</button>
+             <button onClick={() => marcarEste('g_adiant', true)} className="px-2 py-1 rounded-md bg-slate-500/20 hover:bg-slate-500/30">Já foi, adiantado pela TR</button>
+           </div>
+         </div>
+       ))}
+       {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
+       {f2.map(x => passo(x))}
      </div>
-     <div className={`mt-3 p-2 rounded-lg border ${guia.fica < guia.totPess - 0.5 ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+     <div className={`mt-3 p-2 rounded-lg border ${guia.fica < guia.totPess - 0.5 && !semReceitas ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
        <div className="flex items-center justify-between">
          <p className="text-sm font-medium">🏦 Fica no Activo Bank</p>
          <span className="font-bold text-blue-400">{fmt(guia.fica)}</span>
        </div>
        <p className="text-xs text-slate-500">Despesas pessoais {fmt(guia.totPess)}{guia.porAlocar > 0.5 ? ` + por investir ${fmt(guia.porAlocar)} (ainda não está na Alocação)` : ''}</p>
-       {guia.fica < guia.totPess - 0.5 && <p className="text-xs text-red-400 mt-1">Fica menos do que precisas para as despesas pessoais: a Alocação tem mais investimentos do que o disponível.</p>}
+       {semReceitas && <p className="text-xs text-slate-400 mt-1">Ainda não há receitas registadas em {nomeEste}: este valor acerta quando registares os recibos.</p>}
+       {guia.fica < guia.totPess - 0.5 && !semReceitas && <p className="text-xs text-red-400 mt-1">Fica menos do que precisas para as despesas pessoais: a Alocação tem mais investimentos do que o disponível.</p>}
      </div>
+     {ab && (
+       <div className="space-y-2 mt-4 pt-3 border-t border-slate-700/40">
+         <p className="text-xs font-medium text-amber-400">🗓️ No fim do mês: preparar {nomeProx} (antes do dia 1, a prestação sai dia 1)</p>
+         {passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]] }, tProx, marcarProx, '')}
+         {adi && passo({ ...adi, nota: `Repões em ${nomeProx}, quando os clientes pagarem (entra no passo da Trade Republic).` }, tProx, marcarProx, 'Ou, se ainda não recebeste:')}
+       </div>
+     )}
        </>);
      })()}
    </Card></div>
