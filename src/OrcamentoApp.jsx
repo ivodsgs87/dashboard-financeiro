@@ -241,12 +241,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         if (idx < 11) setMes(meses[idx + 1]);
         else { setMes(meses[0]); setAno(a => a + 1); }
       }
-      // Escape = Fechar modais
+      // Escape = Fechar modais; se não houver nada aberto, volta ao Resumo (início)
       if (e.key === 'Escape') {
+        const algoAberto = document.querySelector('.fixed.inset-0, [role="menu"], [role="dialog"]');
         setShowSearch(false);
         setShowAlerts(false);
         setShowImportCSV(false);
         setShowShortcuts(false);
+        if (!algoAberto) { setTab('resumo'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -10350,10 +10352,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    setMenuAberto(id);
  };
  useEffect(() => { setMenuAberto(null); }, [tab]);
+ // Início: vai para o Resumo e volta ao topo da página
+ const irInicio = () => { setMenuAberto(null); setTab('resumo'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
  useEffect(() => {
    if (!menuAberto) return;
    const fora = e => { if (menuRef.current && !menuRef.current.contains(e.target) && !e.target.closest('[data-grupo-menu]')) setMenuAberto(null); };
-   const esc = e => { if (e.key === 'Escape') setMenuAberto(null); };
+   const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setMenuAberto(null); } };
    const fechar = () => setMenuAberto(null);
    document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc); window.addEventListener('resize', fechar);
    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); window.removeEventListener('resize', fechar); };
@@ -10591,7 +10595,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: 'Ctrl+F', desc: 'Pesquisar' },
      { key: 'Ctrl+P', desc: 'Exportar PDF' },
      { key: '?', desc: 'Mostrar/ocultar atalhos' },
-     { key: 'Esc', desc: 'Fechar modais' },
+     { key: 'Esc', desc: 'Fechar janelas · sem nada aberto, volta ao Resumo' },
    ];
    return (
      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
@@ -12788,7 +12792,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  <header className={`${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/50'} backdrop-blur-xl border-b px-3 sm:px-6 py-3 sm:py-4`}>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div className="flex items-center justify-between sm:justify-start gap-3">
-              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">💎 Dashboard</h1>
+              <h1 className="text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
               <div className="flex gap-2">
                 <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
                   {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
@@ -12857,6 +12861,11 @@ ${transacoesOrdenadas.map(t => `<tr>
         </header>
 
       <nav className={`flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
+        <button onClick={irInicio} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Resumo)" title="Início (Resumo) · tecla Esc"
+          className={`flex-shrink-0 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all ${theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
+        </button>
+        <div className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
         {tabs.map(t => {
           // Verificar se alguma sub-tab está ativa
           const isSubActive = t.submenu?.some(sub => tab === sub.id);
