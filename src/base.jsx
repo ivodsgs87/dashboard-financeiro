@@ -555,13 +555,13 @@ const DraggableList = memo(({items, onReorder, renderItem, className}) => {
 
 // Referência de um pagamento de impostos, tirada da data:
 // SS → mês em que pagaste ("Out/26"); IVA → trimestre a que respeita (pago em Maio → "T1/26");
-// IRS → ano dos rendimentos (pago em 2026 → "2025").
+// IRS → ano dos rendimentos (pago em 2026 → "2025"); pago em Julho, Setembro ou Dezembro é pagamento por conta do próprio ano.
 const impRefAuto = p => {
   const d = String((p && p.data) || '');
   const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
   if (!y || !m) return (p && p.referencia) || '—';
   if (p.tipo === 'IVA') { const i = y * 12 + (m - 1) - 3; return `T${Math.floor((i % 12) / 3) + 1}/${String(Math.floor(i / 12)).slice(2)}`; }
-  if (p.tipo === 'IRS') return String(y - 1);
+  if (p.tipo === 'IRS') return impNum(p.valor) > 0 && [7, 9, 12].includes(m) ? `Conta/${String(y).slice(2)}` : String(y - 1);
   return `${meses[m - 1].substring(0, 3)}/${String(y).slice(2)}`;
 };
 // Componente isolado para pagamentos de impostos - memo evita re-renders do pai
@@ -787,8 +787,123 @@ const ESCALOES_IRS = [
   { limite: 46566, taxa: 0.431 }, { limite: 86634, taxa: 0.446 },
   { limite: Infinity, taxa: 0.48 }
 ];
-const DEDUCAO_CATB = 4587.09;
-const COEF_SIMPL = 0.75;
+const DEDUCAO_CATA = 4587.09; // dedução específica da categoria A (trabalho por conta de outrem), 2026
+const IRS_CFG_PADRAO = { conjunto: true, coef: 0.35, saraBruto: 0, saraRetencao: 0, deducoes: 500 };
+const impNum = v => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+const impIRSEscaloes = rend => {
+  let imposto = 0, anterior = 0;
+  for (const e of ESCALOES_IRS) {
+    if (rend > anterior) { imposto += (Math.min(rend, e.limite) - anterior) * e.taxa; anterior = e.limite; }
+  }
+  return imposto;
+};
+// ══ PREVISÃO DE IMPOSTOS ════════════════════════════════════════════════════
+// SS: o pagamento feito no mês P é a contribuição do mês P−1, calculada na declaração trimestral
+//     do trimestre desse mês, que declara o trimestre anterior. Pago em Outubro → base Abr+Mai+Jun.
+// Os pagamentos registados servem para afinar: o mesmo trimestre declarado paga sempre o mesmo valor,
+// e a diferença entre a fórmula e o que pagaste nos últimos 12 meses ajusta as previsões (SS e IVA).
+const impCalc = (G, M, hoje = new Date()) => {
+  G = G || {}; M = M || {};
+  const ano = hoje.getFullYear(), mesAt = hoje.getMonth() + 1, idxHoje = ano * 12 + mesAt - 1;
+  const nomeMes = i => meses[((i % 12) + 12) % 12];
+  const curto = i => nomeMes(i).substring(0, 3);
+  const mesD = i => M[`${Math.floor(i / 12)}-${(i % 12) + 1}`] || {};
+  const rv = r => impNum(r && r.valIliq != null && r.valIliq !== '' ? r.valIliq : r && r.val);
+  const declSS = i => (mesD(i).regCom || []).filter(r => !r.emitidoPorSara).reduce((a, r) => a + rv(r), 0);
+  const ivaMes = i => (mesD(i).regCom || []).reduce((a, r) => a + impNum(r.iva), 0);
+  const pagos = (G.impostosPagos || []).map(p => {
+    const d = String((p && p.data) || ''); const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
+    return y && m ? { ...p, idx: y * 12 + m - 1, v: impNum(p.valor) } : null;
+  }).filter(Boolean);
+  const somaMes = (tipo, i) => pagos.filter(p => p.tipo === tipo && p.idx === i && p.v > 0).reduce((a, p) => a + p.v, 0);
+
+  // ── Segurança Social ──
+  const ssBase = p => { const c = p - 1; return c - ((c % 12) % 3) - 3; }; // 1.º mês do trimestre declarado
+  const ssForm = q0 => { const rec = declSS(q0) + declSS(q0 + 1) + declSS(q0 + 2); return { rec, val: Math.max(20, rec * 0.70 / 3 * 0.214) }; };
+  const mesesSSPagos = [...new Set(pagos.filter(p => p.tipo === 'SS' && p.v > 0).map(p => p.idx))].sort((a, b) => a - b);
+  // Afinação: compara a fórmula com o que pagaste na declaração mais recente que tenha receitas na app
+  const comDados = mesesSSPagos.filter(i => i > idxHoje - 13 && i <= idxHoje && ssForm(ssBase(i)).rec > 0);
+  const baseRecente = comDados.length ? ssBase(comDados[comDados.length - 1]) : null;
+  const paresSS = comDados.filter(i => ssBase(i) === baseRecente).map(i => ({ real: somaMes('SS', i), f: ssForm(baseRecente) }));
+  const fatorSS = paresSS.length ? paresSS.reduce((a, x) => a + x.real, 0) / paresSS.reduce((a, x) => a + x.f.val, 0) : 1;
+  const ssPara = p => {
+    const base = ssBase(p), f = ssForm(base);
+    const info = { mes: p, base, rec: f.rec, formula: f.val, nomeBase: [0, 1, 2].map(k => curto(base + k)).join('+'), anoBase: Math.floor(base / 12) };
+    const pago = somaMes('SS', p);
+    if (pago > 0) return { ...info, valor: pago, pago: true };
+    const irmao = mesesSSPagos.filter(i => ssBase(i) === base).pop();
+    if (irmao != null) return { ...info, valor: somaMes('SS', irmao), igualA: irmao };
+    return { ...info, valor: f.val * fatorSS, ajustado: paresSS.length > 0 };
+  };
+  const ssEste = ssPara(idxHoje), ssProx = ssPara(idxHoje + 1);
+  let pD = idxHoje + 2; while (ssBase(pD) === ssProx.base && pD < idxHoje + 5) pD++;
+  const ssDepois = { ...ssPara(pD), incompleto: ssBase(pD) + 2 >= idxHoje };
+  let ssAnual = 0; for (let i = ano * 12; i < ano * 12 + 12; i++) ssAnual += ssPara(i).valor;
+
+  // ── IVA ──
+  const qDe = i => ({ ano: Math.floor(i / 12), t: Math.floor((i % 12) / 3) + 1, ini: i - (i % 12) % 3 });
+  const ivaForm = q0 => ivaMes(q0) + ivaMes(q0 + 1) + ivaMes(q0 + 2);
+  const ivaPagoQ = q0 => pagos.filter(p => p.tipo === 'IVA' && p.v > 0 && qDe(p.idx - 3).ini === q0).reduce((a, p) => a + p.v, 0);
+  const qsIva = [...new Set(pagos.filter(p => p.tipo === 'IVA' && p.v > 0 && p.idx > idxHoje - 16).map(p => qDe(p.idx - 3).ini))];
+  const paresIVA = qsIva.map(q0 => ({ real: ivaPagoQ(q0), f: ivaForm(q0) })).filter(x => x.f > 0);
+  const fatorIVA = paresIVA.length ? paresIVA.reduce((a, x) => a + x.real, 0) / paresIVA.reduce((a, x) => a + x.f, 0) : 1;
+  const qAtual = qDe(idxHoje), qAnt = qDe(qAtual.ini - 3);
+  const ivaQ = q0 => { const pago = ivaPagoQ(q0), f = ivaForm(q0); return pago > 0 ? { valor: pago, pago: true, formula: f } : { valor: f * fatorIVA, formula: f }; };
+  const ivaAnt = ivaQ(qAnt.ini), ivaAt = ivaQ(qAtual.ini);
+  let ivaAnual = 0; for (let q0 = ano * 12; q0 < ano * 12 + 12; q0 += 3) ivaAnual += q0 <= idxHoje ? ivaQ(q0).valor : 0;
+  const mesPagIva = qAnt.ini + 4; // 2.º mês depois do fim do trimestre
+  const dataLimiteIva = new Date(Math.floor(mesPagIva / 12), mesPagIva % 12, 25);
+  const diasParaIva = Math.ceil((dataLimiteIva - hoje) / 86400000);
+
+  // ── IRS (ano corrente, entregue no ano seguinte) ──
+  const cfg = { ...IRS_CFG_PADRAO, ...(G.irsConfig || {}) };
+  const coef = impNum(cfg.coef) > 0 ? impNum(cfg.coef) : IRS_CFG_PADRAO.coef;
+  let recAte = 0, retAte = 0, ultimo = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0, totalIVA = 0;
+  for (let m = 1; m <= 12; m++) {
+    const d = M[`${ano}-${m}`] || {};
+    const regs = [...(d.regCom || []), ...(d.regSem || [])];
+    const r = regs.reduce((a, x) => a + rv(x), 0);
+    if (r > 0) ultimo = m;
+    recAte += r;
+    (d.regCom || []).forEach(x => {
+      retAte += impNum(x.retIRS); totalIVA += impNum(x.iva);
+      if (x.emitidoPorSara) { totalSaraIliq += rv(x); totalSaraRetIRS += impNum(x.retIRS); }
+    });
+    regs.forEach(x => { const pais = x.pais || 'PT'; if (pais === 'PT') totalPT += rv(x); else if (pais === 'UE') totalUE += rv(x); else totalForaUE += rv(x); });
+  }
+  const fechados = Math.min(12, Math.max(mesAt - 1, ultimo));
+  const restantes = 12 - fechados;
+  const projeta = v => fechados >= 2 ? v + v / fechados * restantes : v;
+  const recAnual = projeta(recAte);
+  const retCatB = projeta(retAte);
+  const saraBruto = cfg.conjunto ? impNum(cfg.saraBruto) : 0;
+  const rendA = Math.max(0, saraBruto - Math.max(DEDUCAO_CATA, saraBruto * 0.11));
+  const rendColetavel = recAnual * coef + rendA;
+  const q = cfg.conjunto ? 2 : 1;
+  const coleta = impIRSEscaloes(rendColetavel / q) * q;
+  const irsEstimado = Math.max(0, coleta - impNum(cfg.deducoes));
+  const porConta = pagos.filter(p => p.tipo === 'IRS' && p.v > 0 && Math.floor(p.idx / 12) === ano && [6, 8, 11].includes(p.idx % 12)).reduce((a, p) => a + p.v, 0);
+  const irsRetencoes = retCatB + (cfg.conjunto ? impNum(cfg.saraRetencao) : 0) + porConta;
+  const irsAPagarReceber = irsRetencoes - irsEstimado;
+
+  const totalImpostos = ssAnual + ivaAnual + irsEstimado;
+  return {
+    // SS
+    ssEste, ssProx, ssDepois, ssMesAtual: ssEste.valor, ssProximoMes: ssProx.valor, ssMensal: ssProx.valor, ssAnual, fatorSS, paresSS: paresSS.length,
+    receitasTrimestreDeclarado: ssEste.rec, nomeMesesDeclarados: ssEste.nomeBase, anoMesesDeclarados: ssEste.anoBase,
+    rendimentoRelevanteSS: ssProx.rec * 0.70,
+    // IVA
+    ivaAPagar: ivaAnual, ivaTrimestreAnterior: ivaAnt.valor, ivaAntPago: !!ivaAnt.pago, ivaTrimestreAtual: ivaAt.valor, fatorIVA, paresIVA: paresIVA.length,
+    trimestreAtual: qAtual.t, anoTrimestreAtual: qAtual.ano, trimestreAnterior: qAnt.t, anoTrimestreAnterior: qAnt.ano,
+    proximoTrimestre: qAtual.t < 4 ? qAtual.t + 1 : 1, mesPagarIvaAtual: curto(qAtual.ini + 4), dataLimiteIva, diasParaIva, totalIVA,
+    // IRS
+    irsCfg: { ...cfg, coef }, recAnualIRS: recAnual, rendColetavel, irsEstimado, irsRetencoes, porConta, irsAPagarReceber,
+    irsTaxaEfetiva: recAnual > 0 ? irsEstimado / recAnual * 100 : 0, mesesComDados: fechados, faltaSara: cfg.conjunto && !saraBruto,
+    // totais
+    totalIliquido: recAte, totalPT, totalUE, totalForaUE, totalSaraIliq, totalSaraRetIRS, totalImpostos,
+    calibracao: { ativa: paresSS.length > 0 || paresIVA.length > 0, SS: paresSS.length ? { fator: fatorSS } : null, IVA: paresIVA.length ? { fator: fatorIVA } : null, IRS: null }
+  };
+};
 const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
 
 // Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
@@ -970,7 +1085,8 @@ const PROCESS_INVOICE_URLS = [
 
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
-  DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATB, COEF_SIMPL,
-  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
-  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
+  impNum, impIRSEscaloes, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS,
+  BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome,
+  PROCESS_INVOICE_URLS
 };
