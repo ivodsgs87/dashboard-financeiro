@@ -789,6 +789,9 @@ const ESCALOES_IRS = [
 ];
 const DEDUCAO_CATA = 4587.09; // dedução específica da categoria A (trabalho por conta de outrem), 2026
 const IRS_CFG_PADRAO = { conjunto: true, coef: 0.35, saraBruto: 0, saraRetencao: 0, deducoes: 500 };
+// Taxa de retenção na fonte habitual (art. 101.º CIRS): 23% nas atividades da tabela do art. 151.º
+// (coeficiente 0,75); 11,5% nas outras prestações de serviços (coeficiente 0,35)
+const retencaoPadrao = coef => (Number(coef) >= 0.75 ? 23 : 11.5);
 const impNum = v => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const impIRSEscaloes = rend => {
   let imposto = 0, anterior = 0;
@@ -809,7 +812,8 @@ const impCalc = (G, M, hoje = new Date()) => {
   const curto = i => nomeMes(i).substring(0, 3);
   const mesD = i => M[`${Math.floor(i / 12)}-${(i % 12) + 1}`] || {};
   const rv = r => impNum(r && r.valIliq != null && r.valIliq !== '' ? r.valIliq : r && r.val);
-  const declSS = i => (mesD(i).regCom || []).filter(r => !r.emitidoPorSara).reduce((a, r) => a + rv(r), 0);
+  const naoTrab = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
+  const declSS = i => (mesD(i).regCom || []).filter(r => !r.emitidoPorSara && !naoTrab.has(r.cid)).reduce((a, r) => a + rv(r), 0);
   const ivaMes = i => (mesD(i).regCom || []).reduce((a, r) => a + impNum(r.iva), 0);
   const pagos = (G.impostosPagos || []).map(p => {
     const d = String((p && p.data) || ''); const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
@@ -857,15 +861,18 @@ const impCalc = (G, M, hoje = new Date()) => {
 
   // ── IRS (ano corrente, entregue no ano seguinte) ──
   const cfg = { ...IRS_CFG_PADRAO, ...(G.irsConfig || {}) };
-  const coef = impNum(cfg.coef) > 0 ? impNum(cfg.coef) : IRS_CFG_PADRAO.coef;
+  const coef = impNum(G.coefSimpl) > 0 ? impNum(G.coefSimpl) : IRS_CFG_PADRAO.coef;
+  // Clientes que não são trabalho (ex.: "Reembolso IRS") ficam fora das contas dos impostos
+  const naoTrabalho = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
   let recAte = 0, retAte = 0, ultimo = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0, totalIVA = 0;
   for (let m = 1; m <= 12; m++) {
     const d = M[`${ano}-${m}`] || {};
-    const regs = [...(d.regCom || []), ...(d.regSem || [])];
+    // Só os recibos verdes ("COM Taxas") entram no IRS: é o que as Finanças conhecem
+    const regs = (d.regCom || []).filter(x => !naoTrabalho.has(x.cid));
     const r = regs.reduce((a, x) => a + rv(x), 0);
     if (r > 0) ultimo = m;
     recAte += r;
-    (d.regCom || []).forEach(x => {
+    regs.forEach(x => {
       retAte += impNum(x.retIRS); totalIVA += impNum(x.iva);
       if (x.emitidoPorSara) { totalSaraIliq += rv(x); totalSaraRetIRS += impNum(x.retIRS); }
     });
@@ -1086,7 +1093,7 @@ const PROCESS_INVOICE_URLS = [
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  impNum, impIRSEscaloes, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS,
-  BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome,
-  PROCESS_INVOICE_URLS
+  retencaoPadrao, impNum, impIRSEscaloes, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC,
+  BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome,
+  clienteDoNome, PROCESS_INVOICE_URLS
 };
