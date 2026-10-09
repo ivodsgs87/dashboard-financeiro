@@ -791,6 +791,8 @@ const DEDUCAO_CATA = 4587.09; // dedução específica da categoria A (trabalho 
 const IRS_CFG_PADRAO = { conjunto: true, coef: 0.35, saraBruto: 0, saraRetencao: 0, deducoes: 500 };
 // Taxa de retenção na fonte habitual (art. 101.º CIRS): 23% nas atividades da tabela do art. 151.º
 // (coeficiente 0,75); 11,5% nas outras prestações de serviços (coeficiente 0,35)
+// Mês ("AAAA-M") de uma data de recibo "AAAA-MM-DD"; null se a data não for válida
+const mesDoRecibo = d => { const m = /^(\d{4})-(\d{2})-\d{2}/.exec(String(d || '')); return m && +m[2] >= 1 && +m[2] <= 12 ? `${+m[1]}-${+m[2]}` : null; };
 const retencaoPadrao = coef => (Number(coef) >= 0.75 ? 23 : 11.5);
 const impNum = v => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const impIRSEscaloes = rend => {
@@ -1149,7 +1151,7 @@ const PROCESS_INVOICE_URLS = [
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, impCalc, anos, _fmtEUR, _semAcentos,
-  BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo,
-  _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, impCalc, anos, _fmtEUR,
+  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
