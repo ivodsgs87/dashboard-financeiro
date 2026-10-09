@@ -821,8 +821,8 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   const filhos = n(investFilhos);
   const valAB = r2(Math.max(0, minhaAB - filhos));
   if (valAB > 0.5) {
-    passos.push({ id: 'g_adiant', fase: 1, de: 'Trade Republic', para: 'Activo Bank', icon: '↩️', valor: valAB, linhas: [['Adiantamento para a ABanca', valAB]], opcional: true, nota: 'Só se os clientes ainda não pagaram. Repões quando receberes (já vai incluído no passo da Trade Republic).' });
-    passos.push({ id: 'g_abanca', fase: 1, para: 'ABanca', icon: '🏠', valor: valAB, linhas: [['Despesas do casal (a prestação sai dia 1)', valAB]], nota: filhos > 0 ? 'Já sem os investimentos dos filhos, que saem diretamente do Activo' : '' });
+    passos.push({ id: 'g_abanca', fase: 1, para: 'ABanca', icon: '🏠', valor: valAB, linhas: [['Despesas do casal (a prestação sai dia 1)', valAB]], nota: filhos > 0 ? 'Já sem os investimentos dos filhos, que saem diretamente do Activo' : '', dispensado: adiantou });
+    passos.push({ id: 'g_adiant', fase: 1, de: 'Trade Republic', para: 'ABanca', icon: '🏠', valor: valAB, linhas: [['Despesas do casal, adiantadas pela TR', valAB]], opcional: true, nota: 'Repões quando os clientes pagarem: já vai incluído no passo da Trade Republic.' });
   }
   if (filhos > 0) passos.push({ id: 'g_filhos', para: 'Investimentos dos filhos', icon: '👶', valor: r2(filhos), linhas: [] });
   const tr = itens.filter(ehTR);
@@ -841,10 +841,10 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   Object.values(grupos).forEach(g => passos.push({ id: 'g_inv_' + g.nome.toLowerCase().replace(/[^a-z0-9]+/g, '_'), para: g.nome, icon: '💼', valor: r2(g.valor), linhas: [[[...g.cats].join(' + '), r2(g.valor)]] }));
   if (totalFerias > 0.5) passos.push({ id: 'g_revolut', para: 'Revolut', icon: '🏖️', valor: r2(totalFerias), linhas: [['Férias', r2(totalFerias)]] });
   passos.forEach(x => { if (!x.fase) x.fase = 2; if (!x.de) x.de = 'Activo'; });
-  const doActivo = f => r2(passos.filter(x => x.de === 'Activo' && (f == null || x.fase === f)).reduce((s, x) => s + x.valor, 0));
+  const doActivo = f => r2(passos.filter(x => x.de === 'Activo' && !x.dispensado && (f == null || x.fase === f)).reduce((s, x) => s + x.valor, 0));
   const saidas = doActivo(2);
   const porAlocar = r2(pInv - itens.reduce((s, i) => s + n(i.val), 0));
-  const fica = r2(recebidoMes - doActivo() + (adiantou ? valAB : 0));
+  const fica = r2(recebidoMes - doActivo());
   return { passos, saidas, fica, porAlocar, totPess: r2(totPess), valAB };
 };
 
