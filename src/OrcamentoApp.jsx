@@ -1428,7 +1428,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const v = pi.ivaPag(idx); valor = v.valor; nota = `IVA do ${v.t}.º trimestre de ${v.ano}${v.valor < 0.5 ? ' · sem IVA a pagar, só declarar' : ''}`;
        if (v.pago) feito = true;
      }
-     L.push({ id: 't' + t.id, dia: d, cat: t.cat || 'Rotina', titulo: t.desc, curto: t.cat && t.cat !== 'Transf' && t.cat !== 'Invest' ? `${t.cat}: ${String(t.desc).replace(/^(Pagar|Entregar)\s+/i, '')}` : t.desc, valor, nota, chave, estado: est(feito, d), ir: t.cat === 'SS' || t.cat === 'IVA' || t.cat === 'IRS' ? irImp : () => setTab('agenda') });
+     let lista = null;
+     if (t.cat === 'Contab' || /enviar faturas/i.test(t.desc || '')) {
+       const fim = idx - 2, ini = fim - 2, mm = String(m).padStart(2, '0');
+       nota = `Faturas de ${meses[((ini % 12) + 12) % 12]} a ${meses[((fim % 12) + 12) % 12]} de ${Math.floor(fim / 12)} · o contabilista declara até 20/${mm} e pagas até 25/${mm}`;
+       lista = [
+         'Os teus recibos verdes do trimestre — assinala os de clientes da UE (vão para a declaração recapitulativa)',
+         'Faturas de despesas da atividade com o teu NIF e IVA português (equipamento, software, etc.) — o IVA é dedutível',
+         'Faturas de serviços estrangeiros (Adobe, ferramentas de IA, subscrições) — autoliquidação do IVA',
+         'Não envies despesas pessoais (supermercado, saúde, casa) — essas só contam no e-Fatura para o IRS',
+       ];
+     } else if (/e-?fatura/i.test(t.desc || '') && t.freq === 'mensal') {
+       nota = `Confirma as faturas de ${meses[((idx - 1) % 12 + 12) % 12]}: marca as da atividade e classifica as pessoais (deduções do IRS)`;
+     }
+     L.push({ id: 't' + t.id, lista, dia: d, cat: t.cat || 'Rotina', titulo: t.desc, curto: t.cat && t.cat !== 'Transf' && t.cat !== 'Invest' ? `${t.cat}: ${String(t.desc).replace(/^(Pagar|Entregar)\s+/i, '')}` : t.desc, valor, nota, chave, estado: est(feito, d), ir: t.cat === 'SS' || t.cat === 'IVA' || t.cat === 'IRS' ? irImp : () => setTab('agenda') });
    });
    // Rotina: início do mês e preparar o seguinte
    const mk = patKey(idx), md = M[mk] || {};
