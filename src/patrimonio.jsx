@@ -1916,6 +1916,26 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   );
 };
 
+// Ajustes só para o telemóvel (ecrãs < 640px). As classes m-* não fazem nada no computador.
+const CSS_MOBILE = `
+.m-br{display:none}
+@media (max-width: 639px){
+  .m-row{flex-wrap:wrap;row-gap:.375rem}
+  .m-row>.m-hide{display:none!important}
+  .m-row>.m-l1{order:-1}
+  .m-row>.m-desc{order:-1;flex:1 1 0%;min-width:0;width:auto}
+  .m-row>.m-br{display:block;order:-1;flex-basis:100%;height:0}
+  .m-row>.m-grow{flex:1 1 0%;width:auto;min-width:0}
+  .m-wrap{flex-wrap:wrap;row-gap:.5rem}
+  .m-gap2{gap:.5rem!important}
+  .m-ml-auto{margin-left:auto}
+  .m-num{font-size:.8rem!important;line-height:1.15rem!important;overflow-wrap:anywhere}
+  .m-fab{padding:.75rem!important;bottom:.75rem!important;right:.75rem!important;line-height:1}
+  .m-fab-txt{display:none}
+  .m-pad{padding-bottom:5rem!important}
+}
+`;
+
 export {
   PedirDados, txNumero, txR2, txParseCSV, txEhDegiro, txLerDegiro, TX_MESES, txEhTradeRepublic,
   txLerTradeRepublic, txDias, txParecida, txMaisProxima, txMarcarDuplicados, txDuplicadosProvaveis, txTextoPDF, txLerFicheiro,
@@ -1925,5 +1945,5 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, patFmtK, PatLinhas, PatChart, Patrimonio
+  ChatGemini, patFmtK, PatLinhas, PatChart, Patrimonio, CSS_MOBILE
 };
