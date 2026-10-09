@@ -848,6 +848,126 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   return { passos, saidas, fica, porAlocar, totPess: r2(totPess), valAB };
 };
 
+// ══ CALENDÁRIO FINANCEIRO ═══════════════════════════════════════════════════
+// Vista de mês com tudo o que tem data: impostos (com valores previstos), prestação,
+// tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
+// o mês e o dia escolhidos quando o resto da app muda.
+const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Rotina: '#64748b' };
+const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, mesInicial }) => {
+  const claro = theme === 'light';
+  const hoje = new Date();
+  const [y, setY] = useState(anoInicial);
+  const [m, setM] = useState(mesInicial); // 1-12
+  const ehMesHoje = y === hoje.getFullYear() && m === hoje.getMonth() + 1;
+  const [dia, setDia] = useState(ehMesHoje ? hoje.getDate() : null);
+  const evs = eventosDoMes(y, m);
+  const porDia = {};
+  evs.forEach(e => { (porDia[e.dia] = porDia[e.dia] || []).push(e); });
+  const nDias = new Date(y, m, 0).getDate();
+  const offset = (new Date(y, m - 1, 1).getDay() + 6) % 7; // segunda = 0
+  const mudar = d => { let mm = m + d, yy = y; if (mm < 1) { mm = 12; yy--; } if (mm > 12) { mm = 1; yy++; } setM(mm); setY(yy); setDia(null); };
+  const irHoje = () => { setY(hoje.getFullYear()); setM(hoje.getMonth() + 1); setDia(hoje.getDate()); };
+  const diaSel = dia || (evs[0] ? evs[0].dia : null);
+  const estadoCls = e => e.estado === 'ok' ? 'line-through opacity-60' : e.estado === 'atrasado' ? 'ring-1 ring-red-500/60' : '';
+  // Próximos 30 dias (a partir de hoje), juntando este mês e o seguinte
+  const proximos = (() => {
+    const out = [];
+    const base = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    for (let k = 0; k < 2; k++) {
+      const d0 = new Date(hoje.getFullYear(), hoje.getMonth() + k, 1);
+      eventosDoMes(d0.getFullYear(), d0.getMonth() + 1).forEach(e => {
+        const dt = new Date(d0.getFullYear(), d0.getMonth(), e.dia);
+        const dias = Math.round((dt - base) / 86400000);
+        if (dias >= 0 && dias <= 30 && e.estado !== 'ok') out.push({ ...e, dt, dias });
+      });
+    }
+    return out.sort((a, b) => a.dt - b.dt);
+  })();
+  const atrasados = eventosDoMes(hoje.getFullYear(), hoje.getMonth() + 1).filter(e => e.estado === 'atrasado');
+  const cel = claro ? 'bg-white border-slate-200' : 'bg-slate-800/40 border-slate-700/50';
+  const Linha = ({ e, data }) => (
+    <div className={`flex items-center gap-2 p-2 rounded-lg ${claro ? 'bg-slate-50' : 'bg-slate-700/30'}`}>
+      {e.chave ? <input type="checkbox" aria-label={`${e.titulo} feito`} className="w-4 h-4 accent-emerald-500 flex-shrink-0" checked={e.estado === 'ok'} onChange={ev => onToggle(e.chave, ev.target.checked)} />
+        : <span className="w-4 text-center flex-shrink-0">{e.estado === 'ok' ? '✓' : '•'}</span>}
+      {data && <span className="text-xs text-slate-500 w-14 flex-shrink-0">{data}</span>}
+      <span className="w-1.5 h-6 rounded-full flex-shrink-0" style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina }} />
+      <button onClick={e.ir} disabled={!e.ir} className={`flex-1 min-w-0 text-left text-sm ${e.estado === 'ok' ? 'line-through text-slate-500' : ''} ${e.ir ? 'hover:underline' : ''}`}>
+        {e.titulo}{e.nota && <span className="block text-xs text-slate-500 no-underline">{e.nota}</span>}
+      </button>
+      {e.valor > 0 && <span className="text-sm font-semibold whitespace-nowrap">{fmt(e.valor)}</span>}
+      {e.estado === 'atrasado' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 flex-shrink-0">atrasado</span>}
+    </div>
+  );
+  return (
+    <div className="space-y-4 max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">🗓️ Calendário</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={() => mudar(-1)} aria-label="Mês anterior" className={`px-2.5 py-1.5 rounded-lg ${claro ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-600'}`}>‹</button>
+          <span className="font-medium w-36 text-center">{meses[m - 1]} {y}</span>
+          <button onClick={() => mudar(1)} aria-label="Mês seguinte" className={`px-2.5 py-1.5 rounded-lg ${claro ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-600'}`}>›</button>
+          {!ehMesHoje && <button onClick={irHoje} className="px-2.5 py-1.5 text-xs rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Hoje</button>}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        {[['SS', 'Segurança Social'], ['IVA', 'IVA'], ['IRS', 'IRS'], ['Casa', 'Casa'], ['Transf', 'Transferências'], ['Invest', 'Investir'], ['Contab', 'Contabilista'], ['Rotina', 'Rotina do mês']].map(([k, l]) => (
+          <span key={k} className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CAL_CORES[k] }} />{l}</span>
+        ))}
+      </div>
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <div className="grid grid-cols-7 gap-1 text-[11px] text-slate-500 text-center mb-1">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(d => <div key={d}>{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: offset }).map((_, i) => <div key={'v' + i} />)}
+            {Array.from({ length: nDias }).map((_, i) => {
+              const d = i + 1, lst = porDia[d] || [];
+              const eHoje = ehMesHoje && d === hoje.getDate();
+              const sel = d === diaSel;
+              return (
+                <button key={d} onClick={() => setDia(d)} aria-label={`${d} de ${meses[m - 1]}, ${lst.length} eventos`}
+                  className={`min-h-[64px] sm:min-h-[92px] p-1 sm:p-1.5 rounded-lg border text-left align-top flex flex-col gap-0.5 ${cel} ${sel ? 'ring-2 ring-blue-500' : ''} ${eHoje ? 'border-emerald-500' : ''}`}>
+                  <span className={`text-xs ${eHoje ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>{d}</span>
+                  <span className="hidden sm:flex flex-col gap-0.5 w-full">
+                    {lst.slice(0, 3).map(e => (
+                      <span key={e.id} className={`truncate text-[10px] leading-tight px-1 py-0.5 rounded text-white ${estadoCls(e)}`} style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina }}>{e.curto || e.titulo}</span>
+                    ))}
+                    {lst.length > 3 && <span className="text-[10px] text-slate-500">+{lst.length - 3}</span>}
+                  </span>
+                  <span className="flex sm:hidden flex-wrap gap-0.5">
+                    {lst.map(e => <span key={e.id} className="w-1.5 h-1.5 rounded-full" style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina, opacity: e.estado === 'ok' ? 0.35 : 1 }} />)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 space-y-1.5">
+            <p className="text-sm font-medium">{diaSel ? `${diaSel} de ${meses[m - 1]}` : 'Sem nada marcado neste mês'}</p>
+            {diaSel && !(porDia[diaSel] || []).length && <p className="text-xs text-slate-500">Nada marcado neste dia.</p>}
+            {(porDia[diaSel] || []).map(e => <Linha key={e.id} e={e} />)}
+          </div>
+        </div>
+        <div className="space-y-3">
+          {atrasados.length > 0 && (
+            <div>
+              <p className="text-sm font-medium text-red-400 mb-1.5">Em atraso este mês</p>
+              <div className="space-y-1.5">{atrasados.map(e => <Linha key={'a' + e.id} e={e} data={`${e.dia} ${meses[hoje.getMonth()].slice(0, 3)}`} />)}</div>
+            </div>
+          )}
+          <div>
+            <p className="text-sm font-medium mb-1.5">Próximos 30 dias</p>
+            {!proximos.length && <p className="text-xs text-slate-500">Nada pendente.</p>}
+            <div className="space-y-1.5">
+              {proximos.map(e => <Linha key={'p' + e.dt.getMonth() + e.id} e={e} data={e.dias === 0 ? 'Hoje' : e.dias === 1 ? 'Amanhã' : `${e.dt.getDate()} ${meses[e.dt.getMonth()].slice(0, 3)}`} />)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ══ PREVISÃO DE IMPOSTOS ════════════════════════════════════════════════════
 // SS: o pagamento feito no mês P é a contribuição do mês P−1, calculada na declaração trimestral
 //     do trimestre desse mês, que declara o trimestre anterior. Pago em Outubro → base Abr+Mai+Jun.
@@ -954,6 +1074,7 @@ const impCalc = (G, M, hoje = new Date()) => {
   const totalImpostos = ssAnual + ivaAnual + irsEstimado;
   return {
     // SS
+    ssPara, ivaPag: i => { const q = qDe(i - 3); return { ...ivaQ(q.ini), t: q.t, ano: q.ano }; },
     ssEste, ssProx, ssDepois, ssMesAtual: ssEste.valor, ssProximoMes: ssProx.valor, ssMensal: ssProx.valor, ssAnual, fatorSS, paresSS: paresSS.length,
     receitasTrimestreDeclarado: ssEste.rec, nomeMesesDeclarados: ssEste.nomeBase, anoMesesDeclarados: ssEste.anoBase,
     rendimentoRelevanteSS: ssProx.rec * 0.70,
@@ -1151,7 +1272,7 @@ const PROCESS_INVOICE_URLS = [
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, impCalc, anos, _fmtEUR,
-  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, CAL_CORES, CalendarioFinanceiro, impCalc,
+  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
+  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
