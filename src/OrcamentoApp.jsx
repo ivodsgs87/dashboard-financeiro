@@ -10339,11 +10339,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
  const ultimaSubRef = useRef({});
  if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
- // Passar o rato por um grupo mostra os seus separadores na segunda linha, e ficam lá
- // até passares por outro grupo. Ao mudar de separador volta a mostrar o grupo ativo.
- const [grupoVisto, setGrupoVisto] = useState(null);
- useEffect(() => { setGrupoVisto(null); }, [tab]);
- const grupoLinha = (grupoVisto && tabs.find(t => t.id === grupoVisto)) || grupoAtivo;
+ // Menu de cada grupo: abre ao passar o rato e fica aberto até passares por outro grupo,
+ // escolheres um separador, clicares fora ou carregares em Esc.
+ const [menuAberto, setMenuAberto] = useState(null);
+ const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
+ const menuRef = useRef(null);
+ const abrirMenu = (id, el) => {
+   const r = el.getBoundingClientRect();
+   setMenuPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 210)), top: r.bottom + 6 });
+   setMenuAberto(id);
+ };
+ useEffect(() => { setMenuAberto(null); }, [tab]);
+ useEffect(() => {
+   if (!menuAberto) return;
+   const fora = e => { if (menuRef.current && !menuRef.current.contains(e.target) && !e.target.closest('[data-grupo-menu]')) setMenuAberto(null); };
+   const esc = e => { if (e.key === 'Escape') setMenuAberto(null); };
+   const fechar = () => setMenuAberto(null);
+   document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc); window.addEventListener('resize', fechar);
+   return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); window.removeEventListener('resize', fechar); };
+ }, [menuAberto]);
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -12850,9 +12864,10 @@ ${transacoesOrdenadas.map(t => `<tr>
           return t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
-            <button key={t.id}
-              onMouseEnter={() => setGrupoVisto(t.id)}
-              onClick={() => setTab(isSubActive ? tab : (ultimaSubRef.current[t.id] || t.submenu[0].id))}
+            <button key={t.id} data-grupo-menu
+              aria-haspopup="menu" aria-expanded={menuAberto === t.id}
+              onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
+              onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
               className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
                 isSubActive
                   ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25'
@@ -12863,26 +12878,35 @@ ${transacoesOrdenadas.map(t => `<tr>
             >
               <span className="sm:mr-1">{t.icon}</span>
               <span className="hidden sm:inline">{t.label}</span>
+              <span className={`ml-1 text-xs inline-block transition-transform ${menuAberto === t.id ? 'rotate-180' : ''}`}>▾</span>
             </button>
           ) : (
-            <button key={t.id} onMouseEnter={() => setGrupoVisto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+            <button key={t.id} onMouseEnter={() => setMenuAberto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           );
         })}
       </nav>
-      {grupoLinha && (
-        <nav aria-label={`Separadores de ${grupoLinha.label}`} className={`flex gap-1 sm:gap-1.5 px-3 sm:px-6 py-1.5 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/80 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
-          {grupoLinha !== grupoAtivo && <span className="flex-shrink-0 self-center text-[11px] text-slate-500 pr-1">{grupoLinha.icon} {grupoLinha.label}:</span>}
-          {grupoLinha.submenu.map(sub => (
-            <button key={sub.id} onClick={() => setTab(sub.id)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${tab === sub.id
-                ? (theme === 'light' ? 'bg-blue-500/15 text-blue-700 font-semibold' : 'bg-blue-500/20 text-blue-300 font-semibold')
-                : (theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-700/50')}`}>
-              <span className="mr-1">{sub.icon}</span>{sub.label}
-            </button>
-          ))}
-        </nav>
-      )}
       </div>{/* end sticky header+nav wrapper */}
+      {menuAberto && (() => {
+        const g = tabs.find(t => t.id === menuAberto);
+        if (!g || !g.submenu) return null;
+        return (
+          <div ref={menuRef} role="menu" className="fixed z-50 animate-fadeIn" style={{ left: menuPos.left, top: menuPos.top }}>
+            <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[180px]`}>
+              {g.submenu.map(sub => (
+                <button key={sub.id} role="menuitem"
+                  onClick={() => { setTab(sub.id); setMenuAberto(null); }}
+                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
+                    tab === sub.id
+                      ? 'bg-blue-500/20 text-blue-400'
+                      : theme === 'light' ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-700'
+                  }`}>
+                  <span>{sub.icon}</span><span>{sub.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto" style={{overflowX: "clip"}}>
         <div key={tab} className="animate-fadeIn">
