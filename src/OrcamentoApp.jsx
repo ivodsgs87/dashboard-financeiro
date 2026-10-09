@@ -609,6 +609,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  })();
  const avisoCls = cor => `rounded-xl border px-4 py-2.5 text-sm flex flex-wrap items-center gap-x-3 gap-y-1 ${cor === 'verde' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : cor === 'vermelho' ? 'bg-red-500/10 border-red-500/30 text-red-400' : (theme === 'light' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-700/30 border-slate-600/50 text-slate-400')}`;
  const dataPt = iso => String(iso || '').slice(0, 10).split('-').reverse().join('/');
+ // Despesas fixas (casal / pessoais) revistas para o mês escolhido? Contam as revisões a partir do
+ // dia 20 do mês anterior, porque o planeamento faz-se antes de o mês começar (a prestação sai dia 1).
+ const avisoDesp = (f, nome) => {
+   const idx = patIdx(mesKey);
+   if (idx < patIdxHoje()) return null;
+   const ant = idx - 1;
+   const limite = `${Math.floor(ant / 12)}-${String(ant % 12 + 1).padStart(2, '0')}-20`;
+   const d = (G.despRevistas || {})[f];
+   const ok = !!d && d >= limite;
+   return (
+     <div className={avisoCls(ok ? 'verde' : 'vermelho')}>
+       <span>{ok ? `✓ ${nome} revistas a ${dataPt(d)}, prontas para ${mes}` : `✕ ${nome} ainda não revistas para ${mes}${d ? ` (última vez: ${dataPt(d)})` : ''}`}</span>
+       {!ok && <button onClick={() => uG('despRevistas', { ...(G.despRevistas || {}), [f]: patIso(new Date()) })} className="ml-auto text-xs px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300">Está tudo certo</button>}
+     </div>
+   );
+ };
   
   const mesKeyRef = useRef(mesKey);
   
@@ -642,7 +658,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  const uG = useCallback((f,v) => {
    saveUndo();
-   setG(p => ({...p, [f]:v}));
+   // Mexer nas despesas do casal ou pessoais conta como "revistas" nesse dia (aviso verde/vermelho)
+   setG(p => ({...p, [f]:v, ...(f === 'despABanca' || f === 'despPess' ? { despRevistas: { ...(p.despRevistas || {}), [f]: patIso(new Date()) } } : {})}));
  }, [saveUndo]);
  
  const uS = useCallback((f,v) => {
@@ -3675,6 +3692,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
+ {avisoDesp('despABanca', 'Despesas do casal')}
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -3790,6 +3808,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
+ {avisoDesp('despPess', 'Despesas pessoais')}
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -11046,6 +11065,14 @@ ${transacoesOrdenadas.map(t => `<tr>
    });
    
    // Verificar transferências do mês
+   if (diaHoje >= 20) {
+     const _lim = `${anoHoje}-${String(mesHoje).padStart(2, '0')}-20`;
+     const _prx = meses[mesHoje % 12];
+     [['despABanca', 'do casal'], ['despPess', 'pessoais']].forEach(([f, n]) => {
+       const d = (G.despRevistas || {})[f];
+       if (!d || d < _lim) alerts.push({tipo: 'transf', msg: `📝 Rever as despesas ${n} para ${_prx}`, severity: 'warning'});
+     });
+   }
    if (diaHoje >= 25 && guia.valAB > 0.5) {
      const _prox = new Date(anoHoje, mesHoje, 1);
      const _kProx = `${_prox.getFullYear()}-${_prox.getMonth() + 1}`;
