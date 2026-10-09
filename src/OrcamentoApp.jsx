@@ -10339,6 +10339,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
  const ultimaSubRef = useRef({});
  if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
+ // Passar o rato por um grupo mostra os seus separadores na segunda linha, e ficam lá
+ // até passares por outro grupo. Ao mudar de separador volta a mostrar o grupo ativo.
+ const [grupoVisto, setGrupoVisto] = useState(null);
+ useEffect(() => { setGrupoVisto(null); }, [tab]);
+ const grupoLinha = (grupoVisto && tabs.find(t => t.id === grupoVisto)) || grupoAtivo;
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -12846,6 +12851,7 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
             <button key={t.id}
+              onMouseEnter={() => setGrupoVisto(t.id)}
               onClick={() => setTab(isSubActive ? tab : (ultimaSubRef.current[t.id] || t.submenu[0].id))}
               className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
                 isSubActive
@@ -12859,13 +12865,14 @@ ${transacoesOrdenadas.map(t => `<tr>
               <span className="hidden sm:inline">{t.label}</span>
             </button>
           ) : (
-            <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
+            <button key={t.id} onMouseEnter={() => setGrupoVisto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           );
         })}
       </nav>
-      {grupoAtivo && (
-        <nav aria-label={`Separadores de ${grupoAtivo.label}`} className={`flex gap-1 sm:gap-1.5 px-3 sm:px-6 py-1.5 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/80 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
-          {grupoAtivo.submenu.map(sub => (
+      {grupoLinha && (
+        <nav aria-label={`Separadores de ${grupoLinha.label}`} className={`flex gap-1 sm:gap-1.5 px-3 sm:px-6 py-1.5 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/80 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
+          {grupoLinha !== grupoAtivo && <span className="flex-shrink-0 self-center text-[11px] text-slate-500 pr-1">{grupoLinha.icon} {grupoLinha.label}:</span>}
+          {grupoLinha.submenu.map(sub => (
             <button key={sub.id} onClick={() => setTab(sub.id)}
               className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${tab === sub.id
                 ? (theme === 'light' ? 'bg-blue-500/15 text-blue-700 font-semibold' : 'bg-blue-500/20 text-blue-300 font-semibold')
