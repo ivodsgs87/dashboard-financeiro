@@ -1452,6 +1452,54 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    L.push({ id: 'r-prep', dia: Math.min(20, nDias), cat: 'Rotina', titulo: `Preparar ${meses[m % 12]}: rever despesas e mandar a ABanca antes do dia 1`, curto: `Preparar ${meses[m % 12]}`, valor: guia.valAB, estado: prepFeito ? 'ok' : est(false, nDias), ir: () => { setAno(Math.floor((idx + 1) / 12)); setMes(meses[(idx + 1) % 12]); setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); } });
    return L.sort((a, b) => a.dia - b.dia);
  };
+ // ══ Notificações no computador ══
+ // Avisam no dia e na véspera dos eventos do Calendário (impostos, transferências, preparar o mês...).
+ // Funcionam enquanto a app estiver aberta num separador do browser (mesmo que não seja o ativo).
+ const notifSuportadas = typeof window !== 'undefined' && 'Notification' in window;
+ const [notifOn, setNotifOn] = useState(() => { try { return localStorage.getItem('notif-on') === '1'; } catch (e) { return false; } });
+ const notifEvRef = useRef(null);
+ notifEvRef.current = eventosCalendario;
+ const alternarNotif = async () => {
+   const guardar = v => { setNotifOn(v); try { localStorage.setItem('notif-on', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
+   if (notifOn) { guardar(false); showToast('Notificações desligadas'); return; }
+   if (!notifSuportadas) { showToast('Este browser não suporta notificações', 'error'); return; }
+   let perm = Notification.permission;
+   if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch (e) { perm = 'denied'; } }
+   if (perm !== 'granted') { showToast('O browser bloqueou as notificações: clica no cadeado ao lado do endereço e permite "Notificações"', 'error', 7000); return; }
+   guardar(true);
+   try { new Notification('🔔 Notificações ligadas', { body: 'Aviso-te no dia e na véspera dos impostos, transferências e da preparação do mês.' }); } catch (e) { /* ignorar */ }
+ };
+ useEffect(() => {
+   if (!notifOn || !dataLoaded || !notifSuportadas || Notification.permission !== 'granted') return;
+   const verificar = () => {
+     const f = notifEvRef.current; if (!f) return;
+     const h = new Date(); if (h.getHours() < 8) return;
+     const am = new Date(h.getFullYear(), h.getMonth(), h.getDate() + 1);
+     const hojeIso = patIso(h);
+     let enviados = {};
+     try { enviados = JSON.parse(localStorage.getItem('notif-enviadas') || '{}') || {}; } catch (e) { enviados = {}; }
+     Object.keys(enviados).forEach(k => { if (enviados[k] !== hojeIso) delete enviados[k]; });
+     const mostrar = (k, titulo, corpo) => {
+       if (enviados[k]) return;
+       try {
+         const n = new Notification(titulo, { body: corpo, tag: k });
+         n.onclick = () => { window.focus(); setTab('calfin'); n.close(); };
+       } catch (e) { /* ignorar */ }
+       enviados[k] = hojeIso;
+     };
+     const doDia = (d, quando) => f(d.getFullYear(), d.getMonth() + 1)
+       .filter(e => e.dia === d.getDate() && e.estado !== 'ok' && e.cat !== 'Casa')
+       .forEach(e => mostrar(`${quando}-${e.chave || e.id}`, `${quando}: ${e.titulo}`, [e.valor > 0 ? fmt(e.valor) : '', e.nota || ''].filter(Boolean).join(' · ')));
+     doDia(h, 'Hoje'); doDia(am, 'Amanhã');
+     const atr = f(h.getFullYear(), h.getMonth() + 1).filter(e => e.estado === 'atrasado' && e.cat !== 'Casa');
+     if (atr.length) mostrar('atraso', `⚠️ ${atr.length} ${atr.length === 1 ? 'coisa' : 'coisas'} em atraso`, atr.slice(0, 4).map(e => e.titulo).join(' · '));
+     try { localStorage.setItem('notif-enviadas', JSON.stringify(enviados)); } catch (e) { /* sem armazenamento */ }
+   };
+   const t0 = setTimeout(verificar, 8000);
+   const t = setInterval(verificar, 30 * 60 * 1000);
+   return () => { clearTimeout(t0); clearInterval(t); };
+ }, [notifOn, dataLoaded]);
+
  // ══ Passos do mês (checklist no topo do Resumo) — cada um lê o estado real dos dados ══
  const getPassosMes = () => {
    const idx = patIdx(mesKey), hojeIdx = patIdxHoje();
@@ -1655,7 +1703,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <Card key={widgetId}>
          <div className="flex justify-between items-center mb-3">
            <h3 className="font-semibold">📅 Próximas Datas Fiscais</h3>
-           <button onClick={() => setTab('agenda')} className="text-xs text-blue-400 hover:text-blue-300">Ver tudo →</button>
+           <button onClick={() => setTab('calfin')} className="text-xs text-blue-400 hover:text-blue-300">Ver no calendário →</button>
          </div>
          <div className="space-y-2">
            {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
@@ -1681,14 +1729,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              );
            })}
            {(tarefasPend.atrasadas || []).length > 8 && (
-             <p className="text-xs text-center text-orange-400/70 py-1">e mais {(tarefasPend.atrasadas || []).length - 8} atrasadas...</p>
+             <button onClick={() => setTab('calfin')} className="w-full text-xs text-center text-orange-400/70 hover:text-orange-300 py-1">e mais {(tarefasPend.atrasadas || []).length - 8} atrasadas → ver no calendário</button>
            )}
            {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
              const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
              const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
              const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
              return (
-               <div key={i} onClick={() => setTab('agenda')} className={`flex items-center gap-2 p-2 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'} rounded-lg text-sm cursor-pointer`}>
+               <div key={i} onClick={() => setTab('calfin')} className={`flex items-center gap-2 p-2 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'} rounded-lg text-sm cursor-pointer`}>
                  <span className={`w-14 text-xs flex-shrink-0 ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>{t.dia} {t.mesNome?.slice(0,3)}</span>
                  <span className="flex-1 truncate">{descComMes}</span>
                  <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
@@ -13110,7 +13158,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      </div>
    </div>
  )}
- {tab==='calfin' && <CalendarioFinanceiro eventosDoMes={eventosCalendario} theme={theme} fmt={fmt} anoInicial={anoAtualSistema} mesInicial={new Date().getMonth() + 1}
+ {tab==='calfin' && <CalendarioFinanceiro notif={{ on: notifOn, suportado: notifSuportadas, alternar: alternarNotif }} eventosDoMes={eventosCalendario} theme={theme} fmt={fmt} anoInicial={anoAtualSistema} mesInicial={new Date().getMonth() + 1}
   onToggle={(k, v) => { const n = { ...(G.tarefasConcluidas || {}) }; if (v) n[k] = true; else delete n[k]; uG('tarefasConcluidas', n); }} />}
 {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
