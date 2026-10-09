@@ -800,6 +800,43 @@ const impIRSEscaloes = rend => {
   }
   return imposto;
 };
+// ══ GUIA DE TRANSFERÊNCIAS ══════════════════════════════════════════════════
+// Os pagamentos chegam ao Activo Bank. Daí saem, por esta ordem e com o mínimo de movimentos:
+// ABanca (casal), investimentos dos filhos, Trade Republic (impostos + FE + cripto/ETF da TR +
+// amortização a juntar), cada corretora/plataforma e a Revolut (férias). Fica no Activo o das
+// despesas pessoais e o que ainda não foi alocado.
+const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv = [], restante = 0, alocAmort = 0, alocFerias = 0, totalFerias = 0, recebidoMes = 0, totPess = 0 }) => {
+  const n = v => { const x = parseFloat(v); return Number.isFinite(x) ? x : 0; };
+  const r2 = v => Math.round(v * 100) / 100;
+  const ehTR = i => i.cat === 'CRIPTO' || i.cat === 'FE' || /trade\s*republic|^tr\b/i.test(String(i.desc || '').trim());
+  const itens = (inv || []).filter(i => i && i.cat !== 'CREDITO' && n(i.val) > 0);
+  const disp = restante > 0 ? restante : 0;
+  const amort = r2(disp * ((alocAmort - alocFerias) / 100) + (inv || []).filter(i => i && i.cat === 'CREDITO').reduce((s, i) => s + n(i.val), 0));
+  const pInv = disp * ((100 - alocAmort) / 100);
+  const passos = [];
+  const filhos = n(investFilhos);
+  if (minhaAB - filhos > 0.5) passos.push({ id: 'g_abanca', para: 'ABanca', icon: '🏠', valor: r2(minhaAB - filhos), linhas: [['Despesas do casal', r2(minhaAB - filhos)]], nota: filhos > 0 ? 'Já sem os investimentos dos filhos, que saem diretamente do Activo' : '' });
+  if (filhos > 0) passos.push({ id: 'g_filhos', para: 'Investimentos dos filhos', icon: '👶', valor: r2(filhos), linhas: [] });
+  const tr = itens.filter(ehTR);
+  const nomeTR = i => (/trade\s*republic|^tr\b/i.test(String(i.desc || '').trim()) || !i.desc ? i.cat : i.desc);
+  const linhasTR = [['Impostos (não mexer)', r2(impostosNaTR)], ...tr.map(i => [i.cat === 'FE' ? 'Fundo de emergência' : nomeTR(i), r2(n(i.val))]), ...(amort > 0.5 ? [['Amortização (fica a juntar)', amort]] : [])].filter(l => l[1] > 0.004);
+  const valTR = r2(linhasTR.reduce((s, l) => s + l[1], 0));
+  const compraNaTR = [...new Set(tr.filter(i => i.cat !== 'FE').map(nomeTR))];
+  if (valTR > 0.5) passos.push({ id: 'g_tr', para: 'Trade Republic', icon: '📈', valor: valTR, linhas: linhasTR, nota: compraNaTR.length ? `Depois, lá dentro: comprar ${compraNaTR.join(', ')}` : '' });
+  const grupos = {};
+  itens.filter(i => !ehTR(i)).forEach(i => {
+    const nome = String(i.desc || i.cat).trim() || i.cat;
+    const k = nome.toLowerCase();
+    if (!grupos[k]) grupos[k] = { nome, valor: 0, cats: new Set() };
+    grupos[k].valor += n(i.val); grupos[k].cats.add(i.cat);
+  });
+  Object.values(grupos).forEach(g => passos.push({ id: 'g_inv_' + g.nome.toLowerCase().replace(/[^a-z0-9]+/g, '_'), para: g.nome, icon: '💼', valor: r2(g.valor), linhas: [[[...g.cats].join(' + '), r2(g.valor)]] }));
+  if (totalFerias > 0.5) passos.push({ id: 'g_revolut', para: 'Revolut', icon: '🏖️', valor: r2(totalFerias), linhas: [['Férias', r2(totalFerias)]] });
+  const saidas = r2(passos.reduce((s, x) => s + x.valor, 0));
+  const porAlocar = r2(pInv - itens.reduce((s, i) => s + n(i.val), 0));
+  return { passos, saidas, fica: r2(recebidoMes - saidas), porAlocar, totPess: r2(totPess) };
+};
+
 // ══ PREVISÃO DE IMPOSTOS ════════════════════════════════════════════════════
 // SS: o pagamento feito no mês P é a contribuição do mês P−1, calculada na declaração trimestral
 //     do trimestre desse mês, que declara o trimestre anterior. Pago em Outubro → base Abr+Mai+Jun.
@@ -1103,7 +1140,7 @@ const PROCESS_INVOICE_URLS = [
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  retencaoPadrao, impNum, impIRSEscaloes, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC,
-  BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome,
-  clienteDoNome, PROCESS_INVOICE_URLS
+  retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, impCalc, anos, _fmtEUR, _semAcentos,
+  BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo,
+  _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
