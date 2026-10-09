@@ -812,7 +812,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const restante = recLiq - minhaAB - totPess - ferias;
  const feriasExtra = restante > 0 ? restante * (alocFerias/100) : 0;
  const totalFerias = ferias + feriasExtra;
- const transfTR = minhaAB + totPess + valTax;
+ // O que chega de facto à conta: valor + IVA − retenção (o cliente já entregou a retenção às Finanças)
+ const _regsMes = [...regCom, ...regSem];
+ const ivaMes = _regsMes.reduce((a, r) => a + (parseFloat(r.iva) || 0), 0);
+ const retMes = _regsMes.reduce((a, r) => a + (parseFloat(r.retIRS) || 0), 0);
+ const recebidoMes = totRec + ivaMes - retMes;
+ // Fica na TR para impostos: a reserva menos o que já foi retido, mais o IVA cobrado (é do Estado)
+ const impostosNaTR = Math.max(0, valTax - retMes) + ivaMes;
  const totSaraR = sara.rend.reduce((a,r)=>a+r.val,0);
  const totSaraD = sara.desp.reduce((a,d)=>a+d.val,0);
  const sobraSara = totSaraR - totSaraD - contribSaraAB;
@@ -1907,9 +1913,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <input type="checkbox" className="w-4 h-4 accent-blue-500" checked={transf.toTR || false} onChange={e=>uM('transf',{...transf,toTR:e.target.checked})}/>
          <div className="flex-1">
            <p className="text-sm font-medium">📥 Activo → Trade Republic</p>
-           <p className="text-xs text-slate-500">Transferir receitas do mês</p>
+           <p className="text-xs text-slate-500">{Math.abs(recebidoMes - totRec) > 0.5 ? `O que recebeste: ${fmt(totRec)}${ivaMes > 0 ? ` + IVA ${fmt(ivaMes)}` : ''}${retMes > 0 ? ` − retido ${fmt(retMes)}` : ''}` : 'Transferir receitas do mês'}</p>
          </div>
-         <span className="font-bold text-blue-400">{fmt(totRec)}</span>
+         <span className="font-bold text-blue-400">{fmt(recebidoMes)}</span>
        </div>
        
        <div className="border-t border-slate-700/50 my-2 pt-2">
@@ -1946,14 +1952,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </>
        )}
        
-       {/* Resumo: fica na TR */}
-       <div className="border-t border-slate-700/50 mt-3 pt-3">
+       {/* Resumo: o que fica na TR, separado entre impostos e o que é teu */}
+       <div className="border-t border-slate-700/50 mt-3 pt-3 space-y-2">
+         <p className="text-xs text-slate-500">💎 Fica na Trade Republic: {fmt(recebidoMes - minhaAB - totPess - totalFerias)}</p>
+         <div className="flex items-center justify-between p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+           <div>
+             <p className="text-sm font-medium text-orange-300">🧾 Para impostos</p>
+             <p className="text-xs text-slate-500">Reserva de {fmtP(taxa)}{retMes > 0 ? ' menos o já retido' : ''}{ivaMes > 0 ? ' + IVA cobrado' : ''} · não mexer</p>
+           </div>
+           <span className="font-bold text-orange-400">{fmt(impostosNaTR)}</span>
+         </div>
          <div className="flex items-center justify-between p-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
            <div>
-             <p className="text-sm font-medium text-purple-300">💎 Fica na Trade Republic</p>
-             <p className="text-xs text-slate-500">Amortização + Investimentos</p>
+             <p className="text-sm font-medium text-purple-300">💎 Amortização + Investimentos</p>
+             <p className="text-xs text-slate-500">O que é mesmo teu para pôr a render</p>
            </div>
-           <span className="font-bold text-purple-400">{fmt(totRec - minhaAB - totPess - totalFerias)}</span>
+           <span className="font-bold text-purple-400">{fmt(restante - feriasExtra)}</span>
          </div>
        </div>
      </div>
@@ -3541,6 +3555,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <span className="text-xs text-slate-300">Taxa:</span>
  <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-20 sm:w-32" color="pink"/>
  <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
+ {(() => {
+   const s = previsaoImpostos.taxaReservaSugerida;
+   if (!s) return null;
+   const alvo = Math.ceil(s.total) + 2;
+   if (Math.abs(alvo - taxa) < 1) return <span className="text-xs text-emerald-400 w-full sm:w-auto">✓ Bate com a previsão de IRS e SS deste ano</span>;
+   return (
+     <span className="text-xs text-slate-400 w-full sm:w-auto">
+       Pela previsão deste ano, os teus recibos custam ~{s.total.toFixed(0)}% (IRS {s.irs.toFixed(0)}% + SS {s.ss.toFixed(0)}%).
+       <button onClick={() => uG('taxa', alvo)} className="ml-1.5 px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>
+     </span>
+   );
+ })()}
  </div>
 
  {/* Parâmetros da estimativa de IRS por recibo */}
@@ -10790,7 +10816,8 @@ ${transacoesOrdenadas.map(t => `<tr>
        const ficaNaTR = totRec - minhaABanca - totPess - totalFeriasExcel;
        data.push(['═══ TRANSFERÊNCIAS ═══', '', '']);
        data.push(['Movimento', 'Valor', 'Feito?']);
-       data.push(['📥 Activo → Trade Republic', totRec, transf.toTR ? '✓' : '']);
+       const _rec = [...regCom, ...regSem].reduce((s, r) => s + (parseFloat(r.iva) || 0) - (parseFloat(r.retIRS) || 0), totRec);
+       data.push(['📥 Activo → Trade Republic', _rec, transf.toTR ? '✓' : '']);
        data.push(['']);
        data.push(['📤 Da Trade Republic para:', '', '']);
        data.push(['  → ABanca (Casal)', minhaABanca, transf.abanca ? '✓' : '']);
@@ -11032,7 +11059,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    // Verificar transferências do mês
    if (!transf.toTR && totRec > 0) {
-     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(totRec)}`, severity: 'info'});
+     alerts.push({tipo: 'transf', msg: `📥 Transferir receitas para Trade Republic: ${fmt(recebidoMes)}`, severity: 'info'});
    }
    
    if (diaHoje >= 24 && diaHoje <= 26) {
