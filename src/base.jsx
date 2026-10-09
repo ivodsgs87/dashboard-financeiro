@@ -892,6 +892,16 @@ const impCalc = (G, M, hoje = new Date()) => {
   const porConta = pagos.filter(p => p.tipo === 'IRS' && p.v > 0 && Math.floor(p.idx / 12) === ano && [6, 8, 11].includes(p.idx % 12)).reduce((a, p) => a + p.v, 0);
   const irsRetencoes = retCatB + (cfg.conjunto ? impNum(cfg.saraRetencao) : 0) + porConta;
   const irsAPagarReceber = irsRetencoes - irsEstimado;
+  // Quanto custam, em impostos, os teus próprios recibos (sem os da Sara): o IRS a mais que causam
+  // na declaração conjunta + a Segurança Social (70% × 21,4%). Serve para afinar a % de reserva.
+  let proprioAte = 0;
+  for (let m = 1; m <= 12; m++) ((M[`${ano}-${m}`] || {}).regCom || []).forEach(x => { if (!x.emitidoPorSara && !naoTrabalho.has(x.cid)) proprioAte += rv(x); });
+  const proprioAnual = projeta(proprioAte);
+  const semProprios = Math.max(0, (recAnual - proprioAnual) * coef + rendA);
+  const irsSemProprios = Math.max(0, impIRSEscaloes(semProprios / q) * q - impNum(cfg.deducoes));
+  const irsDosProprios = Math.max(0, irsEstimado - irsSemProprios);
+  const taxaReservaSugerida = proprioAnual > 0 && !(cfg.conjunto && !saraBruto)
+    ? { irs: irsDosProprios / proprioAnual * 100, ss: 0.70 * 21.4, total: irsDosProprios / proprioAnual * 100 + 0.70 * 21.4 } : null;
 
   const totalImpostos = ssAnual + ivaAnual + irsEstimado;
   return {
@@ -905,7 +915,7 @@ const impCalc = (G, M, hoje = new Date()) => {
     proximoTrimestre: qAtual.t < 4 ? qAtual.t + 1 : 1, mesPagarIvaAtual: curto(qAtual.ini + 4), dataLimiteIva, diasParaIva, totalIVA,
     // IRS
     irsCfg: { ...cfg, coef }, recAnualIRS: recAnual, rendColetavel, irsEstimado, irsRetencoes, porConta, irsAPagarReceber,
-    irsTaxaEfetiva: recAnual > 0 ? irsEstimado / recAnual * 100 : 0, mesesComDados: fechados, faltaSara: cfg.conjunto && !saraBruto,
+    irsTaxaEfetiva: recAnual > 0 ? irsEstimado / recAnual * 100 : 0, mesesComDados: fechados, faltaSara: cfg.conjunto && !saraBruto, taxaReservaSugerida,
     // totais
     totalIliquido: recAte, totalPT, totalUE, totalForaUE, totalSaraIliq, totalSaraRetIRS, totalImpostos,
     calibracao: { ativa: paresSS.length > 0 || paresIVA.length > 0, SS: paresSS.length ? { fator: fatorSS } : null, IVA: paresIVA.length ? { fator: fatorIVA } : null, IRS: null }
