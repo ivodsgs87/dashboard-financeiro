@@ -1930,9 +1930,9 @@ const CSS_MOBILE = `
   .m-gap2{gap:.5rem!important}
   .m-ml-auto{margin-left:auto}
   .m-num{font-size:.8rem!important;line-height:1.15rem!important;overflow-wrap:anywhere}
-  .m-fab{padding:.75rem!important;bottom:.75rem!important;right:.75rem!important;line-height:1}
+  .m-fab{display:none!important}
   .m-fab-txt{display:none}
-  .m-pad{padding-bottom:5rem!important}
+  .m-pad{padding-bottom:7.5rem!important}
 }
 `;
 
