@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
-  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, retencaoPadrao, guiaTransfCalc, impCalc,
-  anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc,
+  impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -1444,6 +1444,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const pi2 = idx + 1; setAno(Math.floor(pi2 / 12)); setMes(meses[pi2 % 12]); setTab('resumo');
        setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
      } });
+   // Confirmações à mão: um passo pode ser dado como feito mesmo que os dados não o mostrem
+   // (ex.: este mês não houve compras) — e essa marcação pode ser anulada.
+   const manual = (M[mesKey] || {}).passosManual || {};
+   L.forEach(x => { if (manual[x.id] && x.estado !== 'ok') { x.auto = x.estado; x.estado = 'ok'; x.manual = true; } });
    return L;
  };
  // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
@@ -1686,16 +1690,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
        </div>
        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-         {passos.map((x, k) => (
-           <button key={x.id} onClick={x.ir} className={`text-left p-2.5 rounded-xl border transition-colors hover:brightness-110 ${cor[x.estado]}`}>
-             <div className="flex items-center gap-2">
-               <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
-               <span className="text-sm font-medium flex-1">{x.icon} {x.titulo}</span>
-               <span className="text-sm">{sinal[x.estado]}</span>
+         {passos.map((x, k) => {
+           const manual = (M[mesKey] || {}).passosManual || {};
+           const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
+           return (
+           <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
+             <button onClick={x.ir} className="w-full text-left p-2.5 pb-1 hover:brightness-110">
+               <div className="flex items-center gap-2">
+                 <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
+                 <span className="text-sm font-medium flex-1">{x.icon} {x.titulo}</span>
+                 <span className="text-sm">{sinal[x.estado]}</span>
+               </div>
+               <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</p>
+             </button>
+             <div className="flex justify-end px-2.5 pb-1.5 min-h-[18px]">
+               {x.manual
+                 ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
+                 : x.estado !== 'ok' && x.estado !== 'na'
+                   ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Marcar feito</button>
+                   : null}
              </div>
-             <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.detalhe}</p>
-           </button>
-         ))}
+           </div>
+           );
+         })}
        </div>
      </Card>
    );
@@ -3088,8 +3105,16 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      };
      
      // Um documento importado é um recibo verde: vai sempre para "COM Taxas",
-     // tenha ou não retenção (clientes estrangeiros não retêm IRS nem levam IVA)
-     uM('regCom', [...regCom, novoRecibo]);
+     // tenha ou não retenção (clientes estrangeiros não retêm IRS nem levam IVA).
+     // Vai para o mês da DATA do recibo (é esse que conta para SS, IVA e IRS), seja qual for o mês aberto.
+     const kDest = mesDoRecibo(importedData.data) || mesKey;
+     if (kDest === mesKey) uM('regCom', [...regCom, novoRecibo]);
+     else {
+       saveUndo();
+       setM(p => { const md = p[kDest] || defM; return { ...p, [kDest]: { ...md, regCom: [...(md.regCom || []), novoRecibo] } }; });
+       const [yy, mm] = kDest.split('-').map(Number);
+       showToast(`Recibo adicionado a ${meses[mm - 1]} ${yy} (mês da data do recibo)`);
+     }
      
      setShowImportModal(false);
      setImportedData(null);
@@ -3261,7 +3286,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                  
                  <div className="pt-4 border-t border-slate-700">
-                   <p className="text-xs text-slate-400 mb-3">💼 Vai para «COM Taxas» (recibo verde){importedData.retencaoIRS > 0 ? '' : ' — sem retenção, como é normal em clientes estrangeiros'}</p>
+                   {(() => {
+                     const kDest = mesDoRecibo(importedData.data) || mesKey;
+                     const [yy, mm] = kDest.split('-').map(Number);
+                     const outro = kDest !== mesKey;
+                     return <p className="text-xs text-slate-400 mb-3">💼 Vai para «COM Taxas» de <strong className={outro ? 'text-amber-400' : ''}>{meses[mm - 1]} {yy}</strong>{outro ? ' (o mês da data do recibo, não o que tens aberto)' : ''}{importedData.retencaoIRS > 0 ? '' : ' — sem retenção, como é normal em clientes estrangeiros'}</p>;
+                   })()}
                    <button
                      onClick={aplicarDadosImportados}
                      className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl font-medium hover:opacity-90 transition-opacity"
@@ -10302,9 +10332,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sep2',separator:true},
    {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
- const [hoveredTab, setHoveredTab] = useState(null);
- const submenuTimeoutRef = useRef(null);
- const [submenuPos, setSubmenuPos] = useState({ left: 0, top: 0 });
+ // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
+ // Ao voltar a um grupo, abre o último separador que usaste nele.
+ const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
+ const ultimaSubRef = useRef({});
+ if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -12810,75 +12842,38 @@ ${transacoesOrdenadas.map(t => `<tr>
           return t.separator ? (
             <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
           ) : t.submenu ? (
-            <div key={t.id} className="relative flex-shrink-0"
-              onMouseEnter={(e) => {
-                clearTimeout(submenuTimeoutRef.current);
-                const rect = e.currentTarget.getBoundingClientRect();
-                setSubmenuPos({ left: Math.min(rect.left, window.innerWidth - 200), top: rect.bottom + 2 });
-                setHoveredTab(t.id);
-              }}
-              onMouseLeave={() => {
-                submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 100);
-              }}
+            <button key={t.id}
+              onClick={() => setTab(isSubActive ? tab : (ultimaSubRef.current[t.id] || t.submenu[0].id))}
+              className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
+                isSubActive
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25'
+                  : theme === 'light'
+                    ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
             >
-              <button 
-                onClick={() => {
-                  setHoveredTab(hoveredTab === t.id ? null : t.id);
-                }}
-                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
-                  isSubActive 
-                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25'
-                    : theme === 'light' 
-                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' 
-                      : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                <span className="sm:mr-1">{t.icon}</span>
-                <span className="hidden sm:inline">{t.label}</span>
-                <span className="ml-1 text-xs">▾</span>
-              </button>
-            </div>
+              <span className="sm:mr-1">{t.icon}</span>
+              <span className="hidden sm:inline">{t.label}</span>
+            </button>
           ) : (
             <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1">{t.icon}</span><span className="hidden sm:inline">{t.label}</span></button>
           );
         })}
       </nav>
+      {grupoAtivo && (
+        <nav aria-label={`Separadores de ${grupoAtivo.label}`} className={`flex gap-1 sm:gap-1.5 px-3 sm:px-6 py-1.5 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/80 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
+          {grupoAtivo.submenu.map(sub => (
+            <button key={sub.id} onClick={() => setTab(sub.id)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${tab === sub.id
+                ? (theme === 'light' ? 'bg-blue-500/15 text-blue-700 font-semibold' : 'bg-blue-500/20 text-blue-300 font-semibold')
+                : (theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-700/50')}`}>
+              <span className="mr-1">{sub.icon}</span>{sub.label}
+            </button>
+          ))}
+        </nav>
+      )}
       </div>{/* end sticky header+nav wrapper */}
       
-      {/* Dropdown fixed para submenus */}
-      {hoveredTab && tabs.find(t => t.id === hoveredTab)?.submenu && (
-        <>
-          <div className="fixed inset-0 z-40 sm:hidden" onClick={() => setHoveredTab(null)} />
-          <div 
-            className="fixed z-50"
-            style={{ left: submenuPos.left, top: submenuPos.top - 8 }}
-            onMouseEnter={() => clearTimeout(submenuTimeoutRef.current)}
-            onMouseLeave={() => { submenuTimeoutRef.current = setTimeout(() => setHoveredTab(null), 100); }}
-          >
-            {/* Ponte invisível para o rato não perder contacto */}
-            <div className="h-2" />
-            <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[160px]`}>
-              {tabs.find(t => t.id === hoveredTab)?.submenu?.map(sub => (
-                <button 
-                  key={sub.id} 
-                  onClick={() => { setTab(sub.id); setHoveredTab(null); }}
-                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
-                    tab === sub.id 
-                      ? 'bg-blue-500/20 text-blue-400' 
-                      : theme === 'light'
-                        ? 'text-slate-700 hover:bg-slate-100'
-                        : 'text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  <span>{sub.icon}</span>
-                  <span>{sub.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
       <main className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto" style={{overflowX: "clip"}}>
         <div key={tab} className="animate-fadeIn">
         {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
