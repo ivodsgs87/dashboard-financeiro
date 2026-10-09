@@ -899,7 +899,7 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
     </div>
   );
   return (
-    <div className="space-y-4 max-w-6xl mx-auto">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">🗓️ Calendário</h2>
         <div className="flex items-center gap-2">
@@ -914,12 +914,12 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
           <span key={k} className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CAL_CORES[k] }} />{l}</span>
         ))}
       </div>
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <div className="grid grid-cols-7 gap-1 text-[11px] text-slate-500 text-center mb-1">
+      <div className="grid xl:grid-cols-4 gap-4">
+        <div className="xl:col-span-3">
+          <div className="grid grid-cols-7 gap-1.5 text-xs text-slate-500 text-center mb-1">
             {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(d => <div key={d}>{d}</div>)}
           </div>
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1.5">
             {Array.from({ length: offset }).map((_, i) => <div key={'v' + i} />)}
             {Array.from({ length: nDias }).map((_, i) => {
               const d = i + 1, lst = porDia[d] || [];
@@ -927,13 +927,13 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
               const sel = d === diaSel;
               return (
                 <button key={d} onClick={() => setDia(d)} aria-label={`${d} de ${meses[m - 1]}, ${lst.length} eventos`}
-                  className={`min-h-[64px] sm:min-h-[92px] p-1 sm:p-1.5 rounded-lg border text-left align-top flex flex-col gap-0.5 ${cel} ${sel ? 'ring-2 ring-blue-500' : ''} ${eHoje ? 'border-emerald-500' : ''}`}>
-                  <span className={`text-xs ${eHoje ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>{d}</span>
-                  <span className="hidden sm:flex flex-col gap-0.5 w-full">
-                    {lst.slice(0, 3).map(e => (
-                      <span key={e.id} className={`truncate text-[10px] leading-tight px-1 py-0.5 rounded text-white ${estadoCls(e)}`} style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina }}>{e.curto || e.titulo}</span>
+                  className={`min-h-[64px] sm:min-h-[110px] lg:min-h-[130px] p-1 sm:p-2 rounded-xl border text-left align-top flex flex-col gap-1 ${cel} ${sel ? 'ring-2 ring-blue-500' : ''} ${eHoje ? 'border-emerald-500' : ''}`}>
+                  <span className={`text-xs sm:text-sm ${eHoje ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>{d}</span>
+                  <span className="hidden sm:flex flex-col gap-1 w-full">
+                    {lst.slice(0, 4).map(e => (
+                      <span key={e.id} className={`truncate text-[11px] leading-snug px-1.5 py-0.5 rounded-md text-white ${estadoCls(e)}`} style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina }}>{e.curto || e.titulo}</span>
                     ))}
-                    {lst.length > 3 && <span className="text-[10px] text-slate-500">+{lst.length - 3}</span>}
+                    {lst.length > 4 && <span className="text-[11px] text-slate-500">+{lst.length - 4}</span>}
                   </span>
                   <span className="flex sm:hidden flex-wrap gap-0.5">
                     {lst.map(e => <span key={e.id} className="w-1.5 h-1.5 rounded-full" style={{ background: CAL_CORES[e.cat] || CAL_CORES.Rotina, opacity: e.estado === 'ok' ? 0.35 : 1 }} />)}
