@@ -15,7 +15,7 @@ import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio
+  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio, CSS_MOBILE
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -1724,7 +1724,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">{t.dia} {t.mesNome?.slice(0,3)}</span>
                  <span className="flex-1 truncate text-orange-300">{descComMes}</span>
                  <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️ Atrasada</span>
+                 <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️<span className="hidden sm:inline"> Atrasada</span></span>
                </div>
              );
            })}
@@ -1791,7 +1791,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <h3 className="font-semibold">🧭 Passos de {mes}</h3>
          <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
        </div>
-       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
          {passos.map((x, k) => {
            const manual = (M[mesKey] || {}).passosManual || {};
            const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
@@ -2214,7 +2214,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const cli = clientes.find(c=>c.id===r.cid);
        return (
          <div key={i} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg text-sm" style={{borderLeft: `3px solid ${r.tipo==='com'?'#f97316':'#10b981'}`}}>
-           <span className="text-xs text-slate-500 w-12">{new Date(r.data).toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})}</span>
+           <span className="text-xs text-slate-500 w-12">{r.data && !isNaN(new Date(r.data)) ? new Date(r.data).toLocaleDateString('pt-PT',{day:'2-digit',month:'short'}) : '—'}</span>
            <span className="w-14" style={{color: cli?.cor}}>{cli?.nome || '-'}</span>
            <span className="flex-1 text-slate-300 truncate">{r.desc || '-'}</span>
            <span className="font-semibold" style={{color: r.tipo==='com'?'#f97316':'#10b981'}}>{fmt(r.val)}</span>
@@ -3839,10 +3839,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    items={regCom}
    onReorder={(newItems) => uM('regCom', newItems)}
    renderItem={(r, idx, isDragging, onDragStart, onDragEnd) => (
-     <div className="flex items-center gap-1 sm:gap-2 p-1.5 sm:p-2 bg-slate-700/30 rounded-lg">
-       <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 text-xs sm:text-base">⋮⋮</div>
-       <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
-       <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+     <div className="flex items-center gap-1 sm:gap-2 p-1.5 sm:p-2 bg-slate-700/30 rounded-lg m-row">
+       <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide text-xs sm:text-base">⋮⋮</div>
+       <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0 m-grow">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+       <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {(() => {
          const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
@@ -3860,7 +3860,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </button>
        )}
        <button onClick={() => openReciboModal(r, 'com')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
-       <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
+       <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
    )}
  />
@@ -3877,10 +3877,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    items={regSem}
    onReorder={(newItems) => uM('regSem', newItems)}
    renderItem={(r, idx, isDragging, onDragStart, onDragEnd) => (
-     <div className="flex items-center gap-1 sm:gap-2 p-1.5 sm:p-2 bg-slate-700/30 rounded-lg">
-       <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 text-xs sm:text-base">⋮⋮</div>
-       <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
-       <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
+     <div className="flex items-center gap-1 sm:gap-2 p-1.5 sm:p-2 bg-slate-700/30 rounded-lg m-row">
+       <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide text-xs sm:text-base">⋮⋮</div>
+       <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0 m-grow">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+       <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {(() => {
          const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: false });
@@ -3897,7 +3897,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </button>
        )}
        <button onClick={() => openReciboModal(r, 'sem')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
-       <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0">✕</button>
+       <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
    )}
  />
@@ -3959,12 +3959,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  items={despABanca}
  onReorder={(newItems) => uG('despABanca', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
- <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
- <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <StableInput className={`flex-[2] min-w-0 ${denseInputClass}`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50 m-row">
+ <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
+ <StableInput className={`flex-[2] min-w-0 ${denseInputClass} m-desc`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg m-grow">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,val:v}:x))}/>
- <button onClick={()=>uG('despABanca',despABanca.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
+ <button onClick={()=>uG('despABanca',despABanca.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
  )}
  />
@@ -4070,12 +4070,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  items={despPess}
  onReorder={(newItems) => uG('despPess', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
- <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
- <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <StableInput className={`flex-[2] min-w-0 ${denseInputClass}`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <div className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50 m-row">
+ <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
+ <StableInput className={`flex-[2] min-w-0 ${denseInputClass} m-desc`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg m-grow">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
- <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
+ <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
  )}
  />
@@ -4224,17 +4224,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const pct = totInv>0?((d.val/totInv)*100).toFixed(1):0;
  const cor = catCores[d.cat]||'#8b5cf6';
  return (
- <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
- <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <div className="w-1 h-8 rounded-full flex-shrink-0" style={{background: cor}}/>
- <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={d.desc} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
- <Select value={d.cat||'ETF'} onChange={e=>uM('inv',inv.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[80px]">
+ <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50 m-row">
+ <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
+ <div className="w-1 h-8 rounded-full flex-shrink-0 m-l1" style={{background: cor}}/>
+ <StableInput className={`flex-[2] min-w-0 ${inputClass} m-desc`} initialValue={d.desc} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
+ <Select value={d.cat||'ETF'} onChange={e=>uM('inv',inv.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[80px] m-grow">
    {catsInv.map(c=><option key={c} value={c}>{c}</option>)}
  </Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={d.val} onSave={v=>uM('inv',inv.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <span className="w-10 sm:w-12 text-center text-xs sm:text-sm font-semibold flex-shrink-0" style={{color: cor}}>{pct}%</span>
  <input type="checkbox" className="w-4 h-4 rounded accent-emerald-500 cursor-pointer flex-shrink-0" checked={d.done} onChange={e=>uM('inv',inv.map(x=>x.id===d.id?{...x,done:e.target.checked}:x))}/>
- <button onClick={()=>uM('inv',inv.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
+ <button onClick={()=>uM('inv',inv.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
  );
  }}
@@ -5357,11 +5357,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  renderItem={(p, idx, isDragging, onDragStart, onDragEnd) => {
  const perf = getPerformance(p);
  return (
- <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50">
- <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0">⋮⋮</div>
- <div className="w-1 h-8 rounded-full flex-shrink-0" style={{background: catCores[p.cat]||'#64748b'}}/>
- <StableInput className={`flex-[2] min-w-0 ${inputClass}`} initialValue={p.desc} onSave={v=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,desc:v}:x))}/>
- <Select value={p.cat} onChange={e=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[80px]">{catsInv.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ <div className="flex items-center gap-1.5 sm:gap-2 p-2 rounded-lg transition-all bg-slate-700/30 hover:bg-slate-700/50 m-row">
+ <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
+ <div className="w-1 h-8 rounded-full flex-shrink-0 m-l1" style={{background: catCores[p.cat]||'#64748b'}}/>
+ <StableInput className={`flex-[2] min-w-0 ${inputClass} m-desc`} initialValue={p.desc} onSave={v=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,desc:v}:x))}/>
+ <Select value={p.cat} onChange={e=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[80px] m-grow">{catsInv.map(c=><option key={c} value={c}>{c}</option>)}</Select>
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right`} initialValue={p.val} onSave={v=>uM('portfolio',portfolio.map(x=>x.id===p.id?{...x,val:v}:x))}/>
  {perf !== null ? (
  <span className={`w-10 sm:w-12 text-right text-xs font-semibold flex-shrink-0 ${perf.pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -5370,7 +5370,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  ) : (
  <span className="w-10 sm:w-12 text-right text-xs text-slate-500 flex-shrink-0">—</span>
  )}
- <button onClick={()=>uM('portfolio',portfolio.filter(x=>x.id!==p.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0">✕</button>
+ <button onClick={()=>uM('portfolio',portfolio.filter(x=>x.id!==p.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
  );
  }}
@@ -5562,18 +5562,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
 
              {/* Resultado */}
-             <div className="grid grid-cols-3 gap-3">
+             <div className="grid grid-cols-3 gap-3 m-gap2">
                <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10 border border-blue-500/20'}`}>
                  <p className="text-[10px] text-slate-500">Total investido</p>
-                 <p className="text-lg font-bold text-blue-400">{fmt(projFinal.investido)}</p>
+                 <p className="text-lg font-bold text-blue-400 m-num">{fmt(projFinal.investido)}</p>
                </div>
                <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
                  <p className="text-[10px] text-slate-500">Juros ganhos</p>
-                 <p className="text-lg font-bold text-emerald-400">{fmt(projFinal.juros)}</p>
+                 <p className="text-lg font-bold text-emerald-400 m-num">{fmt(projFinal.juros)}</p>
                </div>
                <div className={`p-3 rounded-xl text-center ${theme === 'light' ? 'bg-purple-50' : 'bg-purple-500/10 border border-purple-500/20'}`}>
                  <p className="text-[10px] text-slate-500">Valor final</p>
-                 <p className="text-lg font-bold text-purple-400">{fmt(projFinal.total)}</p>
+                 <p className="text-lg font-bold text-purple-400 m-num">{fmt(projFinal.total)}</p>
                </div>
              </div>
 
@@ -6314,7 +6314,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            onClick={() => setCreditoSelecionado(c.id)}
            className={`p-4 rounded-xl cursor-pointer transition-all ${isSelected ? 'bg-blue-500/20 border-2 border-blue-500/50' : c.estado === 'liquidado' ? 'bg-green-500/5 border border-green-500/20' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}
          >
-           <div className="flex items-center justify-between">
+           <div className="flex items-center justify-between m-wrap">
              <div className="flex items-center gap-3">
                <span className="text-2xl">{tipoIcons[c.tipo] || '📄'}</span>
                <div>
@@ -6328,7 +6328,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </p>
                </div>
              </div>
-             <div className="text-right flex items-center gap-4">
+             <div className="text-right flex items-center gap-4 m-gap2 m-ml-auto">
                <div>
                  {c.estado === 'liquidado' ? (
                    <>
@@ -12901,7 +12901,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  
  {formAction && <PedirDados pedido={formAction} theme={theme} onFechar={() => setFormAction(null)} />}
  {!chatAberto && dataLoaded && (
-   <button onClick={() => setChatAberto(true)} className="fixed bottom-4 right-4 z-40 no-print px-4 py-3 rounded-full shadow-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-sm font-medium hover:opacity-90" aria-label="Perguntar ao Gemini">✨ Perguntar</button>
+   <button onClick={() => setChatAberto(true)} className="fixed bottom-4 right-4 z-40 no-print px-4 py-3 rounded-full shadow-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white text-sm font-medium hover:opacity-90 m-fab" aria-label="Perguntar ao Gemini">✨<span className="m-fab-txt"> Perguntar</span></button>
  )}
  <ChatGemini aberto={chatAberto} onFechar={() => setChatAberto(false)} mensagens={chatMensagens} setMensagens={setChatMensagens} obterContexto={resumoParaIA} user={user} theme={theme} />
  {/* Modal de Confirmação */}
@@ -13046,7 +13046,8 @@ ${transacoesOrdenadas.map(t => `<tr>
         );
       })()}
       
-      <main className={`px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+      <style>{CSS_MOBILE}</style>
+      <main className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         <div key={tab} className="animate-fadeIn">
         {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
