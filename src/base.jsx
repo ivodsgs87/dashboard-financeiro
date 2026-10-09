@@ -853,7 +853,7 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
 // tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
 // o mês e o dia escolhidos quando o resto da app muda.
 const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Rotina: '#64748b' };
-const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, mesInicial }) => {
+const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, mesInicial, notif }) => {
   const claro = theme === 'light';
   const hoje = new Date();
   const [y, setY] = useState(anoInicial);
@@ -912,6 +912,12 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
           <span className="font-medium w-36 text-center">{meses[m - 1]} {y}</span>
           <button onClick={() => mudar(1)} aria-label="Mês seguinte" className={`px-2.5 py-1.5 rounded-lg ${claro ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-600'}`}>›</button>
           {!ehMesHoje && <button onClick={irHoje} className="px-2.5 py-1.5 text-xs rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Hoje</button>}
+          {notif && notif.suportado && (
+            <button onClick={notif.alternar} title={notif.on ? 'Desligar as notificações neste computador' : 'Receber avisos no computador no dia e na véspera de cada evento'}
+              className={`px-2.5 py-1.5 text-xs rounded-lg ${notif.on ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : claro ? 'bg-slate-100 hover:bg-slate-200 text-slate-600' : 'bg-slate-700/50 hover:bg-slate-600 text-slate-300'}`}>
+              {notif.on ? '🔔 Notificações ligadas' : '🔕 Ativar notificações'}
+            </button>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
