@@ -1430,7 +1430,7 @@ const CU_TIPOS = [
   { id: 'banner', nome: 'Banner', plural: 'banners' },
   { id: 'hook', nome: 'Hook', plural: 'hooks' },
   { id: 'aso', nome: 'Vídeo ASO', plural: 'vídeos ASO' },
-  { id: 'extra', nome: 'Extra / ideação', plural: 'extras' },
+  { id: 'extra', nome: 'Extra / ideação (€ por hora)', curto: 'Extra / ideação', plural: 'extras', porHora: true },
   { id: 'outro', nome: 'Outro', plural: 'outros' },
 ];
 const CU_PRECOS_PADRAO = { video: 420, variacao: 150, iteracao: 80, banner: 120, hook: 0, aso: 0, extra: 0, outro: 0 };
@@ -1486,9 +1486,16 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
     const k = cid == null ? `esp:${t.espaco}` : String(cid);
     const c = (porCli[k] = porCli[k] || { cid, nomeEsp: nomes[t.espaco] || 'Sem cliente', total: 0, contagem: {}, tarefas: [] });
     let v = 0;
-    cuPecas(t.nome).forEach(p => { const pr = preco(cid, p.tipo); v += pr * p.n; if (!pr) semPreco += p.n; c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n; });
+    let horasExtra = 0;
+    cuPecas(t.nome).forEach(p => {
+      const pr = preco(cid, p.tipo);
+      // "Extra work" paga-se à hora: preço × horas registadas nessa tarefa no ClickUp
+      if (p.tipo === 'extra') { horasExtra = Number(t.horas) || 0; v += pr * horasExtra; if (!pr || !horasExtra) semPreco += 1; c.horasExtra = (c.horasExtra || 0) + horasExtra; }
+      else { v += pr * p.n; if (!pr) semPreco += p.n; }
+      c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n;
+    });
     c.total += v; total += v;
-    c.tarefas.push({ ...t, valor: v });
+    c.tarefas.push({ ...t, valor: v, horasExtra });
   });
   return { total, semPreco, n: tarefas.length, clientes: Object.values(porCli).sort((a, b) => b.total - a.total) };
 };
@@ -1513,7 +1520,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
   const estPrev = cu.anos[aPrev] && cu.anos[aPrev].entregues ? cuEntregasMes(cu, aPrev, mPrev, clientes) : null;
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
-  const resumoContagem = cont => CU_TIPOS.filter(t => cont[t.id]).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? t.nome.toLowerCase() : t.plural}`).join(', ');
+  const resumoContagem = (cont, hx) => CU_TIPOS.filter(t => cont[t.id]).map(t => t.porHora ? `extras ${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h` : `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).toLowerCase() : t.plural}`).join(', ');
   const precos = cu.precos || {};
   const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : ((precos.porCliente || {})[quem] || {});
   const guardar = (tipo, v) => {
@@ -1537,18 +1544,18 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
             <details key={c.cid ?? c.nomeEsp} className="text-sm">
               <summary className="cursor-pointer flex flex-wrap gap-x-2 items-baseline list-none">
                 <span className="font-medium">{nomeCli(c)}</span>
-                <span className={`text-xs ${sub} flex-1 min-w-0`}>{resumoContagem(c.contagem)}</span>
+                <span className={`text-xs ${sub} flex-1 min-w-0`}>{resumoContagem(c.contagem, c.horasExtra)}</span>
                 <span className="tabular-nums">≈ {f(c.total)}</span>
               </summary>
               <ul className={`mt-1 mb-2 pl-3 text-xs space-y-0.5 ${sub}`}>
-                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.valor > 0 ? f(t.valor) : 'sem preço'}</span></li>)}
+                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
               </ul>
             </details>
           ))}
         </div>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem preço definido</span>}
+        {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nos extras, sem horas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations").</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
       </div>
