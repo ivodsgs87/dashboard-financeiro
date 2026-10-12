@@ -87,7 +87,7 @@ const VendaCasa = ({ G, uG, theme }) => {
     <label className="flex flex-col gap-1">
       <span className={`text-xs ${sub}`}>{label}</span>
       <div className="relative">
-        <input type="number" step={step || 'any'} defaultValue={val} onBlur={e => onSave(e.target.value)} className={inp} />
+        <input type="number" step={step || 'any'} key={String(val ?? '')} defaultValue={val} onBlur={e => { if (e.target.value !== String(val ?? '')) onSave(e.target.value); }} className={inp} />
         {suffix && <span className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs pointer-events-none ${sub}`}>{suffix}</span>}
       </div>
     </label>
@@ -160,8 +160,8 @@ const VendaCasa = ({ G, uG, theme }) => {
             <span className={`text-xs ${sub}`}>Data do CPCV</span>
             <input type="date" key={'c' + (vc.dataCPCV || '')} defaultValue={vc.dataCPCV} onBlur={e => { if (e.target.value !== (vc.dataCPCV || '')) set({ dataCPCV: e.target.value }); }} className={inp} />
           </label>
-          <NumField label="Sinal" val={vc.sinal} onSave={v => set({ sinal: n(v) })} suffix="€" />
-          <NumField label="Prazo para a escritura" val={vc.prazoEscrituraDias} onSave={v => set({ prazoEscrituraDias: Math.max(1, Math.round(n(v))) || 45 })} suffix="dias" />
+          {NumField({ label: "Sinal", val: vc.sinal, onSave: v => set({ sinal: n(v) }), suffix: "€" })}
+          {NumField({ label: "Prazo para a escritura", val: vc.prazoEscrituraDias, onSave: v => set({ prazoEscrituraDias: Math.max(1, Math.round(n(v))) || 45 }), suffix: "dias" })}
           <label className="flex flex-col gap-1">
             <span className={`text-xs ${sub}`}>Escritura marcada para</span>
             <input type="date" key={'e' + (vc.dataVenda || '')} defaultValue={vc.dataVenda} onBlur={e => { if (e.target.value !== (vc.dataVenda || '')) set({ dataVenda: e.target.value }); }} className={inp} />
@@ -235,8 +235,8 @@ const VendaCasa = ({ G, uG, theme }) => {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-          <NumField label="Valor a reinvestir (auto: venda − crédito)" val={hppNecessario} onSave={v => set({ hppOverride: v === '' ? null : n(v) })} />
-          <NumField label="Valor de aquisição da casa (opcional)" val={vc.valorAquisicao} onSave={v => set({ valorAquisicao: n(v) })} />
+          {NumField({ label: "Valor a reinvestir (auto: venda − crédito)", val: hppNecessario, onSave: v => set({ hppOverride: v === '' ? null : n(v) }) })}
+          {NumField({ label: "Valor de aquisição da casa (opcional)", val: vc.valorAquisicao, onSave: v => set({ valorAquisicao: n(v) }) })}
           <label className="flex flex-col gap-1">
             <span className={`text-xs ${sub}`}>Data da escritura</span>
             <input type="date" key={'h' + (vc.dataVenda || '')} defaultValue={vc.dataVenda} onBlur={e => { if (e.target.value !== (vc.dataVenda || '')) set({ dataVenda: e.target.value }); }} className={inp} />
@@ -249,13 +249,13 @@ const VendaCasa = ({ G, uG, theme }) => {
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold mb-3"><Ico e="🧾"/>Apuramento da venda</h3>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-          <NumField label="Valor de venda" val={vc.valorVenda} onSave={v => set({ valorVenda: n(v) })} />
-          <NumField label="Comissão agência" val={vc.comissaoPct} onSave={v => set({ comissaoPct: n(v) })} suffix="%" />
-          <NumField label="Crédito amortizado" val={vc.creditoAmortizado} onSave={v => set({ creditoAmortizado: n(v) })} />
-          <NumField label="Penalização amortização" val={vc.penalizacaoPct} onSave={v => set({ penalizacaoPct: n(v) })} suffix="%" />
-          <NumField label="Escritura" val={vc.custoEscritura} onSave={v => set({ custoEscritura: n(v) })} />
-          <NumField label="Rendas adiantadas" val={vc.rendasAdiantadas} onSave={v => set({ rendasAdiantadas: n(v) })} />
-          <NumField label="Outros" val={vc.outrosCustos} onSave={v => set({ outrosCustos: n(v) })} />
+          {NumField({ label: "Valor de venda", val: vc.valorVenda, onSave: v => set({ valorVenda: n(v) }) })}
+          {NumField({ label: "Comissão agência", val: vc.comissaoPct, onSave: v => set({ comissaoPct: n(v) }), suffix: "%" })}
+          {NumField({ label: "Crédito amortizado", val: vc.creditoAmortizado, onSave: v => set({ creditoAmortizado: n(v) }) })}
+          {NumField({ label: "Penalização amortização", val: vc.penalizacaoPct, onSave: v => set({ penalizacaoPct: n(v) }), suffix: "%" })}
+          {NumField({ label: "Escritura", val: vc.custoEscritura, onSave: v => set({ custoEscritura: n(v) }) })}
+          {NumField({ label: "Rendas adiantadas", val: vc.rendasAdiantadas, onSave: v => set({ rendasAdiantadas: n(v) }) })}
+          {NumField({ label: "Outros", val: vc.outrosCustos, onSave: v => set({ outrosCustos: n(v) }) })}
         </div>
         <div className={`border-t ${line} pt-3 space-y-1.5 text-sm`}>
           <div className="flex justify-between"><span className={sub}>Valor de venda</span><span>{f(valorVenda)}</span></div>
