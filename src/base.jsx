@@ -1496,7 +1496,16 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
 const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos }) => {
   const [editar, setEditar] = useState(false);
   const [quem, setQuem] = useState('padrao');
-  if (!(cu && cu.anos && cu.anos[ano] && cu.anos[ano].entregues)) return null;
+  if (!(cu && cu.anos && cu.anos[ano])) return null;
+  if (!Array.isArray(cu.anos[ano].entregues)) {
+    // A função na Firebase ainda é a versão antiga (não manda as tarefas fechadas)
+    const claro0 = theme === 'light';
+    return (
+      <div className={`rounded-2xl border p-4 text-sm ${claro0 ? 'bg-white/80 border-slate-200 text-slate-600' : 'bg-slate-800/50 border-slate-700/50 text-slate-400'}`}>
+        <span className="text-amber-400">Entregue este mês (ClickUp): falta atualizar a função na Firebase.</span> Copia o <code>clickupHoras.js</code> novo para a pasta <code>functions</code>, corre <code>firebase deploy --only functions</code> e depois carrega em <strong>Atualizar</strong> no cartão "Horas por cliente" (Performance).
+      </div>
+    );
+  }
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
