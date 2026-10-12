@@ -1515,7 +1515,7 @@ const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
   let total = 0, totalProduzido = 0, semPreco = 0;
   // Tarefas importadas do ClickUp para a app não contam duas vezes (fica a versão da app)
   const naApp = new Set(((trab && trab.tarefas) || []).map(t => t.origem).filter(Boolean));
-  const tarefas = [...(((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref) && !naApp.has('cu:' + t.id)), ...(trab ? trabEntreguesMes(trab, ano, mesNum) : [])];
+  const tarefas = [...(((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref) && !naApp.has('cu:' + t.id)), ...(trab ? trabEntreguesMes(trab, ano, mesNum, cu, clientes) : [])];
   const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set(), diario: Array(32).fill(0) });
   tarefas.forEach(t => {
     const cid = t.app ? (t.cid ?? null) : cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
@@ -1526,7 +1526,7 @@ const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
     let horasExtra = 0;
     const manual = t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual));
     if (manual) v = Number(t.valorManual);
-    cuPecas(t.nome).forEach(p => {
+    (t.pecasArr || cuPecas(t.nome)).forEach(p => {
       if (manual) { c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n; return; }
       if (p.tipo === 'extra' || p.tipo === 'outro') {
         horasExtra = Number(t.horas) || 0;
@@ -1927,8 +1927,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
 // Os dados vivem num documento à parte no Firestore (users/<uid>/trabalho/dados).
 // Aqui ficam só as contas (usadas também pela estimativa de receitas); o ecrã está em trabalho.jsx.
 const TRAB_ESTADOS = [
-  { id: 'aprovar', nome: 'Por aprovar', cor: '#a855f7' },
-  { id: 'todo', nome: 'Por fazer', cor: '#94a3b8' },
+  { id: 'todo', nome: 'Por começar', cor: '#94a3b8' },
   { id: 'curso', nome: 'Em curso', cor: '#3b82f6' },
   { id: 'review', nome: 'Review', cor: '#f59e0b' },
   { id: 'feito', nome: 'Feito', cor: '#10b981' },
@@ -1950,26 +1949,47 @@ const cuPreco = (cu, clientes, cid, tipo) => {
   if (pre[tipo] != null) return Number(pre[tipo]) || 0;
   return Number({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[tipo]) || 0;
 };
-// Quanto vale uma tarefa (pelas peças no nome: "2x New Videos + 1x Variation"; as tarefas à hora
-// usam as horas registadas). Nos clientes à diária as horas contam nos dias, não na tarefa.
-const trabValor = (t, cu, clientes) => {
-  if (t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual))) return Number(t.valorManual);
+// Peças de uma tarefa: as que puseste à mão na tarefa (quantidade por tipo) ou, se não houver,
+// as que se leem do nome ("2x New Videos + 1x Variation")
+const trabPecas = t => {
+  const q = t && t.pecas;
+  if (q && typeof q === 'object' && Object.keys(q).length) {
+    const out = Object.entries(q).map(([tipo, n]) => ({ tipo, n: Number(n) || 0 })).filter(p => p.n > 0);
+    return out.length ? out : [{ tipo: 'outro', n: 1 }];
+  }
+  return cuPecas(t && t.nome);
+};
+// Quanto vale uma tarefa (as tarefas à hora usam as horas registadas). Nos clientes à diária
+// as horas contam nos dias, não na tarefa. "Valor final" à mão ganha a tudo.
+const trabValorAuto = (t, cu, clientes) => {
   const cid = t.cid;
   const diaria = cuPreco(cu, clientes, cid, 'dia');
   let v = 0;
-  cuPecas(t.nome).forEach(p => {
+  trabPecas(t).forEach(p => {
     if (p.tipo === 'extra' || p.tipo === 'outro') { if (!(diaria > 0)) v += cuPreco(cu, clientes, cid, 'hora') * trabHoras(t); }
     else v += cuPreco(cu, clientes, cid, p.tipo) * p.n;
   });
   return v;
 };
-// Tarefas da app entregues num mês, no mesmo formato das do ClickUp (para a estimativa)
-const trabEntreguesMes = (trab, ano, mesNum) => {
+const trabValor = (t, cu, clientes) => {
+  if (t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual))) return Number(t.valorManual);
+  return trabValorAuto(t, cu, clientes);
+};
+// Tarefas da app entregues num mês, no mesmo formato das do ClickUp (para a estimativa).
+// Entram também as linhas à parte dos orçamentos (AI Credits, acertos...) no mês da data delas.
+const trabEntreguesMes = (trab, ano, mesNum, cu = null, clientes = []) => {
   const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
-  return ((trab && trab.tarefas) || []).filter(t => trabEntrega(t).startsWith(pref)).map(t => ({
-    id: 'app:' + t.id, nome: t.nome, fechada: trabEntrega(t), cid: t.cid, app: true, valorManual: t.valorManual,
+  const tarefas = ((trab && trab.tarefas) || []).filter(t => trabEntrega(t).startsWith(pref)).map(t => ({
+    id: 'app:' + t.id, nome: t.nome, fechada: trabEntrega(t), cid: t.cid, app: true, valorManual: trabValor(t, cu, clientes), pecasArr: trabPecas(t),
     horas: Math.round(trabHoras(t) * 100) / 100, emReview: t.estado === 'review',
   }));
+  const extras = [];
+  ((trab && trab.pastas) || []).forEach(p => ((p.orcamento && p.orcamento.extras) || []).forEach((e, i) => {
+    const v = Number(String(e.val ?? '').replace(',', '.')) || 0;
+    const d = e.data || trabDia(p.criada || '');
+    if (v && String(d).startsWith(pref)) extras.push({ id: `app:x:${p.id}:${i}`, nome: e.desc || 'Linha à parte', fechada: d, cid: p.cid, app: true, valorManual: v, pecasArr: [], horas: 0, extraOrc: true });
+  }));
+  return [...tarefas, ...extras];
 };
 // Dias do mês com horas registadas na app, por cliente (para quem paga à diária)
 const trabDiasMes = (trab, ano, mesNum) => {
@@ -2405,9 +2425,9 @@ export {
   estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
   cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId,
-  trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabValor, trabEntreguesMes,
-  trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
-  Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras, cuDesde,
-  CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
-  VC_DIAS_SEMANA, vcPrazosCPCV
+  trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto,
+  trabValor, trabEntreguesMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx,
+  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos,
+  cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
+  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
