@@ -13224,7 +13224,7 @@ ${transacoesOrdenadas.map(t => `<tr>
         </div>
       )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
-      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && (
           <div className="sm:hidden no-print">
             <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
