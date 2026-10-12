@@ -6,7 +6,8 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
   impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc,
-  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  transfFalta, transfFeita, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo,
+  clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -1511,7 +1512,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const pInv = (restante > 0 ? restante : 0) * ((100 - alocAmort) / 100);
    const folga = Math.max(10, pInv * 0.01);
    const obrig = guia.passos.filter(x => !x.opcional && x.fase === 2);
-   const feitas = obrig.filter(x => transf[x.id]).length;
+   const feitas = obrig.filter(x => transfFeita(transf, x)).length;
    const mesIdx = idx % 12 + 1;
    const mesIva = [2, 5, 8, 11].includes(mesIdx);
    const L = [];
@@ -2130,7 +2131,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const claro = theme === 'light';
        const f2 = guia.passos.filter(x => x.fase === 2);
        const obrig = f2.filter(x => !x.opcional);
-       const feitos = obrig.filter(x => transf[x.id]).length;
+       const feitos = obrig.filter(x => transfFeita(transf, x)).length;
        // Despesas do casal: a deste mês já foi mandada no fim do mês anterior;
        // a do mês seguinte prepara-se no fim deste — por isso aparece no fim do cartão.
        const ab = guia.passos.find(x => x.id === 'g_abanca'), adi = guia.passos.find(x => x.id === 'g_adiant');
@@ -2144,12 +2145,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const passo = (x, t = transf, onSet = marcarEste, rotulo = null) => {
          if (!x.opcional && rotulo == null) num++;
          const disp = x.id === 'g_abanca' && !!t.g_adiant;
+         // Passos de "quando os clientes pagarem": guardam o valor; se a Alocação subir, fica a faltar a diferença
+         const comValor = x.fase === 2;
+         const falta = comValor ? transfFalta(t, x) : (t[x.id] ? 0 : x.valor);
+         const feito = falta < 0.5;
+         const parcial = comValor && !feito && typeof t[x.id] === 'number' && t[x.id] > 0;
          return (
-         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${disp ? (claro ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : t[x.id] ? 'bg-emerald-500/10 border-emerald-500/30' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
-           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" disabled={disp} checked={!!t[x.id] || disp} onChange={e => onSet(x.id, e.target.checked)} />
+         <div key={x.id} className={`flex items-start gap-2 p-2 rounded-lg border ${disp ? (claro ? 'border-slate-200 opacity-60' : 'border-slate-700/50 opacity-60') : feito ? 'bg-emerald-500/10 border-emerald-500/30' : parcial ? 'bg-amber-500/10 border-amber-500/40' : x.opcional ? (claro ? 'border-dashed border-slate-300' : 'border-dashed border-slate-600') : claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-700/30 border-slate-600/30'}`}>
+           <input type="checkbox" aria-label={`Transferência ${x.de} para ${x.para} feita`} className="w-4 h-4 mt-0.5 accent-emerald-500 flex-shrink-0" disabled={disp} checked={feito || disp} onChange={e => onSet(x.id, e.target.checked ? (comValor ? x.valor : true) : false)} />
            <div className="flex-1 min-w-0">
              <p className="text-sm"><span className="text-slate-500 mr-1">{rotulo != null ? rotulo : (x.opcional ? 'Ou, se ainda não recebeste:' : `${num}.`)}</span>{x.de} → <strong>{x.icon} {x.para}</strong></p>
              {disp && <p className="text-[11px] text-emerald-400">Não é preciso: adiantaste pela Trade Republic</p>}
+             {parcial && <p className="text-[11px] text-amber-400">Já transferiste {fmt(t[x.id])} · a Alocação subiu, falta {fmt(falta)}</p>}
              {x.linhas.length > 1 && (
                <div className="mt-1 space-y-0.5">
                  {x.linhas.map(([l, v]) => <p key={l} className="text-xs text-slate-500 flex justify-between gap-2"><span>{l}</span><span>{fmt(v)}</span></p>)}
@@ -2158,7 +2165,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {x.linhas.length === 1 && x.linhas[0][0] !== x.para && <p className="text-xs text-slate-500">{x.linhas[0][0]}</p>}
              {x.nota && <p className="text-[11px] text-slate-500 italic mt-0.5">{x.nota}</p>}
            </div>
-           <span className={`font-bold whitespace-nowrap ${x.opcional ? 'text-slate-400' : ''}`}>{fmt(x.valor)}</span>
+           <span className={`font-bold whitespace-nowrap text-right ${x.opcional ? 'text-slate-400' : parcial ? 'text-amber-400' : ''}`}>{fmt(parcial ? falta : x.valor)}{parcial && <span className="block text-[10px] font-normal text-slate-500">de {fmt(x.valor)}</span>}</span>
          </div>
          );
        };
@@ -2181,6 +2188,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          </div>
        ))}
+       {guia.porAlocar > 0.5 && (regCom.length + regSem.length) > 0 && (
+         <div className={`text-xs p-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${claro ? 'border-blue-300 bg-blue-50' : 'border-blue-500/30 bg-blue-500/10'}`}>
+           <span className="text-blue-400">💡 Há {fmt(guia.porAlocar)} por investir que ainda não estão na Alocação (ex.: um recibo que chegou depois). Junta-os à Alocação e os passos mostram só o que falta transferir.</span>
+           <button onClick={() => setTab('invest')} className="px-2 py-1 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 whitespace-nowrap">Alocar →</button>
+         </div>
+       )}
        {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
        {f2.map(x => passo(x))}
      </div>
@@ -11109,7 +11122,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        data.push(['═══ TRANSFERÊNCIAS (por ordem) ═══', '', '']);
        data.push(['Movimento', 'Valor', 'Feito?']);
        _g.passos.forEach((x, k) => {
-         data.push([`${k + 1}. ${x.de} → ${x.para}${x.opcional ? ' (alternativa, se ainda não recebeste)' : ''}`, x.valor, (transf[x.id] || x.dispensado) ? '✓' : '']);
+         data.push([`${k + 1}. ${x.de} → ${x.para}${x.opcional ? ' (alternativa, se ainda não recebeste)' : ''}`, x.valor, (transfFeita(transf, x) || x.dispensado) ? '✓' : '']);
          if (x.linhas.length > 1) x.linhas.forEach(([l, v]) => data.push([`     ${l}`, v, '']));
        });
        data.push(['']);
@@ -11362,8 +11375,8 @@ ${transacoesOrdenadas.map(t => `<tr>
      if (!(_tp.g_abanca || _tp.g_adiant)) alerts.push({tipo: 'transf', msg: `🏠 Antes do dia 1: transferir ${fmt(guia.valAB)} da Trade Republic para a ABanca (${meses[_prox.getMonth()]}). Repões quando os clientes pagarem.`, severity: 'warning'});
    }
    if (totRec > 0) {
-     const faltam = guia.passos.filter(x => !transf[x.id] && !x.opcional);
-     if (faltam.length) alerts.push({tipo: 'transf', msg: `💸 Faltam ${faltam.length} transferência${faltam.length === 1 ? '' : 's'} do mês: ${faltam.map(x => `${x.para} ${fmt(x.valor)}`).join(' · ')}`, severity: 'info'});
+     const faltam = guia.passos.filter(x => x.fase === 2 && !x.opcional && !transfFeita(transf, x));
+     if (faltam.length) alerts.push({tipo: 'transf', msg: `💸 Faltam ${faltam.length} transferência${faltam.length === 1 ? '' : 's'} do mês: ${faltam.map(x => `${x.para} ${fmt(transfFalta(transf, x))}`).join(' · ')}`, severity: 'info'});
    }
    
    // Alertas de faturacao (clientes sem receita 45+ dias)
