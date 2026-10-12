@@ -1566,8 +1566,167 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
   return { total, totalProduzido, semPreco, n: tarefas.length, nReview: tarefas.filter(t => t.emReview).length, clientes: lista, nDiasMes, acumulado: acum(false), acumuladoMin: acum(true), comRetainer: lista.filter(c => c.retainer > 0) };
 };
 
-const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos }) => {
+// ── Plano do mês para o ClickUp ──
+// Escreves quantos criativos vais fazer para um cliente e a app dá-te o texto (com os preços
+// desse cliente) para colar no ClickUp. As linhas usam o formato "12x New Videos", o mesmo
+// que a estimativa lê nos nomes das tarefas.
+const CU_NOMES_EN = {
+  video: ['New Video', 'New Videos'], variacao: ['Variation', 'Variations'], iteracao: ['Iteration', 'Iterations'],
+  ai_clip: ['AI Clip', 'AI Clips'], banner: ['New Banner', 'New Banners'], banner_var: ['Banner Variation', 'Banner Variations'],
+  hook: ['Hook', 'Hooks'], aso: ['ASO Video', 'ASO Videos'], icone: ['Icon Set', 'Icon Sets'], feature: ['Feature Graphic', 'Feature Graphics'],
+  screenshots: ['Screenshot Set', 'Screenshot Sets'], video3d: ['3D Video', '3D Videos'],
+};
+const MESES_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// 5040 → "5.040€" ; 34,5 → "34,50€"
+const cuEur = v => {
+  const n = Math.round((Number(v) || 0) * 100) / 100;
+  const [i, d] = Math.abs(n).toFixed(2).split('.');
+  return `${n < 0 ? '-' : ''}${i.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${d === '00' ? '' : ',' + d}€`;
+};
+// "4h30", "4:30", "4,5", "4.5" → 4.5 horas
+const cuLerHoras = t => {
+  const x = String(t || '').trim().toLowerCase().replace(/\s/g, '');
+  if (!x) return 0;
+  let m = /^(\d+)(?:h|:)(\d{1,2})?m?$/.exec(x);
+  if (m) return (Number(m[1]) || 0) + (Number(m[2]) || 0) / 60;
+  m = /^(\d+)m(?:in)?$/.exec(x);
+  if (m) return (Number(m[1]) || 0) / 60;
+  const n = Number(x.replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+const cuHorasTxt = h => { const t = Math.round(h * 60); const hh = Math.floor(t / 60), mm = t % 60; return mm ? `${hh}h${String(mm).padStart(2, '0')}` : `${hh}h`; };
+const PlanoMesClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onGuardar, produzidoDe }) => {
+  const claro = theme === 'light';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const lista = (clientes || []).filter(c => !/reembolso/i.test(c.nome || ''));
+  const precos = (cu && cu.precos) || {};
+  const [cid, setCid] = useState(() => {
+    const comPlano = lista.find(c => ((cu && cu.planos) || {})[`${ano}-${mesNum}-${c.id}`]);
+    const comTabela = lista.find(c => Object.keys(cuPresetCliente(clientes, c.id)).length);
+    return String((comPlano || comTabela || lista[0] || {}).id ?? '');
+  });
+  const chave = `${ano}-${mesNum}-${cid}`;
+  const guardado = ((cu && cu.planos) || {})[chave];
+  const vazio = { qtd: {}, horas: '', dias: '', extras: [] };
+  const [pl, setPl] = useState(guardado || vazio);
+  const [copiado, setCopiado] = useState(false);
+  const ultimaChave = useRef(chave);
+  useEffect(() => { if (ultimaChave.current !== chave) { ultimaChave.current = chave; setPl(guardado || vazio); } }, [chave]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Guarda sozinho (meio segundo depois de parares de escrever)
+  const porGuardar = useRef(false);
+  useEffect(() => {
+    if (!porGuardar.current) return undefined;
+    const t = setTimeout(() => { porGuardar.current = false; onGuardar(chave, pl); }, 600);
+    return () => clearTimeout(t);
+  }, [pl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mudar = fn => { porGuardar.current = true; setPl(p => fn({ ...vazio, ...p })); };
+  const preco = tipo => {
+    const pc = (precos.porCliente || {})[cid] || {};
+    if (pc[tipo] != null && pc[tipo] !== '') return Number(pc[tipo]) || 0;
+    const pre = cuPresetCliente(clientes, cid);
+    if (pre[tipo] != null) return Number(pre[tipo]) || 0;
+    return Number({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[tipo]) || 0;
+  };
+  const diaria = preco('dia'), retainer = preco('retainer'), hora = preco('hora');
+  // Tipos a mostrar: os que têm preço para este cliente (mais os que já tens no plano)
+  const tipos = CU_TIPOS.filter(t => !t.porHora && CU_NOMES_EN[t.id] && (preco(t.id) > 0 || Number((pl.qtd || {})[t.id]) > 0));
+  const linhas = [];
+  tipos.forEach(t => {
+    const n = Math.max(0, parseInt((pl.qtd || {})[t.id], 10) || 0);
+    if (!n) return;
+    const [um, varios] = CU_NOMES_EN[t.id];
+    linhas.push({ txt: `${n}x ${n === 1 ? um : varios}`, unit: preco(t.id), valor: n * preco(t.id), n });
+  });
+  const nDias = Math.max(0, parseInt(pl.dias, 10) || 0);
+  if (diaria > 0 && nDias) linhas.push({ txt: `${nDias}x ${nDias === 1 ? 'Day' : 'Days'}`, unit: diaria, valor: nDias * diaria, n: nDias });
+  const h = cuLerHoras(pl.horas);
+  if (h > 0) linhas.push({ txt: `Extra work ${cuHorasTxt(h)}`, unit: hora, valor: h * hora, porHora: true });
+  (pl.extras || []).forEach(e => { const v = Number(String(e.val || '').replace(',', '.')) || 0; if ((e.desc || '').trim() || v) linhas.push({ txt: (e.desc || '').trim() || 'Other', valor: v, extra: true }); });
+  const total = linhas.reduce((a, l) => a + l.valor, 0);
+  const aFaturar = retainer > 0 ? Math.max(total, retainer) : total;
+  const nomeCli = (lista.find(c => String(c.id) === cid) || {}).nome || '';
+  const texto = linhas.length ? [
+    `${MESES_EN[mesNum - 1]} ${ano}`,
+    '',
+    ...linhas.map(l => `${l.txt}${l.unit && l.n > 1 ? ` (${cuEur(l.unit)} each)` : l.porHora && l.unit ? ` (${cuEur(l.unit)}/h)` : ''} — ${cuEur(l.valor)}`),
+    '',
+    `Total: ${cuEur(total)}`,
+    ...(retainer > 0 && total < retainer ? [`Monthly minimum (retainer): ${cuEur(retainer)}`] : []),
+  ].join('\n') : '';
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(texto); }
+    catch (e) { const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e2) { /* sem cópia */ } ta.remove(); }
+    setCopiado(true); setTimeout(() => setCopiado(false), 1600);
+  };
+  const produzido = produzidoDe ? produzidoDe(cid) : null;
+  const num = `${inputClass} !w-16 text-sm py-1 text-center tabular-nums`;
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-700/50">
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
+        <span className="font-medium">Plano de {meses[mesNum - 1].toLowerCase()} para</span>
+        <select className={`${inputClass} !w-auto text-sm py-1`} value={cid} onChange={e => setCid(e.target.value)}>
+          {lista.map(c => <option key={c.id} value={String(c.id)}>{c.nome}</option>)}
+        </select>
+        {retainer > 0 && <span className={`text-xs ${sub}`}>mínimo garantido {cuEur(retainer)}</span>}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+            {tipos.map(t => (
+              <label key={t.id} className="flex items-center gap-2 text-sm">
+                <input type="number" min="0" inputMode="numeric" className={num} value={(pl.qtd || {})[t.id] ?? ''} placeholder="0"
+                  onChange={e => { const v = e.target.value; mudar(p => ({ ...p, qtd: { ...(p.qtd || {}), [t.id]: v } })); }} />
+                <span className="flex-1 min-w-0 truncate">{t.curto || t.nome}</span>
+                <span className={`text-xs tabular-nums ${sub}`}>{cuEur(preco(t.id))}</span>
+              </label>
+            ))}
+            {diaria > 0 && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="number" min="0" inputMode="numeric" className={num} value={pl.dias ?? ''} placeholder="0" onChange={e => { const v = e.target.value; mudar(p => ({ ...p, dias: v })); }} />
+                <span className="flex-1">Dias</span><span className={`text-xs tabular-nums ${sub}`}>{cuEur(diaria)}</span>
+              </label>
+            )}
+            {hora > 0 && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="text" className={num} value={pl.horas ?? ''} placeholder="0h" onChange={e => { const v = e.target.value; mudar(p => ({ ...p, horas: v })); }} />
+                <span className="flex-1">Horas extra</span><span className={`text-xs tabular-nums ${sub}`}>{cuEur(hora)}/h</span>
+              </label>
+            )}
+          </div>
+          {!tipos.length && !(diaria > 0) && <p className={`text-xs ${sub}`}>Este cliente ainda não tem preços. Põe-nos em "preços →".</p>}
+          <div className="space-y-1.5">
+            {(pl.extras || []).map((e, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input type="text" className={`${inputClass} text-sm py-1 flex-1`} placeholder="Ex.: AI Credits" value={e.desc || ''}
+                  onChange={ev => { const v = ev.target.value; mudar(p => ({ ...p, extras: p.extras.map((x, k) => (k === i ? { ...x, desc: v } : x)) })); }} />
+                <input type="text" inputMode="decimal" className={`${inputClass} !w-24 text-sm py-1 text-right tabular-nums`} placeholder="€" value={e.val || ''}
+                  onChange={ev => { const v = ev.target.value; mudar(p => ({ ...p, extras: p.extras.map((x, k) => (k === i ? { ...x, val: v } : x)) })); }} />
+                <button type="button" className={`text-xs ${sub} hover:text-red-400 px-1`} aria-label="Tirar esta linha" onClick={() => mudar(p => ({ ...p, extras: p.extras.filter((_, k) => k !== i) }))}>✕</button>
+              </div>
+            ))}
+            <button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={() => mudar(p => ({ ...p, extras: [...(p.extras || []), { desc: '', val: '' }] }))}>+ outra linha (ex.: AI Credits)</button>
+          </div>
+        </div>
+        <div>
+          <div className={`rounded-xl border p-3 text-sm ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-700/60'}`}>
+            {texto
+              ? <pre className="whitespace-pre-wrap font-sans text-sm leading-6 tabular-nums">{texto}</pre>
+              : <p className={sub}>Escreve as quantidades e aparece aqui o texto para o ClickUp.</p>}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button type="button" disabled={!texto} onClick={copiar} className={`px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-40 ${copiado ? 'bg-emerald-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}>{copiado ? '✓ Copiado' : 'Copiar texto'}</button>
+            {retainer > 0 && total > 0 && total < retainer && <span className="text-xs text-amber-400">Abaixo do mínimo: faturas {cuEur(aFaturar)}</span>}
+            {produzido != null && total > 0 && <span className={`text-xs ${sub}`}>Entregue até agora: {cuEur(produzido)} ({Math.round(produzido / total * 100)}% do plano)</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos, onPlano }) => {
   const [editar, setEditar] = useState(false);
+  const [planear, setPlanear] = useState(false);
   const [quem, setQuem] = useState('padrao');
   // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
   const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
@@ -1687,7 +1846,11 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations"). Tarefas em review contam como entregues.</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
+        <button className="text-blue-400 hover:text-blue-300" onClick={() => setPlanear(!planear)}>{planear ? 'fechar plano' : 'plano do mês / texto para o ClickUp →'}</button>
       </div>
+      {planear && <PlanoMesClickUp cu={cu} ano={ano} mesNum={mesNum} clientes={clientes} theme={theme} inputClass={inputClass}
+        onGuardar={(k, v) => onPlano && onPlano(k, v)}
+        produzidoDe={id => { const c = est.clientes.find(x => String(x.cid) === String(id)); return c ? c.produzido : 0; }} />}
       {editar && (
         <div className="mt-3 pt-3 border-t border-slate-700/50">
           <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
@@ -2110,8 +2273,9 @@ export {
   Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
   estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
-  CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, EntregasClickUp, MenuTopo,
-  TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS,
-  cuGrupos, cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
+  cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, MenuTopo, TemaCtx, Card,
+  StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras,
+  cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
+  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
