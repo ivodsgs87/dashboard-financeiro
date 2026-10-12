@@ -1,6 +1,31 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData } from './firebase';
-import OrcamentoApp from './OrcamentoApp';
+
+// A app principal é grande, por isso vem num ficheiro à parte que começa a
+// descarregar logo aqui, ao mesmo tempo que o login e os dados da Firebase.
+// Assim o ecrã de "A carregar..." aparece mais depressa, sobretudo no telemóvel.
+const carregarApp = () => import('./OrcamentoApp');
+const appPromessa = carregarApp();
+appPromessa.catch(() => {}); // o erro (se houver) é tratado em baixo
+const OrcamentoApp = React.lazy(() => appPromessa
+  .catch(carregarApp)
+  .then(m => { try { sessionStorage.removeItem('app-recarregada'); } catch (e) { /* sem acesso */ } return m; })
+  .catch(() => {
+    // Ficheiro antigo depois de uma atualização: recarrega a página uma vez
+    let ja = null;
+    try { ja = sessionStorage.getItem('app-recarregada'); sessionStorage.setItem('app-recarregada', '1'); } catch (e) { ja = '1'; }
+    if (!ja) { window.location.reload(); return new Promise(() => {}); }
+    return { default: () => <EcraCarregar texto="Não foi possível abrir a app. Verifica a ligação à internet e recarrega a página." /> };
+  }));
+
+const EcraCarregar = ({ texto }) => (
+  <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p className="text-slate-400">{texto}</p>
+    </div>
+  </div>
+);
 
 // Versão memoizada: só re-renderiza quando os dados que afetam o conteúdo
 // (user, initialData) mudam. Assim as oscilações de syncing/lastSync durante
@@ -83,14 +108,7 @@ const App = () => {
   const memoizedInitialData = useMemo(() => userData, [userData]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-400">A carregar...</p>
-        </div>
-      </div>
-    );
+    return <EcraCarregar texto="A carregar..." />;
   }
 
   if (!user) {
@@ -124,25 +142,20 @@ const App = () => {
 
   // Mostrar loading enquanto carrega dados do utilizador
   if (userData === undefined) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-400">A carregar os teus dados...</p>
-        </div>
-      </div>
-    );
+    return <EcraCarregar texto="A carregar os teus dados..." />;
   }
 
   return (
-    <MemoOrcamentoApp 
-      user={user}
-      initialData={memoizedInitialData}
-      onSaveData={handleSaveData}
-      onLogout={logOut}
-      syncing={syncing}
-      lastSync={lastSync}
-    />
+    <Suspense fallback={<EcraCarregar texto="A carregar os teus dados..." />}>
+      <MemoOrcamentoApp 
+        user={user}
+        initialData={memoizedInitialData}
+        onSaveData={handleSaveData}
+        onLogout={logOut}
+        syncing={syncing}
+        lastSync={lastSync}
+      />
+    </Suspense>
   );
 };
 
