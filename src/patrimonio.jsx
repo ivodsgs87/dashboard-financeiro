@@ -1,9 +1,9 @@
 // Contas do Património, importação de transações (Degiro / Trade Republic),
 // comparação entre anos, chat e a caixa genérica para pedir valores.
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  GraficoBarras, meses, Ico, anos, _fmtEUR, VC_DEFAULT
+  GraficoBarras, meses, Ico, anos, _fmtEUR, TemaCtx, VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -939,6 +939,219 @@ const ChatGemini = ({ aberto, onFechar, mensagens, setMensagens, obterContexto, 
 
 // ══ PATRIMÓNIO: componentes ═════════════════════════════════════════════════
 
+// Peças do "O meu ano" (ao nível do módulo para não remontarem a cada render)
+const AnoCaixa = ({ children, className = '' }) => {
+  const claro = useContext(TemaCtx) === 'light';
+  return <div className={`rounded-2xl border p-4 sm:p-5 ${claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} ${className}`}>{children}</div>;
+};
+const AnoVer = ({ onIr, tab, t = 'ver detalhe' }) => <button onClick={() => onIr(tab)} className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">{t} →</button>;
+const AnoBarra = ({ v, cor }) => {
+  const claro = useContext(TemaCtx) === 'light';
+  return <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, v))}%`, background: cor }} /></div>;
+};
+const AnoNum = ({ rot, val, cor, nota, barra, ir, onIr }) => {
+  const claro = useContext(TemaCtx) === 'light';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  return (
+    <AnoCaixa className="!p-4">
+      <div className="flex items-start justify-between gap-2"><p className={`text-xs ${sub}`}>{rot}</p>{ir && <AnoVer onIr={onIr} tab={ir} t="ver" />}</div>
+      <p className={`text-2xl font-bold mt-1 tabular-nums ${cor || (claro ? 'text-slate-900' : 'text-white')}`}>{val}</p>
+      {barra}
+      {nota && <p className={`text-xs mt-1.5 ${sub}`}>{nota}</p>}
+    </AnoCaixa>
+  );
+};
+// ── "O meu ano": o essencial do ano num só ecrã ──
+// Componente ao nível do módulo (não remonta quando a app redesenha). Só lê dados; para mexer, os links levam aos separadores.
+const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr }) => {
+  const claro = theme === 'light';
+  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const forte = claro ? 'text-slate-900' : 'text-white';
+  const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
+  const pct = v => `${Math.round(v)}%`;
+  const hoje = new Date();
+  const anoHoje = hoje.getFullYear(), mesHoje = hoje.getMonth() + 1;
+  const ateMes = ano < anoHoje ? 12 : ano === anoHoje ? mesHoje : 0;
+  const recDe = (y, m) => { const d = M[`${y}-${m}`] || {}; return [...(d.regCom || []), ...(d.regSem || [])].reduce((a, r) => a + (Number(r.val) || 0), 0); };
+  const recMes = Array.from({ length: 12 }, (_, i) => (i < ateMes ? recDe(ano, i + 1) : 0));
+  const rec = recMes.reduce((a, v) => a + v, 0);
+  let ultMesDados = 0; recMes.forEach((v, i) => { if (v > 0) ultMesDados = i + 1; });
+  const nMeses = Math.max(ultMesDados, ano < anoHoje ? 12 : 0);
+  const proj = ano < anoHoje ? rec : (nMeses >= 2 ? rec / nMeses * 12 : rec);
+  const metaRec = Number(metas && metas.receitas) || 0;
+  const metaMes = metaRec / 12;
+  const recAntes = Array.from({ length: Math.max(1, nMeses) }, (_, i) => recDe(ano - 1, i + 1)).reduce((a, v) => a + v, 0);
+  const poupado = (Number(totais.investAnual) || 0) + (Number(totais.amortAnual) || 0);
+  // Impostos (só há previsão para o ano corrente)
+  const pi = ano === anoHoje ? impostos : null;
+  const pagosAno = (G.impostosPagos || []).filter(p => String(p.data || '').startsWith(`${ano}-`)).reduce((a, p) => a + (Number(p.valor) || 0), 0);
+  // Património financeiro (investimentos + dinheiro): fim do ano anterior → último registo do ano
+  const pIni = [...serie].reverse().find(s => s.idx <= ano * 12 - 1) || serie.find(s => Math.floor(s.idx / 12) === ano) || null;
+  const pFim = [...serie].reverse().find(s => s.idx <= ano * 12 + 11 && Math.floor(s.idx / 12) === ano) || null;
+  const dPat = pIni && pFim && pFim !== pIni ? pFim.capital - pIni.capital : null;
+  // Clientes (sem reembolsos)
+  const clis = Object.values(totais.receitasPorCliente || {}).filter(c => c.total > 0 && !/reembolso/i.test(c.nome || '')).sort((a, b) => b.total - a.total);
+  const totCli = clis.reduce((a, c) => a + c.total, 0);
+  // Horas
+  let horas = 0; for (let m = 1; m <= 12; m++) horas += Number((M[`${ano}-${m}`] || {}).horasTrabalhadas) || 0;
+  // Dívida
+  const dIni = Number(totais.dividaInicio) || 0, dAtual = Number(totais.dividaAtual) || 0;
+
+  // Frases do resumo
+  const F = [];
+  const bom = (t, ir) => F.push({ t, cor: 'text-emerald-400', s: '✓', ir });
+  const aviso = (t, ir) => F.push({ t, cor: 'text-amber-400', s: '!', ir });
+  const info = (t, ir) => F.push({ t, cor: sub, s: '•', ir });
+  if (metaRec > 0 && rec > 0) {
+    if (ano < anoHoje) (rec >= metaRec ? bom : aviso)(`Fechaste o ano com ${f(rec)}, ${pct(rec / metaRec * 100)} da meta de ${f(metaRec)}.`, 'performance');
+    else if (proj >= metaRec) bom(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: ${f(proj - metaRec)} acima da meta.`, 'performance');
+    else aviso(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: faltam ${f(metaRec - proj)} para a meta. Precisavas de ${f((metaRec - rec) / Math.max(1, 12 - nMeses))}/mês daqui para a frente.`, 'performance');
+  }
+  if (recAntes > 0 && rec > 0) {
+    const d = (rec - recAntes) / recAntes * 100;
+    (d >= 0 ? bom : aviso)(`${d >= 0 ? '+' : '−'}${pct(Math.abs(d))} face ao mesmo período de ${ano - 1} (${f(recAntes)}).`, 'performance');
+  }
+  const comDados = recMes.slice(0, nMeses).map((v, i) => ({ v, i })).filter(x => x.v > 0);
+  if (comDados.length >= 3) {
+    const best = comDados.reduce((a, b) => (b.v > a.v ? b : a)), worst = comDados.reduce((a, b) => (b.v < a.v ? b : a));
+    info(`Melhor mês: ${meses[best.i]} (${f(best.v)}). Mais fraco: ${meses[worst.i]} (${f(worst.v)}).`, 'historico');
+  }
+  if (clis.length && totCli > 0) {
+    const s = clis[0].total / totCli * 100;
+    if (s >= 60) aviso(`${clis[0].nome} vale ${pct(s)} do que faturaste: estás muito dependente de um cliente.`, 'receitas');
+    else info(`O maior cliente (${clis[0].nome}) vale ${pct(s)} da faturação.`, 'receitas');
+  }
+  if (pi && pi.irsEstimado > 0) {
+    const v = pi.irsAPagarReceber;
+    (v >= 0 ? bom : aviso)(`IRS de ${ano}: com o que já foi retido, deves ${v >= 0 ? 'receber' : 'pagar'} cerca de ${f(Math.abs(v))} em ${ano + 1}.`, 'resumo');
+  }
+  if (rec > 0 && poupado > 0) {
+    const t = poupado / rec * 100;
+    (t >= 20 ? bom : info)(`Puseste de lado ${f(poupado)} (investido + amortizado): ${pct(t)} do que faturaste.`, 'invest');
+  }
+  if (dIni > 0 && dAtual > 0 && dIni > dAtual) bom(`A dívida da casa desceu ${f(dIni - dAtual)} este ano (agora ${f(dAtual)}).`, 'credito');
+  if (dPat != null) (dPat >= 0 ? bom : aviso)(`Investimentos + dinheiro: ${dPat >= 0 ? '+' : '−'}${f(Math.abs(dPat))} desde ${patRotulo(pIni.idx)} (${f(pFim.capital)} em ${patRotulo(pFim.idx)}).`, 'patrimonio');
+  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas · ${_fmtEUR.format(rec / horas)} por hora.`, 'performance');
+
+  const ritmoOk = metaRec > 0 && proj >= metaRec;
+  const metasL = [
+    { l: 'Faturação', v: rec, m: metaRec, cor: '#3b82f6' },
+    { l: 'Investimentos', v: Number(totais.investAnual) || 0, m: Number(metas && metas.investimentos) || 0, cor: '#8b5cf6' },
+    { l: 'Amortização', v: Number(totais.amortAnual) || 0, m: Number(metas && metas.amortizacao) || 0, cor: '#10b981' },
+  ].filter(x => x.m > 0);
+  const fracao = ano < anoHoje ? 1 : ano === anoHoje ? (mesHoje - 1 + hoje.getDate() / 31) / 12 : 0;
+
+  return (
+    <div className="space-y-4 max-w-6xl mx-auto">
+      <div>
+        <h2 className={`text-xl sm:text-2xl font-bold ${forte}`}>O meu {ano}</h2>
+        <p className={`text-sm ${sub}`}>{ano === anoHoje ? `Até ${hoje.getDate()} de ${meses[mesHoje - 1].toLowerCase()} · ${nMeses} ${nMeses === 1 ? 'mês' : 'meses'} com receitas` : ano < anoHoje ? 'Ano fechado' : 'Ano ainda por começar'}</p>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <AnoNum onIr={onIr} rot="Faturado" val={f(rec)} ir="receitas"
+          barra={metaRec > 0 ? <div className="mt-2"><AnoBarra v={rec / metaRec * 100} cor="#3b82f6" /></div> : null}
+          nota={metaRec > 0 ? `${pct(rec / metaRec * 100)} da meta de ${f(metaRec)}` : 'Sem meta definida'} />
+        <AnoNum onIr={onIr} rot={ano < anoHoje ? 'Total do ano' : 'Projeção para o ano'} val={f(proj)} cor={metaRec > 0 ? (ritmoOk ? 'text-emerald-400' : 'text-amber-400') : undefined} ir="performance"
+          nota={metaRec > 0 ? (ritmoOk ? `No ritmo certo · +${f(proj - metaRec)} acima da meta` : `Abaixo do ritmo · faltam ${f(metaRec - proj)}`) : `${nMeses} meses de dados`} />
+        <AnoNum onIr={onIr} rot={`Impostos de ${ano}`} val={pi ? f(pi.totalImpostos) : '—'} cor="text-orange-400" ir="resumo"
+          nota={pi ? `SS ${f(pi.ssAnual)} · IVA ${f(pi.ivaAPagar)} · IRS ${f(pi.irsEstimado)}` : pagosAno > 0 ? `Pagaste ${f(pagosAno)} durante ${ano}` : 'Previsão só para o ano corrente'} />
+        <AnoNum onIr={onIr} rot="Posto de lado" val={f(poupado)} cor="text-violet-400" ir="invest"
+          nota={rec > 0 ? `${pct(poupado / rec * 100)} do faturado · investido ${f(totais.investAnual)} + amortizado ${f(totais.amortAnual)}` : 'Investido + amortizado'} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <AnoCaixa className="lg:col-span-3">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className={`font-semibold ${forte}`}><Ico e="📊"/>Mês a mês</h3>
+            <AnoVer onIr={onIr} tab="performance" />
+          </div>
+          <GraficoBarras height={250} aria={`Faturação por mês em ${ano}`}
+            rotulos={meses.map(m => m.slice(0, 3))}
+            series={[{ nome: 'Faturado', valores: recMes, cor: (i, v) => (i >= ateMes ? '#64748b' : metaMes > 0 ? (v >= metaMes ? '#059669' : '#d97706') : '#3b82f6') }]}
+            referencia={metaMes > 0 ? { valor: metaMes, nome: 'Meta mensal' } : null}
+            apagado={i => i >= ateMes} />
+          {metaMes > 0 && (
+            <div className={`flex flex-wrap justify-center gap-4 mt-2 text-xs ${sub}`}>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#059669' }} />Acima da meta</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#d97706' }} />Abaixo</span>
+              <span>– – Meta mensal {f(metaMes)}</span>
+            </div>
+          )}
+        </AnoCaixa>
+        <AnoCaixa className="lg:col-span-2">
+          <h3 className={`font-semibold mb-3 ${forte}`}><Ico e="💬"/>Em resumo</h3>
+          {F.length ? (
+            <ul className="space-y-2.5">
+              {F.map((x, i) => (
+                <li key={i} className="flex gap-2.5 text-sm leading-snug">
+                  <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${x.cor} ${claro ? 'bg-slate-100' : 'bg-slate-700/60'}`}>{x.s}</span>
+                  <span className={claro ? 'text-slate-700' : 'text-slate-200'}>{x.t}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className={`text-sm ${sub}`}>Ainda não há dados suficientes para este ano.</p>}
+        </AnoCaixa>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <AnoCaixa>
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🎯"/>Metas</h3><AnoVer onIr={onIr} tab="resumo" t="editar" /></div>
+          {metasL.length ? (
+            <div className="space-y-3">
+              {metasL.map(x => {
+                const p = x.v / x.m * 100, esperado = fracao * 100;
+                return (
+                  <div key={x.l}>
+                    <div className="flex justify-between text-sm mb-1"><span>{x.l}</span><span className="tabular-nums"><span className={forte}>{f(x.v)}</span> <span className={sub}>/ {f(x.m)}</span></span></div>
+                    <AnoBarra v={p} cor={x.cor} />
+                    <p className={`text-[11px] mt-1 ${p >= esperado - 5 ? 'text-emerald-400' : 'text-amber-400'}`}>{pct(p)}{ano === anoHoje ? ` · devias ir em ~${pct(esperado)}` : ''}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className={`text-sm ${sub}`}>Define metas no Resumo para as veres aqui.</p>}
+        </AnoCaixa>
+        <AnoCaixa>
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🏛️"/>Património</h3><AnoVer onIr={onIr} tab="patrimonio" /></div>
+          {pFim ? (
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className={`text-xs ${sub}`}>Investimentos + dinheiro ({patRotulo(pFim.idx)})</p>
+                <p className={`text-xl font-bold tabular-nums ${forte}`}>{f(pFim.capital)}</p>
+                {dPat != null && <p className={`text-xs ${dPat >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{dPat >= 0 ? '+' : '−'}{f(Math.abs(dPat))}{pIni.capital > 0 ? ` (${dPat >= 0 ? '+' : '−'}${pct(Math.abs(dPat) / pIni.capital * 100)})` : ''} desde {patRotulo(pIni.idx)}</p>}
+              </div>
+              {dAtual > 0 && (
+                <div>
+                  <p className={`text-xs ${sub}`}>Dívida da casa</p>
+                  <p className={`text-xl font-bold tabular-nums ${forte}`}>{f(dAtual)}</p>
+                  {dIni > dAtual && <p className="text-xs text-emerald-400">−{f(dIni - dAtual)} desde janeiro</p>}
+                </div>
+              )}
+            </div>
+          ) : <p className={`text-sm ${sub}`}>Atualiza o Património para veres a evolução.</p>}
+        </AnoCaixa>
+        <AnoCaixa>
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="👥"/>Clientes</h3><AnoVer onIr={onIr} tab="receitas" /></div>
+          {clis.length ? (
+            <div className="space-y-2.5">
+              {clis.slice(0, 4).map(c => (
+                <div key={c.nome}>
+                  <div className="flex justify-between text-sm mb-1"><span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.cor || '#64748b' }} /><span className="truncate">{c.nome}</span></span><span className="tabular-nums">{f(c.total)} <span className={`text-xs ${sub}`}>{pct(c.total / totCli * 100)}</span></span></div>
+                  <AnoBarra v={c.total / totCli * 100} cor={c.cor || '#64748b'} />
+                </div>
+              ))}
+              {clis.length > 4 && <p className={`text-xs ${sub}`}>+{clis.length - 4} outros</p>}
+              {horas > 0 && <p className={`text-xs pt-1 ${sub}`}>{Math.round(horas)} h trabalhadas · {_fmtEUR.format(rec / horas)}/h</p>}
+            </div>
+          ) : <p className={`text-sm ${sub}`}>Sem recibos neste ano.</p>}
+        </AnoCaixa>
+      </div>
+    </div>
+  );
+};
+
 const CSS_BASE = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 body, button, input, select, textarea { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
@@ -949,6 +1162,13 @@ html[data-tema="escuro"] .text-slate-500 { color: #8a97ab; }
 html[data-tema="escuro"] .text-slate-600 { color: #6f7d93; }
 html[data-tema="escuro"] .placeholder-slate-500::placeholder, html[data-tema="escuro"] input::placeholder, html[data-tema="escuro"] textarea::placeholder { color: #7c899e; }
 html[data-tema="claro"] .text-slate-400 { color: #6b7789; }
+/* Tema claro: textos coloridos (-400) ficavam pálidos no fundo branco; usa o tom mais escuro */
+html[data-tema="claro"] .text-emerald-400 { color: #059669; } html[data-tema="claro"] .text-green-400 { color: #16a34a; }
+html[data-tema="claro"] .text-amber-400 { color: #b45309; } html[data-tema="claro"] .text-yellow-400 { color: #a16207; }
+html[data-tema="claro"] .text-orange-400 { color: #ea580c; } html[data-tema="claro"] .text-red-400 { color: #dc2626; }
+html[data-tema="claro"] .text-violet-400 { color: #7c3aed; } html[data-tema="claro"] .text-purple-400 { color: #9333ea; }
+html[data-tema="claro"] .text-blue-400 { color: #2563eb; } html[data-tema="claro"] .text-cyan-400 { color: #0891b2; }
+html[data-tema="claro"] .text-pink-400 { color: #db2777; } html[data-tema="claro"] .text-teal-400 { color: #0d9488; }
 .ico { width: 1.05em; height: 1.05em; display: inline-block; vertical-align: -0.16em; margin-right: .45em; flex-shrink: 0; opacity: .85; }
 .ico-nav { margin-right: .35em; }
 .ico-solo { margin-right: 0; }
@@ -988,6 +1208,11 @@ const CSS_MOBILE = `
   .m-fab-txt{display:none}
   .m-pad{padding-bottom:7.5rem!important}
 }
+
+/* Painel no telemóvel: cartões secundários escondidos até carregar em "Ver mais" */
+@media (max-width:639px) { .m-mais-fechado .m-mais { display: none !important; } }
+/* Ecrãs tácteis: botões que só aparecem ao passar o rato ficam sempre visíveis */
+@media (hover: none) { .group .group-hover\\:opacity-100, .group .group-hover\\:opacity-70 { opacity: 1 !important; } }
 `;
 
 export {
@@ -999,5 +1224,5 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, CSS_BASE, CSS_MOBILE
+  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE
 };
