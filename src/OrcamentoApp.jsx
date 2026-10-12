@@ -5,12 +5,12 @@ import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
-  GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
-  IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
-  copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabParar, CronoTopo, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador,
-  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
+  mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
+  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabParar, CronoTopo, MenuTopo, TemaCtx, Card,
+  StatCard, Button, ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -65,6 +65,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
   const [tab, setTab] = useState('resumo');
+  // O calendário de projetos passou para dentro do Trabalho
+  useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
   const [txSoMes, setTxSoMes] = useState(true); // Transações: mostrar só o mês selecionado no topo
   const [txImport, setTxImport] = useState(null); // pré-visualização de um ficheiro de transações a importar
   const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
@@ -3968,8 +3970,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
  <EntregasClickUp cu={G.clickup} trab={trabalho} M={M} ano={ano} mesNum={meses.indexOf(mes) + 1} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
-   onPrecos={precos => cuMudar(() => ({ precos }))}
-   onPlano={(k, v) => setG(p => ({ ...p, clickup: { ...(p.clickup || {}), planos: { ...((p.clickup || {}).planos || {}), [k]: v } } }))} />
+   onIrPrecos={() => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'tipos' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); }} />
 
  <Card>
  <div className="flex justify-between items-center mb-4">
@@ -4057,27 +4058,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  </Card>
 
- {/* Configuração: clientes e impostos dos recibos (usa-se pouco, por isso fica no fim) */}
+ {/* Configuração: impostos dos recibos (usa-se pouco, por isso fica no fim). Os clientes estão em Trabalho → Clientes */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
- <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="👥"/>Clientes</h3>
- <AddClienteInput 
- inputClass={inputClass}
- onAdd={(nome) => uG('clientes', [...clientes, {id: Date.now(), nome, cor: ['#3b82f6','#ec4899','#10b981','#f97316','#8b5cf6'][clientes.length % 5]}])}
- />
- <div className="flex flex-wrap gap-2">
- {clientes.map(c => (
- <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 tile rounded-xl">
- <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm" title={(c.aliases || []).length ? `Nos recibos: ${c.aliases.join(', ')}` : undefined}>{c.nome}</span>
- {(c.aliases || []).length > 0 && <span className="text-[10px] text-slate-400">· {(c.aliases || []).length === 1 ? c.aliases[0] : `${c.aliases.length} empresas`}</span>}
- <button className="text-slate-400 hover:text-blue-400 text-xs" title="Nomes das empresas nos recibos" aria-label={`Nomes nos recibos de ${c.nome}`}
-   onClick={() => setFormAction({ titulo: `Empresas de ${c.nome}`, texto: 'Nomes que aparecem nos recibos e no extrato para este cliente. Ao ler um recibo, a app usa-os para escolher o cliente certo.', campos: [{ k: 'al', label: 'Nomes, separados por vírgulas (ex.: Everboost Lda, Everboost Games)', tipo: 'text', valor: (c.aliases || []).join(', ') }], botao: 'Guardar',
-     onOk: v => uG('clientes', clientes.map(x => x.id === c.id ? { ...x, aliases: [...new Set(String(v.al || '').split(',').map(a => a.trim()).filter(Boolean))] } : x)) })}>✎</button>
- <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>confirmDelete(`Apagar o cliente "${c.nome}"? As receitas associadas não serão apagadas.`, ()=>uG('clientes',clientes.filter(x=>x.id!==c.id)))}>✕</button>
- </div>
- ))}
- </div>
- </Card>
  <Card>
  <h3 className="text-lg font-semibold mb-4"><Ico e="🧮"/>Impostos dos recibos</h3>
  <div className="space-y-3">
@@ -10690,7 +10672,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛️',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
-   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calfin',icon:'🗓️',label:'Calendário'},{id:'calendario',icon:'📆',label:'Projetos'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
+   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calfin',icon:'🗓️',label:'Calendário'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
  // Ao voltar a um grupo, abre o último separador que usaste nele.
@@ -10702,7 +10684,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
    { id: 'chat', label: 'Chat IA' },
-   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'calendario', 'credito', 'vendacasa'] },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'credito', 'vendacasa'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
@@ -13286,6 +13268,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
+   onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))} calendario={<AbaEstavel render={Calendario} />}
    onImportarClientes={lista => {
      // Ficheiro de fichas: junta aos clientes que já existem (pelo nome ou outros nomes) ou cria-os; grava também os preços
      saveUndo();
@@ -13404,7 +13387,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
  {tab==='calfin' && <CalendarioFinanceiro notif={{ on: notifOn, suportado: notifSuportadas, alternar: alternarNotif }} eventosDoMes={eventosCalendario} theme={theme} fmt={fmt} anoInicial={anoAtualSistema} mesInicial={new Date().getMonth() + 1}
   onToggle={(k, v) => { const n = { ...(G.tarefasConcluidas || {}) }; if (v) n[k] = true; else delete n[k]; uG('tarefasConcluidas', n); }} />}
-{tab==='calendario' && <AbaEstavel key="calendario" render={Calendario} />}
+
  {tab==='agenda' && <AbaEstavel key="agenda" render={Agenda} />}
  {tab==='extrato' && renderExtrato()}
         </ProtecaoErro>
@@ -13637,31 +13620,11 @@ ${transacoesOrdenadas.map(t => `<tr>
          {/* ===== CLIENTES ===== */}
          {sidebarTab === 'clientes' && (
            <div className="space-y-4">
-             <div>
-               <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Clientes</h4>
-               <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                 {(G.clientes || []).map((c, i) => (
-                   <div key={c.id} className={`flex items-center gap-3 p-2 rounded-lg ${theme === 'light' ? 'bg-white' : 'bg-slate-700/50'}`}>
-                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.cor }} />
-                     <input type="text" value={c.nome} onChange={e => { saveUndo(); const novos = [...G.clientes]; novos[i] = {...c, nome: e.target.value}; uG('clientes', novos); }}
-                       className={`flex-1 text-sm bg-transparent border-none outline-none ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
-                     <input type="text" defaultValue={(c.aliases || []).join(', ')} placeholder="Empresas nos recibos" title="Nomes das empresas nos recibos, separados por vírgulas"
-                       onBlur={e => { const al = [...new Set(e.target.value.split(',').map(a => a.trim()).filter(Boolean))]; if (al.join('|') !== (c.aliases || []).join('|')) { saveUndo(); uG('clientes', (G.clientes || []).map(x => x.id === c.id ? { ...x, aliases: al } : x)); } }}
-                       className={`w-28 sm:w-40 text-xs bg-transparent border-b outline-none ${theme === 'light' ? 'border-slate-300 text-slate-600' : 'border-slate-600 text-slate-400'}`} />
-                     <ColorPicker value={c.cor} onChange={v => { saveUndo(); uG('clientes', clientes.map((x,j) => j===i ? {...x, cor: v} : x)); }} />
-                     {G.clientes.length > 1 && (
-                       <button onClick={() => { saveUndo(); uG('clientes', G.clientes.filter(x => x.id !== c.id)); }}
-                         className="text-red-400 hover:text-red-300 text-xs">✕</button>
-                     )}
-                   </div>
-                 ))}
-                 <button onClick={() => { saveUndo(); const maxId = Math.max(0, ...(G.clientes || []).map(c => c.id)); uG('clientes', [...(G.clientes || []), { id: maxId + 1, nome: 'Novo Cliente', cor: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0') }]); }}
-                   className={`w-full py-2 text-xs rounded-lg border-2 border-dashed ${theme === 'light' ? 'border-slate-300 text-slate-500 hover:bg-slate-100' : 'border-slate-600 text-slate-400 hover:bg-slate-700/50'}`}>
-                   + Adicionar cliente
-                 </button>
-               </div>
+             <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <p className={`text-sm ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>Os clientes (nome, cor, outros nomes, faturação e preços) estão agora em <strong>Trabalho → Clientes</strong>.</p>
+               <button onClick={() => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'clientes' })); } catch (e) { /* sem armazenamento */ } setShowSidebar(false); setTab('trabalho'); }}
+                 className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Abrir os clientes</button>
              </div>
-             
              <div>
                <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Categorias de Investimento</h4>
                <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
