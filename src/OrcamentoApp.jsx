@@ -2,14 +2,15 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
   IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
   copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, MenuTopo, TemaCtx, Card, StatCard, Button,
-  ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabParar, CronoTopo, MenuTopo, TemaCtx,
+  Card, StatCard, Button, ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -23,6 +24,8 @@ import {
 const carregarVendaCasa = () => import('./vendaCasa');
 const carregarPatrimonio = () => import('./patrimonioEcra');
 const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa');
+const carregarTrabalho = () => import('./trabalho');
+const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho');
 const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio');
 setTimeout(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }, 4000);
 
@@ -411,6 +414,50 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
+  // ── Trabalho (tarefas, pastas, tempos): documento à parte no Firestore (users/<uid>/trabalho/dados).
+  //    Se as regras do Firestore não deixarem, guarda-se no documento principal (G.trabalho).
+  const [trabDoc, setTrabDoc] = useState(null);
+  const [trabModo, setTrabModo] = useState('carregar'); // 'carregar' | 'doc' | 'g'
+  const trabModoRef = useRef('carregar'); trabModoRef.current = trabModo;
+  const trabDocRef = useRef(null); trabDocRef.current = trabDoc;
+  const gTrabRef = useRef(null);
+  const trabSujo = useRef(false);
+  const trabTimer = useRef(null);
+  useEffect(() => {
+    const uid = user && user.uid;
+    if (!uid || typeof ouvirTrabalho !== 'function') { setTrabModo('g'); return undefined; }
+    let vivo = true;
+    let parar = null;
+    try {
+      parar = ouvirTrabalho(uid, (dados, pendente) => {
+        if (!vivo || pendente || trabSujo.current) return;
+        setTrabDoc(dados ? { ...TRAB_VAZIO, ...dados } : null);
+        setTrabModo('doc');
+      }, () => { if (vivo) setTrabModo('g'); });
+    } catch (e) { setTrabModo('g'); }
+    return () => { vivo = false; if (parar) parar(); };
+  }, [user && user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const trabalho = trabModo === 'doc' ? (trabDoc || G.trabalho || TRAB_VAZIO) : (G.trabalho || TRAB_VAZIO);
+  gTrabRef.current = G.trabalho || null;
+  const mudarTrab = useCallback(fn => {
+    if (trabModoRef.current !== 'doc') { setG(p => ({ ...p, trabalho: fn(p.trabalho || TRAB_VAZIO) })); return; }
+    const novo = fn(trabDocRef.current || gTrabRef.current || TRAB_VAZIO);
+    trabDocRef.current = novo;
+    setTrabDoc(novo);
+    trabSujo.current = true;
+    clearTimeout(trabTimer.current);
+    trabTimer.current = setTimeout(() => {
+      const uid = user && user.uid;
+      const limpo = JSON.parse(JSON.stringify({ ...trabDocRef.current, atualizado: new Date().toISOString() }));
+      guardarTrabalho(uid, limpo).then(() => { trabSujo.current = false; }).catch(err => {
+        trabSujo.current = false;
+        console.error('Trabalho: não consegui gravar à parte', err);
+        // Sem autorização para o documento à parte: passa a gravar no documento principal
+        setG(p => ({ ...p, trabalho: limpo }));
+        setTrabModo('g');
+      });
+    }, 700);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
   // Cópia de segurança num clique: descarrega tudo num ficheiro e regista a data
   const fazerBackup = useCallback(() => {
     try {
@@ -3895,7 +3942,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </button>
  </div>
 
- <EntregasClickUp cu={G.clickup} ano={ano} mesNum={meses.indexOf(mes) + 1} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
+ <EntregasClickUp cu={G.clickup} trab={trabalho} M={M} ano={ano} mesNum={meses.indexOf(mes) + 1} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
    onPrecos={precos => cuMudar(() => ({ precos }))}
    onPlano={(k, v) => setG(p => ({ ...p, clickup: { ...(p.clickup || {}), planos: { ...((p.clickup || {}).planos || {}), [k]: v } } }))} />
 
@@ -10612,6 +10659,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const tabs = [
    {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'ano',icon:'🧭',label:'O meu ano'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
+   {id:'trabalho',icon:'🗂️',label:'Trabalho'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
@@ -10623,13 +10671,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Ao voltar a um grupo, abre o último separador que usaste nele.
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
  // Telemóvel: 5 secções no menu de baixo (estilo app), cada uma com os seus separadores no topo
- const subInfo = { receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
+ const subInfo = { trabalho: { icon: '🗂️', label: 'Trabalho' }, receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
    { id: 'chat', label: 'Chat IA' },
-   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['calfin', 'agenda', 'calendario', 'credito', 'vendacasa'] },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'calendario', 'credito', 'vendacasa'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
@@ -13099,6 +13147,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 )}
               </div>
 
+              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onAbrir={() => setTab('trabalho')} />
               {/* Estado: offline / a guardar / guardado */}
               {!isOnline ? (
                 <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-amber-600' : 'text-amber-400'}`} title="Sem internet — guarda quando voltar"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"/><span className="hidden sm:inline">Offline</span></span>
@@ -13210,6 +13259,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
+ {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast}/></Suspense>}
  {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
 
  {/* Modal: confirmar transações lidas de um ficheiro */}
