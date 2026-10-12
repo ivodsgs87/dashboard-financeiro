@@ -8,6 +8,22 @@ import {
   meses, Card, trabParar,
 } from './base';
 
+// Ícones de linha (mesmo estilo do resto da app), em vez de emojis
+const ICONES_T = {
+  casa: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
+  relogio: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><path d="M9.5 2.5h5"/>',
+  calendario: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  pessoas: '<path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20"/><circle cx="10" cy="8" r="3.5"/><path d="M20 20v-1.5a3.5 3.5 0 0 0-2.5-3.35M15.5 4.65a3.5 3.5 0 0 1 0 6.7"/>',
+  freelancer: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20v-1.5A3.5 3.5 0 0 1 6.5 15h5"/><path d="M14.5 20l1-3.5 4.5-4.5 2.5 2.5-4.5 4.5z"/>',
+  etiqueta: '<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.25"/>',
+  pasta: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  jogo: '<rect x="2.5" y="7" width="19" height="11" rx="5"/><path d="M7.5 10.5v4M5.5 12.5h4"/><circle cx="15.5" cy="11.5" r=".9"/><circle cx="17.5" cy="13.8" r=".9"/>',
+  lapis: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/>',
+  nota: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
+};
+const IcoT = ({ n, className = 'w-4 h-4' }) => (
+  <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONES_T[n] || '' }} />
+);
 // ── Operações (recebem os dados e devolvem os dados novos) ──
 const agoraIso = () => new Date().toISOString();
 const eur = v => cuEur(Math.round(Number(v) || 0));
@@ -317,8 +333,8 @@ const useLargo = (q = '(min-width: 900px)') => {
   return l;
 };
 // Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
-const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_96px_108px_84px_96px_84px] items-center gap-x-3';
-const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_108px_76px_80px] items-center gap-x-3';
+const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_92px_96px_108px_84px_96px_84px] items-center gap-x-3';
+const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_84px_108px_76px_80px] items-center gap-x-3';
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
   const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
@@ -375,11 +391,20 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
-            {t.notas && <span className={`text-[11px] ${sub}`} title="Tem notas">📝</span>}
+            {t.notas && <span className={sub} title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
           </>
         )}
       </div>
       <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
+      <div>
+        {(() => { const pr = PRIORIDADES.find(x => x[0] === t.prioridade); return (
+          <select value={t.prioridade || ''} onChange={e => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, prioridade: e.target.value || null })))} aria-label="Prioridade"
+            className={`w-full appearance-none bg-transparent text-[12px] rounded-md px-1.5 py-1 cursor-pointer outline-none ${pr ? 'font-medium' : sub} ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} style={pr ? { color: pr[2] } : undefined}>
+            <option value="" className={claro ? '' : 'bg-slate-800 text-slate-300'}>—</option>
+            {PRIORIDADES.map(([k, n, c]) => <option key={k} value={k} className={claro ? '' : 'bg-slate-800'} style={{ color: c }}>⚑ {n}</option>)}
+          </select>
+        ); })()}
+      </div>
       {cheio && <div className={sub}>{haQuanto(t.criada)}</div>}
       <div className="flex items-center gap-2">
         <BotaoCrono aCorrer={corre} theme={theme} pequeno onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
@@ -425,7 +450,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Estado</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                    <span>Nome</span><span>Estado</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -751,7 +776,7 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
         </div>
         <p className={`text-[11px] ${sub}`}>Marca em que ponto está o orçamento (rascunho, enviado ao cliente, aprovado, faturado). É só para te organizares — não muda as contas.</p>
         <p className={`text-[11px] ${sub}`}>As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas; as subcontratações descontam nesse mês.</p>
-        {onVerPrecos && <button type="button" onClick={onVerPrecos} className="text-xs text-blue-400 hover:text-blue-300">✏️ Mudar os preços de {nomeCliente || 'este cliente'} →</button>}
+        {onVerPrecos && <button type="button" onClick={onVerPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Mudar os preços de {nomeCliente || 'este cliente'} →</button>}
       </div>
     </div>
   );
@@ -971,7 +996,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               )}
               <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
             </div>
-            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : (trab.freelancers || []).length ? null : <p className={`text-xs ${sub}`}>Junta os teus freelancers em 🧑‍🎨 Freelancers para o custo sair sozinho.</p>; })()}
+            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : (trab.freelancers || []).length ? null : <p className={`text-xs ${sub}`}>Junta os teus freelancers em Freelancers (barra lateral) para o custo sair sozinho.</p>; })()}
             {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
           </div>
 
@@ -1222,7 +1247,7 @@ const NomesFicheiros = ({ t, trab, set, claro, inputClass, lab, sub, caixa }) =>
       </div>
       {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em "Entrega" (ex.: 4:5, 9:16, 16:9) para veres os nomes.</p> : (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2"><span className={`text-xs shrink-0 ${sub}`}>📁</span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
+          <div className="flex items-center gap-2"><span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
           {r.ficheiros.map(f => (
             <div key={f.formato} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 truncate text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, f.formato)}</div>
           ))}
@@ -1258,7 +1283,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar }
           <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do jogo (ex.: Mahjong)" className={`${inputClass} !w-56 text-sm py-1.5`} />
           <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Jogo</button>
         </form>
-        {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>🎮 Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
+        {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
       </div>
       {!jogos.length && <p className={`text-sm ${sub}`}>Ainda não há jogos. Cria um, ou deteta-os pelos nomes das listas (ex.: "44 - Mahjong - Oct" → Mahjong).</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
@@ -1383,7 +1408,7 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
 };
 
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
-const PAISES_RECIBO = [['PT', '🇵🇹 Portugal'], ['UE', '🇪🇺 UE'], ['Fora UE', '🌍 Fora UE']];
+const PAISES_RECIBO = [['PT', 'Portugal'], ['UE', 'UE'], ['Fora UE', 'Fora da UE']];
 const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
 // Números de um cliente: faturado (recibos), horas e tarefas (Trabalho)
 const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
@@ -1530,7 +1555,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             ))}
           </div>
         </div>
-        <button type="button" onClick={onIrPrecos} className="text-xs text-blue-400 hover:text-blue-300">✏️ Preços de {c.nome} →</button>
+        <button type="button" onClick={onIrPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Preços de {c.nome} →</button>
         <p className={`text-[11px] ${sub}`}>O NIF e a morada ficam só na app — não vão no resumo do chat.</p>
       </div>
     </div>
@@ -1988,27 +2013,27 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const arvore = (
     <div className="space-y-3">
       <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${sel.tipo === 'geral' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-        <span aria-hidden="true">🏠</span> Visão geral
+        <IcoT n="casa" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Visão geral
       </button>
       <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'timesheet' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-        <span aria-hidden="true">⏱</span> Timesheet
+        <IcoT n="relogio" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Timesheet
       </button>
       {calendario && (
         <button type="button" onClick={() => setSel({ tipo: 'calendario' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'calendario' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-          <span aria-hidden="true">📆</span> Calendário de projetos
+          <IcoT n="calendario" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Calendário de projetos
         </button>
       )}
       {onCliente && (
         <button type="button" onClick={() => setSel({ tipo: 'clientes' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'clientes' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-          <span aria-hidden="true">👥</span> Clientes
+          <IcoT n="pessoas" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Clientes
         </button>
       )}
       <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'freelancers' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-        <span aria-hidden="true">🧑‍🎨</span> Freelancers
+        <IcoT n="freelancer" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Freelancers
       </button>
       {onCu && onPrecos && (
         <button type="button" onClick={() => setSel({ tipo: 'tipos' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'tipos' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-          <span aria-hidden="true">🏷</span> Tipos e preços
+          <IcoT n="etiqueta" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Tipos e preços
         </button>
       )}
       {(trab.favoritos || []).length > 0 && (
@@ -2051,7 +2076,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           </div>
         );
       })}
-      {!clientes.length && <p className={`text-xs ${sub}`}>Adiciona primeiro os teus clientes em 👥 Clientes.</p>}
+      {!clientes.length && <p className={`text-xs ${sub}`}>Adiciona primeiro os teus clientes em Clientes (em cima).</p>}
     </div>
   );
 
@@ -2078,7 +2103,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setArvoreMob(!arvoreMob)} className={`lg:hidden px-3 py-2 text-sm rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>📁 Pastas</button>
+        <button type="button" onClick={() => setArvoreMob(!arvoreMob)} className={`lg:hidden px-3 py-2 text-sm rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'} inline-flex items-center gap-1.5`}><IcoT n="pasta" /> Pastas</button>
         <button type="button" onClick={alternarArvore} title={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas (mais espaço para as tarefas)'} aria-label={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas'}
           className={`hidden lg:inline-flex w-9 h-9 items-center justify-center rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-500' : 'border-slate-700 hover:bg-white/5 text-slate-400'}`}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />{semArvore ? <path d="m13 10 2 2-2 2" /> : <path d="m16 10-2 2 2 2" />}</svg>
@@ -2110,8 +2135,8 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           </div>
           {(anosPorOrganizar.length > 0 || listasSemJogo > 0) && (
             <div className="flex flex-wrap items-center gap-2">
-              {listasSemJogo > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, sel.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>🎮 Dar uma cor a cada jogo ({listasSemJogo} lista{listasSemJogo === 1 ? '' : 's'})</button>}
-              {anosPorOrganizar.length > 0 && <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>}
+              {listasSemJogo > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, sel.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Dar uma cor a cada jogo ({listasSemJogo} lista{listasSemJogo === 1 ? '' : 's'})</button>}
+              {anosPorOrganizar.length > 0 && <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>}
             </div>
           )}
           {pasta && (
@@ -2126,8 +2151,8 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               {!pasta.mesNum && !(trab.pastas || []).some(f => f.paiId === pasta.id) && (trab.jogos || []).some(j => String(j.cid) === String(pasta.cid)) && (
                 <select value={pasta.jogoId || ''} onChange={e => { const j = (trab.jogos || []).find(x => x.id === e.target.value); mudar(tr => opPasta(tr, pasta.id, j ? { jogoId: j.id, cor: j.cor } : { jogoId: null })); }}
                   className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Jogo desta lista">
-                  <option value="" className={claro ? '' : 'bg-slate-800'}>🎮 Sem jogo</option>
-                  {(trab.jogos || []).filter(j => String(j.cid) === String(pasta.cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(j => <option key={j.id} value={j.id} className={claro ? '' : 'bg-slate-800'}>🎮 {j.nome}</option>)}
+                  <option value="" className={claro ? '' : 'bg-slate-800'}>Sem jogo</option>
+                  {(trab.jogos || []).filter(j => String(j.cid) === String(pasta.cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(j => <option key={j.id} value={j.id} className={claro ? '' : 'bg-slate-800'}>Jogo: {j.nome}</option>)}
                 </select>
               )}
               {porOrganizar(pasta) && (
@@ -2136,7 +2161,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                   const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
                   const resumo = Object.entries(porMes).map(([n, q]) => `${n}: ${q}`).join(', ');
                   if (window.confirm(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
-                }} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar por meses</button>
+                }} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar por meses</button>
               )}
               <button type="button" onClick={() => novaPasta(pasta.cid, pasta.id)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Subpasta</button>
               <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opAutoJogo(opPasta(tr, pasta.id, { nome: n }), pasta.id)) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
