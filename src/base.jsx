@@ -1,6 +1,6 @@
 // Peças de base da app: campos de escrita, gráficos, constantes (meses, escalões de IRS)
 // e o mapeamento de categorias para a Bilance. Usado por OrcamentoApp.jsx e pelos outros ficheiros.
-import React, { useState, useEffect, useLayoutEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, memo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
@@ -56,6 +56,15 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       input.removeEventListener('keydown', onKeyDown);
     };
   }, []); // NUNCA re-executar
+
+  // Se o valor mudar por fora (outro mês, outro registo, importação...) e não estiveres a escrever
+  // neste campo, mostra o valor novo. Antes isto dependia de o campo ser recriado a cada render.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || document.activeElement === input) return;
+    if (String(input.value) !== String(initialValue ?? '')) input.value = initialValue ?? '';
+    lastSavedValue.current = initialValue;
+  }, [initialValue]);
   
   return (
     <input 
@@ -68,7 +77,7 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       tabIndex={tabIndex}
     />
   );
-}, () => true); // Comparador que SEMPRE retorna true = NUNCA re-renderizar
+}); // Pode voltar a desenhar (o texto que estás a escrever não se perde: o campo não é controlado pelo React)
 
 // Stable Date Input - para campos de data
 const StableDateInput = memo(({value, onChange, className}) => {
@@ -124,7 +133,7 @@ const StableDateInput = memo(({value, onChange, className}) => {
       className={className}
     />
   );
-}, () => true); // NUNCA re-renderizar
+});
 
 // Slider com input manual
 const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', className, color = 'blue'}) => {
@@ -843,6 +852,7 @@ const transfFalta = (t, x) => {
 const transfFeita = (t, x) => transfFalta(t, x) < 0.5;
 
 const ICO_SVG = {
+  "💬": "<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>",
   "📊": "<path d=\"M3 3v18h18\"/><path d=\"M7 16v-5M12 16V7M17 16v-8\"/>",
   "📈": "<polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/>",
   "🚀": "<polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/>",
@@ -1050,21 +1060,21 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
           <div className="mt-3 space-y-1.5">
             <p className="text-sm font-medium">{diaSel ? `${diaSel} de ${meses[m - 1]}` : 'Sem nada marcado neste mês'}</p>
             {diaSel && !(porDia[diaSel] || []).length && <p className="text-xs text-slate-500">Nada marcado neste dia.</p>}
-            {(porDia[diaSel] || []).map(e => <Linha key={e.id} e={e} />)}
+            {(porDia[diaSel] || []).map(e => <React.Fragment key={e.id}>{Linha({ e: e })}</React.Fragment>)}
           </div>
         </div>
         <div className="space-y-3">
           {atrasados.length > 0 && (
             <div>
               <p className="text-sm font-medium text-red-400 mb-1.5">Em atraso este mês</p>
-              <div className="space-y-1.5">{atrasados.map(e => <Linha key={'a' + e.id} e={e} data={`${e.dia} ${meses[hoje.getMonth()].slice(0, 3)}`} />)}</div>
+              <div className="space-y-1.5">{atrasados.map(e => <React.Fragment key={'a' + e.id}>{Linha({ e: e, data: `${e.dia} ${meses[hoje.getMonth()].slice(0, 3)}` })}</React.Fragment>)}</div>
             </div>
           )}
           <div>
             <p className="text-sm font-medium mb-1.5">Próximos 30 dias</p>
             {!proximos.length && <p className="text-xs text-slate-500">Nada pendente.</p>}
             <div className="space-y-1.5">
-              {proximos.map(e => <Linha key={'p' + e.dt.getMonth() + e.id} e={e} data={e.dias === 0 ? 'Hoje' : e.dias === 1 ? 'Amanhã' : `${e.dt.getDate()} ${meses[e.dt.getMonth()].slice(0, 3)}`} />)}
+              {proximos.map(e => <React.Fragment key={'p' + e.dt.getMonth() + e.id}>{Linha({ e: e, data: e.dias === 0 ? 'Hoje' : e.dias === 1 ? 'Amanhã' : `${e.dt.getDate()} ${meses[e.dt.getMonth()].slice(0, 3)}` })}</React.Fragment>)}
             </div>
           </div>
         </div>
@@ -1411,6 +1421,154 @@ class ProtecaoErro extends React.Component {
   }
 }
 
+// ── ClickUp: estimativa do que já entregaste (e podes faturar) a partir das tarefas fechadas ──
+// Lê nomes como "1x New Video - Título + 2x Variations" e conta cada tipo de peça.
+const CU_TIPOS = [
+  { id: 'video', nome: 'Vídeo novo', plural: 'vídeos novos' },
+  { id: 'variacao', nome: 'Variação', plural: 'variações' },
+  { id: 'iteracao', nome: 'Iteração', plural: 'iterações' },
+  { id: 'banner', nome: 'Banner', plural: 'banners' },
+  { id: 'hook', nome: 'Hook', plural: 'hooks' },
+  { id: 'aso', nome: 'Vídeo ASO', plural: 'vídeos ASO' },
+  { id: 'extra', nome: 'Extra / ideação', plural: 'extras' },
+  { id: 'outro', nome: 'Outro', plural: 'outros' },
+];
+const CU_PRECOS_PADRAO = { video: 420, variacao: 150, iteracao: 80, banner: 120, hook: 0, aso: 0, extra: 0, outro: 0 };
+const cuTipoDe = t => {
+  const x = String(t || '').toLowerCase();
+  if (/iterat/.test(x)) return 'iteracao';
+  if (/variat/.test(x)) return 'variacao';
+  if (/banner/.test(x)) return 'banner';
+  if (/hook/.test(x)) return 'hook';
+  if (/\baso\b/.test(x)) return 'aso';
+  if (/video|vídeo|ad\b|clip/.test(x)) return 'video';
+  if (/extra|idea|ideation|idei/.test(x)) return 'extra';
+  return 'outro';
+};
+// "1x New Video - Hawk vs Sable + 1x Iteration" → [{tipo:'video',n:1},{tipo:'iteracao',n:1}]
+const cuPecas = nome => {
+  const s = String(nome || '');
+  const partes = s.split(/\s\+\s|\s\+(?=\s*\d+\s*x)/i);
+  const out = [];
+  partes.forEach(p => {
+    const m = /^\s*(\d+)\s*x\s*(.*)$/i.exec(p);
+    if (!m) return;
+    const tipoTxt = m[2].split(/\s[-–—]\s/)[0];
+    out.push({ tipo: cuTipoDe(tipoTxt), n: Math.max(1, parseInt(m[1], 10) || 1) });
+  });
+  if (!out.length) out.push({ tipo: cuTipoDe(s), n: 1 });
+  return out;
+};
+// A que cliente da app pertence uma tarefa (pelo espaço/pasta do ClickUp, como nas horas)
+const cuClienteDe = (cu, sid, fid, clientes, nomeEsp) => {
+  const mapa = (cu && cu.mapa) || {}, dividir = (cu && cu.dividir) || {};
+  let cid = dividir[sid] ? mapa[`${sid}/${fid}`] : undefined;
+  if (cid === undefined || cid === null || cid === '') cid = mapa[sid];
+  if (cid === undefined || cid === null || cid === '') { const c = clienteDoNome(clientes, nomeEsp); cid = c ? c.id : null; }
+  return cid === 'x' ? 'x' : cid;
+};
+const cuEntregasMes = (cu, ano, mesNum, clientes) => {
+  const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
+  const nomes = {}; ((cu && cu.espacos) || []).forEach(e => { nomes[e.id] = e.nome; });
+  const precos = (cu && cu.precos) || {};
+  const preco = (cid, tipo) => {
+    const pc = (precos.porCliente || {})[cid] || {};
+    if (pc[tipo] != null && pc[tipo] !== '') return Number(pc[tipo]) || 0;
+    const pp = { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) };
+    return Number(pp[tipo]) || 0;
+  };
+  const porCli = {};
+  let total = 0, semPreco = 0;
+  const tarefas = (((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref));
+  tarefas.forEach(t => {
+    const cid = cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
+    if (cid === 'x') return;
+    const k = cid == null ? `esp:${t.espaco}` : String(cid);
+    const c = (porCli[k] = porCli[k] || { cid, nomeEsp: nomes[t.espaco] || 'Sem cliente', total: 0, contagem: {}, tarefas: [] });
+    let v = 0;
+    cuPecas(t.nome).forEach(p => { const pr = preco(cid, p.tipo); v += pr * p.n; if (!pr) semPreco += p.n; c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n; });
+    c.total += v; total += v;
+    c.tarefas.push({ ...t, valor: v });
+  });
+  return { total, semPreco, n: tarefas.length, clientes: Object.values(porCli).sort((a, b) => b.total - a.total) };
+};
+
+const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos }) => {
+  const [editar, setEditar] = useState(false);
+  const [quem, setQuem] = useState('padrao');
+  if (!(cu && cu.anos && cu.anos[ano] && cu.anos[ano].entregues)) return null;
+  const claro = theme === 'light';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
+  const est = cuEntregasMes(cu, ano, mesNum, clientes);
+  const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
+  const estPrev = cu.anos[aPrev] && cu.anos[aPrev].entregues ? cuEntregasMes(cu, aPrev, mPrev, clientes) : null;
+  const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
+  const resumoContagem = cont => CU_TIPOS.filter(t => cont[t.id]).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? t.nome.toLowerCase() : t.plural}`).join(', ');
+  const precos = cu.precos || {};
+  const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : ((precos.porCliente || {})[quem] || {});
+  const guardar = (tipo, v) => {
+    const num = v === '' ? null : Math.max(0, Number(String(v).replace(',', '.')) || 0);
+    if (quem === 'padrao') onPrecos({ ...precos, padrao: { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}), [tipo]: num == null ? 0 : num } });
+    else {
+      const pc = { ...((precos.porCliente || {})[quem] || {}) };
+      if (num == null) delete pc[tipo]; else pc[tipo] = num;
+      onPrecos({ ...precos, porCliente: { ...(precos.porCliente || {}), [quem]: pc } });
+    }
+  };
+  return (
+    <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(est.total)}</strong> <span className={`text-xs ${sub}`}>· {est.n} tarefa{est.n === 1 ? '' : 's'} fechada{est.n === 1 ? '' : 's'}</span></p>
+        {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(estPrev.total)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
+      </div>
+      {est.clientes.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {est.clientes.map(c => (
+            <details key={c.cid ?? c.nomeEsp} className="text-sm">
+              <summary className="cursor-pointer flex flex-wrap gap-x-2 items-baseline list-none">
+                <span className="font-medium">{nomeCli(c)}</span>
+                <span className={`text-xs ${sub} flex-1 min-w-0`}>{resumoContagem(c.contagem)}</span>
+                <span className="tabular-nums">≈ {f(c.total)}</span>
+              </summary>
+              <ul className={`mt-1 mb-2 pl-3 text-xs space-y-0.5 ${sub}`}>
+                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.valor > 0 ? f(t.valor) : 'sem preço'}</span></li>)}
+              </ul>
+            </details>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem preço definido</span>}
+        <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations").</span>
+        <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
+      </div>
+      {editar && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
+            <span className={sub}>Preços de</span>
+            <select className={`${inputClass} !w-auto text-sm py-1`} value={quem} onChange={e => setQuem(e.target.value)}>
+              <option value="padrao">todos os clientes (padrão)</option>
+              {(clientes || []).filter(c => !/reembolso/i.test(c.nome || '')).map(c => <option key={c.id} value={String(c.id)}>{c.nome}</option>)}
+            </select>
+            {quem !== 'padrao' && <span className={`text-xs ${sub}`}>vazio = usa o padrão</span>}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {CU_TIPOS.map(t => (
+              <label key={quem + t.id} className="flex flex-col gap-1 text-xs">
+                <span className={sub}>{t.nome}</span>
+                <input type="number" min="0" step="any" className={`${inputClass} text-sm py-1`} defaultValue={tabela[t.id] != null ? tabela[t.id] : ''}
+                  placeholder={quem !== 'padrao' ? String({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[t.id] || 0) : '0'}
+                  onBlur={e => { const atual = tabela[t.id] != null ? String(tabela[t.id]) : ''; if (e.target.value !== atual) guardar(t.id, e.target.value); }} />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Barra de separadores do computador (com os menus que abrem ao passar o rato).
 // Fica num componente próprio para que abrir/fechar um menu não volte a desenhar
 // a página toda (fazia os gráficos "saltarem").
@@ -1497,6 +1655,26 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
  );
 };
 
+// ── Peças visuais usadas em toda a app ──
+// Ficam ao nível do módulo (e não dentro do OrcamentoApp) para manterem a mesma identidade entre
+// renders: antes eram recriadas a cada render e o React desmontava e voltava a montar tudo o que
+// estava lá dentro (gráficos a "saltar", campos a perder o que se escrevia). O tema vem do TemaCtx.
+const TemaCtx = React.createContext('dark');
+const Card = ({children, className = '', animate = false}) => { const theme = useContext(TemaCtx); return <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>; };
+const StatCard = ({label, value, color = '', sub, icon}) => { const theme = useContext(TemaCtx); return <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1 flex items-center`}><Ico e={icon}/>{label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>; };
+const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
+  const base = 'font-semibold rounded-xl transition-all duration-200 hover-scale ';
+  const variants = {primary: 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
+  return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
+};
+const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => { const theme = useContext(TemaCtx); return <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>; };
+const Row = ({children, highlight}) => { const theme = useContext(TemaCtx); return <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>; };
+// Desenha um separador definido dentro do OrcamentoApp sem o remontar a cada render:
+// o tipo do componente (AbaEstavel) é sempre o mesmo; a função "render" é a versão mais recente.
+// Os hooks de cada separador ficam guardados nesta instância (uma por separador, pela key).
+const AbaEstavel = ({ render }) => render();
+
 // ── ClickUp: horas por cliente ──
 // Os dados vêm da função clickupHoras (Firebase), que lê o time tracking do ClickUp.
 // Guardados em G.clickup = { ativo, sinc, espacos, anos: { [ano]: { meses } }, tarefas, mapa, dividir, calendario }
@@ -1546,6 +1724,7 @@ const cuDesde = iso => {
   const d = Math.round(h / 24); return `há ${d} dia${d === 1 ? '' : 's'}`;
 };
 
+const CuNum = ({ v, cls = '' }) => <span className={`tabular-nums text-right ${cls}`}>{v}</span>;
 const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass, onSinc, onMapa, onDividir, onCalendario }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
@@ -1607,7 +1786,6 @@ const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass,
       </div>
     );
   }
-  const Num = ({ v, cls = '' }) => <span className={`tabular-nums text-right ${cls}`}>{v}</span>;
   return (
     <div>
       {cabecalho}
@@ -1618,7 +1796,7 @@ const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass,
         <div className="p-3 rounded-xl tile"><p className={`text-xs ${sub}`}>Valor/hora {ano}</p><p className="text-lg font-bold text-emerald-400">{hAno > 0 && recAno > 0 ? f(recAno / hAno) : '—'}</p></div>
       </div>
       <div className={`grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 text-xs ${sub} px-1 pb-1`}>
-        <span>Cliente</span><Num v={nomeMes.slice(0, 3)} /><Num v={ano} /><span className="hidden sm:block text-right">Recebido</span><Num v="€/hora" />
+        <span>Cliente</span><CuNum v={nomeMes.slice(0, 3)} /><CuNum v={ano} /><span className="hidden sm:block text-right">Recebido</span><CuNum v="€/hora" />
       </div>
       <div className="space-y-1.5">
         {linhas.map(c => {
@@ -1628,10 +1806,10 @@ const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass,
             <div key={c.cid} className="rounded-xl tile px-3 py-2">
               <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 items-center text-sm">
                 <span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: corCli(c.cid) }} /><span className="truncate font-medium">{nomeCli(c.cid)}</span></span>
-                <Num v={c.hMes > 0 ? cuHoras(c.hMes) : '—'} />
-                <Num v={cuHoras(c.hAno)} />
+                <CuNum v={c.hMes > 0 ? cuHoras(c.hMes) : '—'} />
+                <CuNum v={cuHoras(c.hAno)} />
                 <span className="hidden sm:block text-right tabular-nums">{f(rec)}</span>
-                <Num v={c.hAno > 0 && rec > 0 ? f(rec / c.hAno) : '—'} cls="font-semibold text-emerald-400" />
+                <CuNum v={c.hAno > 0 && rec > 0 ? f(rec / c.hAno) : '—'} cls="font-semibold text-emerald-400" />
               </div>
               {top.length > 0 && <p className={`text-xs mt-0.5 truncate ${sub}`}>{nomeMes}: {top.map(([n, h]) => `${n} ${cuHoras(h)}`).join(' · ')}</p>}
             </div>
@@ -1640,12 +1818,12 @@ const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass,
         {semCliente.map(g => (
           <div key={g.chave} className="rounded-xl tile px-3 py-2 grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 items-center text-sm">
             <span className="truncate"><span className="italic">{g.nome}</span> <span className="text-xs text-amber-400">· por ligar</span></span>
-            <Num v={g.hMes > 0 ? cuHoras(g.hMes) : '—'} /><Num v={cuHoras(g.hAno)} /><span className="hidden sm:block" /><Num v="—" />
+            <CuNum v={g.hMes > 0 ? cuHoras(g.hMes) : '—'} /><CuNum v={cuHoras(g.hAno)} /><span className="hidden sm:block" /><CuNum v="—" />
           </div>
         ))}
         {outrasAno > 0 && (
           <div className={`px-3 py-1 grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 text-xs ${sub}`}>
-            <span>Outras horas (sem cliente)</span><Num v={outrasMes > 0 ? cuHoras(outrasMes) : '—'} /><Num v={cuHoras(outrasAno)} /><span className="hidden sm:block" /><span />
+            <span>Outras horas (sem cliente)</span><CuNum v={outrasMes > 0 ? cuHoras(outrasMes) : '—'} /><CuNum v={cuHoras(outrasAno)} /><span className="hidden sm:block" /><span />
           </div>
         )}
       </div>
@@ -1784,7 +1962,9 @@ export {
   mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
   Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, CLICKUP_URLS, cuGrupos,
-  cuHoras, cuDesde, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
-  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_PRECOS_PADRAO, cuTipoDe,
+  cuPecas, cuClienteDe, cuEntregasMes, EntregasClickUp, MenuTopo, TemaCtx, Card, StatCard,
+  Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras, cuDesde,
+  CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
+  VC_DIAS_SEMANA, vcPrazosCPCV
 };
