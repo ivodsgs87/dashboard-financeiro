@@ -133,7 +133,7 @@ const VendaCasa = ({ G, uG, theme }) => {
     <div className="space-y-4 max-w-5xl mx-auto">
 
       {/* Resumo topo */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold mb-3"><Ico e="🏠"/>Venda da Casa</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
@@ -160,7 +160,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       </div>
 
       {/* Reserva HPP */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h3 className="text-lg font-semibold"><Ico e="🎯"/>Reserva para a nova HPP</h3>
@@ -209,7 +209,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       </div>
 
       {/* Apuramento */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold mb-3"><Ico e="🧾"/>Apuramento da venda</h3>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
           <NumField label="Valor de venda" val={vc.valorVenda} onSave={v => set({ valorVenda: n(v) })} />
@@ -234,7 +234,7 @@ const VendaCasa = ({ G, uG, theme }) => {
 
       {/* Onde está o dinheiro */}
       {destinos.length > 0 && (
-        <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+        <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
           <h3 className="text-lg font-semibold mb-3"><Ico e="📍"/>Onde está o dinheiro</h3>
           <div className="space-y-2">
             {destinos.map(([nome, val]) => {
@@ -262,7 +262,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       )}
 
       {/* A repor com a venda */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
           <h3 className="text-lg font-semibold"><Ico e="↩️"/>A repor com a venda</h3>
           {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
@@ -306,7 +306,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       </div>
 
       {/* Movimentos */}
-      <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold mb-1"><Ico e="💸"/>Movimentos</h3>
         <p className={`text-xs mb-3 ${sub}`}>Parqueado = só mudou de sítio · Gasto = saiu de vez · Investido = aplicado</p>
 
