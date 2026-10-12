@@ -1666,6 +1666,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const yM = Math.floor(idx / 12), nM = idx % 12 + 1, fimM = new Date(yM, nM, 0).getDate();
    // Horas no ClickUp: todos os dias úteis do mês (até ontem, no mês atual) devem ter horas registadas
    const cu = G.clickup;
+   let passoHoras = null;
    if (cu && cu.ativo) {
      const anoCu = (cu.anos || {})[yM];
      const dm = anoCu && (anoCu.meses || {})[nM];
@@ -1681,10 +1682,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      let semH = 0;
      for (let d = 1; d <= ateDia; d++) { const wd = new Date(yM, nM - 1, d).getDay(); if (wd !== 0 && wd !== 6 && !feriados.has(`${nM}-${d}`) && !diasCom.has(d)) semH++; }
      const hTxt = `${hM < 10 ? hM.toFixed(1).replace('.', ',') : Math.round(hM)} h`;
-     L.push({ id: 'horas', icon: '⏱️', titulo: 'Horas no ClickUp',
-       estado: idx > hojeIdx ? 'na' : !anoCu ? 'falta' : hM <= 0 ? (atual && ateDia < 1 ? 'na' : 'falta') : temDias && semH > 0 ? 'parcial' : 'ok',
-       detalhe: !anoCu ? `Ler as horas de ${yM}` : hM <= 0 ? 'Sem horas registadas' : `${hTxt}${temDias ? (semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis') : ''}`,
-       ir: () => { setTab('performance'); sincClickUp(true, yM); setTimeout(() => document.getElementById('cartao-clickup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } });
+     // No mês atual só conta nos últimos 3 dias (é um passo de fecho do mês); antes disso mostra como vai
+     const cedoH = atual && new Date().getDate() < fimM - 2;
+     const estH = !anoCu ? 'falta' : hM <= 0 ? 'falta' : temDias && semH > 0 ? 'parcial' : 'ok';
+     const detH = !anoCu ? `Ler as horas de ${yM}` : hM <= 0 ? 'Sem horas registadas' : `${hTxt}${temDias ? (semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis') : ''}`;
+     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar horas no ClickUp',
+       estado: idx > hojeIdx || (cedoH && estH !== 'ok') ? 'na' : estH,
+       detalhe: cedoH ? `No fim do mês · ${detH}` : detH,
+       ir: () => { setTab('performance'); sincClickUp(true, yM); setTimeout(() => document.getElementById('cartao-clickup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } };
    }
    L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : atual ? 'parcial' : 'falta'),
      detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : atual ? 'À espera dos pagamentos' : 'Sem recibos', ir: () => setTab('receitas') });
@@ -1703,15 +1708,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      detalhe: ep.port === 'ok' ? `Valores do dia ${dataPt(ep.data)}` : ep.port === 'igual' ? 'Iguais ao mês anterior' : 'Ainda por atualizar', ir: () => setTab('portfolio') });
    L.push({ id: 'tx', icon: '📥', titulo: 'Importar transações', estado: ep.nTx ? 'ok' : idx > hojeIdx ? 'na' : ep.aloc > 0 ? 'falta' : 'na',
      detalhe: ep.nTx ? `${ep.nTx} compra${ep.nTx === 1 ? '' : 's'}/venda${ep.nTx === 1 ? '' : 's'}` : ep.aloc > 0 ? `Marcaste ${fmt(ep.aloc)} investido` : 'Sem compras registadas', ir: () => setTab('transacoes') });
-   // Dívida do crédito deste mês (para o património e o histórico) — só com créditos ativos
-   const crAtivos = (G.creditos || []).filter(c => c && c.estado === 'ativo');
-   if (crAtivos.length) {
-     const comMes = crAtivos.filter(c => (c.historico || []).some(h => h && h.date && patIdx(h.date) === idx));
-     L.push({ id: 'credito', icon: '🏠', titulo: 'Dívida do crédito',
-       estado: idx > hojeIdx ? 'na' : comMes.length === crAtivos.length ? 'ok' : 'falta',
-       detalhe: comMes.length === crAtivos.length ? `${fmt(crAtivos.reduce((a, c) => a + patNum((c.historico || []).find(h => h && h.date && patIdx(h.date) === idx)?.divida), 0))} registados` : 'Registar o valor deste mês',
-       ir: () => setTab('credito') });
-   }
    // Último passo: preparar o mês seguinte (a partir do dia 20) — rever despesas e mandar a ABanca antes do dia 1
    const cOk = despOk('despABanca'), pOk = despOk('despPess');
    const kProx = patKey(idx + 1), nomeProx = meses[(idx + 1) % 12];
@@ -1726,6 +1722,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const pi2 = idx + 1; setAno(Math.floor(pi2 / 12)); setMes(meses[pi2 % 12]); setTab('resumo');
        setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
      } });
+   // Fechar as horas do mês é o último passo (no último dia do mês)
+   if (passoHoras) L.push(passoHoras);
    // Confirmações à mão: um passo pode ser dado como feito mesmo que os dados não o mostrem
    // (ex.: este mês não houve compras) — e essa marcação pode ser anulada.
    const manual = (M[mesKey] || {}).passosManual || {};
