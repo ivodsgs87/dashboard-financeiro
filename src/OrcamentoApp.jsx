@@ -1520,7 +1520,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (manual) saveUndo();
      setG(p => {
        const cu = p.clickup || {};
-       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { lido: j.atualizado || new Date().toISOString(), meses: j.meses || {}, entregues: Array.isArray(j.entregues) ? j.entregues : null, avisoEntregues: j.avisoEntregues || '' } } } };
+       // Dia em que cada tarefa foi posta em review. O ClickUp (neste plano) só diz a última
+       // alteração da tarefa, que avança se mexeres nela depois (comentário, ficheiro...). Por
+       // isso a app guarda o dia mais cedo que já viu para cada tarefa em review, e continua a
+       // usá-lo quando a tarefa for fechada (em vez do dia em que a fechaste).
+       const rev = { ...(cu.reviewDesde || {}) };
+       let ent = Array.isArray(j.entregues) ? j.entregues : null;
+       if (ent) {
+         ent.forEach(t => { if (t && t.emReview && t.fechada && (!rev[t.id] || t.fechada < rev[t.id])) rev[t.id] = t.fechada; });
+         ent = ent.map(t => (t && rev[t.id] && rev[t.id] < t.fechada ? { ...t, fechada: rev[t.id], diaReview: true } : t));
+         const limite = `${(Number(j.ano) || new Date().getFullYear()) - 1}-01-01`;
+         Object.keys(rev).forEach(k => { if (rev[k] < limite) delete rev[k]; });
+       }
+       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], reviewDesde: rev, anos: { ...(cu.anos || {}), [j.ano]: { lido: j.atualizado || new Date().toISOString(), meses: j.meses || {}, entregues: ent, avisoEntregues: j.avisoEntregues || '' } } } };
      });
      // Horas de cada mês → "Horas trabalhadas" (só onde não as escreveste à mão)
      setM(p => {
