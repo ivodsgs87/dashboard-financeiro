@@ -1,24 +1,11 @@
-// Separador "Venda da Casa".
+// Separador "Venda da Casa". Só é descarregado quando se abre o separador.
 import React, { useState } from 'react';
 import {
-  meses, Ico, _fmtEUR
+  meses, Ico, _fmtEUR, VC_DEFAULT
 } from './base';
 
-const VC_DEFAULT = {
-  dataVenda: '',
-  valorVenda: 0,
-  comissaoPct: 4,
-  creditoAmortizado: 0,
-  penalizacaoPct: 0.5,
-  custoEscritura: 0,
-  rendasAdiantadas: 0,
-  outrosCustos: 0,
-  valorAquisicao: 0,
-  hppOverride: null,
-  movimentos: [],
-  repor: []   // dinheiro teu adiantado que vais tirar da venda: {id, desc, val, quando: 'sinal'|'escritura', reposto: 'YYYY-MM-DD'|null}
-};
-
+// ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
+// Componente ao nível do módulo (estado próprio, sem remount). Recebe G/uG por props.
 const VendaCasa = ({ G, uG, theme }) => {
   const vc = { ...VC_DEFAULT, ...(G.vendaCasa || {}) };
   const contas = G.contas || [];
@@ -368,5 +355,5 @@ const VendaCasa = ({ G, uG, theme }) => {
 };
 
 export {
-  VC_DEFAULT, VendaCasa
+  VendaCasa
 };
