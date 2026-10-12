@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  meses, anos, _fmtEUR
+  meses, Ico, anos, _fmtEUR
 } from './base';
 import {
   VC_DEFAULT
@@ -796,7 +796,7 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <h3 className="font-semibold">📊 Comparar anos</h3>
+        <h3 className="font-semibold"><Ico e="📊"/>Comparar anos</h3>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <select aria-label="Primeiro ano" value={anoA} onChange={e => setAnoA(Number(e.target.value))} className={sel}>{anosComDados.map(a => <option key={a} value={a}>{a}</option>)}{!anosComDados.includes(anoA) && <option value={anoA}>{anoA}</option>}</select>
           <span className={sub}>vs</span>
@@ -1341,7 +1341,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       <div className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
-            <h3 className="text-lg font-semibold">💎 Património</h3>
+            <h3 className="text-lg font-semibold"><Ico e="💎"/>Património</h3>
             <p className={`text-xs ${sub}`}>
               {vista === 'invest' ? 'Só o que está exposto ao mercado (ETF, cripto, PPR…) — sem o dinheiro nas contas nem a Trade Republic.' : vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
             </p>
@@ -1618,7 +1618,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       {/* Registo do mês */}
       <div className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <h3 className="text-lg font-semibold">📝 {meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
+          <h3 className="text-lg font-semibold"><Ico e="📝"/>{meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
           <div className="flex items-center gap-2">
             <span className={`text-xs px-2 py-0.5 rounded-full border ${!draft.existe ? (ehAuto ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-amber-400 bg-amber-500/15 border-amber-500/40') : draft.importado ? 'text-blue-400 bg-blue-500/15 border-blue-500/40' : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/40'}`}>
               {!draft.existe ? (ehAuto ? 'Automático' : 'Portfolio por atualizar') : draft.importado ? 'Snapshot antigo' : `✓ Registado${draft.fechadoEm ? ' em ' + new Date(draft.fechadoEm).toLocaleDateString('pt-PT') : ''}`}
@@ -1928,6 +1928,11 @@ html[data-tema="escuro"] .text-slate-500 { color: #8a97ab; }
 html[data-tema="escuro"] .text-slate-600 { color: #6f7d93; }
 html[data-tema="escuro"] .placeholder-slate-500::placeholder, html[data-tema="escuro"] input::placeholder, html[data-tema="escuro"] textarea::placeholder { color: #7c899e; }
 html[data-tema="claro"] .text-slate-400 { color: #6b7789; }
+.ico { width: 1.05em; height: 1.05em; display: inline-block; vertical-align: -0.16em; margin-right: .45em; flex-shrink: 0; opacity: .85; }
+.ico-nav { margin-right: .35em; }
+.ico-solo { margin-right: 0; }
+html[data-tema="escuro"] .tile { background: rgba(15, 23, 42, .45); border: 1px solid rgba(71, 85, 105, .5); }
+html[data-tema="claro"] .tile { background: #f8fafc; border: 1px solid #e2e8f0; }
 `;
 
 // Ajustes só para o telemóvel (ecrãs < 640px). As classes m-* não fazem nada no computador.
