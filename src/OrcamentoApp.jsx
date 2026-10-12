@@ -4059,11 +4059,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </Card>
 
  {/* Configuração: impostos dos recibos (usa-se pouco, por isso fica no fim). Os clientes estão em Trabalho → Clientes */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+ <div>
  <Card>
  <h3 className="text-lg font-semibold mb-4"><Ico e="🧮"/>Impostos dos recibos</h3>
- <div className="space-y-3">
- <div className="flex flex-wrap items-center gap-2 p-2 sm:p-3 tile rounded-xl">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+ <div className="flex flex-wrap items-center content-center gap-2 p-2 sm:p-3 tile rounded-xl">
  <span className="text-xs text-slate-300">Taxa:</span>
  <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-20 sm:w-32" color="pink"/>
  <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
@@ -4082,7 +4082,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
  {/* Parâmetros da estimativa de IRS por recibo */}
- <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl text-xs">
+ <div className="flex flex-wrap items-center content-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl text-xs">
  <span className="text-slate-300">Estimativa:</span>
  <label className="flex items-center gap-1.5">
    <span className="text-slate-400">Coef.</span>
@@ -13254,7 +13254,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         )}
         {tab==='resumo' && <AbaEstavel key="resumo" render={Resumo} />}
- {tab==='ano' && <MeuAno G={G} M={M} ano={ano} theme={theme} metas={metas} totais={totaisAnuais} serie={patSerieApp} impostos={previsaoImpostos} onIr={t => { setTab(t); window.scrollTo({ top: 0 }); }} />}
+ {tab==='ano' && <MeuAno G={G} M={M} ano={ano} theme={theme} metas={metas} totais={totaisAnuais} serie={patSerieApp} impostos={previsaoImpostos} trab={trabalho} onIr={t => { setTab(t); window.scrollTo({ top: 0 }); }} />}
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
  {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
  {tab==='abanca' && ABanca()}
