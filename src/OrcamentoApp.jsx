@@ -8,14 +8,14 @@ import {
   GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
   IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
   copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcPrazosCPCV
+  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, MenuTopo, TemaCtx, Card, StatCard, Button,
+  ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, ChatGemini, CSS_BASE, CSS_MOBILE
+  patRegistosEfetivos, CompararAnos, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -173,7 +173,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','performance','historico','receitas','abanca','pessoais','credito','sara','invest','portfolio','transacoes','calendario','agenda','extrato'];
+  const tabOrder = ['resumo','ano','performance','historico','receitas','abanca','pessoais','credito','sara','invest','portfolio','transacoes','calendario','agenda','extrato'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -992,16 +992,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCoresInv = {'ETF':'#3b82f6','PPR':'#f59e0b','P2P':'#ec4899','CRIPTO':'#14b8a6','FE':'#10b981','CREDITO':'#ef4444'};
 
  // UI Components
-  const Card = ({children, className = '', animate = false}) => <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>;
 
   const modalBg = theme === 'light' ? 'bg-white border-slate-200 shadow-xl' : 'bg-slate-800 border-slate-700';
-  const StatCard = ({label, value, color = '', sub, icon}) => <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1 flex items-center`}><Ico e={icon}/>{label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>;
- const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
- const base = 'font-semibold rounded-xl transition-all duration-200 hover-scale ';
- const variants = {primary: 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm', secondary: 'bg-slate-700 hover:bg-slate-600 text-white', danger: 'bg-red-500/20 hover:bg-red-500/30 text-red-400'};
-    const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
- return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
- };
   // Select memoizado: mantém a MESMA identidade entre renders (só muda com o tema).
   // Sem isto, era recriado a cada render e o React desmontava/remontava todos os
   // dropdowns e campos à volta, fazendo-os "reiniciar" enquanto se escrevia.
@@ -1134,8 +1126,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       </div>
     );
   };
- const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>;
- const Row = ({children, highlight, index = 0}) => <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>;
   const inputClass = theme === 'light' 
     ? "bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
     : "bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
@@ -1530,7 +1520,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (manual) saveUndo();
      setG(p => {
        const cu = p.clickup || {};
-       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { meses: j.meses || {} } } } };
+       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { meses: j.meses || {}, entregues: j.entregues || [] } } } };
      });
      // Horas de cada mês → "Horas trabalhadas" (só onde não as escreveste à mão)
      setM(p => {
@@ -1565,6 +1555,50 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [simCreditoTab, setSimCreditoTab] = useState('prestacao');
  // Resumo: lista das tarefas em atraso aberta ou fechada (fechada por defeito)
  const [verAtrasadas, setVerAtrasadas] = useState(false);
+ // Agenda: lista das atrasadas fechada por defeito; tarefas recorrentes fechadas no telemóvel
+ const [agVerAtrasadas, setAgVerAtrasadas] = useState(false);
+ const [agGerirMob, setAgGerirMob] = useState(false);
+ // Painel no telemóvel: só o essencial; o resto abre em "Ver mais"
+ const [resumoMaisMob, setResumoMaisMob] = useState(false);
+ // Telemóvel: registo rápido (+) e ação pendente para o separador Receitas (ex.: abrir o importador)
+ const [rapidoAberto, setRapidoAberto] = useState(false);
+ const [acaoRapida, setAcaoRapida] = useState(null);
+ // Telemóvel: deslizar o dedo para o lado muda de separador dentro da secção
+ const toqueRef = useRef(null);
+ const onToqueIni = e => {
+   if (window.innerWidth >= 640 || e.touches.length !== 1) { toqueRef.current = null; return; }
+   const alvo = e.target;
+   if (alvo.closest && alvo.closest('input, textarea, select, svg, canvas, .fixed, .overflow-x-auto, .scrollbar-hide, [data-sem-swipe]')) { toqueRef.current = null; return; }
+   toqueRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+ };
+ const onToqueFim = e => {
+   const ini = toqueRef.current; toqueRef.current = null;
+   if (!ini || !grupoMob || !e.changedTouches || !e.changedTouches.length) return;
+   const dx = e.changedTouches[0].clientX - ini.x, dy = e.changedTouches[0].clientY - ini.y;
+   if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - ini.t > 700) return;
+   const subs = grupoMob.subs, i = subs.indexOf(tab), j = dx < 0 ? i + 1 : i - 1;
+   if (i < 0 || j < 0 || j >= subs.length) return;
+   setTab(subs[j]); window.scrollTo({ top: 0 });
+ };
+ // Separador ativo sempre à vista na fila de cima (telemóvel)
+ useEffect(() => {
+   const el = document.querySelector('[data-pill-ativo="1"]');
+   if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'center', block: 'nearest' });
+ }, [tab]);
+ const rapido = acao => {
+   setRapidoAberto(false);
+   if (acao === 'com' || acao === 'sem') {
+     saveUndo();
+     const novo = { id: Date.now(), cid: clientes[0]?.id || 0, val: 0, data: new Date().toISOString().split('T')[0], desc: '' };
+     setM(p => { const a = p[mesKey] || defM; const campo = acao === 'com' ? 'regCom' : 'regSem'; return { ...p, [mesKey]: { ...a, [campo]: [...(a[campo] || []), novo] } }; });
+     setTab('receitas');
+     showToast(`Recibo novo em ${mes} ${acao === 'com' ? '(COM taxas)' : '(SEM taxas)'}: escolhe o cliente e o valor`);
+   } else if (acao === 'importar') {
+     setAcaoRapida('importar'); setTab('receitas');
+   } else if (acao === 'transf') {
+     setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+   }
+ };
 
  // ══ Notificações no computador ══
  // Avisam no dia e na véspera dos eventos do Calendário (impostos, transferências, preparar o mês...).
@@ -1884,7 +1918,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
  };
  
- return (<div key={mesKey} className="space-y-6">
+ return (<div key={mesKey} className={`space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
  
  {/* Painel de configuração de layout */}
  {showLayoutEditor && (
@@ -1946,7 +1980,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* DISTRIBUIÇÃO + TRANSFERÊNCIAS */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
  <div className="space-y-4">
-   <Card>
+   <Card className="m-mais">
      <h3 className="font-semibold mb-3"><Ico e="📊"/>Distribuição Mensal</h3>
      <div className="flex items-center gap-3 p-2 tile rounded-lg mb-3">
        <span><Ico e="🏖️" className="ico-solo"/></span>
@@ -2195,7 +2229,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
 
  {/* ── Receitas do ano e comparação com o mês anterior ── */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start m-mais">
  {/* RECEITAS ANUAIS POR ORIGEM */}
  <Card className="p-3 sm:p-4">
    <div className="flex items-center justify-between">
@@ -2236,7 +2270,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {/* ── O ano e o património ── */}
  {/* METAS ANUAIS */}
- <Card>
+ <Card className="m-mais">
    <div className="flex justify-between items-center mb-4">
      <h3 className="font-semibold"><Ico e="🎯"/>{ano < anoAtualSistema ? `Resultado ${ano}` : ano > anoAtualSistema ? `Projeção ${ano}` : `Progresso ${ano}`}</h3>
      <span className="text-xs text-slate-500">
@@ -2284,7 +2318,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {/* PATRIMÓNIO LÍQUIDO - mesmos valores do separador Património */}
  {patUlt ? (
- <Card>
+ <Card className="m-mais">
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
      <div>
        <h3 className="font-semibold"><Ico e="💎"/>Património Líquido</h3>
@@ -2348,7 +2382,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
 
  {/* ── Clientes e últimos registos ── */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start m-mais">
    {Object.values(totaisAnuais.receitasPorCliente).some(c => c.total > 0) && (
    <Card>
      <h3 className="font-semibold mb-3"><Ico e="👥"/>Clientes {ano}</h3>
@@ -2387,7 +2421,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
  {/* RESUMO MENSAL */}
- <Card>
+ <Card className="m-mais">
    <h3 className="font-semibold mb-3"><Ico e="📋"/>Resumo de {mes} {ano}</h3>
    {(() => {
      const mesNum = meses.indexOf(mes)+1;
@@ -2437,6 +2471,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>);
    })()}
  </Card>
+ {/* Telemóvel: abrir/fechar os cartões secundários */}
+ <div className="sm:hidden flex flex-col gap-2">
+   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: distribuição, metas, património, clientes…'}</button>
+   <button onClick={() => { setTab('ano'); window.scrollTo({ top: 0 }); }} className="w-full py-2 text-sm text-blue-400">Como está a correr o ano? Ver «O meu ano» →</button>
+ </div>
  </div>);
  };
 
@@ -2936,6 +2975,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                className={`w-full ${inputClass} text-sm resize-none`}
                rows={2}
                placeholder="Ex: Férias 2 semanas, cliente X pagou adiantado..."
+               key={'notas-' + mesKey}
                defaultValue={M[mesKey]?.notas || ''}
                onBlur={e => uM('notas', e.target.value)}
              />
@@ -3168,6 +3208,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [importedData, setImportedData] = useState(null);
    const [importCid, setImportCid] = useState(null);       // cliente escolhido à mão no import
    const [importLembrar, setImportLembrar] = useState(true); // guardar o nome da empresa nesse cliente
+   // Registo rápido (+) no telemóvel: "Ler fatura" abre logo o importador
+   useEffect(() => { if (acaoRapida === 'importar') { setShowImportModal(true); setAcaoRapida(null); } }, [acaoRapida]);
    
    const paisOptions = ['PT', 'UE', 'Fora UE'];
    
@@ -3806,6 +3848,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      📤 Importar Fatura (IA)
    </button>
  </div>
+
+ <EntregasClickUp cu={G.clickup} ano={ano} mesNum={meses.indexOf(mes) + 1} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
+   onPrecos={precos => cuMudar(() => ({ precos }))} />
 
  <Card>
  <div className="flex justify-between items-center mb-4">
@@ -8604,14 +8649,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <StatCard label="Próximo Mês" value={tarefasProxMes.length} color="text-slate-400" icon="📅"/>
        </div>
        
-       {/* TAREFAS URGENTES */}
-       {atrasadas.length > 0 && (
-         <Card>
-           <div className="flex justify-between items-center mb-4">
-             <h3 className="text-lg font-semibold text-red-400"><Ico e="⚠️"/>Tarefas Atrasadas</h3>
-             {atrasadas.length > 1 && <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; atrasadas.forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">✓ Marcar todas</button>}
+       {/* TAREFAS EM ATRASO (deste mês e de meses anteriores) numa linha só; a lista abre com "Ver quais" */}
+       {totalAtrasadas > 0 && (
+         <Card className="border-red-500/40">
+           <div className="flex flex-wrap items-center justify-between gap-2">
+             <h3 className="font-semibold text-red-400"><Ico e="⚠️"/>{totalAtrasadas} tarefa{totalAtrasadas === 1 ? '' : 's'} em atraso{tarefasAtrasadasAnteriores.length > 0 && <span className="text-xs font-normal text-slate-400"> · {tarefasAtrasadasAnteriores.length} de meses anteriores</span>}</h3>
+             <div className="flex gap-2">
+               <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; [...atrasadas, ...tarefasAtrasadasAnteriores].forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Tarefas em atraso marcadas como feitas'); }} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">✓ Marcar todas feitas</button>
+               <button onClick={() => setAgVerAtrasadas(v => !v)} aria-expanded={agVerAtrasadas} className="text-xs px-3 py-1.5 rounded-lg tile">{agVerAtrasadas ? 'Esconder' : 'Ver quais'}</button>
+             </div>
            </div>
-           <div className="space-y-2">
+           {agVerAtrasadas && (
+             <div className="space-y-2 mt-4">
              {atrasadas.map(t => (
                <div key={t.key} className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
                  <div className="flex items-center gap-3">
@@ -8624,21 +8673,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat]}20`, color: catCores[t.cat]}}>{t.cat}</span>
                </div>
              ))}
-           </div>
-         </Card>
-       )}
-       
-       {/* TAREFAS ATRASADAS DE MESES ANTERIORES */}
-       {tarefasAtrasadasAnteriores.length > 0 && (
-         <Card className="border-red-500/50 bg-red-500/5">
-           <div className="flex justify-between items-center mb-4">
-             <h3 className="text-lg font-semibold text-red-400"><Ico e="⚠️"/>Tarefas Atrasadas de Meses Anteriores</h3>
-             <div className="flex items-center gap-2">
-               <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; tarefasAtrasadasAnteriores.forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">✓ Marcar todas</button>
-               <span className="text-xs text-red-400 bg-red-500/20 px-2 py-1 rounded-full">{tarefasAtrasadasAnteriores.length} pendentes</span>
-             </div>
-           </div>
-           <div className="space-y-2">
              {tarefasAtrasadasAnteriores.map(t => (
                <div key={t.key} className="flex items-center justify-between p-3 rounded-xl bg-red-500/10 border border-red-500/30">
                  <div className="flex items-center gap-3">
@@ -8654,7 +8688,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button onClick={() => toggleTarefa(t.key)} className="text-emerald-400/60 hover:text-emerald-400 text-xs ml-1 flex-shrink-0" title="Marcar concluída">✓</button>
                </div>
              ))}
-           </div>
+             </div>
+           )}
          </Card>
        )}
        
@@ -8710,7 +8745,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {/* GERIR TAREFAS */}
        <Card>
          <div className="flex justify-between items-center mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="⚙️"/>Gerir Tarefas Recorrentes</h3>
+           <h3 className="text-lg font-semibold"><Ico e="⚙️"/>Gerir Tarefas Recorrentes <button onClick={() => setAgGerirMob(v => !v)} className="sm:hidden ml-1 text-xs font-normal text-blue-400">{agGerirMob ? 'esconder' : 'mostrar'}</button></h3>
            <div className="flex gap-2">
              <Button variant="secondary" onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+</Button>
              <Button variant="secondary" onClick={() => {
@@ -8721,7 +8756,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              }}>🔄 Padrão</Button>
            </div>
          </div>
-         <div className="space-y-2 max-h-96 overflow-y-auto">
+         <div className={`space-y-2 max-h-96 overflow-y-auto ${agGerirMob ? '' : 'max-sm:hidden'}`}>
            {tarefas.map(t => (
              <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl group">
                <div className="flex items-center gap-3">
@@ -9643,7 +9678,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              ) : null;
              return (<>
              {/* Top pagination */}
-             <PaginacaoControls />
+             {PaginacaoControls()}
              <div className={`flex items-center gap-2 pb-2 mb-1 text-xs ${theme === 'light' ? 'border-b border-slate-200' : 'border-b border-slate-700'}`}>
                <input type="checkbox" checked={txPaginadas.every(t => selectedTxs.has(t.id))}
                  onChange={e => {
@@ -9780,7 +9815,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              })}
            </div>
            {/* Bottom pagination */}
-           <PaginacaoControls />
+           {PaginacaoControls()}
            </>);
            })()}
            {txFiltradas.length === 0 && (
@@ -10528,7 +10563,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // 6. Análise: Histórico
  // 7. Sara (separado)
  const tabs = [
-   {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
+   {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'ano',icon:'🧭',label:'O meu ano'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
@@ -10544,7 +10579,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const subInfo = { receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
-   { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'performance', 'historico'] },
+   { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
    { id: 'chat', label: 'Chat IA' },
    { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['calfin', 'agenda', 'calendario', 'credito', 'vendacasa'] },
@@ -12759,10 +12794,11 @@ ${transacoesOrdenadas.map(t => `<tr>
  };
 
  return (
+ <TemaCtx.Provider value={theme}>
  <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`} >
- <BackupModal />
- <SearchModal />
- <AlertsModal />
+ <AbaEstavel render={BackupModal} />
+ <AbaEstavel render={SearchModal} />
+ <AbaEstavel render={AlertsModal} />
  {renderTarefaModal()}
  {showExportMenu && (
    <>
@@ -12788,9 +12824,9 @@ ${transacoesOrdenadas.map(t => `<tr>
      </div>
    </>
  )}
- <ImportCSVModal />
- <RelatorioAnualModal />
- <ShortcutsModal />
+ <AbaEstavel render={ImportCSVModal} />
+ <AbaEstavel render={RelatorioAnualModal} />
+ <AbaEstavel render={ShortcutsModal} />
  {!isOnline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
      ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
@@ -12971,6 +13007,24 @@ ${transacoesOrdenadas.map(t => `<tr>
  {!chatAberto && dataLoaded && (
    <button onClick={() => setChatAberto(true)} className="fixed bottom-4 right-4 z-40 no-print px-4 py-3 rounded-full shadow-xl bg-blue-600 text-white text-sm font-medium hover:opacity-90 m-fab" aria-label="Perguntar ao Gemini">✨<span className="m-fab-txt"> Perguntar</span></button>
  )}
+   {/* Telemóvel: registo rápido */}
+   <button onClick={() => setRapidoAberto(true)} aria-label="Registo rápido" className="sm:hidden fixed right-4 z-40 no-print w-14 h-14 rounded-full shadow-xl bg-blue-600 text-white text-3xl leading-none flex items-center justify-center active:scale-95" style={{ bottom: 'calc(max(0.6rem, env(safe-area-inset-bottom)) + 84px)' }}>+</button>
+   {rapidoAberto && createPortal(
+     <div className="sm:hidden fixed inset-0 z-50 flex items-end bg-black/50" onClick={() => setRapidoAberto(false)}>
+       <div role="dialog" aria-label="Registo rápido" onClick={e => e.stopPropagation()} className={`w-full rounded-t-3xl p-4 pb-8 ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`} style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
+         <div className={`mx-auto mb-4 w-10 h-1.5 rounded-full ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
+         <p className="text-sm font-semibold mb-3">Registo rápido · {mes} {ano}</p>
+         <div className="grid grid-cols-2 gap-2">
+           {[['importar', '📤', 'Ler fatura (IA)', 'Foto ou PDF do recibo'], ['com', '💼', 'Recibo COM taxas', 'Recibo verde'], ['sem', '💵', 'Recibo SEM taxas', 'Cliente fora de PT'], ['transf', '💸', 'Transferências', 'Ver o que falta']].map(([k, ic, t, d]) => (
+             <button key={k} onClick={() => rapido(k)} className="text-left p-3 rounded-2xl tile active:scale-[0.98]">
+               <span className="text-xl"><Ico e={ic} /></span>
+               <p className="text-sm font-medium mt-1">{t}</p>
+               <p className="text-xs text-slate-400">{d}</p>
+             </button>
+           ))}
+         </div>
+       </div>
+     </div>, document.body)}
  <ChatGemini aberto={chatAberto} onFechar={() => setChatAberto(false)} mensagens={chatMensagens} setMensagens={setChatMensagens} obterContexto={resumoParaIA} user={user} theme={theme} />
  {/* Modal de Confirmação */}
  {confirmAction && (
@@ -13112,13 +13166,13 @@ ${transacoesOrdenadas.map(t => `<tr>
         </div>
       )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
-      <main className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && (
           <div className="sm:hidden no-print">
             <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
             <div className="-mx-3 px-3 mb-4 flex gap-2 overflow-x-auto scrollbar-hide">
               {grupoMob.subs.map(id => (
-                <button key={id} onClick={() => setTab(id)}
+                <button key={id} onClick={() => setTab(id)} data-pill-ativo={tab === id ? '1' : '0'}
                   className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === id ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-violet-500/25 text-violet-200') : theme === 'light' ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-800/70 text-slate-400'}`}>
                   <Ico e={subInfo[id]?.icon}/>{subInfo[id]?.label}
                 </button>
@@ -13134,17 +13188,18 @@ ${transacoesOrdenadas.map(t => `<tr>
             <button onClick={fazerBackup} className="px-3 py-1.5 rounded-lg font-medium bg-amber-500/20 hover:bg-amber-500/30">Descarregar cópia agora</button>
           </div>
         )}
-        {tab==='resumo' && <Resumo/>}
- {tab==='performance' && <Performance/>}
- {tab==='receitas' && <Receitas/>}
+        {tab==='resumo' && <AbaEstavel key="resumo" render={Resumo} />}
+ {tab==='ano' && <MeuAno G={G} M={M} ano={ano} theme={theme} metas={metas} totais={totaisAnuais} serie={patSerieApp} impostos={previsaoImpostos} onIr={t => { setTab(t); window.scrollTo({ top: 0 }); }} />}
+ {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
+ {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
  {tab==='abanca' && ABanca()}
  {tab==='pessoais' && Pessoais()}
- {tab==='invest' && <Invest/>}
- {tab==='sara' && <Sara/>}
- {tab==='historico' && <Historico/>}
- {tab==='portfolio' && <Portfolio/>}
- {tab==='transacoes' && <Transacoes/>}
- {tab==='credito' && <Credito/>}
+ {tab==='invest' && <AbaEstavel key="invest" render={Invest} />}
+ {tab==='sara' && <AbaEstavel key="sara" render={Sara} />}
+ {tab==='historico' && <AbaEstavel key="historico" render={Historico} />}
+ {tab==='portfolio' && <AbaEstavel key="portfolio" render={Portfolio} />}
+ {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
+ {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
 
@@ -13240,8 +13295,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
  {tab==='calfin' && <CalendarioFinanceiro notif={{ on: notifOn, suportado: notifSuportadas, alternar: alternarNotif }} eventosDoMes={eventosCalendario} theme={theme} fmt={fmt} anoInicial={anoAtualSistema} mesInicial={new Date().getMonth() + 1}
   onToggle={(k, v) => { const n = { ...(G.tarefasConcluidas || {}) }; if (v) n[k] = true; else delete n[k]; uG('tarefasConcluidas', n); }} />}
-{tab==='calendario' && <Calendario/>}
- {tab==='agenda' && <Agenda/>}
+{tab==='calendario' && <AbaEstavel key="calendario" render={Calendario} />}
+ {tab==='agenda' && <AbaEstavel key="agenda" render={Agenda} />}
  {tab==='extrato' && renderExtrato()}
         </ProtecaoErro>
         </div>
@@ -13634,6 +13689,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
 
  </div>
+ </TemaCtx.Provider>
  );
 };
 
