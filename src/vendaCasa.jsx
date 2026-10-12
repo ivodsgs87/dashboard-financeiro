@@ -1,7 +1,7 @@
 // Separador "Venda da Casa".
 import React, { useState } from 'react';
 import {
-  meses, _fmtEUR
+  meses, Ico, _fmtEUR
 } from './base';
 
 const VC_DEFAULT = {
@@ -134,7 +134,7 @@ const VendaCasa = ({ G, uG, theme }) => {
 
       {/* Resumo topo */}
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-3">🏠 Venda da Casa</h3>
+        <h3 className="text-lg font-semibold mb-3"><Ico e="🏠"/>Venda da Casa</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
             <p className={`text-xs ${sub}`}>Capital líquido</p>
@@ -163,7 +163,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
-            <h3 className="text-lg font-semibold">🎯 Reserva para a nova HPP</h3>
+            <h3 className="text-lg font-semibold"><Ico e="🎯"/>Reserva para a nova HPP</h3>
             <p className={`text-xs ${sub}`}>Para não pagar mais-valias, tens de reinvestir em habitação própria e permanente dentro de 36 meses.</p>
           </div>
           {mesesRestantes != null && (
@@ -210,7 +210,7 @@ const VendaCasa = ({ G, uG, theme }) => {
 
       {/* Apuramento */}
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-3">🧾 Apuramento da venda</h3>
+        <h3 className="text-lg font-semibold mb-3"><Ico e="🧾"/>Apuramento da venda</h3>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
           <NumField label="Valor de venda" val={vc.valorVenda} onSave={v => set({ valorVenda: n(v) })} />
           <NumField label="Comissão agência" val={vc.comissaoPct} onSave={v => set({ comissaoPct: n(v) })} suffix="%" />
@@ -235,7 +235,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       {/* Onde está o dinheiro */}
       {destinos.length > 0 && (
         <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-          <h3 className="text-lg font-semibold mb-3">📍 Onde está o dinheiro</h3>
+          <h3 className="text-lg font-semibold mb-3"><Ico e="📍"/>Onde está o dinheiro</h3>
           <div className="space-y-2">
             {destinos.map(([nome, val]) => {
               const pct = liquido > 0 ? (val / liquido) * 100 : 0;
@@ -264,7 +264,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       {/* A repor com a venda */}
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-          <h3 className="text-lg font-semibold">↩️ A repor com a venda</h3>
+          <h3 className="text-lg font-semibold"><Ico e="↩️"/>A repor com a venda</h3>
           {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
         </div>
         <p className={`text-xs mb-3 ${sub}`}>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</p>
@@ -307,7 +307,7 @@ const VendaCasa = ({ G, uG, theme }) => {
 
       {/* Movimentos */}
       <div className={`backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-1">💸 Movimentos</h3>
+        <h3 className="text-lg font-semibold mb-1"><Ico e="💸"/>Movimentos</h3>
         <p className={`text-xs mb-3 ${sub}`}>Parqueado = só mudou de sítio · Gasto = saiu de vez · Investido = aplicado</p>
 
         {/* Novo movimento */}
