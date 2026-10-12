@@ -1511,9 +1511,9 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
     return Number(pp[tipo]) || 0;
   };
   const porCli = {};
-  let total = 0, semPreco = 0;
+  let total = 0, totalProduzido = 0, semPreco = 0;
   const tarefas = (((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref));
-  const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set() });
+  const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set(), diario: Array(32).fill(0) });
   tarefas.forEach(t => {
     const cid = cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
     if (cid === 'x') return;
@@ -1534,6 +1534,7 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
       c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n;
     });
     c.total += v;
+    c.diario[Number(String(t.fechada).slice(8, 10)) || 1] += v;
     c.tarefas.push({ ...t, valor: v, horasExtra, nosDias: c.diaria > 0 && horasExtra > 0 && !v });
   });
   // Clientes à diária: cada dia do mês com horas registadas no ClickUp conta como 1 dia (mesmo que sejam 4 ou 6 h)
@@ -1549,18 +1550,28 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
     });
   });
   Object.values(porCli).forEach(c => {
-    if (c.diaria > 0 && c.dias.size) { c.nDias = c.dias.size; c.valorDias = c.nDias * c.diaria; c.total += c.valorDias; }
+    if (c.diaria > 0 && c.dias.size) { c.nDias = c.dias.size; c.valorDias = c.nDias * c.diaria; c.total += c.valorDias; c.dias.forEach(d => { c.diario[Number(d) || 1] += c.diaria; }); }
     // Mínimo garantido (retainer): se o produzido no mês ficar abaixo, conta o mínimo
     c.produzido = c.total;
     if (c.retainer > 0 && c.total < c.retainer) { c.total = c.retainer; c.noMinimo = true; }
-    total += c.total;
+    total += c.total; totalProduzido += c.produzido;
   });
-  return { total, semPreco, n: tarefas.length, clientes: Object.values(porCli).sort((a, b) => b.total - a.total) };
+  // Acumulado dia a dia (índice 0 = dia 1), com e sem o mínimo garantido
+  const nDiasMes = new Date(ano, mesNum, 0).getDate();
+  const acum = comMin => Array.from({ length: nDiasMes }, (_, i) => Object.values(porCli).reduce((a, c) => {
+    let cum = 0; for (let d = 1; d <= i + 1; d++) cum += c.diario[d];
+    return a + (comMin && c.retainer > 0 ? Math.max(cum, c.retainer) : cum);
+  }, 0));
+  const lista = Object.values(porCli).sort((a, b) => b.total - a.total);
+  return { total, totalProduzido, semPreco, n: tarefas.length, clientes: lista, nDiasMes, acumulado: acum(false), acumuladoMin: acum(true), comRetainer: lista.filter(c => c.retainer > 0) };
 };
 
 const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos }) => {
   const [editar, setEditar] = useState(false);
   const [quem, setQuem] = useState('padrao');
+  // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
+  const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
+  const mudarMin = v => { setComMin(v); try { localStorage.setItem('cu-com-minimo', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
   if (!(cu && cu.anos && cu.anos[ano])) return null;
   if (!Array.isArray(cu.anos[ano].entregues)) {
     // A função na Firebase ainda é a versão antiga (não manda as tarefas fechadas)
@@ -1577,6 +1588,8 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   const est = cuEntregasMes(cu, ano, mesNum, clientes);
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
   const estPrev = cu.anos[aPrev] && cu.anos[aPrev].entregues ? cuEntregasMes(cu, aPrev, mPrev, clientes) : null;
+  const temMin = est.comRetainer.length > 0 || !!(estPrev && estPrev.comRetainer.length);
+  const usaMin = comMin || !temMin;
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
   const resumoContagem = (cont, hx) => [...CU_TIPOS.filter(t => cont[t.id] && !t.porHora).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).replace(/^./, x => x.toLowerCase()) : t.plural}`), ...(cont.extra || cont.outro ? [`${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h à hora`] : [])].join(', ');
   const precos = cu.precos || {};
@@ -1593,17 +1606,53 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   return (
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(est.total)}</strong> <span className={`text-xs ${sub}`}>· {est.n} tarefa{est.n === 1 ? '' : 's'} fechada{est.n === 1 ? '' : 's'}</span></p>
-        {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(estPrev.total)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
+        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n} tarefa{est.n === 1 ? '' : 's'} fechada{est.n === 1 ? '' : 's'}</span></p>
+        {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
       </div>
+      {temMin && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <button type="button" role="switch" aria-checked={comMin} onClick={() => mudarMin(!comMin)} className="inline-flex items-center gap-2">
+            <span className={`relative inline-block w-8 h-[18px] rounded-full transition-colors ${comMin ? 'bg-emerald-500' : claro ? 'bg-slate-300' : 'bg-slate-600'}`}>
+              <span className="absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-transform" style={{ transform: comMin ? 'translateX(14px)' : 'none' }} />
+            </span>
+            <span className={claro ? 'text-slate-700' : 'text-slate-200'}>Contar o mínimo garantido ({est.comRetainer.map(c => `${nomeCli(c)} ${f(c.retainer)}`).join(', ')})</span>
+          </button>
+          <span className={sub}>Com mínimo ≈ {f(est.total)} · só o produzido ≈ {f(est.totalProduzido)}</span>
+        </div>
+      )}
+      {est.n > 0 && (() => {
+        const hoje = new Date();
+        const atual = hoje.getFullYear() === ano && hoje.getMonth() + 1 === mesNum;
+        const ate = atual ? hoje.getDate() : est.nDiasMes;
+        const serie = (usaMin ? est.acumuladoMin : est.acumulado).map((v, i) => (i < ate ? v : null));
+        const rotulos = Array.from({ length: est.nDiasMes }, (_, i) => `${i + 1} ${meses[mesNum - 1].slice(0, 3).toLowerCase()}`);
+        const prevSerie = estPrev && estPrev.n > 0 ? Array.from({ length: est.nDiasMes }, (_, i) => { const a = usaMin ? estPrev.acumuladoMin : estPrev.acumulado; return i < a.length ? a[i] : a[a.length - 1]; }) : null;
+        const series = [
+          { nome: meses[mesNum - 1], cor: '#10b981', valores: serie, area: true },
+          ...(usaMin && est.acumulado.some((v, i) => v !== est.acumuladoMin[i]) ? [{ nome: 'só produzido', cor: '#10b981', valores: est.acumulado.map((v, i) => (i < ate ? v : null)), tracejado: true }] : []),
+          ...(prevSerie ? [{ nome: meses[mPrev - 1], cor: claro ? '#94a3b8' : '#64748b', valores: prevSerie, tracejado: true }] : []),
+        ];
+        const noDia = i => { const ant = i > 0 ? est.acumulado[i - 1] : 0; const d = est.acumulado[i] - ant; return d > 0 ? [{ valor: `+${f(d)}`, nome: 'entregue nesse dia' }] : []; };
+        return (
+          <div className="mt-3">
+            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-xs mb-1" style={{ color: 'var(--graf-eixo)' }}>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-4 rounded-full" style={{ height: 2, background: '#10b981' }} />{meses[mesNum - 1]}{usaMin ? ' (com mínimo)' : ''}</span>
+              {series.some(x => x.nome === 'só produzido') && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: 'repeating-linear-gradient(90deg, #10b981 0 5px, transparent 5px 9px)' }} />só produzido</span>}
+              {prevSerie && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: `repeating-linear-gradient(90deg, ${claro ? '#94a3b8' : '#64748b'} 0 5px, transparent 5px 9px)` }} />{meses[mPrev - 1]}</span>}
+            </div>
+            <GraficoLinhas height={190} rotulos={rotulos} series={series} aria={`Faturação acumulada por dia em ${meses[mesNum - 1]} (ClickUp)`}
+              formatarValor={v => f(v)} extraTip={i => (i < ate ? noDia(i) : [])} />
+          </div>
+        );
+      })()}
       {est.clientes.length > 0 && (
         <div className="mt-2 space-y-1">
           {est.clientes.map(c => (
             <details key={c.cid ?? c.nomeEsp} className="text-sm">
               <summary className="cursor-pointer flex flex-wrap gap-x-2 items-baseline list-none">
                 <span className="font-medium">{nomeCli(c)}</span>
-                <span className={`text-xs ${sub} flex-1 min-w-0`}>{resumoContagem(c.contagem, c.horasExtra)}</span>
-                <span className="tabular-nums">{c.noMinimo ? <span className={`text-xs ${sub} mr-1`}>produzido {f(c.produzido)} · mínimo</span> : c.nDias ? <span className={`text-xs ${sub} mr-1`}>{c.nDias} dia{c.nDias === 1 ? '' : 's'} × {f(c.diaria)}{c.total > c.valorDias ? ` + ${f(c.total - c.valorDias)}` : ''} =</span> : null}≈ {f(c.total)}</span>
+                <span className={`text-xs ${sub} order-last basis-full sm:order-none sm:basis-auto sm:flex-1 min-w-0`}>{resumoContagem(c.contagem, c.horasExtra)}</span>
+                <span className="tabular-nums ml-auto text-right">{c.noMinimo && usaMin ? <span className={`text-xs ${sub} mr-1`}>produzido {f(c.produzido)} · mínimo</span> : c.noMinimo ? <span className={`text-xs ${sub} mr-1`}>sem o mínimo de {f(c.retainer)} ·</span> : c.nDias ? <span className={`text-xs ${sub} mr-1`}>{c.nDias} dia{c.nDias === 1 ? '' : 's'} × {f(c.diaria)}{c.produzido > c.valorDias ? ` + ${f(c.produzido - c.valorDias)}` : ''} =</span> : null}≈ {f(usaMin ? c.total : c.produzido)}</span>
               </summary>
               <ul className={`mt-1 mb-2 pl-3 text-xs space-y-0.5 ${sub}`}>
                 {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.nosDias ? 'conta nos dias' : t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra' || p.tipo === 'outro') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
@@ -1743,8 +1792,8 @@ const Button = ({children, onClick, variant = 'primary', size = 'md', disabled =
   const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm' };
   return <button onClick={onClick} disabled={disabled} className={base + variants[variant] + ' ' + sizes[size] + (disabled ? ' opacity-50 cursor-not-allowed' : '')}>{children}</button>;
 };
-const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => { const theme = useContext(TemaCtx); return <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full transition-all duration-700 ease-out" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>; };
-const Row = ({children, highlight}) => { const theme = useContext(TemaCtx); return <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-all duration-200 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>; };
+const ProgressBar = ({value, max, color = '#3b82f6', height = 'h-2'}) => { const theme = useContext(TemaCtx); return <div className={`w-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/50'} rounded-full overflow-hidden ${height}`}><div className="h-full rounded-full progress-animated" style={{width: `${Math.min((value/max)*100, 100)}%`, background: color}}/></div>; };
+const Row = ({children, highlight}) => { const theme = useContext(TemaCtx); return <div className={`flex flex-wrap items-center gap-3 p-3 rounded-xl transition-colors duration-150 ${highlight ? 'bg-green-500/10 border border-green-500/30' : theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'}`}>{children}</div>; };
 // Desenha um separador definido dentro do OrcamentoApp sem o remontar a cada render:
 // o tipo do componente (AbaEstavel) é sempre o mesmo; a função "render" é a versão mais recente.
 // Os hooks de cada separador ficam guardados nesta instância (uma por separador, pela key).
