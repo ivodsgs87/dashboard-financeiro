@@ -1563,7 +1563,7 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
     return a + (comMin && c.retainer > 0 ? Math.max(cum, c.retainer) : cum);
   }, 0));
   const lista = Object.values(porCli).sort((a, b) => b.total - a.total);
-  return { total, totalProduzido, semPreco, n: tarefas.length, clientes: lista, nDiasMes, acumulado: acum(false), acumuladoMin: acum(true), comRetainer: lista.filter(c => c.retainer > 0) };
+  return { total, totalProduzido, semPreco, n: tarefas.length, nReview: tarefas.filter(t => t.emReview).length, clientes: lista, nDiasMes, acumulado: acum(false), acumuladoMin: acum(true), comRetainer: lista.filter(c => c.retainer > 0) };
 };
 
 const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos }) => {
@@ -1606,7 +1606,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   return (
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n} tarefa{est.n === 1 ? '' : 's'} fechada{est.n === 1 ? '' : 's'}</span></p>
+        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
         {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
       </div>
       {temMin && (
@@ -1655,7 +1655,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
                 <span className="tabular-nums ml-auto text-right">{c.noMinimo && usaMin ? <span className={`text-xs ${sub} mr-1`}>produzido {f(c.produzido)} · mínimo</span> : c.noMinimo ? <span className={`text-xs ${sub} mr-1`}>sem o mínimo de {f(c.retainer)} ·</span> : c.nDias ? <span className={`text-xs ${sub} mr-1`}>{c.nDias} dia{c.nDias === 1 ? '' : 's'} × {f(c.diaria)}{c.produzido > c.valorDias ? ` + ${f(c.produzido - c.valorDias)}` : ''} =</span> : null}≈ {f(usaMin ? c.total : c.produzido)}</span>
               </summary>
               <ul className={`mt-1 mb-2 pl-3 text-xs space-y-0.5 ${sub}`}>
-                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.nosDias ? 'conta nos dias' : t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra' || p.tipo === 'outro') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
+                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}{t.emReview && <span className="ml-1.5 px-1.5 rounded bg-amber-500/15 text-amber-400">review</span>}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.nosDias ? 'conta nos dias' : t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra' || p.tipo === 'outro') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
               </ul>
             </details>
           ))}
@@ -1664,7 +1664,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
-        <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations").</span>
+        <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations"). Tarefas em review contam como entregues.</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
       </div>
       {editar && (
