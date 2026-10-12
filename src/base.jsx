@@ -1,6 +1,7 @@
 // Peças de base da app: campos de escrita, gráficos, constantes (meses, escalões de IRS)
 // e o mapeamento de categorias para a Bilance. Usado por OrcamentoApp.jsx e pelos outros ficheiros.
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, memo } from 'react';
+import { createPortal } from 'react-dom';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
 const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex}) => {
@@ -176,7 +177,9 @@ const useLargura = (padrao = 600) => {
   // ref de callback: volta a medir mesmo que o gráfico só apareça depois (quando os dados chegam)
   const [el, ref] = useState(null);
   const [w, setW] = useState(padrao);
-  useEffect(() => {
+  // useLayoutEffect: mede antes de o browser pintar, para as barras não aparecerem
+  // primeiro no sítio errado e depois "saltarem"
+  useLayoutEffect(() => {
     if (!el) return undefined;
     const medir = () => setW(Math.max(120, Math.round(el.clientWidth || padrao)));
     medir();
@@ -1379,6 +1382,92 @@ const PROCESS_INVOICE_URLS = [
   'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
 ];
 
+// Barra de separadores do computador (com os menus que abrem ao passar o rato).
+// Fica num componente próprio para que abrir/fechar um menu não volte a desenhar
+// a página toda (fazia os gráficos "saltarem").
+const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
+ // Menu de cada grupo: abre ao passar o rato e fica aberto até passares por outro grupo,
+ // escolheres um separador, clicares fora ou carregares em Esc.
+ const [menuAberto, setMenuAberto] = useState(null);
+ const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
+ const menuRef = useRef(null);
+ const abrirMenu = (id, el) => {
+   const r = el.getBoundingClientRect();
+   setMenuPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 210)), top: r.bottom + 6 });
+   setMenuAberto(id);
+ };
+ useEffect(() => { setMenuAberto(null); }, [tab]);
+ useEffect(() => {
+   if (!menuAberto) return;
+   const fora = e => { if (menuRef.current && !menuRef.current.contains(e.target) && !e.target.closest('[data-grupo-menu]')) setMenuAberto(null); };
+   const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setMenuAberto(null); } };
+   const fechar = () => setMenuAberto(null);
+   document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc); window.addEventListener('resize', fechar);
+   return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); window.removeEventListener('resize', fechar); };
+ }, [menuAberto]);
+ return (
+  <>
+      <nav className={`hidden sm:flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
+        <button onClick={() => { setMenuAberto(null); irInicio(); }} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Resumo)" title="Início (Resumo) · tecla Esc"
+          className={`flex-shrink-0 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all ${theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
+        </button>
+        <div className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
+        {tabs.map(t => {
+          // Verificar se alguma sub-tab está ativa
+          const isSubActive = t.submenu?.some(sub => tab === sub.id);
+          
+          return t.separator ? (
+            <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
+          ) : t.submenu ? (
+            <button key={t.id} data-grupo-menu aria-label={t.label}
+              aria-haspopup="menu" aria-expanded={menuAberto === t.id}
+              onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
+              onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
+              className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
+                isSubActive
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                  : theme === 'light'
+                    ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <span className="sm:mr-1 inline-flex align-middle"><Ico e={t.icon} className="ico-nav"/></span>
+              <span className="hidden sm:inline">{t.label}</span>
+              <span className={`ml-1 text-xs inline-block transition-transform ${menuAberto === t.id ? 'rotate-180' : ''}`}>▾</span>
+            </button>
+          ) : (
+            <button key={t.id} aria-label={t.label} onMouseEnter={() => setMenuAberto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-blue-600 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1 inline-flex align-middle"><Ico e={t.icon} className="ico-nav"/></span><span className="hidden sm:inline">{t.label}</span></button>
+          );
+        })}
+      </nav>
+      {createPortal(<>
+      {menuAberto && (() => {
+        const g = tabs.find(t => t.id === menuAberto);
+        if (!g || !g.submenu) return null;
+        return (
+          <div ref={menuRef} role="menu" className="fixed z-50 animate-fadeIn" style={{ left: menuPos.left, top: menuPos.top }}>
+            <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[180px]`}>
+              {g.submenu.map(sub => (
+                <button key={sub.id} role="menuitem"
+                  onClick={() => { setTab(sub.id); setMenuAberto(null); }}
+                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
+                    tab === sub.id
+                      ? 'bg-blue-500/20 text-blue-400'
+                      : theme === 'light' ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-700'
+                  }`}>
+                  <Ico e={sub.icon} className="ico-nav"/><span>{sub.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      </>, document.body)}
+  </>
+ );
+};
+
 // Separadores que vêm num ficheiro à parte (só se descarregam quando são precisos).
 // Se o ficheiro falhar (p.ex. a app foi atualizada enquanto estava aberta), recarrega
 // a página uma vez; se voltar a falhar, mostra um aviso em vez de um ecrã em branco.
@@ -1415,5 +1504,5 @@ export {
   mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
   Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, lazySeparador, SeparadorCarregar, VC_DEFAULT
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, MenuTopo, lazySeparador, SeparadorCarregar, VC_DEFAULT
 };
