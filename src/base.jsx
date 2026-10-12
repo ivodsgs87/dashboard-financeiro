@@ -1425,24 +1425,54 @@ class ProtecaoErro extends React.Component {
 // Lê nomes como "1x New Video - Título + 2x Variations" e conta cada tipo de peça.
 const CU_TIPOS = [
   { id: 'video', nome: 'Vídeo novo', plural: 'vídeos novos' },
-  { id: 'variacao', nome: 'Variação', plural: 'variações' },
+  { id: 'variacao', nome: 'Variação de vídeo', curto: 'Variação', plural: 'variações' },
   { id: 'iteracao', nome: 'Iteração', plural: 'iterações' },
-  { id: 'banner', nome: 'Banner', plural: 'banners' },
+  { id: 'ai_clip', nome: 'Clip de IA (AI footage)', curto: 'Clip de IA', plural: 'clips de IA' },
+  { id: 'banner', nome: 'Banner novo', curto: 'Banner', plural: 'banners' },
+  { id: 'banner_var', nome: 'Variação de banner', plural: 'variações de banner' },
   { id: 'hook', nome: 'Hook', plural: 'hooks' },
   { id: 'aso', nome: 'Vídeo ASO', plural: 'vídeos ASO' },
-  { id: 'extra', nome: 'Extra / ideação (€ por hora)', curto: 'Extra / ideação', plural: 'extras', porHora: true },
-  { id: 'outro', nome: 'Outro', plural: 'outros' },
+  { id: 'icone', nome: 'Ícones', plural: 'ícones' },
+  { id: 'feature', nome: 'Feature graphic', plural: 'feature graphics' },
+  { id: 'screenshots', nome: 'Screenshots', plural: 'screenshots' },
+  { id: 'video3d', nome: 'Vídeo 3D (valor à parte)', curto: 'Vídeo 3D', plural: 'vídeos 3D' },
+  { id: 'extra', nome: 'Extra / ideação', plural: 'extras', porHora: true },
+  { id: 'outro', nome: 'Outra tarefa', plural: 'outras', porHora: true },
 ];
-const CU_PRECOS_PADRAO = { video: 420, variacao: 150, iteracao: 80, banner: 120, hook: 0, aso: 0, extra: 0, outro: 0 };
+// Campos de preço (os "extras" e as tarefas sem tipo usam o preço à hora × horas registadas no ClickUp)
+const CU_CAMPOS_PRECO = [...CU_TIPOS.filter(t => !t.porHora),
+  { id: 'hora', nome: 'Preço à hora (extras e outras tarefas)' },
+  { id: 'dia', nome: 'Diária (cada dia com horas = 1 dia)' },
+  { id: 'retainer', nome: 'Mínimo mensal garantido (retainer)' }];
+const CU_PRECOS_PADRAO = { video: 420, variacao: 150, iteracao: 80, banner: 120 };
+// Tabelas de preços de cada cliente (pelo nome do cliente na app). Podes mudar tudo em "preços →".
+const CU_PRECOS_CLIENTES = {
+  marius: { hora: 70, video: 450, variacao: 150, banner: 200, banner_var: 100, icone: 850, feature: 450, screenshots: 1000, ai_clip: 180 },
+  sophie: { hora: 40, video: 420, variacao: 150, iteracao: 80, banner: 120, retainer: 4000 },
+  hendrik: { hora: 34.375, dia: 275 },
+};
+const cuPresetCliente = (clientes, cid) => {
+  const c = (clientes || []).find(x => String(x.id) === String(cid));
+  if (!c) return {};
+  const n = _normNome(c.nome);
+  const k = Object.keys(CU_PRECOS_CLIENTES).find(x => n === x || n.startsWith(x + ' ') || n.includes(x));
+  return k ? CU_PRECOS_CLIENTES[k] : {};
+};
 const cuTipoDe = t => {
   const x = String(t || '').toLowerCase();
   if (/iterat/.test(x)) return 'iteracao';
+  if (/banner/.test(x) && /variat/.test(x)) return 'banner_var';
   if (/variat/.test(x)) return 'variacao';
   if (/banner/.test(x)) return 'banner';
   if (/hook/.test(x)) return 'hook';
   if (/\baso\b/.test(x)) return 'aso';
-  if (/video|vídeo|ad\b|clip/.test(x)) return 'video';
-  if (/extra|idea|ideation|idei/.test(x)) return 'extra';
+  if (/icon/.test(x)) return 'icone';
+  if (/feature/.test(x)) return 'feature';
+  if (/screenshot/.test(x)) return 'screenshots';
+  if (/\b3d\b/.test(x)) return 'video3d';
+  if (/\bai\b.*(video|vídeo|clip|footage)|footage/.test(x)) return 'ai_clip';
+  if (/video|vídeo|\bad\b|clip/.test(x)) return 'video';
+  if (/extra|idea|ideation|idei|brief|meeting|reuni|research/.test(x)) return 'extra';
   return 'outro';
 };
 // "1x New Video - Hawk vs Sable + 1x Iteration" → [{tipo:'video',n:1},{tipo:'iteracao',n:1}]
@@ -1471,31 +1501,59 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
   const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
   const nomes = {}; ((cu && cu.espacos) || []).forEach(e => { nomes[e.id] = e.nome; });
   const precos = (cu && cu.precos) || {};
+  // Preço: o que puseste para esse cliente → a tabela do cliente → o padrão
   const preco = (cid, tipo) => {
     const pc = (precos.porCliente || {})[cid] || {};
     if (pc[tipo] != null && pc[tipo] !== '') return Number(pc[tipo]) || 0;
+    const pre = cuPresetCliente(clientes, cid);
+    if (pre[tipo] != null) return Number(pre[tipo]) || 0;
     const pp = { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) };
     return Number(pp[tipo]) || 0;
   };
   const porCli = {};
   let total = 0, semPreco = 0;
   const tarefas = (((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref));
+  const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set() });
   tarefas.forEach(t => {
     const cid = cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
     if (cid === 'x') return;
     const k = cid == null ? `esp:${t.espaco}` : String(cid);
-    const c = (porCli[k] = porCli[k] || { cid, nomeEsp: nomes[t.espaco] || 'Sem cliente', total: 0, contagem: {}, tarefas: [] });
+    const c = (porCli[k] = porCli[k] || novoCli(cid, t.espaco));
     let v = 0;
     let horasExtra = 0;
     cuPecas(t.nome).forEach(p => {
-      const pr = preco(cid, p.tipo);
-      // "Extra work" paga-se à hora: preço × horas registadas nessa tarefa no ClickUp
-      if (p.tipo === 'extra') { horasExtra = Number(t.horas) || 0; v += pr * horasExtra; if (!pr || !horasExtra) semPreco += 1; c.horasExtra = (c.horasExtra || 0) + horasExtra; }
-      else { v += pr * p.n; if (!pr) semPreco += p.n; }
+      if (p.tipo === 'extra' || p.tipo === 'outro') {
+        horasExtra = Number(t.horas) || 0;
+        c.horasExtra = (c.horasExtra || 0) + horasExtra;
+        // À diária: estas horas contam nos dias (em baixo); senão, horas × preço à hora
+        if (!(c.diaria > 0)) { const valor = preco(cid, 'hora') * horasExtra; v += valor; if (!valor) semPreco += 1; }
+      } else {
+        const pr = preco(cid, p.tipo);
+        v += pr * p.n; if (!pr) semPreco += p.n;
+      }
       c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n;
     });
-    c.total += v; total += v;
-    c.tarefas.push({ ...t, valor: v, horasExtra });
+    c.total += v;
+    c.tarefas.push({ ...t, valor: v, horasExtra, nosDias: c.diaria > 0 && horasExtra > 0 && !v });
+  });
+  // Clientes à diária: cada dia do mês com horas registadas no ClickUp conta como 1 dia (mesmo que sejam 4 ou 6 h)
+  const mesH = (((cu && cu.anos && cu.anos[ano]) || {}).meses || {})[mesNum] || {};
+  Object.entries(mesH.esp || {}).forEach(([sid, sd]) => {
+    if (sid === 'sem') return;
+    Object.entries(sd.pastas || {}).forEach(([fid, fd]) => {
+      const cid = cuClienteDe(cu, sid, fid, clientes, nomes[sid]);
+      if (cid == null || cid === 'x' || !(preco(cid, 'dia') > 0)) return;
+      const k = String(cid);
+      const c = (porCli[k] = porCli[k] || novoCli(cid, sid));
+      (fd.dias || sd.dias || []).forEach(d => c.dias.add(d));
+    });
+  });
+  Object.values(porCli).forEach(c => {
+    if (c.diaria > 0 && c.dias.size) { c.nDias = c.dias.size; c.valorDias = c.nDias * c.diaria; c.total += c.valorDias; }
+    // Mínimo garantido (retainer): se o produzido no mês ficar abaixo, conta o mínimo
+    c.produzido = c.total;
+    if (c.retainer > 0 && c.total < c.retainer) { c.total = c.retainer; c.noMinimo = true; }
+    total += c.total;
   });
   return { total, semPreco, n: tarefas.length, clientes: Object.values(porCli).sort((a, b) => b.total - a.total) };
 };
@@ -1520,9 +1578,9 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
   const estPrev = cu.anos[aPrev] && cu.anos[aPrev].entregues ? cuEntregasMes(cu, aPrev, mPrev, clientes) : null;
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
-  const resumoContagem = (cont, hx) => CU_TIPOS.filter(t => cont[t.id]).map(t => t.porHora ? `extras ${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h` : `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).toLowerCase() : t.plural}`).join(', ');
+  const resumoContagem = (cont, hx) => [...CU_TIPOS.filter(t => cont[t.id] && !t.porHora).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).replace(/^./, x => x.toLowerCase()) : t.plural}`), ...(cont.extra || cont.outro ? [`${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h à hora`] : [])].join(', ');
   const precos = cu.precos || {};
-  const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : ((precos.porCliente || {})[quem] || {});
+  const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : { ...cuPresetCliente(clientes, quem), ...((precos.porCliente || {})[quem] || {}) };
   const guardar = (tipo, v) => {
     const num = v === '' ? null : Math.max(0, Number(String(v).replace(',', '.')) || 0);
     if (quem === 'padrao') onPrecos({ ...precos, padrao: { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}), [tipo]: num == null ? 0 : num } });
@@ -1545,10 +1603,10 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
               <summary className="cursor-pointer flex flex-wrap gap-x-2 items-baseline list-none">
                 <span className="font-medium">{nomeCli(c)}</span>
                 <span className={`text-xs ${sub} flex-1 min-w-0`}>{resumoContagem(c.contagem, c.horasExtra)}</span>
-                <span className="tabular-nums">≈ {f(c.total)}</span>
+                <span className="tabular-nums">{c.noMinimo ? <span className={`text-xs ${sub} mr-1`}>produzido {f(c.produzido)} · mínimo</span> : c.nDias ? <span className={`text-xs ${sub} mr-1`}>{c.nDias} dia{c.nDias === 1 ? '' : 's'} × {f(c.diaria)}{c.total > c.valorDias ? ` + ${f(c.total - c.valorDias)}` : ''} =</span> : null}≈ {f(c.total)}</span>
               </summary>
               <ul className={`mt-1 mb-2 pl-3 text-xs space-y-0.5 ${sub}`}>
-                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
+                {c.tarefas.map(t => <li key={t.id} className="flex justify-between gap-3"><span className="truncate">{t.fechada.slice(8, 10)}/{t.fechada.slice(5, 7)} · {t.nome}</span><span className="tabular-nums flex-shrink-0">{t.horasExtra > 0 ? `${String(t.horasExtra).replace('.', ',')} h · ` : ''}{t.nosDias ? 'conta nos dias' : t.valor > 0 ? f(t.valor) : (cuPecas(t.nome).some(p => p.tipo === 'extra' || p.tipo === 'outro') && !(t.horasExtra > 0) ? 'sem horas registadas' : 'sem preço')}</span></li>)}
               </ul>
             </details>
           ))}
@@ -1556,7 +1614,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
-        {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nos extras, sem horas)</span>}
+        {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations").</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
       </div>
@@ -1571,7 +1629,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
             {quem !== 'padrao' && <span className={`text-xs ${sub}`}>vazio = usa o padrão</span>}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {CU_TIPOS.map(t => (
+            {CU_CAMPOS_PRECO.map(t => (
               <label key={quem + t.id} className="flex flex-col gap-1 text-xs">
                 <span className={sub}>{t.nome}</span>
                 <input type="number" min="0" step="any" className={`${inputClass} text-sm py-1`} defaultValue={tabela[t.id] != null ? tabela[t.id] : ''}
@@ -1981,9 +2039,9 @@ export {
   mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
   Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_PRECOS_PADRAO, cuTipoDe,
-  cuPecas, cuClienteDe, cuEntregasMes, EntregasClickUp, MenuTopo, TemaCtx, Card, StatCard,
-  Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras, cuDesde,
-  CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
-  VC_DIAS_SEMANA, vcPrazosCPCV
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
+  CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, EntregasClickUp, MenuTopo,
+  TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS,
+  cuGrupos, cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
