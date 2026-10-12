@@ -64,10 +64,82 @@ const planoPorMeses = (trab, raizId) => {
     return { pasta: f, mes: m };
   });
 };
+// ── Jogos (base de dados por cliente): cada lista de um jogo fica com a cor dele ──
+// Uma lista "44 - Mahjong - Oct" é do jogo "Mahjong". Os jogos guardam a cor, outros nomes,
+// a pasta do Google Drive e a spreadsheet (para mais tarde automatizar uploads).
+const CORES_JOGO = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#84cc16', '#f43f5e', '#0ea5e9', '#d946ef', '#f59e0b', '#10b981'];
+const MES_FIM_RE = /[\s\-–_]*\b(jan|janeiro|january|feb|february|fev|fevereiro|mar|march|marco|março|apr|april|abr|abril|may|mai|maio|jun|june|junho|jul|july|julho|aug|august|ago|agosto|sep|sept|september|set|setembro|oct|october|out|outubro|nov|november|novembro|dec|december|dez|dezembro)\.?\s*$/i;
+const jogoDoNome = nome => String(nome || '').replace(/^\s*\d+\s*[-–_.]?\s*/, '').replace(MES_FIM_RE, '').replace(/_+/g, ' ').replace(/\s*[-–]\s*$/, '').trim();
+const ehListaDeJogo = nome => /^\s*\d+\s*[-–_]/.test(String(nome || '')) || MES_FIM_RE.test(String(nome || ''));
+const normJ = x => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const tokensJ = x => normJ(x).split(' ').filter(w => w.length > 1);
+const jogoCombina = (j, nome) => {
+  const a = tokensJ(nome);
+  if (!a.length) return false;
+  return [j.nome, ...(j.aliases || [])].some(n => { const b = tokensJ(n); return b.length > 0 && (a.every(w => b.includes(w)) || b.every(w => a.includes(w))); });
+};
+const acharJogo = (jogos, cid, nome) => (jogos || []).find(j => String(j.cid) === String(cid) && jogoCombina(j, nome));
+// Liga as listas de um cliente aos jogos (cria os que faltam, com cores diferentes). dicas: { pastaId: nome do jogo }
+const opDetetarJogos = (trab, cid, dicas = {}) => {
+  let jogos = [...(trab.jogos || [])];
+  const pastas = trab.pastas || [];
+  const folhas = pastas.filter(p => String(p.cid) === String(cid) && !p.mesNum && !pastas.some(f => f.paiId === p.id));
+  const atrib = {};
+  folhas.forEach(p => {
+    if (p.jogoId && jogos.some(j => j.id === p.jogoId)) return;
+    const dica = dicas[p.id];
+    if (!dica && !ehListaDeJogo(p.nome)) return;
+    const daLista = jogoDoNome(p.nome);
+    const nomeJ = dica || daLista;
+    if (!nomeJ) return;
+    let j = acharJogo(jogos, cid, nomeJ) || (daLista ? acharJogo(jogos, cid, daLista) : null);
+    if (!j) {
+      const usadas = new Set(jogos.filter(x => String(x.cid) === String(cid)).map(x => x.cor));
+      const cor = CORES_JOGO.find(c => !usadas.has(c)) || CORES_JOGO[jogos.length % CORES_JOGO.length];
+      j = { id: trabId() + 'j' + jogos.length, cid, nome: nomeJ, cor, aliases: [], criada: agoraIso() };
+      jogos.push(j);
+    }
+    if (daLista && normJ(daLista) !== normJ(j.nome) && !(j.aliases || []).some(a => normJ(a) === normJ(daLista))) {
+      const novo = { ...j, aliases: [...(j.aliases || []), daLista] };
+      jogos = jogos.map(x => (x.id === j.id ? novo : x));
+      j = novo;
+    }
+    atrib[p.id] = j.id;
+  });
+  const cor = Object.fromEntries(jogos.map(j => [j.id, j.cor]));
+  return { ...trab, jogos, pastas: pastas.map(p => (atrib[p.id] ? { ...p, jogoId: atrib[p.id], cor: cor[atrib[p.id]] } : p)) };
+};
+// Uma lista nova (ou com nome novo) liga-se sozinha ao jogo, se já existir
+const opAutoJogo = (trab, pastaId) => {
+  const p = (trab.pastas || []).find(x => x.id === pastaId);
+  if (!p || p.jogoId || p.mesNum || !ehListaDeJogo(p.nome)) return trab;
+  const j = acharJogo(trab.jogos, p.cid, jogoDoNome(p.nome));
+  return j ? opPasta(trab, pastaId, { jogoId: j.id, cor: j.cor }) : trab;
+};
+const opJogo = (trab, id, patch) => ({
+  ...trab,
+  jogos: (trab.jogos || []).map(j => (j.id === id ? { ...j, ...patch } : j)),
+  pastas: patch.cor ? (trab.pastas || []).map(p => (p.jogoId === id ? { ...p, cor: patch.cor } : p)) : trab.pastas,
+});
+const opNovoJogo = (trab, cid, nome) => {
+  const usadas = new Set((trab.jogos || []).filter(x => String(x.cid) === String(cid)).map(x => x.cor));
+  const cor = CORES_JOGO.find(c => !usadas.has(c)) || CORES_JOGO[(trab.jogos || []).length % CORES_JOGO.length];
+  const n = { ...trab, jogos: [...(trab.jogos || []), { id: trabId() + 'j', cid, nome, cor, aliases: [], criada: agoraIso() }] };
+  return opDetetarJogos(n, cid);
+};
+const opApagarJogo = (trab, id) => ({ ...trab, jogos: (trab.jogos || []).filter(j => j.id !== id), pastas: (trab.pastas || []).map(p => (p.jogoId === id ? { ...p, jogoId: null } : p)) });
 const opPorMeses = (trab, raizId) => {
   const raiz = (trab.pastas || []).find(p => p.id === raizId);
   if (!raiz) return trab;
   const plano = planoPorMeses(trab, raizId);
+  // Dica do jogo de cada lista: a pasta antiga logo abaixo da raiz (ex.: "6_Mahjong")
+  const dicas = {};
+  plano.forEach(({ pasta }) => {
+    const cam = caminho(trab, pasta.id);
+    const i = cam.findIndex(x => x.id === raizId);
+    const topo = i >= 0 ? cam[i + 1] : null;
+    if (topo && topo.id !== pasta.id && !topo.mesNum) dicas[pasta.id] = jogoDoNome(topo.nome);
+  });
   let pastas = [...(trab.pastas || [])];
   const mesPasta = {};
   // reaproveita pastas de mês que já existam dentro da raiz
@@ -93,7 +165,7 @@ const opPorMeses = (trab, raizId) => {
     if (pastas.length !== antes) mudou = true;
   }
   const vivos = new Set(pastas.map(p => p.id));
-  return { ...trab, pastas, favoritos: (trab.favoritos || []).filter(f => vivos.has(f)) };
+  return opDetetarJogos({ ...trab, pastas, favoritos: (trab.favoritos || []).filter(f => vivos.has(f)) }, raiz.cid, dicas);
 };
 const opApagarPasta = (trab, id) => {
   const ids = new Set(descendentes(trab, id));
@@ -189,6 +261,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
         <span className={`block truncate text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`}>{t.nome}</span>
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
+      <EtiquetaTipo t={t} cu={cu} claro={claro} className="hidden sm:inline-block" />
       {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataCurta(t.prazo)}</span>}
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><HorasVivas t={t} /></span>
       <span className={`hidden sm:inline w-16 text-right text-xs tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</span>
@@ -230,6 +303,19 @@ const useGruposFechados = () => {
   const alternar = id => setF(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-grupos-fechados', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
   return [f, alternar];
 };
+// Etiqueta verde com o tipo de criativo (Vídeo novo, 2× Iteração, À hora…)
+const etiquetaTipo = (t, cu) => {
+  const ps = trabPecas(t);
+  if (ps.some(p => p.tipo === 'extra' || p.tipo === 'outro')) return ps.filter(p => p.tipo !== 'extra' && p.tipo !== 'outro').length ? null : 'À hora';
+  const usados = {}; ps.forEach(p => { usados[p.tipo] = 1; });
+  const tipos = tiposDe(cu, usados);
+  return ps.map(p => { const x = tipos.find(y => y.id === p.tipo); return `${p.n > 1 ? p.n + '× ' : ''}${x ? (x.curto || x.nome) : p.tipo}`; }).join(' + ') || null;
+};
+const EtiquetaTipo = ({ t, cu, claro, className = '' }) => {
+  const txt = etiquetaTipo(t, cu);
+  if (!txt) return null;
+  return <span className={`${className} shrink-0 max-w-[45%] truncate px-1.5 py-px rounded-md text-[11px] font-medium ${claro ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'}`} title={txt}>{txt}</span>;
+};
 const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true }) => {
   const claro = useClaro(theme);
   const corre = (t.tempos || []).some(x => !x.fim);
@@ -253,6 +339,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
               <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
               {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
             </button>
+            <EtiquetaTipo t={t} cu={cu} claro={claro} />
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
@@ -922,6 +1009,64 @@ const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar
 };
 
 // ── Visão geral (sem pasta escolhida) ──
+// ── Jogos de um cliente (cartões com cor, outros nomes, Drive e spreadsheet) ──
+const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const [nome, setNome] = useState('');
+  const [corAberta, setCorAberta] = useState(null);
+  const jogos = (trab.jogos || []).filter(j => String(j.cid) === String(cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt'));
+  const listas = (trab.pastas || []).filter(p => String(p.cid) === String(cid));
+  const semJogo = listas.filter(p => !p.jogoId && !p.mesNum && ehListaDeJogo(p.nome) && !listas.some(f => f.paiId === p.id));
+  const stats = j => {
+    const ls = listas.filter(p => p.jogoId === j.id);
+    const ids = new Set(ls.map(p => p.id));
+    const ts = (trab.tarefas || []).filter(t => ids.has(t.pastaId));
+    const valor = ts.filter(t => trabEntrega(t).startsWith(`${ano}-`)).reduce((a, t) => a + trabValor(t, cu, clientes), 0);
+    return { listas: ls.length, tarefas: ts.length, valor };
+  };
+  const ic = `${inputClass} text-sm py-1.5`;
+  const link = url => (url && /^https?:\/\//.test(url) ? <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 text-blue-400 hover:text-blue-300" title="Abrir">↗</a> : null);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <form onSubmit={e => { e.preventDefault(); if (nome.trim()) { mudar(tr => opNovoJogo(tr, cid, nome.trim())); setNome(''); } }} className="flex gap-2">
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do jogo (ex.: Mahjong)" className={`${inputClass} !w-56 text-sm py-1.5`} />
+          <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Jogo</button>
+        </form>
+        {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>🎮 Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
+      </div>
+      {!jogos.length && <p className={`text-sm ${sub}`}>Ainda não há jogos. Cria um, ou deteta-os pelos nomes das listas (ex.: "44 - Mahjong - Oct" → Mahjong).</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+        {jogos.map(j => {
+          const st = stats(j);
+          const set = patch => mudar(tr => opJogo(tr, j.id, patch));
+          return (
+            <div key={j.id} className={`rounded-xl border p-3 space-y-2.5 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`} style={{ borderLeft: `4px solid ${j.cor}` }}>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setCorAberta(corAberta === j.id ? null : j.id)} className="w-6 h-6 rounded-md shrink-0 ring-1 ring-black/10" style={{ background: j.cor }} aria-label={`Cor de ${j.nome}`} title="Mudar a cor" />
+                <TxtIn valor={j.nome} onGravar={v => v && set({ nome: v })} className={`${inputClass} text-sm py-1 font-semibold`} />
+                <button type="button" onClick={() => { if (window.confirm(`Apagar o jogo "${j.nome}"? As listas e as tarefas ficam como estão.`)) mudar(tr => opApagarJogo(tr, j.id)); }} className={`shrink-0 text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${j.nome}`}>✕</button>
+              </div>
+              {corAberta === j.id && (
+                <div className="flex flex-wrap gap-1.5">{CORES_JOGO.map(c => <button key={c} type="button" onClick={() => { set({ cor: c }); setCorAberta(null); }} className={`w-6 h-6 rounded-md ${j.cor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`} style={{ background: c }} aria-label={`Cor ${c}`} />)}</div>
+              )}
+              <p className={`text-xs ${sub}`}>{st.listas} lista{st.listas === 1 ? '' : 's'} · {st.tarefas} tarefa{st.tarefas === 1 ? '' : 's'} · <span className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(st.valor)}</span> em {ano}</p>
+              <div className="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
+                <Campo rot="Outros nomes (vírgulas)"><TxtIn valor={(j.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Win Money Mahjong" className={ic} /></Campo>
+                <Campo rot="Código"><TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="ex.: MJ" className={ic} /></Campo>
+              </div>
+              <Campo rot="Pasta do Google Drive"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
+              <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
+            </div>
+          );
+        })}
+      </div>
+      <p className={`text-[11px] ${sub}`}>As listas novas com o nome do jogo (ex.: "45 - Mahjong - Nov") ligam-se sozinhas e ficam com a cor dele. O código, a pasta do Drive e a spreadsheet vão servir para dar nome aos ficheiros e fazer o upload automático mais tarde.</p>
+    </div>
+  );
+};
+
 // ── Tipos de tarefa (base de dados): nome, preço padrão e preço de cada cliente ──
 // Os tipos de base vêm da app; podes mudar-lhes o nome, escondê-los ou criar tipos novos.
 const tiposDe = (cu, usados = {}) => {
@@ -1106,6 +1251,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
               <select value={fat.moeda || 'EUR'} onChange={e => setFat({ moeda: e.target.value })} className={ic}>{MOEDAS.map(m => <option key={m} value={m}>{m}</option>)}</select>
             </Campo>
             <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
+            <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
           </div>
         </div>
 
@@ -1164,7 +1310,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
     </div>
   );
 };
-const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbrir, onNovo }) => {
+const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbrir, onNovo, onImportar }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [nome, setNome] = useState('');
@@ -1181,6 +1327,12 @@ const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbr
           <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Cliente</button>
         </form>
         <div className="flex-1" />
+        {onImportar && (
+          <label className={`px-3 py-1.5 text-xs rounded-lg border cursor-pointer ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`} title="Ficheiro .json com as fichas dos clientes (dados de faturação e preços)">
+            Importar fichas
+            <input type="file" accept=".json,application/json" className="hidden" onChange={async e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) onImportar(await f.text()); }} />
+          </label>
+        )}
         {nAntigos > 0 && <button type="button" onClick={() => setVerAntigos(!verAntigos)} className={`text-xs ${sub} hover:text-blue-400`}>{verAntigos ? 'Esconder antigos' : `Ver antigos (${nAntigos})`}</button>}
       </div>
       <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
@@ -1528,7 +1680,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu }) => {
+const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -1577,7 +1729,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const [pedir, setPedir] = useState(null); // { titulo, valor, ok }
   const novaPasta = (cid, paiId) => setPedir({ titulo: paiId ? 'Nome da subpasta' : 'Nome da pasta', valor: '', ok: nome => {
     let novoId = null;
-    mudar(tr => { const [n, id] = opNovaPasta(tr, { cid, paiId, nome }); novoId = id; return n; });
+    mudar(tr => { const [n, id] = opNovaPasta(tr, { cid, paiId, nome }); novoId = id; return opAutoJogo(n, id); });
     if (paiId) setAbertas(prev => new Set([...prev, paiId]));
     setTimeout(() => { if (novoId) setSel({ tipo: 'pasta', id: novoId }); }, 0);
   } });
@@ -1662,7 +1814,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
-  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
+  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ['tarefas', 'Tarefas'], ['jogos', 'Jogos'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
   const abaAtual = abas.some(a => a[0] === aba) ? aba : 'tarefas';
   const valorAberto = tarefas.filter(t => t.estado !== 'feito').reduce((a, t) => a + trabValor(t, cu, clientes), 0);
   const horasTot = tarefas.reduce((a, t) => a + trabHoras(t), 0);
@@ -1677,6 +1829,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   // Pastas de ano (raiz) que ainda têm subpastas que não são meses → podem ser organizadas por meses
   const porOrganizar = p => p && !p.mesNum && (!p.paiId || /^\s*\d{4}\s*$/.test(p.nome)) && (trab.pastas || []).some(f => f.paiId === p.id && !f.mesNum);
   const anosPorOrganizar = sel.tipo === 'cliente' ? filhasDe(trab, null, sel.id).filter(porOrganizar) : [];
+  const listasSemJogo = sel.tipo === 'cliente' ? (trab.pastas || []).filter(p => String(p.cid) === String(sel.id) && !p.jogoId && !p.mesNum && ehListaDeJogo(p.nome) && !(trab.pastas || []).some(f => f.paiId === p.id)).length : 0;
   const organizarCliente = () => {
     const planos = anosPorOrganizar.map(p => ({ p, n: planoPorMeses(trab, p.id).length }));
     if (window.confirm(`Organizar por meses: ${planos.map(x => `${x.p.nome} (${x.n} listas)`).join(', ')}?\n\nCada lista vai para a pasta do mês dela. As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => anosPorOrganizar.reduce((acc, p) => opPorMeses(acc, p.id), tr));
@@ -1717,9 +1870,10 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               </div>
             )}
           </div>
-          {anosPorOrganizar.length > 0 && (
+          {(anosPorOrganizar.length > 0 || listasSemJogo > 0) && (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>
+              {listasSemJogo > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, sel.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>🎮 Dar uma cor a cada jogo ({listasSemJogo} lista{listasSemJogo === 1 ? '' : 's'})</button>}
+              {anosPorOrganizar.length > 0 && <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>}
             </div>
           )}
           {pasta && (
@@ -1731,6 +1885,13 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                   {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
                 </select>
               )}
+              {!pasta.mesNum && !(trab.pastas || []).some(f => f.paiId === pasta.id) && (trab.jogos || []).some(j => String(j.cid) === String(pasta.cid)) && (
+                <select value={pasta.jogoId || ''} onChange={e => { const j = (trab.jogos || []).find(x => x.id === e.target.value); mudar(tr => opPasta(tr, pasta.id, j ? { jogoId: j.id, cor: j.cor } : { jogoId: null })); }}
+                  className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Jogo desta lista">
+                  <option value="" className={claro ? '' : 'bg-slate-800'}>🎮 Sem jogo</option>
+                  {(trab.jogos || []).filter(j => String(j.cid) === String(pasta.cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(j => <option key={j.id} value={j.id} className={claro ? '' : 'bg-slate-800'}>🎮 {j.nome}</option>)}
+                </select>
+              )}
               {porOrganizar(pasta) && (
                 <button type="button" onClick={() => {
                   const plano = planoPorMeses(trab, pasta.id);
@@ -1740,7 +1901,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                 }} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar por meses</button>
               )}
               <button type="button" onClick={() => novaPasta(pasta.cid, pasta.id)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Subpasta</button>
-              <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opPasta(tr, pasta.id, { nome: n })) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
+              <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opAutoJogo(opPasta(tr, pasta.id, { nome: n }), pasta.id)) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
               <div className="flex items-center gap-1">
                 {CORES_PASTA.map(c => <button key={c} type="button" onClick={() => mudar(tr => opPasta(tr, pasta.id, { cor: c }))} className={`w-4 h-4 rounded ${pasta.cor === c ? 'ring-2 ring-offset-1 ring-offset-transparent ring-white/70' : ''}`} style={{ background: c }} aria-label="Cor da pasta" />)}
               </div>
@@ -1762,7 +1923,23 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           {sel.tipo === 'tipos' && !procura.trim() && <TiposTarefa cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} onPrecos={onPrecos} onCu={onCu} />}
           {sel.tipo === 'clientes' && !procura.trim() && <ListaClientes clientes={clientes} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} theme={theme}
             onAbrir={id => { setSel({ tipo: 'cliente', id }); setAba('ficha'); }}
-            onNovo={nome => { const id = onNovoCliente(nome); if (id != null) { setSel({ tipo: 'cliente', id }); setAba('ficha'); } }} />}
+            onNovo={nome => { const id = onNovoCliente(nome); if (id != null) { setSel({ tipo: 'cliente', id }); setAba('ficha'); } }}
+            onImportar={onImportarClientes ? txt => {
+              let d; try { d = JSON.parse(txt); } catch (err) { if (showToast) showToast('Esse ficheiro não é um JSON válido.', 'error'); return; }
+              const lista = Array.isArray(d) ? d : d && d.clientes;
+              if (!Array.isArray(lista) || !lista.length) { if (showToast) showToast('Não encontrei clientes nesse ficheiro.', 'error'); return; }
+              const ids = onImportarClientes(lista) || {};
+              // Os clientes que só vinham do ClickUp ("cu:Nome") passam para o cliente da app
+              const mapa = {};
+              const norm = x => String(x || '').trim().toLowerCase();
+              lista.forEach(e => { if (!e || ids[e.nome] == null) return; [e.nome, ...(e.aliases || [])].forEach(n => { mapa['cu:' + norm(n)] = ids[e.nome]; }); });
+              const novo = cid => (typeof cid === 'string' && cid.startsWith('cu:') && mapa[norm(cid)] != null ? mapa[norm(cid)] : cid);
+              if ((trab.pastas || []).some(p => novo(p.cid) !== p.cid) || (trab.tarefas || []).some(t => novo(t.cid) !== t.cid)) {
+                mudar(tr => ({ ...tr, pastas: (tr.pastas || []).map(p => ({ ...p, cid: novo(p.cid) })), tarefas: (tr.tarefas || []).map(t => ({ ...t, cid: novo(t.cid) })) }));
+              }
+              if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
+            } : null} />}
+          {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
               onCliente={onCliente} onIrPrecos={() => setAba('precos')}
