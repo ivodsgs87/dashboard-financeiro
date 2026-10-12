@@ -1663,6 +1663,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mesIdx = idx % 12 + 1;
    const mesIva = [2, 5, 8, 11].includes(mesIdx);
    const L = [];
+   const yM = Math.floor(idx / 12), nM = idx % 12 + 1, fimM = new Date(yM, nM, 0).getDate();
+   // Horas no ClickUp: todos os dias úteis do mês (até ontem, no mês atual) devem ter horas registadas
+   const cu = G.clickup;
+   if (cu && cu.ativo) {
+     const anoCu = (cu.anos || {})[yM];
+     const dm = anoCu && (anoCu.meses || {})[nM];
+     const hM = dm ? patNum(dm.h) : 0;
+     const esps = dm ? Object.values(dm.esp || {}) : [];
+     const temDias = esps.some(x => x && Array.isArray(x.dias));
+     const diasCom = new Set(); esps.forEach(x => ((x && x.dias) || []).forEach(d => diasCom.add(Number(d))));
+     const ateDia = atual ? new Date().getDate() - 1 : fimM;
+     // Feriados nacionais (fixos + Sexta-feira Santa e Corpo de Deus, que dependem da Páscoa)
+     const pascoa = (() => { const a = yM % 19, b = Math.floor(yM / 100), c = yM % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451); return new Date(yM, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1); })();
+     const desloc = n => { const x = new Date(pascoa); x.setDate(x.getDate() + n); return `${x.getMonth() + 1}-${x.getDate()}`; };
+     const feriados = new Set(['1-1', '4-25', '5-1', '6-10', '8-15', '10-5', '11-1', '12-1', '12-8', '12-25', desloc(-2), desloc(60)]);
+     let semH = 0;
+     for (let d = 1; d <= ateDia; d++) { const wd = new Date(yM, nM - 1, d).getDay(); if (wd !== 0 && wd !== 6 && !feriados.has(`${nM}-${d}`) && !diasCom.has(d)) semH++; }
+     const hTxt = `${hM < 10 ? hM.toFixed(1).replace('.', ',') : Math.round(hM)} h`;
+     L.push({ id: 'horas', icon: '⏱️', titulo: 'Horas no ClickUp',
+       estado: idx > hojeIdx ? 'na' : !anoCu ? 'falta' : hM <= 0 ? (atual && ateDia < 1 ? 'na' : 'falta') : temDias && semH > 0 ? 'parcial' : 'ok',
+       detalhe: !anoCu ? `Ler as horas de ${yM}` : hM <= 0 ? 'Sem horas registadas' : `${hTxt}${temDias ? (semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis') : ''}`,
+       ir: () => { setTab('performance'); sincClickUp(true, yM); setTimeout(() => document.getElementById('cartao-clickup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } });
+   }
    L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : atual ? 'parcial' : 'falta'),
      detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : atual ? 'À espera dos pagamentos' : 'Sem recibos', ir: () => setTab('receitas') });
    L.push({ id: 'aloc', icon: '📈', titulo: 'Alocação', estado: !nRec || pInv <= 0 ? 'na' : (itensInv.length && Math.abs(guia.porAlocar) <= folga ? 'ok' : 'falta'),
@@ -1680,6 +1703,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      detalhe: ep.port === 'ok' ? `Valores do dia ${dataPt(ep.data)}` : ep.port === 'igual' ? 'Iguais ao mês anterior' : 'Ainda por atualizar', ir: () => setTab('portfolio') });
    L.push({ id: 'tx', icon: '📥', titulo: 'Importar transações', estado: ep.nTx ? 'ok' : idx > hojeIdx ? 'na' : ep.aloc > 0 ? 'falta' : 'na',
      detalhe: ep.nTx ? `${ep.nTx} compra${ep.nTx === 1 ? '' : 's'}/venda${ep.nTx === 1 ? '' : 's'}` : ep.aloc > 0 ? `Marcaste ${fmt(ep.aloc)} investido` : 'Sem compras registadas', ir: () => setTab('transacoes') });
+   // Dívida do crédito deste mês (para o património e o histórico) — só com créditos ativos
+   const crAtivos = (G.creditos || []).filter(c => c && c.estado === 'ativo');
+   if (crAtivos.length) {
+     const comMes = crAtivos.filter(c => (c.historico || []).some(h => h && h.date && patIdx(h.date) === idx));
+     L.push({ id: 'credito', icon: '🏠', titulo: 'Dívida do crédito',
+       estado: idx > hojeIdx ? 'na' : comMes.length === crAtivos.length ? 'ok' : 'falta',
+       detalhe: comMes.length === crAtivos.length ? `${fmt(crAtivos.reduce((a, c) => a + patNum((c.historico || []).find(h => h && h.date && patIdx(h.date) === idx)?.divida), 0))} registados` : 'Registar o valor deste mês',
+       ir: () => setTab('credito') });
+   }
    // Último passo: preparar o mês seguinte (a partir do dia 20) — rever despesas e mandar a ABanca antes do dia 1
    const cOk = despOk('despABanca'), pOk = despOk('despPess');
    const kProx = patKey(idx + 1), nomeProx = meses[(idx + 1) % 12];
@@ -1945,7 +1977,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <h3 className="font-semibold"><Ico e="🧭"/>Passos de {mes}</h3>
          <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
        </div>
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+       <div className={`grid grid-cols-2 ${passos.length > 8 || passos.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2`}>
          {passos.map((x, k) => {
            const manual = (M[mesKey] || {}).passosManual || {};
            const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
@@ -2384,10 +2416,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* ── Clientes e últimos registos ── */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start m-mais">
    {Object.values(totaisAnuais.receitasPorCliente).some(c => c.total > 0) && (
-   <Card>
+   <Card className={ultReg.length > 0 ? '' : 'lg:col-span-2'}>
      <h3 className="font-semibold mb-3"><Ico e="👥"/>Clientes {ano}</h3>
-     <div className="space-y-2">
-       {Object.values(totaisAnuais.receitasPorCliente).filter(c => c.total > 0).sort((a,b) => b.total - a.total).slice(0,4).map((c, i) => (
+     <div className={ultReg.length > 0 ? 'space-y-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-2'}>
+       {Object.values(totaisAnuais.receitasPorCliente).filter(c => c.total > 0).sort((a,b) => b.total - a.total).slice(0, ultReg.length > 0 ? 4 : 6).map((c, i) => (
          <div key={i} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg" style={{borderLeft: `3px solid ${c.cor}`}}>
            <span className="text-sm">{c.nome}</span>
            <div className="flex items-center gap-2">
@@ -3058,13 +3090,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
        </div>
 
-       <Card>
+       <div id="cartao-clickup" className="scroll-mt-24"><Card>
          <HorasClickUp cu={G.clickup} estado={cuEstado} ano={ano} mesNum={meses.indexOf(mes) + 1} M={M} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
            onSinc={() => sincClickUp(true, ano)}
            onMapa={(k, v) => cuMudar(cu => ({ mapa: { ...(cu.mapa || {}), [k]: v === '' ? null : (v === 'x' ? 'x' : (isNaN(Number(v)) ? v : Number(v))) } }))}
            onDividir={(sid, sim) => cuMudar(cu => ({ dividir: { ...(cu.dividir || {}), [sid]: sim } }))}
            onCalendario={v => cuMudar(() => ({ calendario: v }))} />
-       </Card>
+       </Card></div>
        
        {/* Gráfico de Horas Trabalhadas */}
        {(() => {
@@ -13044,70 +13076,76 @@ ${transacoesOrdenadas.map(t => `<tr>
           <div className="flex flex-row flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-3">
             <div className="flex items-center justify-start gap-3">
               <h1 className="hidden sm:block text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
-              <div className="flex gap-2">
-                <select value={mes} onChange={e=>setMes(e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
-                  {meses.map(m=><option key={m} value={m}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
-                </select>
-                <select value={ano} onChange={e=>setAno(+e.target.value)} className={`${theme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-slate-700/50 text-white'} border rounded-xl px-2 sm:px-3 py-1.5 text-sm focus:outline-none appearance-none cursor-pointer ${isMesAtual(mes, ano) ? 'border-emerald-500 ring-1 ring-emerald-500/50' : theme === 'light' ? 'border-slate-300' : 'border-slate-600'}`}>
-                  {anos.map(a=><option key={a} value={a}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
-                </select>
-                <div className={`flex rounded-lg overflow-hidden divide-x ${theme === 'light' ? 'divide-slate-200' : 'divide-slate-600'}`}>
-                  <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`px-2.5 py-1.5 text-sm font-bold ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>‹</button>
-                  <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`px-2.5 py-1.5 text-sm font-bold ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`}>›</button>
-                </div>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const claro = theme === 'light';
+                  const seta = `w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
+                  const sel = `h-8 bg-transparent border-0 rounded-lg px-1.5 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
+                  const opt = claro ? '' : 'bg-slate-800';
+                  return (
+                    <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
+                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={seta}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                      <select value={mes} onChange={e=>setMes(e.target.value)} aria-label="Mês" className={sel}>
+                        {meses.map(m=><option key={m} value={m} className={opt}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
+                      </select>
+                      <select value={ano} onChange={e=>setAno(+e.target.value)} aria-label="Ano" className={sel}>
+                        {anos.map(a=><option key={a} value={a} className={opt}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
+                      </select>
+                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={seta}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                    </div>
+                  );
+                })()}
                 {!isMesAtual(mes, ano) && (
-                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className="px-2 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400" title="Ir para mês atual">Hoje</button>
+                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className={`h-8 px-3 text-xs font-medium rounded-xl border transition-colors ${theme === 'light' ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'}`} title="Voltar ao mês atual">Hoje</button>
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 sm:gap-4">
-              <div className="flex gap-1 sm:gap-2 flex-wrap items-center">
-                {/* Undo/Redo */}
-                <div className="hidden sm:flex gap-0.5">
-                  <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-l-lg ${undoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${undoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Desfazer (Ctrl+Z)">↩️</button>
-                  <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={`px-2 py-1.5 text-xs font-medium rounded-r-lg ${redoRef.current.length > 0 ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400' : theme === 'light' ? 'bg-slate-200 text-slate-400' : 'bg-slate-700/50 text-slate-500'} ${redoRef.current.length === 0 && 'cursor-not-allowed'}`} title="Refazer (Ctrl+Y)">↪️</button>
-                </div>
-                
+            {(() => {
+              const claro = theme === 'light';
+              const ic = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+              const btn = (ativo, extra = '') => `relative w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent ${ativo ? (claro ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : claro ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/10'} ${extra}`;
+              const sep = <span className={`hidden sm:block w-px h-5 mx-0.5 ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} />;
+              const nAlertas = getActiveAlerts().length;
+              return (
+            <div className="flex items-center justify-end gap-2 sm:gap-3">
+              <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
+                {/* Desfazer / Refazer */}
+                <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg {...ic}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+                <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Refazer (Ctrl+Y)" aria-label="Refazer"><svg {...ic}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+                {sep}
                 {/* Pesquisa */}
-                <button onClick={() => setShowSearch(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Pesquisar (Ctrl+F)">🔍</button>
-                
+                <button onClick={() => setShowSearch(true)} className={btn(false)} title="Pesquisar (Ctrl+F)" aria-label="Pesquisar"><svg {...ic}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
                 {/* Alertas */}
-                <button onClick={() => setShowAlerts(true)} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${getActiveAlerts().length > 0 ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Alertas">🔔{getActiveAlerts().length > 0 && <span className="ml-0.5">({getActiveAlerts().length})</span>}</button>
-                
-                {/* Menu Export */}
-                <div className="relative hidden sm:block">
-                  <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={`px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Exportar">📤 <span className="hidden sm:inline">Export</span></button>
-                </div>
-                
-                {/* Layout Editor - disponível em tabs com personalização */}
+                <button onClick={() => setShowAlerts(true)} className={btn(false, nAlertas > 0 ? (claro ? '!text-orange-600' : '!text-orange-400') : '')} title={nAlertas > 0 ? `${nAlertas} alerta${nAlertas === 1 ? '' : 's'}` : 'Alertas'} aria-label="Alertas">
+                  <svg {...ic}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                  {nAlertas > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-semibold leading-4 text-center">{nAlertas > 9 ? '9+' : nAlertas}</span>}
+                </button>
+                {/* Exportar */}
+                <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={btn(showExportMenu, 'hidden sm:inline-flex')} title="Exportar" aria-label="Exportar"><svg {...ic}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></button>
+                {/* Personalizar layout — só nas tabs com cartões configuráveis */}
                 {['resumo', 'receitas', 'abanca', 'pessoais', 'invest', 'portfolio'].includes(tab) && (
-                  <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={`hidden sm:inline-block px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg ${showLayoutEditor ? 'bg-purple-500/20 text-purple-400' : theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`} title="Personalizar layout">🎨</button>
+                  <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={btn(showLayoutEditor, 'hidden sm:inline-flex')} title="Personalizar layout" aria-label="Personalizar layout"><svg {...ic}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></button>
                 )}
               </div>
-              
-              {/* Status offline */}
-              {!isOnline && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 rounded-lg text-xs text-amber-400">
-                  <span>📴</span>
-                  <span className="hidden sm:inline">Offline</span>
-                </div>
-              )}
-              
-              {/* Status de sync */}
-              {syncing ? (
-                <div className="flex items-center gap-1 text-xs text-amber-400"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar...</span></div>
+
+              {/* Estado: offline / a guardar / guardado */}
+              {!isOnline ? (
+                <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-amber-600' : 'text-amber-400'}`} title="Sem internet — guarda quando voltar"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"/><span className="hidden sm:inline">Offline</span></span>
+              ) : syncing ? (
+                <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/><span className="hidden sm:inline">A guardar…</span></span>
               ) : (
-                <div className="flex items-center gap-1 text-xs text-emerald-400"><div className="w-2 h-2 rounded-full bg-emerald-400"/><span className="hidden sm:inline">Guardado</span></div>
+                <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`} title="Tudo guardado"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/><span className="hidden sm:inline">Guardado</span></span>
               )}
-              
-              {/* User */}
-              <div className={`flex items-center gap-2 pl-2 border-l ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
-                <button onClick={() => setShowSidebar(true)} className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Menu">
-                  {user?.photoURL && <img src={user.photoURL} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full ring-2 ring-transparent hover:ring-blue-400/50 transition-all"/>}
-                  <span className={`hidden sm:inline text-sm ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>{user?.displayName?.split(' ')[0]}</span>
-                </button>
-              </div>
+
+              {/* Utilizador */}
+              <button onClick={() => setShowSidebar(true)} className={`flex items-center gap-2 pl-0.5 pr-1 sm:pr-2 py-0.5 rounded-full border transition-colors ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700/60 hover:bg-white/10'}`} title="Menu" aria-label="Abrir menu">
+                {user?.photoURL ? <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full"/> : <span className={`w-7 h-7 rounded-full inline-flex items-center justify-center text-xs font-semibold ${claro ? 'bg-slate-200 text-slate-700' : 'bg-slate-700 text-slate-200'}`}>{(user?.displayName || '?').charAt(0)}</span>}
+                <span className={`hidden sm:inline text-sm font-medium ${claro ? 'text-slate-700' : 'text-slate-200'}`}>{user?.displayName?.split(' ')[0]}</span>
+                <svg {...ic} width={14} height={14} className={`hidden sm:block ${claro ? 'text-slate-400' : 'text-slate-500'}`}><path d="m6 9 6 6 6-6"/></svg>
+              </button>
             </div>
+              );
+            })()}
           </div>
         </header>
 
