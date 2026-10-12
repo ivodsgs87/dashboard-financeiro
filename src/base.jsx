@@ -929,6 +929,36 @@ const IcoTxt = ({ t }) => {
   return m && ICO_SVG[m[1].replace(/\uFE0F/g, '')] ? <><Ico e={m[1]}/>{m[2]}</> : (t ?? null);
 };
 
+// Cópias automáticas guardadas no próprio browser (IndexedDB, sem limite apertado de tamanho):
+// uma por semana, ficam as 6 mais recentes. Servem para voltar atrás se algum dado se estragar.
+const copiasLocais = {
+  abrir: () => new Promise((ok, erro) => {
+    try {
+      const r = indexedDB.open('orcamento-copias', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('copias', { keyPath: 'id' });
+      r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error);
+    } catch (e) { erro(e); }
+  }),
+  async todas() {
+    const db = await copiasLocais.abrir();
+    return new Promise((ok, erro) => {
+      const q = db.transaction('copias', 'readonly').objectStore('copias').getAll();
+      q.onsuccess = () => ok((q.result || []).sort((a, b) => String(b.id).localeCompare(String(a.id))));
+      q.onerror = () => erro(q.error);
+    });
+  },
+  async guardar(conteudo) {
+    const db = await copiasLocais.abrir();
+    const antigas = await copiasLocais.todas();
+    return new Promise((ok, erro) => {
+      const tx = db.transaction('copias', 'readwrite'); const st = tx.objectStore('copias');
+      st.put({ id: new Date().toISOString(), conteudo });
+      antigas.slice(5).forEach(c => st.delete(c.id));
+      tx.oncomplete = () => ok(); tx.onerror = () => erro(tx.error);
+    });
+  },
+};
+
 // ══ CALENDÁRIO FINANCEIRO ═══════════════════════════════════════════════════
 // Vista de mês com tudo o que tem data: impostos (com valores previstos), prestação,
 // tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
@@ -1376,7 +1406,7 @@ export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
-  Ico, IcoTxt, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos,
-  BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo,
-  _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
+  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
