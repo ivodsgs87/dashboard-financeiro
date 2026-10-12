@@ -1916,6 +1916,20 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   );
 };
 
+// Base visual: tipo de letra Inter com algarismos de largura fixa (os valores alinham em coluna),
+// letra pequena com um mínimo legível e cinzentos com mais contraste em cada tema.
+const CSS_BASE = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+body, button, input, select, textarea { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+body { font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+.text-\\[8px\\], .text-\\[9px\\] { font-size: 10.5px !important; line-height: 1.3 !important; }
+.text-\\[10px\\], .text-\\[11px\\] { font-size: 12px !important; line-height: 1.35 !important; }
+html[data-tema="escuro"] .text-slate-500 { color: #8a97ab; }
+html[data-tema="escuro"] .text-slate-600 { color: #6f7d93; }
+html[data-tema="escuro"] .placeholder-slate-500::placeholder, html[data-tema="escuro"] input::placeholder, html[data-tema="escuro"] textarea::placeholder { color: #7c899e; }
+html[data-tema="claro"] .text-slate-400 { color: #6b7789; }
+`;
+
 // Ajustes só para o telemóvel (ecrãs < 640px). As classes m-* não fazem nada no computador.
 const CSS_MOBILE = `
 .m-br{display:none}
@@ -1945,5 +1959,5 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, patFmtK, PatLinhas, PatChart, Patrimonio, CSS_MOBILE
+  ChatGemini, patFmtK, PatLinhas, PatChart, Patrimonio, CSS_BASE, CSS_MOBILE
 };
