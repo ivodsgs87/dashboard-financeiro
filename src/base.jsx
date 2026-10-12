@@ -848,6 +848,17 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
   return { passos, saidas, fica, porAlocar, totPess: r2(totPess), valAB };
 };
 
+// Uma transferência dada como feita guarda o valor que foi transferido. Se a Alocação subir depois
+// (ex.: um recibo que chega a meio do mês), o passo volta a ficar por fazer — só pela diferença.
+const transfFalta = (t, x) => {
+  const v = (t || {})[x.id];
+  if (!v) return x.valor;
+  if (v === true) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.round((x.valor - n) * 100) / 100) : 0;
+};
+const transfFeita = (t, x) => transfFalta(t, x) < 0.5;
+
 // ══ CALENDÁRIO FINANCEIRO ═══════════════════════════════════════════════════
 // Vista de mês com tudo o que tem data: impostos (com valores previstos), prestação,
 // tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
@@ -1283,7 +1294,7 @@ const PROCESS_INVOICE_URLS = [
 export {
   StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, CAL_CORES, CalendarioFinanceiro, impCalc,
-  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
-  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, CAL_CORES,
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC,
+  BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
