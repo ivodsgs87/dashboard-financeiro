@@ -1758,6 +1758,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
   const est = cuEntregasMes(cu, ano, mesNum, clientes, trab);
+  const custosMes = trabCustosMes(trab, ano, mesNum);
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
   const estPrev = (cu.anos[aPrev] && cu.anos[aPrev].entregues) || temApp ? cuEntregasMes(cu.anos[aPrev] ? cu : { ...cu, anos: { ...cu.anos, [aPrev]: { entregues: [] } } }, aPrev, mPrev, clientes, trab) : null;
   const temMin = est.comRetainer.length > 0 || !!(estPrev && estPrev.comRetainer.length);
@@ -1787,6 +1788,13 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
           </button>
         </div>
       </div>
+      {custosMes.total > 0 && (
+        <p className="mt-1 text-xs">
+          <span className={sub}>Subcontratações:</span> <span className="text-red-400 tabular-nums" title={custosMes.linhas.map(l => `${l.quem ? l.quem + ' · ' : ''}${l.desc}: ${f(l.v)}`).join('\n')}>−{f(custosMes.total)}</span>
+          <span className={sub}> → fica para ti ≈ </span><strong className="tabular-nums">{f((usaMin ? est.total : est.totalProduzido) - custosMes.total)}</strong>
+          <span className={sub}> ({custosMes.linhas.map(l => l.quem || l.desc).filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 3).join(', ')})</span>
+        </p>
+      )}
       {planear && <PlanoMesClickUp cu={cu} ano={ano} mesNum={mesNum} clientes={clientes} theme={theme} inputClass={inputClass}
         onGuardar={(k, v) => onPlano && onPlano(k, v)}
         produzidoDe={id => { const c = est.clientes.find(x => String(x.cid) === String(id)); return c ? c.produzido : 0; }} />}
@@ -1990,6 +1998,20 @@ const trabEntreguesMes = (trab, ano, mesNum, cu = null, clientes = []) => {
     if (v && String(d).startsWith(pref)) extras.push({ id: `app:x:${p.id}:${i}`, nome: e.desc || 'Linha à parte', fechada: d, cid: p.cid, app: true, valorManual: v, pecasArr: [], horas: 0, extraOrc: true });
   }));
   return [...tarefas, ...extras];
+};
+// Subcontratações do mês: custo das tarefas entregues nesse mês + linhas à mão dos orçamentos (pela data)
+const trabCustosMes = (trab, ano, mesNum) => {
+  const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
+  const linhas = [];
+  ((trab && trab.tarefas) || []).forEach(t => {
+    const v = Number(t.custoOutsourcing) || 0;
+    if (v > 0 && trabEntrega(t).startsWith(pref)) linhas.push({ quem: t.outsourcing || '', desc: t.nome, v, cid: t.cid });
+  });
+  ((trab && trab.pastas) || []).forEach(p => ((p.orcamento && p.orcamento.custos) || []).forEach(e => {
+    const v = Number(String(e.val ?? '').replace(',', '.')) || 0;
+    if (v && String(e.data || '').startsWith(pref)) linhas.push({ quem: e.quem || '', desc: e.desc || p.nome, v, cid: p.cid });
+  }));
+  return { total: linhas.reduce((a, l) => a + l.v, 0), linhas };
 };
 // Dias do mês com horas registadas na app, por cliente (para quem paga à diária)
 const trabDiasMes = (trab, ano, mesNum) => {
@@ -2426,8 +2448,8 @@ export {
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
   cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId,
   trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto,
-  trabValor, trabEntreguesMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos,
-  cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
-  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  trabValor, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo,
+  TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS,
+  cuGrupos, cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
