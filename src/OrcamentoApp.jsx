@@ -8,7 +8,7 @@ import {
   GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
   IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
   copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, MenuTopo, lazySeparador, SeparadorCarregar
+  PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1487,6 +1487,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mk = patKey(idx), md = M[mk] || {};
    const temRec = ((md.regCom || []).length + (md.regSem || []).length) > 0;
    L.push({ id: 'r-inicio', dia: Math.min(3, nDias), cat: 'Rotina', titulo: 'Recibos, Alocação e transferências (quando os clientes pagarem)', curto: 'Recibos e alocação', estado: temRec ? 'ok' : est(false, 3), ir: () => { setAno(y); setMes(meses[m - 1]); setTab('resumo'); } });
+   // Venda da casa: prazos do CPCV (separador Venda da Casa)
+   vcPrazosCPCV({ ...VC_DEFAULT, ...(G.vendaCasa || {}) }, conc)
+     .filter(p => p.data.getFullYear() === y && p.data.getMonth() + 1 === m)
+     .forEach(p => L.push({ id: 'vc-' + p.id, dia: p.data.getDate(), cat: 'Venda', titulo: p.titulo, curto: p.curto, nota: p.nota, lista: p.lista || null, chave: p.chave, estado: p.estado, ir: () => setTab('vendacasa') }));
    const kp = patKey(idx + 1), tp = (M[kp] || {}).transf || {};
    const prepFeito = !!(tp.g_abanca || tp.g_adiant);
    L.push({ id: 'r-prep', dia: Math.min(20, nDias), cat: 'Rotina', titulo: `Preparar ${meses[m % 12]}: rever despesas e mandar a ABanca antes do dia 1`, curto: `Preparar ${meses[m % 12]}`, valor: guia.valAB, estado: prepFeito ? 'ok' : est(false, nDias), ir: () => { setAno(Math.floor((idx + 1) / 12)); setMes(meses[(idx + 1) % 12]); setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); } });
@@ -6648,8 +6652,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const isInicioAno = h.date === `${ano-1}-12`;
          const isUltimo = historicoOrdenado.indexOf(h) === historicoOrdenado.length - 1;
          return (
-           <div key={h.date} className={`flex items-center justify-between p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : isUltimo ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
-             <div className="flex items-center gap-3">
+           <div key={h.date} className={`flex items-center justify-between gap-2 p-3 rounded-xl ${isInicioAno ? 'bg-green-500/10 border border-green-500/30' : isUltimo ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-700/30'}`}>
+             <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 min-w-0">
                <span className="text-sm font-medium">{mesNome} {y}</span>
                {isInicioAno && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Início {ano}</span>}
                {isUltimo && !isInicioAno && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">Atual</span>}
@@ -6666,10 +6670,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  );
                })()}
              </div>
-             <div className="flex items-center gap-3">
+             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                <StableInput 
                  type="number"
-                 className="w-32 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-1 text-right text-sm" 
+                 className="w-24 sm:w-32 bg-slate-600/50 border border-slate-500/50 rounded px-2 py-1 text-right text-sm" 
                  initialValue={h.divida} 
                  onSave={v => {
                    const novoHist = historico.map(x => x.date === h.date ? { ...x, divida: parseFloat(v) } : x);
@@ -13052,6 +13056,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         )}
         <div key={tab} className="animate-fadeIn">
+        <ProtecaoErro theme={theme} onInicio={() => setTab('resumo')} inicio={tab === 'resumo'}>
         {tab==='resumo' && dataLoaded && !ultimaCopiaAuto && (diasSemBackup == null || diasSemBackup >= 30) && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
             <span>💾 {diasSemBackup == null ? 'Ainda não fizeste nenhuma cópia de segurança dos teus dados.' : `A última cópia de segurança foi há ${diasSemBackup} dias.`}</span>
@@ -13167,6 +13172,7 @@ ${transacoesOrdenadas.map(t => `<tr>
 {tab==='calendario' && <Calendario/>}
  {tab==='agenda' && <Agenda/>}
  {tab==='extrato' && renderExtrato()}
+        </ProtecaoErro>
         </div>
  </main>
 
