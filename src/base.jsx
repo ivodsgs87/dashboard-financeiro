@@ -946,7 +946,7 @@ const copiasLocais = {
 // Vista de mês com tudo o que tem data: impostos (com valores previstos), prestação,
 // tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
 // o mês e o dia escolhidos quando o resto da app muda.
-const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Rotina: '#64748b' };
+const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Venda: '#84cc16', Rotina: '#64748b' };
 const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, mesInicial, notif }) => {
   const claro = theme === 'light';
   const hoje = new Date();
@@ -1015,7 +1015,7 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
         </div>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-        {[['SS', 'Segurança Social'], ['IVA', 'IVA'], ['IRS', 'IRS'], ['Casa', 'Casa'], ['Transf', 'Transferências'], ['Invest', 'Investir'], ['Contab', 'Contabilista'], ['Rotina', 'Rotina do mês']].map(([k, l]) => (
+        {[['SS', 'Segurança Social'], ['IVA', 'IVA'], ['IRS', 'IRS'], ['Casa', 'Casa'], ...(evs.some(e => e.cat === 'Venda') ? [['Venda', 'Venda da casa']] : []), ['Transf', 'Transferências'], ['Invest', 'Investir'], ['Contab', 'Contabilista'], ['Rotina', 'Rotina do mês']].map(([k, l]) => (
           <span key={k} className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CAL_CORES[k] }} />{l}</span>
         ))}
       </div>
@@ -1382,6 +1382,35 @@ const PROCESS_INVOICE_URLS = [
   'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
 ];
 
+// Se um separador der erro, mostra um aviso só nesse separador (em vez de a app
+// inteira ficar em branco). Volta ao normal ao mudar de separador.
+class ProtecaoErro extends React.Component {
+  constructor(props) { super(props); this.state = { erro: null }; }
+  static getDerivedStateFromError(erro) { return { erro }; }
+  componentDidCatch(erro, info) { console.error('Erro num separador:', erro, info?.componentStack); }
+  render() {
+    const { erro } = this.state;
+    if (!erro) return this.props.children;
+    const claro = this.props.theme === 'light';
+    const btn = `px-4 py-2 rounded-xl text-sm font-medium ${claro ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-700 hover:bg-slate-600 text-white'}`;
+    return (
+      <div role="alert" className={`max-w-xl mx-auto my-10 rounded-2xl border p-6 text-center ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800/60 border-slate-700 text-slate-300'}`}>
+        <p className="text-lg font-semibold mb-1">Algo correu mal neste separador</p>
+        <p className="text-sm opacity-80 mb-5">Os teus dados estão guardados. Podes tentar outra vez, ir para o Resumo ou recarregar a página.</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white" onClick={() => this.setState({ erro: null })}>Tentar outra vez</button>
+          {!this.props.inicio && <button className={btn} onClick={() => { this.setState({ erro: null }); this.props.onInicio?.(); }}>Ir para o Resumo</button>}
+          <button className={btn} onClick={() => window.location.reload()}>Recarregar a página</button>
+        </div>
+        <details className="mt-5 text-left text-xs opacity-70">
+          <summary className="cursor-pointer">Detalhes do erro (para enviar ao Claude)</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words">{String(erro?.message || erro)}</pre>
+        </details>
+      </div>
+    );
+  }
+}
+
 // Barra de separadores do computador (com os menus que abrem ao passar o rato).
 // Fica num componente próprio para que abrir/fechar um menu não volte a desenhar
 // a página toda (fazia os gráficos "saltarem").
@@ -1493,8 +1522,81 @@ const VC_DEFAULT = {
   outrosCustos: 0,
   valorAquisicao: 0,
   hppOverride: null,
+  dataCPCV: '',            // data de assinatura do contrato-promessa
+  sinal: 0,
+  prazoEscrituraDias: 45,
   movimentos: [],
   repor: []   // dinheiro teu adiantado que vais tirar da venda: {id, desc, val, quando: 'sinal'|'escritura', reposto: 'YYYY-MM-DD'|null}
+};
+
+// ── Prazos do contrato-promessa (CPCV) ──
+// A partir da data do CPCV calcula as datas importantes até à escritura.
+// Dias úteis = segunda a sexta (não conta feriados). Usado no separador Venda da Casa e no Calendário.
+const vcIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const vcData = iso => { const [y, m, d] = String(iso || '').split('-').map(Number); return y && m && d ? new Date(y, m - 1, d) : null; };
+const vcDiasUteis = (d, n) => {
+  const r = new Date(d); let falta = Math.abs(n); const passo = n < 0 ? -1 : 1;
+  while (falta > 0) { r.setDate(r.getDate() + passo); if (r.getDay() !== 0 && r.getDay() !== 6) falta--; }
+  return r;
+};
+const VC_DIAS_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const vcPrazosCPCV = (vc, conc = {}) => {
+  const d0 = vcData(vc.dataCPCV);
+  if (!d0) return [];
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
+  const dd = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const prazo = Math.max(1, parseInt(vc.prazoEscrituraDias, 10) || 45);
+  const limite = new Date(d0); limite.setDate(limite.getDate() + prazo);
+  const fimSemana = limite.getDay() === 0 || limite.getDay() === 6;
+  const escr = vcData(vc.dataVenda);
+  const sinal = parseFloat(vc.sinal) || 0;
+  const L = [];
+  const add = (id, data, titulo, curto, extra = {}) => {
+    const chave = 'vc-' + id;
+    const feito = conc[chave] === true || (extra.auto && data < hoje);
+    L.push({ id, chave, data, iso: vcIso(data), titulo, curto, feito, estado: feito ? 'ok' : data < hoje ? 'atrasado' : 'futuro', ...extra });
+  };
+  add('cpcv', d0, 'Assinar o contrato-promessa (CPCV)', 'Assinar CPCV', {
+    auto: true,
+    nota: 'Confirmar o anexo do sinal (para que conta vai) e fazer o reconhecimento das assinaturas',
+  });
+  add('sinal', vcDiasUteis(d0, 5), sinal > 0 ? `Confirmar que o sinal de ${f(sinal)} entrou na conta` : 'Confirmar que o sinal entrou na conta', 'Sinal na conta', {
+    nota: 'Se o sinal não entrar até este dia, o contrato fica sem efeito (cláusula 3.ª)',
+  });
+  const ref = escr || limite;
+  const mud = new Date(ref); mud.setDate(mud.getDate() - 14);
+  if (mud > d0) add('mudanca', mud, 'Mudança: a casa tem de estar vazia no dia da escritura', 'Mudança', {
+    nota: `Faltam 2 semanas para ${escr ? 'a escritura' : 'o prazo da escritura'} (${dd(ref)}). Fica só o que foi combinado no contrato.`,
+  });
+  if (!escr) {
+    add('aviso', vcDiasUteis(limite, -10), 'Os compradores já deviam ter marcado a escritura', 'Escritura marcada?', {
+      nota: `Têm de avisar com pelo menos 10 dias úteis de antecedência. Quando souberes a data, põe-na no separador Venda da Casa.`,
+    });
+    add('limite', limite, 'Prazo limite para a escritura', 'Prazo escritura', {
+      nota: `${prazo} dias depois do CPCV${fimSemana ? ` · calha a um ${VC_DIAS_SEMANA[limite.getDay()]}, por isso na prática é até ${dd(vcDiasUteis(limite, -1))}` : ''}`,
+    });
+  }
+  const prep = new Date(escr || limite); prep.setDate(prep.getDate() - 10);
+  if (prep > d0) add('docs', prep, 'Juntar os documentos para a escritura', 'Docs escritura', {
+    nota: escr ? `A escritura é a ${dd(escr)}` : `A escritura tem de ser até ${dd(limite)}`,
+    lista: [
+      'Declaração de dívida do banco para cancelar a hipoteca (distrate) — pedir já, pode demorar',
+      'Ficha técnica da habitação',
+      'Declaração de dívidas do condomínio (pedir ao administrador)',
+      'Certificado energético (já existe, válido até 2031)',
+      'Cartões de cidadão e o IBAN para receber o restante',
+    ],
+  });
+  if (escr) add('escritura', escr, 'Escritura e entrega das chaves', 'Escritura', {
+    nota: 'Levar todas as chaves e comandos da garagem; a casa tem de estar vazia',
+    lista: [
+      'Confirmar o valor do cheque/transferência para o banco (distrate) e o do restante para vocês',
+      'Ler as contagens da luz, água e gás e mudar os contratos',
+      'Cancelar ou transferir o seguro da casa e o débito do condomínio',
+    ],
+  });
+  return L.sort((a, b) => a.data - b.data);
 };
 
 export {
@@ -1504,5 +1606,6 @@ export {
   mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
   Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, MenuTopo, lazySeparador, SeparadorCarregar, VC_DEFAULT
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
