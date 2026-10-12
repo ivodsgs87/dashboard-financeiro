@@ -1830,17 +1830,19 @@ const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass,
       <p className={`text-xs mt-3 ${sub}`}>Os recibos saem muitas vezes no mês a seguir ao trabalho, por isso o valor/hora do ano é mais fiel do que o de um mês só. As horas de cada mês passam também para "Horas trabalhadas", a não ser que as tenhas escrito à mão.</p>
       <details className="mt-3" open={semCliente.length > 0}>
         <summary className={`cursor-pointer text-sm ${sub}`}>Ligar espaços do ClickUp aos clientes{semCliente.length > 0 ? ` (${semCliente.length} por ligar)` : ''}</summary>
-        <div className="mt-2 space-y-1.5">
+        <p className={`text-xs mt-2 mb-2 ${sub}`}>Se um espaço do ClickUp tiver trabalho de vários clientes (em pastas diferentes), escolhe «Separar por pastas» na lista e liga cada pasta ao seu cliente.</p>
+        <div className="space-y-1.5">
           {grupos.filter(g => g.sid !== 'sem').map(g => (
-            <div key={g.chave} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="flex-1 min-w-[140px] truncate">{g.nome} <span className={`text-xs ${sub}`}>· {cuHoras(g.hAno)}</span></span>
-              <select aria-label={`Cliente de ${g.nome}`} className={`${inputClass} !w-auto max-w-[200px] text-sm py-1`} value={g.cid == null ? '' : String(g.cid)} onChange={e => onMapa(g.chave, e.target.value)}>
+            <div key={g.chave} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-sm">
+              <span className="truncate">{g.nome} <span className={`text-xs ${sub}`}>· {cuHoras(g.hAno)}</span></span>
+              <select aria-label={`Cliente de ${g.nome}`} className={`${inputClass} !w-52 text-sm py-1`} value={g.cid == null ? '' : String(g.cid)}
+                onChange={e => { const v = e.target.value; if (v === '__separar') onDividir(g.sid, true); else if (v === '__juntar') onDividir(g.sid, false); else onMapa(g.chave, v); }}>
                 <option value="">— escolher cliente —</option>
                 {(clientes || []).map(c => <option key={c.id} value={String(c.id)}>{c.nome}{g.auto && String(g.cid) === String(c.id) ? ' (automático)' : ''}</option>)}
                 <option value="x">Não é um cliente</option>
+                {g.podeDividir && !g.chave.includes('/') && <option value="__separar">↳ Separar por pastas…</option>}
+                {g.chave.includes('/') && <option value="__juntar">↳ Juntar as pastas deste espaço</option>}
               </select>
-              {g.podeDividir && !g.chave.includes('/') && <button className={`text-xs underline ${sub}`} onClick={() => onDividir(g.sid, true)}>separar por pastas</button>}
-              {g.chave.includes('/') && <button className={`text-xs underline ${sub}`} onClick={() => onDividir(g.sid, false)}>juntar pastas</button>}
             </div>
           ))}
         </div>
