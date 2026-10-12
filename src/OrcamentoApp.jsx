@@ -1346,6 +1346,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      : Math.min(mesSelecionadoIdx, mesAtualSistemaNum) / 12; // menor entre mês selecionado e mês atual
 
  // Calcular totais anuais para metas
+ // Faturado por cliente, por ano e mês (para a ficha de cliente no Trabalho)
+ const faturadoClientes = useMemo(() => {
+   const out = {};
+   Object.entries(M || {}).forEach(([k, md]) => {
+     const [a, m] = k.split('-').map(Number);
+     if (!a || !m || m > 12 || !md) return;
+     [...(md.regCom || []), ...(md.regSem || [])].forEach(r => {
+       const o = (out[r.cid] = out[r.cid] || {});
+       const y = (o[a] = o[a] || Array(12).fill(0));
+       y[m - 1] += Number(r.val) || 0;
+     });
+   });
+   return out;
+ }, [M]);
+
  const calcularTotaisAnuais = useCallback(() => {
    let receitasAnuais = 0;
    let investimentosAnuais = 0;
@@ -3702,7 +3717,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <select 
                    className={`w-full ${inputClass}`} 
                    value={editRecibo.cid} 
-                   onChange={e => setEditRecibo({...editRecibo, cid: +e.target.value})}
+                   onChange={e => {
+                     // A ficha do cliente (Trabalho → Clientes) traz o país, o IVA e a retenção
+                     const cid = +e.target.value;
+                     const rc = ((clientes.find(c => c.id === cid) || {}).recibo) || null;
+                     if (!rc || !rc.pais) { setEditRecibo({...editRecibo, cid}); return; }
+                     const np = rc.pais;
+                     const isSara = editRecibo.emitidoPorSara || false;
+                     const newTaxaIva = isSara ? 0 : (np === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23)) : 0);
+                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.35)) : 0);
+                     setEditRecibo({...editRecibo, cid, pais: np, taxaIva: newTaxaIva, iva: (editRecibo.valIliq || 0) * newTaxaIva / 100, taxaRetIRS: newTaxaRet, retIRS: (editRecibo.valIliq || 0) * newTaxaRet / 100});
+                   }}
                    
                  >
                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -3951,7 +3976,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2"><Ico e="💼"/>COM Taxas <span className="text-xs sm:text-sm px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full font-medium">{fmt(inCom)}</span></h3>
  <div className="flex gap-1 sm:gap-2">
    <Button variant="secondary" size="sm" onClick={duplicarMesAnterior} className="hidden sm:inline-flex text-xs">📋</Button>
-   <Button size="sm" onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
+   <Button size="sm" onClick={()=>uM('regCom',[...regCom,{id:Date.now(),cid:(clientes.find(c => c.estado !== 'antigo' && (c.recibo?.regime || 'com') === 'com') || clientes[0])?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
  </div>
  </div>
  
@@ -3995,7 +4020,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-4">
  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2"><Ico e="💵"/>SEM Taxas <span className="text-xs sm:text-sm px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-medium">{fmt(inSem)}</span></h3>
- <Button size="sm" onClick={()=>uM('regSem',[...regSem,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
+ <Button size="sm" onClick={()=>uM('regSem',[...regSem,{id:Date.now(),cid:(clientes.find(c => c.estado !== 'antigo' && c.recibo?.regime === 'sem') || clientes[0])?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
  </div>
  {regSem.length===0 ? <p className="text-center py-4 text-sm text-slate-500">Sem recibos este mês</p> : (
  <DraggableList
@@ -13259,7 +13284,10 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}/></Suspense>}
+ {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
+   faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
+   onCliente={(id, patch) => { saveUndo(); uG('clientes', (G.clientes || []).map(c => (c.id === id ? { ...c, ...patch } : c))); }}
+   onNovoCliente={(nome, extra = {}) => { saveUndo(); const id = Math.max(0, ...(G.clientes || []).map(c => Number(c.id) || 0)) + 1; const cores = ['#3b82f6', '#ec4899', '#10b981', '#f97316', '#8b5cf6', '#06b6d4']; uG('clientes', [...(G.clientes || []), { id, nome, cor: extra.cor || cores[(G.clientes || []).length % cores.length], ...(extra.aliases ? { aliases: extra.aliases } : {}) }]); return id; }}/></Suspense>}
  {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
 
  {/* Modal: confirmar transações lidas de um ficheiro */}
