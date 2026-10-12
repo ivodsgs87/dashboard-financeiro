@@ -12,7 +12,7 @@ import {
 const agoraIso = () => new Date().toISOString();
 const eur = v => cuEur(Math.round(Number(v) || 0));
 // Tempo com minutos: 1m, 25m, 4h, 4h 29m (até 1 minuto conta como 1m)
-const tempoTxt = h => { const ms = (Number(h) || 0) * 3600000; if (ms <= 0) return '0m'; const min = Math.max(1, Math.round(ms / 60000)); const hh = Math.floor(min / 60), mm = min % 60; return hh ? (mm ? `${hh}h ${mm}m` : `${hh}h`) : `${mm}m`; };
+const tempoTxt = h => { const ms = (Number(h) || 0) * 3600000; if (ms <= 0) return '0m'; const min = Math.max(1, Math.floor(ms / 60000 + 1e-6)); const hh = Math.floor(min / 60), mm = min % 60; return hh ? (mm ? `${hh}h ${mm}m` : `${hh}h`) : `${mm}m`; };
 const CORES_PASTA = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
 const filhasDe = (trab, paiId, cid) => (trab.pastas || []).filter(p => (p.paiId || null) === (paiId || null) && (paiId ? true : String(p.cid) === String(cid)))
   .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0) || String(a.nome).localeCompare(String(b.nome), 'pt', { numeric: true }));
@@ -37,6 +37,63 @@ const opFavorito = (trab, id) => { const f = new Set(trab.favoritos || []); if (
 const opMudarCliente = (trab, id, cid) => {
   const ids = new Set(descendentes(trab, id));
   return { ...trab, pastas: (trab.pastas || []).map(p => (ids.has(p.id) ? { ...p, cid } : p)), tarefas: (trab.tarefas || []).map(t => (ids.has(t.pastaId) ? { ...t, cid } : t)) };
+};
+// ── Reorganizar uma pasta (ex.: "2026") por meses, em vez de pastas por jogo ──
+// Cada lista final (pasta sem subpastas) vai para a pasta do mês dela: o mês lê-se do nome
+// ("44 - Mahjong - Oct") ou, se não estiver no nome, das datas das tarefas. As pastas que
+// ficarem vazias desaparecem. Nada se perde: as tarefas continuam nas mesmas listas.
+const MESES_NOMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const MES_CHAVE = { jan: 1, feb: 2, fev: 2, mar: 3, apr: 4, abr: 4, may: 5, mai: 5, jun: 6, jul: 7, aug: 8, ago: 8, sep: 9, set: 9, oct: 10, out: 10, nov: 11, dec: 12, dez: 12 };
+const mesDoNome = nome => {
+  const ms = [...String(nome || '').toLowerCase().matchAll(/(?:^|[^a-zà-ú])(jan|feb|fev|mar|apr|abr|may|mai|jun|jul|aug|ago|sep|set|oct|out|nov|dec|dez)[a-zà-ú]*(?![a-zà-ú])/g)];
+  return ms.length ? MES_CHAVE[ms[ms.length - 1][1]] : null;
+};
+const numDoNome = nome => { const m = /^\s*(\d+)/.exec(String(nome || '')); return m ? Number(m[1]) : 9999; };
+const planoPorMeses = (trab, raizId) => {
+  const ids = descendentes(trab, raizId).filter(id => id !== raizId);
+  const pastas = (trab.pastas || []).filter(p => ids.includes(p.id));
+  const folhas = pastas.filter(p => !(trab.pastas || []).some(f => f.paiId === p.id));
+  return folhas.map(f => {
+    let m = mesDoNome(f.nome);
+    if (!m) {
+      const conta = {};
+      (trab.tarefas || []).filter(t => t.pastaId === f.id).forEach(t => { const d = t.feita || t.review || t.iniciada || t.criada; if (d) { const k = new Date(d).getMonth() + 1; conta[k] = (conta[k] || 0) + 1; } });
+      const melhor = Object.entries(conta).sort((a, b) => b[1] - a[1])[0];
+      m = melhor ? Number(melhor[0]) : null;
+    }
+    return { pasta: f, mes: m };
+  });
+};
+const opPorMeses = (trab, raizId) => {
+  const raiz = (trab.pastas || []).find(p => p.id === raizId);
+  if (!raiz) return trab;
+  const plano = planoPorMeses(trab, raizId);
+  let pastas = [...(trab.pastas || [])];
+  const mesPasta = {};
+  // reaproveita pastas de mês que já existam dentro da raiz
+  pastas.filter(p => p.paiId === raizId && p.mesNum).forEach(p => { mesPasta[p.mesNum] = p.id; });
+  plano.forEach(({ mes }) => {
+    const k = mes || 0;
+    if (mesPasta[k]) return;
+    const id = trabId() + 'm' + k;
+    mesPasta[k] = id;
+    pastas.push({ id, cid: raiz.cid, paiId: raizId, nome: k ? MESES_NOMES[k - 1] : 'Sem mês', mesNum: k || 99, ordem: k || 99, cor: '#64748b', criada: new Date().toISOString(), notas: [], orcamento: {} });
+  });
+  const destino = {};
+  plano.forEach(({ pasta, mes }) => { destino[pasta.id] = mesPasta[mes || 0]; });
+  pastas = pastas.map(p => (destino[p.id] ? { ...p, paiId: destino[p.id], ordem: numDoNome(p.nome) } : p));
+  // apaga as pastas antigas que ficaram sem nada (sem subpastas nem tarefas)
+  const temTarefas = new Set((trab.tarefas || []).map(t => t.pastaId));
+  let mudou = true;
+  while (mudou) {
+    mudou = false;
+    const comFilhas = new Set(pastas.map(p => p.paiId).filter(Boolean));
+    const antes = pastas.length;
+    pastas = pastas.filter(p => p.id === raizId || p.mesNum || comFilhas.has(p.id) || temTarefas.has(p.id) || destino[p.id] || !descendentes(trab, raizId).includes(p.id));
+    if (pastas.length !== antes) mudou = true;
+  }
+  const vivos = new Set(pastas.map(p => p.id));
+  return { ...trab, pastas, favoritos: (trab.favoritos || []).filter(f => vivos.has(f)) };
 };
 const opApagarPasta = (trab, id) => {
   const ids = new Set(descendentes(trab, id));
@@ -365,7 +422,7 @@ const nomeTipo = id => { const t = CU_TIPOS.find(x => x.id === id); return t ? (
 const TIPOS_PECA = CU_TIPOS.filter(t => !t.porHora);
 
 // ── Orçamento da pasta: campos por tipo de peça, com quantidade, preço e valor ──
-const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMudar }) => {
+const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMudar, nomeCliente, onVerPrecos }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const orc = pasta.orcamento || {};
@@ -398,6 +455,12 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
   const final = orc.acordado != null && orc.acordado !== '' ? Number(orc.acordado) : null;
   const ref = final ?? total;
   const setOrc = patch => onMudar({ ...orc, ...patch });
+  // Subcontratações: o que pagas a outros freelancers (tarefas com custo + linhas à mão)
+  const custosTarefas = tarefas.filter(t => Number(t.custoOutsourcing) > 0).map(t => ({ id: t.id, nome: t.nome, quem: t.outsourcing || '', v: Number(t.custoOutsourcing) || 0 }));
+  const custosMao = (orc.custos || []).map(e => ({ ...e, v: Number(String(e.val ?? '').replace(',', '.')) || 0 }));
+  const totalCustos = custosTarefas.reduce((a, c) => a + c.v, 0) + custosMao.reduce((a, c) => a + c.v, 0);
+  const liquido = ref - totalCustos;
+  const mudarCusto = (i, patch) => setOrc({ custos: (orc.custos || []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
   const setMapa = (campo, tipo, v) => { const m = { ...(orc[campo] || {}) }; if (v == null) delete m[tipo]; else m[tipo] = v; setOrc({ [campo]: m }); };
   const estados = [['rascunho', 'Rascunho'], ['enviado', 'Enviado'], ['aprovado', 'Aprovado'], ['faturado', 'Faturado']];
   const cel = `${inputClass} !w-full text-sm py-1 text-right tabular-nums`;
@@ -448,22 +511,58 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
           <span className="text-sm font-semibold col-span-3">Valor final <span className={`font-normal text-[11px] ${sub}`}>o que vais faturar (vazio = total)</span></span>
           <NumIn valor={orc.acordado ?? null} placeholder={String(Math.round(total))} onGravar={v => setOrc({ acordado: v })} className={`${cel} font-semibold`} />
         </div>
+        {/* Subcontratações */}
+        <div className={`border-t px-2 sm:px-3 pt-3 pb-2 ${claro ? 'border-slate-200 bg-slate-50/60' : 'border-white/[0.08] bg-black/10'}`}>
+          <p className="text-sm font-semibold">Subcontratações <span className={`font-normal text-[11px] ${sub}`}>o que pagas a outros freelancers — desconta no que te fica</span></p>
+          <div className="mt-1.5">
+            {custosTarefas.map(c => (
+              <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_104px] items-center gap-2 py-1 text-sm">
+                <span className="min-w-0 truncate" title="Vem do campo Outsourcing da tarefa">{c.quem ? <strong className="font-medium">{c.quem}</strong> : null}{c.quem ? ' · ' : ''}<span className={sub}>{c.nome}</span></span>
+                <span className="text-right tabular-nums text-red-400">−{eur(c.v)}</span>
+              </div>
+            ))}
+            {custosMao.map((e, i) => (
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_92px_24px] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px_104px_28px] items-center gap-1.5 sm:gap-2 py-1">
+                <input defaultValue={e.quem || ''} placeholder="Quem (ex.: Ana)" onBlur={ev => mudarCusto(i, { quem: ev.target.value.trim() })} className={`${inputClass} !w-full text-sm py-1 col-span-3 sm:col-span-1`} />
+                <input defaultValue={e.desc || ''} placeholder="O quê (ex.: 3 vídeos)" onBlur={ev => mudarCusto(i, { desc: ev.target.value })} className={`${inputClass} !w-full text-sm py-1 col-span-3 sm:col-span-1`} />
+                <input type="date" defaultValue={e.data || trabDia(new Date().toISOString())} title="Mês em que desconta" onBlur={ev => mudarCusto(i, { data: ev.target.value })} className={`${inputClass} !w-full text-xs py-1`} />
+                <NumIn valor={e.val === '' ? null : e.val} placeholder="€ que pagas" onGravar={v => mudarCusto(i, { val: v })} className={cel} />
+                <button type="button" className={`text-xs ${sub} hover:text-red-400`} onClick={() => setOrc({ custos: (orc.custos || []).filter((_, k) => k !== i) })} aria-label="Tirar subcontratação">✕</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => setOrc({ custos: [...(orc.custos || []), { quem: '', desc: '', val: '', data: trabDia(new Date().toISOString()) }] })}>+ Subcontratação</button>
+          {!custosTarefas.length && !custosMao.length && <p className={`mt-1 text-[11px] ${sub}`}>Também podes pôr o custo dentro de cada tarefa (campo Outsourcing) — aparece aqui sozinho.</p>}
+          {totalCustos > 0 && (
+            <div className="mt-2 pt-2 border-t border-dashed border-slate-500/30 grid grid-cols-[minmax(0,1fr)_104px] gap-2 text-sm">
+              <span className={sub}>Total subcontratado</span><span className="text-right tabular-nums text-red-400">−{eur(totalCustos)}</span>
+              <span className="font-semibold">Fica para ti</span><span className={`text-right tabular-nums font-bold ${liquido >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}`}>{eur(liquido)}</span>
+            </div>
+          )}
+        </div>
       </div>
       <div className="space-y-3">
         <div className="grid grid-cols-3 xl:grid-cols-1 gap-2">
-          {[['A faturar', eur(ref)], ['Já entregue', eur(entregue)], ['Falta entregar', eur(Math.max(0, ref - entregue))]].map(([k, v]) => (
+          {[['A faturar', eur(ref)], ...(totalCustos > 0 ? [['Fica para ti', eur(liquido)]] : []), ['Já entregue', eur(entregue)], ['Falta entregar', eur(Math.max(0, ref - entregue))]].map(([k, v]) => (
             <div key={k} className={`rounded-xl p-3 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}><p className={`text-[11px] ${sub}`}>{k}</p><p className="text-lg font-semibold tabular-nums">{v}</p></div>
           ))}
         </div>
-        {ref > 0 && <div className={`h-2 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}><div className="h-full rounded-full bg-emerald-500 progress-animated" style={{ width: `${Math.min(100, (entregue / ref) * 100)}%` }} /></div>}
+        {ref > 0 && (
+          <div>
+            <div className={`flex justify-between text-[11px] mb-1 ${sub}`}><span>Já entregaste</span><span className="tabular-nums">{Math.round(Math.min(100, (entregue / ref) * 100))}% do valor</span></div>
+            <div className={`h-2 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}><div className="h-full rounded-full bg-emerald-500 progress-animated" style={{ width: `${Math.min(100, (entregue / ref) * 100)}%` }} /></div>
+          </div>
+        )}
         {final != null && Math.abs(final - total) >= 1 && <p className={`text-xs ${sub}`}>Diferença para o calculado: {final > total ? '+' : '−'}{eur(Math.abs(final - total))}</p>}
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
-          <span className={`text-xs ${sub} mr-1`}>Estado:</span>
+          <span className={`text-xs ${sub} mr-1`} title="Só para te organizares; não muda as contas">Orçamento:</span>
           {estados.map(([k, n]) => (
             <button key={k} type="button" onClick={() => setOrc({ estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(orc.estado || 'rascunho') === k ? 'border-violet-400 bg-violet-500/15 text-violet-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{n}</button>
           ))}
         </div>
-        <p className={`text-[11px] ${sub}`}>As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas.</p>
+        <p className={`text-[11px] ${sub}`}>Marca em que ponto está o orçamento (rascunho, enviado ao cliente, aprovado, faturado). É só para te organizares — não muda as contas.</p>
+        <p className={`text-[11px] ${sub}`}>As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas; as subcontratações descontam nesse mês.</p>
+        {onVerPrecos && <button type="button" onClick={onVerPrecos} className="text-xs text-blue-400 hover:text-blue-300">✏️ Mudar os preços de {nomeCliente || 'este cliente'} →</button>}
       </div>
     </div>
   );
@@ -508,6 +607,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
   const [maisTipos, setMaisTipos] = useState(false);
+  const [varias, setVarias] = useState(false);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
   if (!t) return null;
   const set = patch => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, ...patch })));
@@ -572,30 +672,62 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               <p className="text-sm font-medium">Valor</p>
               <p className={`text-lg font-semibold tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(v)}</p>
             </div>
-            <div className="space-y-1">
-              {tiposVis.map(x => {
-                const n = pecasAtuais[x.id] || 0;
-                return (
-                  <div key={x.id} className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
-                    <span className={n ? '' : sub}>{x.curto || x.nome}</span>
-                    <NumIn valor={n || null} placeholder="0" decimal={false} onGravar={q => setPeca(x.id, q || 0)} className={`${inputClass} !w-full text-sm py-1 text-right`} />
-                    <span className={`text-right text-xs ${sub}`}>× {eur(preco(x.id))}</span>
-                    <span className="text-right tabular-nums">{n ? eur(n * preco(x.id)) : '—'}</span>
-                  </div>
-                );
-              })}
-              {trabPecas(t).some(p => p.tipo === 'extra' || p.tipo === 'outro') && (
+            {(() => {
+              const pecasT = trabPecas(t);
+              const porHora = pecasT.some(p => p.tipo === 'extra' || p.tipo === 'outro');
+              const tiposCom = Object.keys(pecasAtuais);
+              const simples = !porHora && tiposCom.length === 1 && pecasAtuais[tiposCom[0]] === 1;
+              const multi = !porHora && (tiposCom.length > 1 || (tiposCom.length === 1 && pecasAtuais[tiposCom[0]] > 1));
+              const verQtd = varias || multi;
+              const chip = on => `px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
+              const linhaHoras = porHora && (
                 <div className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
                   <span>Horas (à hora)</span><span className="text-right tabular-nums">{tempoTxt(horasTarefa)}</span>
                   <span className={`text-right text-xs ${sub}`}>× {eur(preco('hora'))}/h</span>
                   <span className="text-right tabular-nums">{preco('dia') > 0 ? 'nos dias' : eur(horasTarefa * preco('hora'))}</span>
                 </div>
-              )}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
-              {temMao ? <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button> : <span className={sub}>lido do nome da tarefa</span>}
-            </div>
+              );
+              return (
+                <>
+                  {!verQtd ? (
+                    <div>
+                      <span className={lab}>O que é esta tarefa?</span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {tiposVis.map(x => (
+                          <button key={x.id} type="button" onClick={() => set({ pecas: { [x.id]: 1 } })} className={chip(simples && tiposCom[0] === x.id)}>
+                            {x.curto || x.nome} <span className="opacity-60 tabular-nums">{eur(preco(x.id))}</span>
+                          </button>
+                        ))}
+                        <button type="button" onClick={() => set({ pecas: { extra: 1 } })} className={chip(porHora)}>
+                          À hora <span className="opacity-60 tabular-nums">{preco('dia') > 0 ? `${eur(preco('dia'))}/dia` : `${eur(preco('hora'))}/h`}</span>
+                        </button>
+                      </div>
+                      {porHora && <div className="mt-2">{linhaHoras}</div>}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {tiposVis.map(x => {
+                        const n = pecasAtuais[x.id] || 0;
+                        return (
+                          <div key={x.id} className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
+                            <span className={n ? '' : sub}>{x.curto || x.nome}</span>
+                            <NumIn valor={n || null} placeholder="0" decimal={false} onGravar={q => setPeca(x.id, q || 0)} className={`${inputClass} !w-full text-sm py-1 text-right`} />
+                            <span className={`text-right text-xs ${sub}`}>× {eur(preco(x.id))}</span>
+                            <span className="text-right tabular-nums">{n ? eur(n * preco(x.id)) : '—'}</span>
+                          </div>
+                        );
+                      })}
+                      {linhaHoras}
+                    </div>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    {!multi && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(!varias)}>{varias ? 'só uma peça' : 'várias peças nesta tarefa'}</button>}
+                    <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
+                    {temMao ? <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button> : <span className={sub}>lido do nome da tarefa</span>}
+                  </div>
+                </>
+              );
+            })()}
             <div className={`mt-3 pt-3 border-t grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
               <span className="text-sm">Valor final <span className={`text-[11px] ${sub}`}>(vazio = {eur(vAuto)})</span></span>
               <NumIn valor={t.valorManual ?? null} placeholder={String(Math.round(vAuto))} onGravar={x => set({ valorManual: x })} className={`${inputClass} !w-full text-sm py-1 text-right font-semibold`} />
@@ -628,7 +760,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 
           {/* Outsourcing */}
           <div className={`${caixa} space-y-2`}>
-            <p className="text-sm font-medium">Outsourcing <span className={`font-normal text-xs ${sub}`}>(se passaste a tarefa a outro freelancer)</span></p>
+            <p className="text-sm font-medium">Subcontratação <span className={`font-normal text-xs ${sub}`}>(se passaste a tarefa a outro freelancer — desconta no mês em que a entregas)</span></p>
             <div className="grid grid-cols-2 gap-2">
               <input key={t.id + 'q' + (t.outsourcing || '')} defaultValue={t.outsourcing || ''} placeholder="Quem fez" onBlur={e => { if (e.target.value !== (t.outsourcing || '')) set({ outsourcing: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
               <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
@@ -714,6 +846,227 @@ const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar
 };
 
 // ── Visão geral (sem pasta escolhida) ──
+// ── Timesheet semanal (como no ClickUp): tarefas × dias, com totais e edição direta ──
+const DIAS_SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const MESES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const segundaDe = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const maisDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+// "1h30", "1h 30m", "1:30", "90m", "45", "1,5h" → horas (número sem unidade: até 12 = horas, acima = minutos)
+const lerDuracao = txt => {
+  const s = String(txt || '').trim().toLowerCase().replace(',', '.');
+  if (!s || s === '-' || s === '—') return 0;
+  let m = /^(\d+):(\d{1,2})$/.exec(s); if (m) return Number(m[1]) + Number(m[2]) / 60;
+  if (/^\d+(\.\d+)?$/.test(s)) { const n = Number(s); return n <= 12 ? n : n / 60; }
+  m = /^(\d+(?:\.\d+)?)\s*h\s*(?:(\d+)\s*(?:m|min)?)?$/.exec(s); if (m) return Number(m[1]) + (Number(m[2]) || 0) / 60;
+  m = /^(\d+)\s*(?:m|min)$/.exec(s); if (m) return Number(m[1]) / 60;
+  return null;
+};
+// Pôr o total de um dia numa tarefa: acrescenta um registo ou encurta/tira os últimos desse dia
+const opDefinirDia = (trab, id, dia, horas) => opTarefa(trab, id, t => {
+  let tempos = (t.tempos || []).slice();
+  const correr = tempos.filter(x => !x.fim && trabDia(x.ini) === dia).reduce((a, x) => a + trabMsTempo(x), 0);
+  const doDia = tempos.filter(x => x.fim && trabDia(x.ini) === dia);
+  const atual = doDia.reduce((a, x) => a + trabMsTempo(x), 0);
+  const alvo = Math.max(0, Math.round((horas * 3600000 - correr) / 60000) * 60000);
+  if (alvo > atual) {
+    const ultimo = doDia.reduce((a, x) => Math.max(a, Date.parse(x.fim)), 0);
+    const ini = ultimo || Date.parse(`${dia}T09:00:00`);
+    tempos.push({ id: trabId() + 'ts', ini: new Date(ini).toISOString(), fim: new Date(ini + alvo - atual).toISOString(), manual: true });
+    return { ...t, iniciada: t.iniciada || new Date(ini).toISOString(), tempos };
+  }
+  let cortar = atual - alvo;
+  if (cortar <= 0) return t;
+  const ordem = doDia.slice().sort((a, b) => Date.parse(b.ini) - Date.parse(a.ini));
+  const tirar = new Set(), encurtar = {};
+  for (const x of ordem) {
+    if (cortar <= 0) break;
+    const d = trabMsTempo(x);
+    if (d <= cortar) { tirar.add(x.id); cortar -= d; } else { encurtar[x.id] = new Date(Date.parse(x.fim) - cortar).toISOString(); cortar = 0; }
+  }
+  tempos = tempos.filter(x => !tirar.has(x.id)).map(x => (encurtar[x.id] ? { ...x, fim: encurtar[x.id] } : x));
+  return { ...t, tempos };
+});
+const CelulaTempo = ({ ms, onGravar, claro, fds }) => {
+  const [edit, setEdit] = useState(false);
+  const txt = ms > 0 ? tempoTxt(ms / 3600000) : '—';
+  if (edit) {
+    return (
+      <input autoFocus defaultValue={ms > 0 ? tempoTxt(ms / 3600000) : ''} placeholder="ex.: 1h30" onFocus={e => e.target.select()}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.stopPropagation(); setEdit(false); } }}
+        onBlur={e => { const h = lerDuracao(e.target.value); setEdit(false); if (h != null && Math.abs(h * 3600000 - ms) >= 30000) onGravar(h); }}
+        className={`w-full h-full px-2 text-right text-sm tabular-nums outline-none ring-2 ring-blue-500 rounded ${claro ? 'bg-white' : 'bg-slate-800'}`} />
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEdit(true)} title="Carrega para escrever o tempo deste dia"
+      className={`w-full h-full px-2 text-right text-sm tabular-nums ${ms > 0 ? 'font-medium' : claro ? 'text-slate-300' : 'text-slate-600'} ${fds ? (claro ? 'bg-slate-50' : 'bg-white/[0.02]') : ''} ${claro ? 'hover:bg-blue-50' : 'hover:bg-blue-500/10'}`}>{txt}</button>
+  );
+};
+const Timesheet = ({ trab, mudar, clientes, theme, onAbrir }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const borda = claro ? 'border-slate-200' : 'border-white/[0.07]';
+  const [inicio, setInicio] = useState(() => segundaDe(new Date()));
+  const [semFds, setSemFds] = useState(() => { try { return localStorage.getItem('trab-ts-semfds') === '1'; } catch (e) { return false; } });
+  const [soCli, setSoCli] = useState('');
+  const [juntas, setJuntas] = useState([]);
+  const [abertas, setAbertas] = useState({});
+  const [procurar, setProcurar] = useState(null);
+  const [, setTic] = useState(0);
+  const corre = trabACorrer(trab);
+  useEffect(() => { if (!corre) return undefined; const i = setInterval(() => setTic(x => x + 1), 30000); return () => clearInterval(i); }, [!!corre]);
+  const dias = Array.from({ length: 7 }, (_, i) => maisDias(inicio, i));
+  const diasK = dias.map(d => trabDia(d.toISOString()));
+  const visiveis = dias.map((d, i) => i).filter(i => !semFds || i < 5);
+  const hojeK = trabDia(new Date().toISOString());
+  const estaSemana = segundaDe(new Date()).getTime() === inicio.getTime();
+  const fim = dias[6];
+  const tituloSem = `${inicio.getDate()} ${MESES_CURTO[inicio.getMonth()]} – ${fim.getDate()} ${MESES_CURTO[fim.getMonth()]}${fim.getFullYear() !== new Date().getFullYear() ? ' ' + fim.getFullYear() : ''}`;
+  const nomeCli = cid => { const c = (clientes || []).find(x => String(x.id) === String(cid)); return c ? c.nome : String(cid || '').startsWith('cu:') ? String(cid).slice(3) : 'Sem cliente'; };
+  // Horas por tarefa e dia
+  const linhas = [];
+  (trab.tarefas || []).forEach(t => {
+    if (soCli && String(t.cid) !== soCli) return;
+    const porDia = {}; let primeiro = null; const regs = [];
+    (t.tempos || []).forEach(x => {
+      const d = trabDia(x.ini);
+      const k = diasK.indexOf(d);
+      if (k < 0) return;
+      porDia[k] = (porDia[k] || 0) + trabMsTempo(x);
+      regs.push(x);
+      if (!primeiro || x.ini < primeiro) primeiro = x.ini;
+    });
+    if (regs.length || juntas.includes(t.id)) linhas.push({ t, porDia, primeiro: primeiro || '9', regs, total: Object.values(porDia).reduce((a, v) => a + v, 0) });
+  });
+  linhas.sort((a, b) => a.primeiro.localeCompare(b.primeiro));
+  const totDia = diasK.map((_, k) => linhas.reduce((a, l) => a + (l.porDia[k] || 0), 0));
+  const totSem = visiveis.reduce((a, k) => a + totDia[k], 0);
+  const META = 8 * 3600000;
+  const barra = ms => {
+    if (!ms) return <div className={`h-1 rounded-full ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`} />;
+    const azul = Math.min(ms, META) / Math.max(ms, META) * 100;
+    return (
+      <div className={`h-1 rounded-full overflow-hidden flex ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`} title={ms > META ? `${tempoTxt((ms - META) / 3600000)} acima das 8h` : `${tempoTxt(ms / 3600000)} de 8h`}>
+        <div className="h-full bg-blue-500" style={{ width: `${azul}%` }} />
+        {ms > META && <div className="h-full bg-red-500 flex-1" />}
+      </div>
+    );
+  };
+  const estreito = typeof window !== 'undefined' && window.innerWidth < 640;
+  const colTarefa = estreito ? 170 : 220;
+  const cols = `minmax(${colTarefa}px,1fr) repeat(${visiveis.length}, minmax(72px,124px)) minmax(80px,124px)`;
+  const fundoFixo = claro ? 'bg-white' : 'bg-slate-900';
+  const mudarFds = v => { setSemFds(v); try { localStorage.setItem('trab-ts-semfds', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
+  const est = id => TRAB_ESTADOS.find(e => e.id === id) || TRAB_ESTADOS[0];
+  const candidatas = procurar != null ? (trab.tarefas || []).filter(t => !linhas.some(l => l.t.id === t.id) && (!soCli || String(t.cid) === soCli) && t.nome.toLowerCase().includes(procurar.trim().toLowerCase()))
+    .sort((a, b) => (a.estado === 'feito') - (b.estado === 'feito') || String(b.criada).localeCompare(String(a.criada))).slice(0, 8) : [];
+  const caminhoTxt = t => [nomeCli(t.cid), ...(t.pastaId ? caminho(trab, t.pastaId).map(p => p.nome) : [])].join(' / ');
+  const hm = iso => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const cliUsados = [...new Set((trab.tarefas || []).map(t => String(t.cid ?? '')))].filter(Boolean);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center">
+          <button type="button" onClick={() => setInicio(maisDias(inicio, -7))} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} aria-label="Semana anterior">‹</button>
+          <button type="button" onClick={() => setInicio(maisDias(inicio, 7))} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} aria-label="Semana seguinte">›</button>
+        </div>
+        <h3 className="text-lg font-semibold">{tituloSem}</h3>
+        {!estaSemana && <button type="button" onClick={() => setInicio(segundaDe(new Date()))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Esta semana</button>}
+        <div className="flex-1" />
+        <select value={soCli} onChange={e => setSoCli(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'}`} aria-label="Cliente">
+          <option value="">Todos os clientes</option>
+          {cliUsados.map(c => <option key={c} value={c}>{nomeCli(c)}</option>)}
+        </select>
+        <button type="button" role="switch" aria-checked={semFds} onClick={() => mudarFds(!semFds)} className="inline-flex items-center gap-2 text-xs">
+          <span className={`relative inline-block w-8 h-[18px] rounded-full transition-colors ${semFds ? 'bg-blue-500' : claro ? 'bg-slate-300' : 'bg-slate-600'}`}>
+            <span className="absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-transform" style={{ transform: semFds ? 'translateX(14px)' : 'none' }} />
+          </span>
+          Esconder fins de semana
+        </button>
+      </div>
+      <div className={`rounded-xl border overflow-x-auto ${borda} ${claro ? 'bg-white' : 'bg-slate-900/30'}`}>
+        <div style={{ minWidth: colTarefa + visiveis.length * 72 + 80 }}>
+          <div className={`grid border-b ${borda}`} style={{ gridTemplateColumns: cols }}>
+            <div className={`sticky left-0 z-[2] px-3 py-2 text-xs font-medium flex items-end ${fundoFixo} ${sub}`}>Tarefa / onde está</div>
+            {visiveis.map(k => (
+              <div key={k} className={`px-2 py-2 border-l ${borda} ${k >= 5 ? (claro ? 'bg-slate-50' : 'bg-white/[0.02]') : ''}`}>
+                <p className={`text-[11px] ${diasK[k] === hojeK ? 'text-blue-400 font-semibold' : sub}`}>{DIAS_SEM[dias[k].getDay()]}, {dias[k].getDate()} {MESES_CURTO[dias[k].getMonth()]}</p>
+                <p className="text-sm font-semibold tabular-nums whitespace-nowrap mb-1.5">{tempoTxt(totDia[k] / 3600000)}</p>
+                {barra(totDia[k])}
+              </div>
+            ))}
+            <div className={`px-2 py-2 border-l ${borda}`}>
+              <p className={`text-[11px] ${sub}`}>Total</p>
+              <p className="text-sm font-semibold tabular-nums mb-1.5">{tempoTxt(totSem / 3600000)}</p>
+              {barra(totSem / Math.max(1, visiveis.length) * 1)}
+            </div>
+          </div>
+          {linhas.map(({ t, porDia, regs }) => {
+            const e = est(t.estado);
+            const aberta = !!abertas[t.id];
+            const tot = visiveis.reduce((a, k) => a + (porDia[k] || 0), 0);
+            return (
+              <div key={t.id} className={`border-b last:border-b-0 ${borda}`}>
+                <div className="grid min-h-[48px]" style={{ gridTemplateColumns: cols }}>
+                  <div className={`sticky left-0 z-[2] flex items-start gap-1.5 px-2 py-1.5 min-w-0 ${fundoFixo}`}>
+                    <button type="button" onClick={() => setAbertas({ ...abertas, [t.id]: !aberta })} className={`mt-0.5 w-5 h-5 shrink-0 text-[10px] ${sub} transition-transform`} style={{ transform: aberta ? 'rotate(90deg)' : 'none' }} aria-label={aberta ? 'Esconder registos' : 'Ver registos'}>▶</button>
+                    <div className="min-w-0">
+                      <button type="button" onClick={() => onAbrir(t.id)} className="text-sm font-medium text-left hover:underline break-words">{t.nome}</button>
+                      <p className={`flex items-center gap-1.5 text-[11px] ${sub} min-w-0`}><IcoEstado id={e.id} cor={e.cor} size={11} /><span className="shrink-0">{e.nome}</span><span>·</span><span className="truncate" title={caminhoTxt(t)}>{caminhoTxt(t)}</span></p>
+                    </div>
+                  </div>
+                  {visiveis.map(k => (
+                    <div key={k} className={`border-l ${borda}`}>
+                      <CelulaTempo ms={porDia[k] || 0} claro={claro} fds={k >= 5} onGravar={h => mudar(tr => opDefinirDia(tr, t.id, diasK[k], h))} />
+                    </div>
+                  ))}
+                  <div className={`border-l ${borda} flex items-center justify-end gap-1 px-2 text-sm font-semibold tabular-nums`}>
+                    {tot > 0 ? tempoTxt(tot / 3600000) : '—'}
+                    {juntas.includes(t.id) && !regs.length && <button type="button" onClick={() => setJuntas(juntas.filter(x => x !== t.id))} className={`ml-1 text-xs ${sub} hover:text-red-400`} aria-label="Tirar da semana">✕</button>}
+                  </div>
+                </div>
+                {aberta && (
+                  <div className={`px-9 pb-2 space-y-0.5 ${sub}`}>
+                    {regs.length === 0 && <p className="text-xs">Sem registos nesta semana. Carrega num dia para escrever o tempo.</p>}
+                    {regs.slice().sort((a, b) => a.ini.localeCompare(b.ini)).map(x => (
+                      <div key={x.id} className="flex items-center gap-3 text-xs">
+                        <span className="w-20">{DIAS_SEM[new Date(x.ini).getDay()]}, {new Date(x.ini).getDate()}</span>
+                        <span className="tabular-nums w-28">{hm(x.ini)} – {x.fim ? hm(x.fim) : 'agora'}</span>
+                        <span className={`tabular-nums w-16 ${claro ? 'text-slate-700' : 'text-slate-200'}`}>{tempoTxt(trabMsTempo(x) / 3600000)}</span>
+                        {x.fim && <button type="button" onClick={() => mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: (y.tempos || []).filter(z => z.id !== x.id) })))} className="hover:text-red-400" aria-label="Apagar registo">✕</button>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!linhas.length && <p className={`px-4 py-8 text-sm text-center ${sub}`}>Sem horas registadas nesta semana.</p>}
+          <div className={`relative px-3 py-2.5 border-t ${borda}`}>
+            {procurar == null ? (
+              <button type="button" onClick={() => setProcurar('')} className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Adicionar tarefa</button>
+            ) : (
+              <div className="max-w-md">
+                <input autoFocus value={procurar} onChange={e => setProcurar(e.target.value)} placeholder="Procura a tarefa…" onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setProcurar(null); } }}
+                  onBlur={() => setTimeout(() => setProcurar(null), 150)} className={`w-full text-sm rounded-lg border px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'}`} />
+                <div className={`mt-1 rounded-lg border shadow-lg overflow-hidden ${borda} ${claro ? 'bg-white' : 'bg-slate-800'}`}>
+                  {candidatas.map(t => (
+                    <button key={t.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setJuntas([...juntas, t.id]); setProcurar(null); }} className={`w-full text-left px-3 py-1.5 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+                      <p className="text-sm">{t.nome}</p><p className={`text-[11px] ${sub}`}>{est(t.estado).nome} · {caminhoTxt(t)}</p>
+                    </button>
+                  ))}
+                  {!candidatas.length && <p className={`px-3 py-2 text-xs ${sub}`}>Nenhuma tarefa encontrada.</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <p className={`text-[11px] ${sub}`}>Carrega numa célula para escrever o tempo desse dia (ex.: 1h30, 45m, 2:15). Se baixares, tira-se do fim dos registos desse dia. A barra fica vermelha acima das 8h.</p>
+    </div>
+  );
+};
+
 const VisaoGeral = ({ trab, cu, clientes, theme, mudar, onAbrir, ano, mesNum }) => {
   const claro = useClaro(theme);
   const em7 = trabDia(new Date(Date.now() + 7 * 86400000).toISOString());
@@ -890,6 +1243,9 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
       <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${sel.tipo === 'geral' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <span aria-hidden="true">🏠</span> Visão geral
       </button>
+      <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'timesheet' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+        <span aria-hidden="true">⏱</span> Timesheet
+      </button>
       {(trab.favoritos || []).length > 0 && (
         <div>
           <p className={`px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Favoritos</p>
@@ -930,7 +1286,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
     </div>
   );
 
-  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : 'Visão geral';
+  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : 'Visão geral';
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
@@ -983,6 +1339,14 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                   {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
                 </select>
               )}
+              {(trab.pastas || []).some(f => f.paiId === pasta.id) && !pasta.mesNum && (
+                <button type="button" onClick={() => {
+                  const plano = planoPorMeses(trab, pasta.id);
+                  const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
+                  const resumo = Object.entries(porMes).map(([n, q]) => `${n}: ${q}`).join(', ');
+                  if (window.confirm(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
+                }} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar por meses</button>
+              )}
               <button type="button" onClick={() => novaPasta(pasta.cid, pasta.id)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Subpasta</button>
               <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opPasta(tr, pasta.id, { nome: n })) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
               <div className="flex items-center gap-1">
@@ -1002,7 +1366,8 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
             </div>
           )}
           {sel.tipo === 'geral' && !procura.trim() && <VisaoGeral trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} ano={ano} mesNum={mesNum} />}
-          {(sel.tipo !== 'geral' || procura.trim()) && abaAtual === 'tarefas' && (
+          {sel.tipo === 'timesheet' && !procura.trim() && <Timesheet trab={trab} mudar={mudar} clientes={clientes} theme={theme} onAbrir={setTarefaAberta} />}
+          {((sel.tipo !== 'geral' && sel.tipo !== 'timesheet') || procura.trim()) && abaAtual === 'tarefas' && (
             <div className="space-y-3">
               {pasta && <NovaTarefa onCriar={criarTarefa} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} />}
               {sel.tipo === 'cliente' && !procura.trim() && !filhasDe(trab, null, sel.id).length && (
@@ -1020,6 +1385,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           )}
           {abaAtual === 'orcamento' && pasta && (
             <Orcamento pasta={pasta} tarefas={tarefas} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
+              nomeCliente={cliente ? cliente.nome : ''} onVerPrecos={onPrecos ? () => { setSel({ tipo: 'cliente', id: pasta.cid }); setAba('precos'); } : null}
               onMudar={orcamento => mudar(tr => opPasta(tr, pasta.id, { orcamento }))} />
           )}
         </section>
