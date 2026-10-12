@@ -1,88 +1,78 @@
-const CACHE_NAME = 'dashboard-financeiro-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/static/js/main.js',
-  '/static/css/main.css',
-  '/manifest.json'
-];
+// Service worker da app.
+// - Ficheiros da pasta /assets/ (têm um código no nome que muda a cada atualização):
+//   vêm logo da memória do telemóvel/computador, sem esperar pela internet.
+// - Tudo o resto (a página em si, o manifest): tenta primeiro a internet, para
+//   apanhar sempre a versão mais recente, e só usa a memória se estiver offline.
+const CACHE_PAGINAS = 'dashboard-financeiro-v2';
+const CACHE_ASSETS = 'dashboard-financeiro-assets-v1';
+const MAX_ASSETS = 40;
 
-// Instalar service worker e cachear recursos
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Cache aberto');
-        return cache.addAll(urlsToCache);
-      })
-      .catch((err) => {
-        console.log('Erro ao cachear:', err);
-      })
+    caches.open(CACHE_PAGINAS)
+      .then((cache) => Promise.all(['/', '/manifest.json'].map((u) => cache.add(u).catch(() => {}))))
   );
   self.skipWaiting();
 });
 
-// Ativar e limpar caches antigos
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('A remover cache antigo:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    caches.keys().then((nomes) => Promise.all(
+      nomes.filter((n) => n !== CACHE_PAGINAS && n !== CACHE_ASSETS).map((n) => caches.delete(n))
+    ))
   );
   self.clients.claim();
 });
 
-// Estratégia: Network First, fallback para Cache
+// Guarda no máximo MAX_ASSETS ficheiros (apaga os mais antigos de versões passadas)
+const arrumar = async () => {
+  const cache = await caches.open(CACHE_ASSETS);
+  const chaves = await cache.keys();
+  for (let i = 0; i < chaves.length - MAX_ASSETS; i++) await cache.delete(chaves[i]);
+};
+
 self.addEventListener('fetch', (event) => {
-  // Ignorar pedidos não-GET
-  if (event.request.method !== 'GET') return;
-  
-  // Ignorar pedidos para Firebase e APIs externas
-  if (event.request.url.includes('firebase') || 
-      event.request.url.includes('googleapis') ||
-      event.request.url.includes('google.com')) {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+
+  // Firebase e APIs externas: nunca passam pelo service worker
+  if (url.origin !== self.location.origin) return;
+  if (url.href.includes('firebase') || url.href.includes('googleapis') || url.href.includes('google.com')) return;
+
+  // Ficheiros com código no nome: memória primeiro
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.open(CACHE_ASSETS).then((cache) => cache.match(req).then((guardado) => {
+        if (guardado) return guardado;
+        return fetch(req).then((resp) => {
+          if (resp && resp.status === 200) {
+            cache.put(req, resp.clone()).then(arrumar).catch(() => {});
+          }
+          return resp;
+        });
+      }))
+    );
     return;
   }
 
+  // Resto: internet primeiro, memória se estiver offline
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clonar a resposta para guardar no cache
-        if (response && response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseClone);
-            });
+    fetch(req)
+      .then((resp) => {
+        if (resp && resp.status === 200) {
+          const copia = resp.clone();
+          caches.open(CACHE_PAGINAS).then((cache) => cache.put(req, copia)).catch(() => {});
         }
-        return response;
+        return resp;
       })
-      .catch(() => {
-        // Se falhar (offline), tentar o cache
-        return caches.match(event.request)
-          .then((response) => {
-            if (response) {
-              return response;
-            }
-            // Se não estiver em cache e for uma página, retornar index.html
-            if (event.request.mode === 'navigate') {
-              return caches.match('/index.html');
-            }
-          });
-      })
+      .catch(() => caches.match(req).then((guardado) => {
+        if (guardado) return guardado;
+        if (req.mode === 'navigate') return caches.match('/');
+      }))
   );
 });
 
-// Escutar mensagens do cliente
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
