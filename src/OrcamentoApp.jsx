@@ -1,23 +1,29 @@
-// A app principal. As peças que não dependem do estado da app estão em
-// base.jsx, vendaCasa.jsx e patrimonio.jsx (têm de estar na mesma pasta src/).
-import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+// A app principal. As peças que não dependem do estado da app estão em base.jsx,
+// patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { createGoogleSheet, getAccessToken } from './firebase';
 import {
-  StableInput, SliderWithInput, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, PieChart,
-  AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, mesDoRecibo,
-  retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais, CalendarioFinanceiro,
-  impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
+  GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
+  IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
+  copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
+  PROCESS_INVOICE_URLS, lazySeparador, SeparadorCarregar
 } from './base';
-import {
-  VendaCasa
-} from './vendaCasa';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio, CSS_BASE, CSS_MOBILE
+  patRegistosEfetivos, CompararAnos, ChatGemini, CSS_BASE, CSS_MOBILE
 } from './patrimonio';
+
+// Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
+// e descarregam-se em segundo plano uns segundos depois de a app abrir.
+const carregarVendaCasa = () => import('./vendaCasa');
+const carregarPatrimonio = () => import('./patrimonioEcra');
+const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa');
+const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio');
+setTimeout(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }, 4000);
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   
@@ -1489,6 +1495,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
  useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
 
+ // Crédito: separador dos simuladores (fica guardado enquanto a app está aberta)
+ const [simCreditoTab, setSimCreditoTab] = useState('prestacao');
  // Resumo: lista das tarefas em atraso aberta ou fechada (fechada por defeito)
  const [verAtrasadas, setVerAtrasadas] = useState(false);
 
@@ -2487,130 +2495,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
        </div>
        
-       {/* Progresso das Metas Anuais */}
-       <Card>
-         <h3 className="font-semibold mb-4"><Ico e="🎯"/>Progresso das Metas Anuais ({ano})</h3>
-         <div className="space-y-4">
-           {[
-             { label: 'Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, cor: '#3b82f6', icon: '💰' },
-             { label: 'Amortização', atual: totaisAnuais.amortAnual, meta: metas.amortizacao, cor: '#10b981', icon: '🏠' },
-             { label: 'Investimentos', atual: totaisAnuais.investAnual, meta: metas.investimentos, cor: '#8b5cf6', icon: '📈' },
-           ].map(m => {
-             const progresso = m.meta > 0 ? (m.atual / m.meta * 100) : 0;
-             const esperado = progressoEsperado * 100;
-             const noTarget = progresso >= esperado;
-             return (
-               <div key={m.label}>
-                 <div className="flex justify-between text-sm mb-1">
-                   <span className="flex items-center gap-2">
-                     <Ico e={m.icon} className="ico-solo"/>
-                     <span>{m.label}</span>
-                     {noTarget ? <span className="text-xs text-green-400">✓ No target</span> : <span className="text-xs text-amber-400">⚠ Abaixo</span>}
-                   </span>
-                   <span className="text-slate-400">{fmt(m.atual)} / {fmt(m.meta)} ({progresso.toFixed(0)}%)</span>
-                 </div>
-                 <div className="h-3 bg-slate-700 rounded-full overflow-hidden relative">
-                   {/* Marcador do esperado */}
-                   <div className="absolute h-full w-0.5 bg-white/50 z-10" style={{ left: `${esperado}%` }} title={`Esperado: ${esperado.toFixed(0)}%`} />
-                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(progresso, 100)}%`, background: m.cor }} />
-                 </div>
-               </div>
-             );
-           })}
-         </div>
-         
-         {/* Detalhe da Amortização */}
-         <div className="mt-4 p-3 tile rounded-lg">
-           <div className="flex items-center justify-between">
-             <div>
-               <p className="text-sm text-green-400 font-medium">🏠 Amortização em {ano}</p>
-               <p className="text-xs text-slate-400">
-                 Dívida Dez {ano-1}: {fmt(totaisAnuais.dividaInicio)} → Atual: {fmt(totaisAnuais.dividaAtual)}
-               </p>
-               {totaisAnuais.amortizacaoExtra > 0 && (
-                 <p className="text-xs text-emerald-400 mt-1">
-                   Inclui {fmt(totaisAnuais.amortizacaoExtra)} de amortização extra
-                 </p>
-               )}
-             </div>
-             <div className="text-right">
-               <p className="text-xl font-bold text-green-400">{fmt(totaisAnuais.amortAnual)}</p>
-               <p className="text-xs text-slate-500">
-                 {((totaisAnuais.amortAnual / metas.amortizacao) * 100).toFixed(0)}% da meta
-               </p>
-             </div>
-           </div>
-         </div>
-         
-         <div className="mt-4 p-3 bg-slate-700/30 rounded-lg">
-           {isAnoFuturo ? (
-             <p className="text-sm text-slate-400">
-               📅 Ainda não há dados para {ano}
-             </p>
-           ) : isAnoPassado ? (
-             <div>
-               <div className="flex items-center gap-2 mb-1">
-                 <span className="text-xs px-2 py-0.5 bg-slate-600 rounded text-slate-300">{projecaoExplicacao}</span>
-               </div>
-               <p className="text-sm">
-                 {totaisAnuais.receitasAnuais >= metas.receitas ? (
-                   <span className="text-green-400">✅ Meta atingida em {ano}! Total: {fmt(totaisAnuais.receitasAnuais)} ({((totaisAnuais.receitasAnuais/metas.receitas)*100).toFixed(0)}%)</span>
-                 ) : (
-                   <span className="text-amber-400">⚠️ Meta não atingida em {ano}. Total: {fmt(totaisAnuais.receitasAnuais)} ({((totaisAnuais.receitasAnuais/metas.receitas)*100).toFixed(0)}%)</span>
-                 )}
-               </p>
-             </div>
-           ) : (
-             <div>
-               <div className="flex items-center gap-2 mb-1">
-                 <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">{projecaoLabel}</span>
-                 <span className="text-xs text-slate-500">{projecaoExplicacao}</span>
-               </div>
-               <p className="text-sm">
-                 {atingeMeta ? (
-                   <span className="text-green-400">✅ Ao ritmo atual, vais atingir a meta de receitas! Projeção: {fmt(projecaoFinal)}</span>
-                 ) : (
-                   <span className="text-amber-400">⚠️ Ao ritmo atual, ficarás abaixo da meta. Projeção: {fmt(projecaoFinal)} ({((projecaoFinal/metas.receitas)*100).toFixed(0)}%)</span>
-                 )}
-               </p>
-             </div>
-           )}
-         </div>
-       </Card>
-       
        {/* Gráfico de Receitas Mensais */}
        <Card>
          <h3 className="font-semibold mb-4"><Ico e="📊"/>Receitas Mensais vs Meta ({ano})</h3>
-         <div className="h-48 flex items-end gap-1">
-           {receitasMensais.map((m, i) => {
-             const maxVal = Math.max(...receitasMensais.map(x => Math.max(x.receitas, x.meta)), 1);
-             const alturaReceita = (m.receitas / maxVal) * 100;
-             const alturaMeta = (m.meta / maxVal) * 100;
-             const isMesAtual = i === meses.indexOf(mes);
-             const isPast = i < mesAtualNum;
-             
-             return (
-               <div key={m.mes} className="flex-1 flex flex-col items-center gap-1">
-                 <div className="w-full h-40 flex items-end justify-center relative">
-                   {/* Linha da meta */}
-                   <div className="absolute w-full border-t border-dashed border-slate-500" style={{ bottom: `${alturaMeta}%` }} />
-                   {/* Barra de receitas */}
-                   <div 
-                     className={`w-full max-w-[30px] rounded-t transition-all ${isMesAtual ? 'bg-blue-500' : isPast ? (m.receitas >= m.meta ? 'bg-green-500/70' : 'bg-amber-500/70') : 'bg-slate-600/50'}`}
-                     style={{ height: `${alturaReceita}%` }}
-                     title={`${m.mes}: ${fmt(m.receitas)}`}
-                   />
-                 </div>
-                 <span className={`text-xs ${isMesAtual ? 'text-blue-400 font-bold' : 'text-slate-500'}`}>{m.mes}</span>
-               </div>
-             );
-           })}
-         </div>
-         <div className="flex justify-center gap-4 mt-3 text-xs text-slate-400">
-           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500/70 rounded" /> Acima da meta</span>
-           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-500/70 rounded" /> Abaixo da meta</span>
-           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded" /> Mês atual</span>
-           <span className="flex items-center gap-1"><span className="w-3 h-1 border-t border-dashed border-slate-500" /> Meta mensal</span>
+         <GraficoBarras height={220} aria="Receitas mensais e meta"
+           rotulos={receitasMensais.map(m => m.mes)}
+           series={[{ nome: 'Receitas', valores: receitasMensais.map(m => m.receitas),
+             cor: (i, v) => i === meses.indexOf(mes) ? '#2563eb' : i < mesAtualNum ? (v >= (receitasMensais[i].meta || 0) ? '#059669' : '#d97706') : '#64748b' }]}
+           referencia={{ valor: Math.max(0, ...receitasMensais.map(m => m.meta || 0)), nome: 'Meta mensal' }}
+           apagado={i => i > mesAtualNum - 1 && i !== meses.indexOf(mes)} />
+         <div className="flex flex-wrap justify-center gap-4 mt-3 text-xs text-slate-400">
+           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#059669' }} /> Acima da meta</span>
+           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#d97706' }} /> Abaixo da meta</span>
+           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> Mês escolhido</span>
+           <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-slate-400" /> Meta mensal</span>
          </div>
        </Card>
        
@@ -2859,37 +2757,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </div>
                
                {/* Gráfico */}
-               <div className="h-40 flex items-end gap-1">
-                 {mesesDoAno.map((m, i) => {
-                   if (m.patrimonioLiq === null) {
-                     return (
-                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                         <div className="w-full h-32 flex items-end justify-center">
-                           <div className="w-full max-w-[25px] h-2 bg-slate-700/30 rounded-t" />
-                         </div>
-                         <span className="text-xs text-slate-600">{m.mes}</span>
-                       </div>
-                     );
-                   }
-                   
-                   const altura = range > 0 ? ((m.patrimonioLiq - minPatrimonio) / range * 80 + 20) : 50;
-                   const isMesAtual = m.mesNum === mesAtualNum;
-                   
-                   return (
-                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                       <div className="w-full h-32 flex items-end justify-center">
-                         <div 
-                           className={`w-full max-w-[25px] rounded-t transition-all ${isMesAtual ? 'bg-purple-500' : 'bg-purple-500/50'}`}
-                           style={{ height: `${altura}%` }}
-                           title={`${m.mes}: ${fmt(m.patrimonioLiq)}\nPortfolio: ${fmt(m.portfolio)}\nEquity Casa: ${fmt(m.equityCasa)}`}
-                         />
-                       </div>
-                       <span className={`text-xs ${isMesAtual ? 'text-purple-400 font-bold' : 'text-slate-500'}`}>{m.mes}</span>
-                     </div>
-                   );
-                 })}
-               </div>
-               
+               <GraficoLinhas height={200} aria="Evolução do património líquido"
+                 rotulos={mesesDoAno.map(m => m.mes)}
+                 series={[{ nome: 'Património', cor: '#8b5cf6', valores: mesesDoAno.map(m => m.patrimonioLiq), area: true }]}
+                 extraTip={i => mesesDoAno[i].patrimonioLiq == null ? [] : [
+                   { valor: _fmtEUR.format(mesesDoAno[i].portfolio || 0), nome: 'Portfolio' },
+                   { valor: _fmtEUR.format(mesesDoAno[i].equityCasa || 0), nome: 'Casa (líquido)' },
+                 ]} />
                {/* Composição atual */}
                <div className="pt-3 border-t border-slate-700">
                  <p className="text-xs text-slate-500 mb-2">Composição atual:</p>
@@ -3844,35 +3718,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  )}
 
- {/* Botão de importar fatura */}
- <div className="flex justify-end">
+ {/* Cabeçalho do mês: total e importar */}
+ <div className="flex flex-wrap items-end justify-between gap-3">
+   <div>
+     <p className="text-xs text-slate-500">Recibos de {mes} {ano}</p>
+     <p className="text-2xl font-bold">{fmt(inCom + inSem)} <span className="text-sm font-normal text-slate-500">· reserva {fmt(valTax)}</span></p>
+   </div>
    <button
      onClick={() => setShowImportModal(true)}
-     className="flex items-center gap-2 px-4 py-2 bg-blue-600 rounded-xl font-medium text-sm hover:opacity-90 transition-opacity"
+     className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium text-sm transition-colors"
    >
      📤 Importar Fatura (IA)
    </button>
  </div>
-
- <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="👥"/>Clientes</h3>
- <AddClienteInput 
- inputClass={inputClass}
- onAdd={(nome) => uG('clientes', [...clientes, {id: Date.now(), nome, cor: ['#3b82f6','#ec4899','#10b981','#f97316','#8b5cf6'][clientes.length % 5]}])}
- />
- <div className="flex flex-wrap gap-2">
- {clientes.map(c => (
- <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 tile rounded-xl">
- <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm" title={(c.aliases || []).length ? `Nos recibos: ${c.aliases.join(', ')}` : undefined}>{c.nome}</span>
- {(c.aliases || []).length > 0 && <span className="text-[10px] text-slate-400">· {(c.aliases || []).length === 1 ? c.aliases[0] : `${c.aliases.length} empresas`}</span>}
- <button className="text-slate-400 hover:text-blue-400 text-xs" title="Nomes das empresas nos recibos" aria-label={`Nomes nos recibos de ${c.nome}`}
-   onClick={() => setFormAction({ titulo: `Empresas de ${c.nome}`, texto: 'Nomes que aparecem nos recibos e no extrato para este cliente. Ao ler um recibo, a app usa-os para escolher o cliente certo.', campos: [{ k: 'al', label: 'Nomes, separados por vírgulas (ex.: Everboost Lda, Everboost Games)', tipo: 'text', valor: (c.aliases || []).join(', ') }], botao: 'Guardar',
-     onOk: v => uG('clientes', clientes.map(x => x.id === c.id ? { ...x, aliases: [...new Set(String(v.al || '').split(',').map(a => a.trim()).filter(Boolean))] } : x)) })}>✎</button>
- <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>confirmDelete(`Apagar o cliente "${c.nome}"? As receitas associadas não serão apagadas.`, ()=>uG('clientes',clientes.filter(x=>x.id!==c.id)))}>✕</button>
- </div>
- ))}
- </div>
- </Card>
 
  <Card>
  <div className="flex justify-between items-center mb-4">
@@ -3883,45 +3741,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  
- <div className="flex flex-wrap items-center gap-2 p-2 sm:p-3 tile rounded-xl mb-4">
- <span className="text-xs text-slate-300">Taxa:</span>
- <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-20 sm:w-32" color="pink"/>
- <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
- {(() => {
-   const s = previsaoImpostos.taxaReservaSugerida;
-   if (!s) return null;
-   const alvo = Math.ceil(s.total) + 2;
-   if (Math.abs(alvo - taxa) < 1) return <span className="text-xs text-emerald-400 w-full sm:w-auto">✓ Bate com a previsão de IRS e SS deste ano</span>;
-   return (
-     <span className="text-xs text-slate-400 w-full sm:w-auto">
-       Pela previsão deste ano, os teus recibos custam ~{s.total.toFixed(0)}% (IRS {s.irs.toFixed(0)}% + SS {s.ss.toFixed(0)}%).
-       <button onClick={() => uG('taxa', alvo)} className="ml-1.5 px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>
-     </span>
-   );
- })()}
- </div>
 
- {/* Parâmetros da estimativa de IRS por recibo */}
- <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl mb-4 text-xs">
- <span className="text-slate-300">Estimativa:</span>
- <label className="flex items-center gap-1.5">
-   <span className="text-slate-400">Coef.</span>
-   <Select value={G.coefSimpl ?? 0.35} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
-     <option value={0.35}>0,35</option>
-     <option value={0.75}>0,75</option>
-   </Select>
- </label>
- <label className="flex items-center gap-1.5">
-   <span className="text-slate-400">IRS marginal</span>
-   <input type="number" step="0.1" defaultValue={G.irsMarginal ?? 43.1}
-     onBlur={e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v!==(G.irsMarginal??43.1)) uG('irsMarginal', v);}}
-     className={`w-16 ${inputClass} text-xs !py-1 text-right`}/>
-   <span className="text-slate-400">%</span>
- </label>
- <span className="text-slate-500 hidden sm:inline">Confirma a tua taxa marginal real com o contabilista</span>
- </div>
-
- {regCom.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : (
+ {regCom.length===0 ? <p className="text-center py-4 text-sm text-slate-500">Sem recibos este mês</p> : (
  <DraggableList
    items={regCom}
    onReorder={(newItems) => uM('regCom', newItems)}
@@ -3962,7 +3783,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2"><Ico e="💵"/>SEM Taxas <span className="text-xs sm:text-sm px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-medium">{fmt(inSem)}</span></h3>
  <Button size="sm" onClick={()=>uM('regSem',[...regSem,{id:Date.now(),cid:clientes[0]?.id||0,val:0,data:new Date().toISOString().split('T')[0],desc:''}])}>+</Button>
  </div>
- {regSem.length===0 ? <p className="text-center py-8 text-slate-500">Sem registos este mês</p> : (
+ {regSem.length===0 ? <p className="text-center py-4 text-sm text-slate-500">Sem recibos este mês</p> : (
  <DraggableList
    items={regSem}
    onReorder={(newItems) => uM('regSem', newItems)}
@@ -3996,6 +3817,71 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  />
  )}
  </Card>
+
+ {/* Configuração: clientes e impostos dos recibos (usa-se pouco, por isso fica no fim) */}
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+ <Card>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="👥"/>Clientes</h3>
+ <AddClienteInput 
+ inputClass={inputClass}
+ onAdd={(nome) => uG('clientes', [...clientes, {id: Date.now(), nome, cor: ['#3b82f6','#ec4899','#10b981','#f97316','#8b5cf6'][clientes.length % 5]}])}
+ />
+ <div className="flex flex-wrap gap-2">
+ {clientes.map(c => (
+ <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 tile rounded-xl">
+ <div className="w-2 h-2 rounded-full" style={{background: c.cor}}/><span className="font-medium text-sm" title={(c.aliases || []).length ? `Nos recibos: ${c.aliases.join(', ')}` : undefined}>{c.nome}</span>
+ {(c.aliases || []).length > 0 && <span className="text-[10px] text-slate-400">· {(c.aliases || []).length === 1 ? c.aliases[0] : `${c.aliases.length} empresas`}</span>}
+ <button className="text-slate-400 hover:text-blue-400 text-xs" title="Nomes das empresas nos recibos" aria-label={`Nomes nos recibos de ${c.nome}`}
+   onClick={() => setFormAction({ titulo: `Empresas de ${c.nome}`, texto: 'Nomes que aparecem nos recibos e no extrato para este cliente. Ao ler um recibo, a app usa-os para escolher o cliente certo.', campos: [{ k: 'al', label: 'Nomes, separados por vírgulas (ex.: Everboost Lda, Everboost Games)', tipo: 'text', valor: (c.aliases || []).join(', ') }], botao: 'Guardar',
+     onOk: v => uG('clientes', clientes.map(x => x.id === c.id ? { ...x, aliases: [...new Set(String(v.al || '').split(',').map(a => a.trim()).filter(Boolean))] } : x)) })}>✎</button>
+ <button className="text-red-400 hover:text-red-300 ml-1" onClick={()=>confirmDelete(`Apagar o cliente "${c.nome}"? As receitas associadas não serão apagadas.`, ()=>uG('clientes',clientes.filter(x=>x.id!==c.id)))}>✕</button>
+ </div>
+ ))}
+ </div>
+ </Card>
+ <Card>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="🧮"/>Impostos dos recibos</h3>
+ <div className="space-y-3">
+ <div className="flex flex-wrap items-center gap-2 p-2 sm:p-3 tile rounded-xl">
+ <span className="text-xs text-slate-300">Taxa:</span>
+ <SliderWithInput value={taxa} onChange={v=>uG('taxa',v)} min={0} max={60} unit="%" className="w-20 sm:w-32" color="pink"/>
+ <span className="text-xs text-slate-500 hidden sm:inline">Reserva: {fmt(valTax)}</span>
+ {(() => {
+   const s = previsaoImpostos.taxaReservaSugerida;
+   if (!s) return null;
+   const alvo = Math.ceil(s.total) + 2;
+   if (Math.abs(alvo - taxa) < 1) return <span className="text-xs text-emerald-400 w-full sm:w-auto">✓ Bate com a previsão de IRS e SS deste ano</span>;
+   return (
+     <span className="text-xs text-slate-400 w-full sm:w-auto">
+       Pela previsão deste ano, os teus recibos custam ~{s.total.toFixed(0)}% (IRS {s.irs.toFixed(0)}% + SS {s.ss.toFixed(0)}%).
+       <button onClick={() => uG('taxa', alvo)} className="ml-1.5 px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>
+     </span>
+   );
+ })()}
+ </div>
+
+ {/* Parâmetros da estimativa de IRS por recibo */}
+ <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl text-xs">
+ <span className="text-slate-300">Estimativa:</span>
+ <label className="flex items-center gap-1.5">
+   <span className="text-slate-400">Coef.</span>
+   <Select value={G.coefSimpl ?? 0.35} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
+     <option value={0.35}>0,35</option>
+     <option value={0.75}>0,75</option>
+   </Select>
+ </label>
+ <label className="flex items-center gap-1.5">
+   <span className="text-slate-400">IRS marginal</span>
+   <input type="number" step="0.1" defaultValue={G.irsMarginal ?? 43.1}
+     onBlur={e=>{const v=parseFloat(e.target.value); if(!isNaN(v)&&v!==(G.irsMarginal??43.1)) uG('irsMarginal', v);}}
+     className={`w-16 ${inputClass} text-xs !py-1 text-right`}/>
+   <span className="text-slate-400">%</span>
+ </label>
+ <span className="text-slate-500 hidden sm:inline">Confirma a tua taxa marginal real com o contabilista</span>
+ </div>
+ </div>
+ </Card>
+ </div>
  </div>
  </>
  );
@@ -4213,7 +4099,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [novaCat, setNovaCat] = useState('');
  
  return (
- <div key={mesKey} className="space-y-6 max-w-4xl mx-auto">
+ <div key={mesKey} className="space-y-6 max-w-6xl mx-auto">
  
  {/* Layout Editor para Alocação */}
  {showLayoutEditor && (
@@ -4232,6 +4118,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
+ <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+ <div className="lg:col-span-2 space-y-6">
  <Card>
  <h3 className="text-base sm:text-lg font-semibold mb-4 text-center"><Ico e="💰"/>Disponível: {fmt(disp)}</h3>
  
@@ -4285,11 +4173,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  </Card>
 
- <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-3xl">
- <Card className="bg-purple-500/10 border-purple-500/30"><p className="text-xs text-slate-400 mb-1"><Ico e="💰"/>Disponível</p><p className="text-lg sm:text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
- <Card className="bg-blue-500/10 border-blue-500/30"><p className="text-xs text-slate-400 mb-1"><Ico e="📊"/>Investido</p><p className="text-lg sm:text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
- <Card className={rest>=0?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️'}</p><p className={`text-lg sm:text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
+ <div className="grid grid-cols-3 gap-2 sm:gap-3">
+ <Card><p className="text-xs text-slate-400 mb-1"><Ico e="💰"/>Disponível</p><p className="text-lg sm:text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
+ <Card><p className="text-xs text-slate-400 mb-1"><Ico e="📊"/>Investido</p><p className="text-lg sm:text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
+ <Card className={rest>=0?'':'border-red-500/40'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️'}</p><p className={`text-lg sm:text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
  </div>
+ </div>
+ <div className="lg:col-span-3 space-y-6">
 
  <Card>
  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
@@ -4355,6 +4245,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
  )}
+ </div>
+ </div>
  </div>
  );
  };
@@ -4532,7 +4424,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Médias por Trimestre</h3>
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {mediaTrim.map(t => (
- <div key={t.q} className={`p-3 rounded-xl ${t.meses > 0 ? 'bg-blue-500/10 border border-blue-500/30' : theme === 'light' ? 'bg-slate-200' : 'bg-slate-700/30'}`}>
+ <div key={t.q} className={`p-3 rounded-xl ${t.meses > 0 ? 'tile' : 'tile opacity-60'}`}>
  <p className="text-sm font-semibold text-slate-300 mb-1">{t.q} ({t.meses} meses)</p>
  <p className="text-lg font-bold text-blue-400">{fmt(t.media)}</p>
  <p className="text-xs text-slate-500">Total: {fmt(t.total)}</p>
@@ -4623,20 +4515,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return (
        <>
          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-6">
-           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/10 border-blue-500/30'} border`}>
+           <div className={`p-3 rounded-xl tile`}>
              <p className="text-xs text-slate-500 mb-1"><Ico e="💰"/>Total Faturado</p>
              <p className="text-lg font-bold text-blue-400">{fmt(totalAllTime)}</p>
            </div>
-           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-emerald-50 border-emerald-200' : 'bg-emerald-500/10 border-emerald-500/30'} border`}>
+           <div className={`p-3 rounded-xl tile`}>
              <p className="text-xs text-slate-500 mb-1"><Ico e="📊"/>Média Mensal</p>
              <p className="text-lg font-bold text-emerald-400">{fmt(mediaAllTime)}</p>
            </div>
-           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-purple-50 border-purple-200' : 'bg-purple-500/10 border-purple-500/30'} border`}>
+           <div className={`p-3 rounded-xl tile`}>
              <p className="text-xs text-slate-500 mb-1">🏆 Melhor Mês</p>
              <p className="text-lg font-bold text-purple-400">{fmt(melhorMes?.tot || 0)}</p>
              <p className="text-xs text-slate-500">{melhorMes?.nome} {melhorMes?.ano}</p>
            </div>
-           <div className={`p-3 rounded-xl ${theme === 'light' ? 'bg-amber-50 border-amber-200' : 'bg-amber-500/10 border-amber-500/30'} border`}>
+           <div className={`p-3 rounded-xl tile`}>
              <p className="text-xs text-slate-500 mb-1">🥇 Melhor Ano</p>
              <p className="text-lg font-bold text-amber-400">{melhorAno ? fmt(melhorAno.total) : '-'}</p>
              <p className="text-xs text-slate-500">{melhorAno?.ano || '-'}</p>
@@ -5198,7 +5090,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  return (
- <div className="space-y-6 max-w-4xl mx-auto">
+ <div className="space-y-6 max-w-5xl mx-auto">
  {!estadoMesSel.futuro && (
    <div className={avisoCls(estadoMesSel.port === 'ok' ? 'verde' : 'vermelho')} role="status">
      {estadoMesSel.port === 'ok'
@@ -6641,91 +6533,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
 
- <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="🧮"/>Simulador de Prestação</h3>
- <p className="text-sm text-slate-400 mb-4">Simula como a prestação varia com diferentes taxas de juro</p>
- 
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
- <div className="space-y-3">
- <div className="p-3 tile rounded-xl">
- <div className="flex justify-between items-center mb-2">
- <span className="text-slate-300 text-sm">Euribor (%)</span>
- <div className="flex items-center gap-1">
- <input type="number" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-blue-500/30 rounded-lg px-2 py-1 text-blue-400 font-bold text-right text-sm focus:outline-none"/>
- <span className="text-slate-500 text-sm">%</span>
- </div>
- </div>
- <input type="range" min="-0.5" max="5" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value)} className="w-full accent-blue-500"/>
- </div>
- 
- <div className="p-3 tile rounded-xl">
- <div className="flex justify-between items-center mb-2">
- <span className="text-slate-300 text-sm">Spread (%)</span>
- <div className="flex items-center gap-1">
- <input type="number" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-purple-500/30 rounded-lg px-2 py-1 text-purple-400 font-bold text-right text-sm focus:outline-none"/>
- <span className="text-slate-500 text-sm">%</span>
- </div>
- </div>
- <input type="range" min="0" max="3" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value)} className="w-full accent-purple-500"/>
- </div>
- </div>
- 
- <div className="space-y-3">
- <div className="p-3 bg-slate-700/30 rounded-xl">
- <div className="flex justify-between items-center mb-2">
- <span className="text-slate-300 text-sm">Dívida simular</span>
- <input type="number" value={simDivida || dividaAtual} onChange={e=>setSimDivida(+e.target.value||0)} className="w-28 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
- </div>
- <button className="text-xs text-blue-400" onClick={()=>setSimDivida(dividaAtual)}>↺ Usar atual</button>
- </div>
- 
- <div className="p-3 bg-slate-700/30 rounded-xl">
- <div className="flex justify-between items-center mb-2">
- <span className="text-slate-300 text-sm">Prazo</span>
- <input type="number" value={simMeses || totalMesesRestantes} onChange={e=>setSimMeses(+e.target.value||1)} className="w-20 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
- </div>
- <p className="text-xs text-slate-500">{Math.floor((simMeses || totalMesesRestantes) / 12)}a {(simMeses || totalMesesRestantes) % 12}m</p>
- </div>
- </div>
- </div>
- 
- <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/30 rounded-xl mb-4">
- <div className="flex items-center justify-between mb-2">
- <span className="text-slate-400">Taxa Total (Euribor + Spread)</span>
- <span className="text-xl font-bold text-emerald-400">{taxaSimulada.toFixed(2)}%</span>
- </div>
- <div className="text-xs text-slate-500">i = ({simEuribor}% + {simSpread}%) / 12 = {((taxaSimulada/100)/12*100).toFixed(4)}% ao mês</div>
- </div>
- 
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
- <div className="p-4 tile rounded-xl text-center">
- <p className="text-xs text-slate-500 mb-1">Prestação Atual</p>
- <p className="text-2xl font-bold text-orange-400">{fmt(prestacao)}</p>
- <p className="text-xs text-slate-500">Taxa fixa {taxaJuro}%</p>
- </div>
- <div className="p-4 tile rounded-xl text-center">
- <p className="text-xs text-slate-500 mb-1">Prestação Simulada</p>
- <p className="text-2xl font-bold text-emerald-400">{fmt(prestacaoSimulada)}</p>
- <p className="text-xs text-slate-500">Com taxa {taxaSimulada.toFixed(2)}%</p>
- </div>
- <div className={`p-4 rounded-xl text-center ${diffPrestacao > 0 ? 'bg-red-500/10 border border-red-500/30' : 'bg-emerald-500/10 border border-emerald-500/30'}`}>
- <p className="text-xs text-slate-500 mb-1">Diferença</p>
- <p className={`text-2xl font-bold ${diffPrestacao > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
- {diffPrestacao > 0 ? '+' : ''}{fmt(diffPrestacao)}
- </p>
- <p className="text-xs text-slate-500">{diffPrestacao > 0 ? 'Pagarias mais' : 'Pagarias menos'}</p>
- </div>
- </div>
- 
- <div className="mt-4 p-3 bg-slate-700/30 rounded-xl">
- <p className="text-xs text-slate-400">
- <strong>Fórmula:</strong> P = D × [i(1+i)ⁿ] / [(1+i)ⁿ - 1]
- </p>
- <p className="text-xs text-slate-500 mt-1">
- Onde: D = {fmt(dividaParaSimular)} | i = {((taxaSimulada/100)/12).toFixed(6)} | n = {mesesParaSimular} meses
- </p>
- </div>
- </Card>
 
  <Card>
  <h3 className="text-lg font-semibold mb-4"><Ico e="📈"/>Evolução Mensal da Dívida</h3>
@@ -6914,8 +6721,102 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    )}
  </Card>
 
+
  <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="🎯"/>Simulador de Amortização</h3>
+ <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+   <h3 className="text-lg font-semibold"><Ico e="🧮"/>Simuladores</h3>
+   <div className="flex gap-1 p-1 rounded-xl tile" role="tablist">
+     {[['prestacao', 'Prestação'], ['amortizacao', 'Amortizar'], ['projecao', 'Projeção']].map(([k, l]) => (
+       <button key={k} role="tab" aria-selected={simCreditoTab === k} onClick={() => setSimCreditoTab(k)}
+         className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${simCreditoTab === k ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>{l}</button>
+     ))}
+   </div>
+ </div>
+ {simCreditoTab === 'prestacao' && (<>
+ <p className="text-sm text-slate-400 mb-4">Simula como a prestação varia com diferentes taxas de juro</p>
+ 
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+ <div className="space-y-3">
+ <div className="p-3 tile rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Euribor (%)</span>
+ <div className="flex items-center gap-1">
+ <input type="number" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-blue-500/30 rounded-lg px-2 py-1 text-blue-400 font-bold text-right text-sm focus:outline-none"/>
+ <span className="text-slate-500 text-sm">%</span>
+ </div>
+ </div>
+ <input type="range" min="-0.5" max="5" step="0.1" value={simEuribor} onChange={e=>setSimEuribor(+e.target.value)} className="w-full accent-blue-500"/>
+ </div>
+ 
+ <div className="p-3 tile rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Spread (%)</span>
+ <div className="flex items-center gap-1">
+ <input type="number" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value||0)} className="w-16 bg-slate-700/50 border border-purple-500/30 rounded-lg px-2 py-1 text-purple-400 font-bold text-right text-sm focus:outline-none"/>
+ <span className="text-slate-500 text-sm">%</span>
+ </div>
+ </div>
+ <input type="range" min="0" max="3" step="0.1" value={simSpread} onChange={e=>setSimSpread(+e.target.value)} className="w-full accent-purple-500"/>
+ </div>
+ </div>
+ 
+ <div className="space-y-3">
+ <div className="p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Dívida simular</span>
+ <input type="number" value={simDivida || dividaAtual} onChange={e=>setSimDivida(+e.target.value||0)} className="w-28 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
+ </div>
+ <button className="text-xs text-blue-400" onClick={()=>setSimDivida(dividaAtual)}>↺ Usar atual</button>
+ </div>
+ 
+ <div className="p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center mb-2">
+ <span className="text-slate-300 text-sm">Prazo</span>
+ <input type="number" value={simMeses || totalMesesRestantes} onChange={e=>setSimMeses(+e.target.value||1)} className="w-20 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-white font-bold text-right text-sm focus:outline-none"/>
+ </div>
+ <p className="text-xs text-slate-500">{Math.floor((simMeses || totalMesesRestantes) / 12)}a {(simMeses || totalMesesRestantes) % 12}m</p>
+ </div>
+ </div>
+ </div>
+ 
+ <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/30 rounded-xl mb-4">
+ <div className="flex items-center justify-between mb-2">
+ <span className="text-slate-400">Taxa Total (Euribor + Spread)</span>
+ <span className="text-xl font-bold text-emerald-400">{taxaSimulada.toFixed(2)}%</span>
+ </div>
+ <div className="text-xs text-slate-500">i = ({simEuribor}% + {simSpread}%) / 12 = {((taxaSimulada/100)/12*100).toFixed(4)}% ao mês</div>
+ </div>
+ 
+ <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+ <div className="p-4 tile rounded-xl text-center">
+ <p className="text-xs text-slate-500 mb-1">Prestação Atual</p>
+ <p className="text-2xl font-bold text-orange-400">{fmt(prestacao)}</p>
+ <p className="text-xs text-slate-500">Taxa fixa {taxaJuro}%</p>
+ </div>
+ <div className="p-4 tile rounded-xl text-center">
+ <p className="text-xs text-slate-500 mb-1">Prestação Simulada</p>
+ <p className="text-2xl font-bold text-emerald-400">{fmt(prestacaoSimulada)}</p>
+ <p className="text-xs text-slate-500">Com taxa {taxaSimulada.toFixed(2)}%</p>
+ </div>
+ <div className={`p-4 rounded-xl text-center ${diffPrestacao > 0 ? 'bg-red-500/10 border border-red-500/30' : 'bg-emerald-500/10 border border-emerald-500/30'}`}>
+ <p className="text-xs text-slate-500 mb-1">Diferença</p>
+ <p className={`text-2xl font-bold ${diffPrestacao > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+ {diffPrestacao > 0 ? '+' : ''}{fmt(diffPrestacao)}
+ </p>
+ <p className="text-xs text-slate-500">{diffPrestacao > 0 ? 'Pagarias mais' : 'Pagarias menos'}</p>
+ </div>
+ </div>
+ 
+ <div className="mt-4 p-3 bg-slate-700/30 rounded-xl">
+ <p className="text-xs text-slate-400">
+ <strong>Fórmula:</strong> P = D × [i(1+i)ⁿ] / [(1+i)ⁿ - 1]
+ </p>
+ <p className="text-xs text-slate-500 mt-1">
+ Onde: D = {fmt(dividaParaSimular)} | i = {((taxaSimulada/100)/12).toFixed(6)} | n = {mesesParaSimular} meses
+ </p>
+ </div>
+ </>)}
+ {simCreditoTab === 'amortizacao' && (<>
  
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
  <div className="p-3 tile rounded-xl">
@@ -6960,10 +6861,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="text-xs text-slate-500">Extra necessário</p>
  </div>
  </div>
- </Card>
-
- <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="📉"/>Projeção da Dívida</h3>
+ </>)}
+ {simCreditoTab === 'projecao' && (<>
  <div className="grid grid-cols-2 gap-6">
  <div>
  <p className="text-sm text-slate-400 mb-3">Sem amortização extra</p>
@@ -6974,6 +6873,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <LineChart data={projecaoComAmort} height={150} color="#10b981"/>
  </div>
  </div>
+ </>)}
  </Card>
  </>
  )}
@@ -10741,21 +10641,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '</div>' +
    
    '<div class="grid-2" style="margin-bottom: 32px;">' +
-   '<div><h2><Ico e="📊"/>Distribuição do Rendimento</h2><div class="chart-container">' + generatePieChart(distribuicaoData, totalDist, 160) + '<div class="chart-legend">' + legendItems + '</div></div></div>' +
-   '<div><h2><Ico e="👥"/>Receitas por Cliente</h2><div class="chart-container" style="flex-direction: column; align-items: flex-start;">' + clienteBars + '</div></div>' +
+   '<div><h2>📊 Distribuição do Rendimento</h2><div class="chart-container">' + generatePieChart(distribuicaoData, totalDist, 160) + '<div class="chart-legend">' + legendItems + '</div></div></div>' +
+   '<div><h2>👥 Receitas por Cliente</h2><div class="chart-container" style="flex-direction: column; align-items: flex-start;">' + clienteBars + '</div></div>' +
    '</div>' +
    
    '<div class="two-col">' +
-   '<div class="section"><h2><Ico e="💼"/>Receitas COM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegCom + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inCom) + '</td></tr></table></div>' +
-   '<div class="section"><h2><Ico e="💵"/>Receitas SEM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegSem + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inSem) + '</td></tr></table></div>' +
+   '<div class="section"><h2>💼 Receitas COM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegCom + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inCom) + '</td></tr></table></div>' +
+   '<div class="section"><h2>💵 Receitas SEM Taxas</h2><table><tr><th>Descrição</th><th>Cliente</th><th class="right">Valor</th></tr>' + tabelaRegSem + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(inSem) + '</td></tr></table></div>' +
    '</div>' +
    
    '<div class="two-col">' +
-   '<div class="section"><h2><Ico e="🏠"/>Despesas do Casal</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespAB + '<tr class="total-row"><td colspan="2">Total (minha parte: ' + contrib + '%)</td><td class="right">' + fmt(minhaABPDF) + '</td></tr></table></div>' +
-   '<div class="section"><h2><Ico e="👤"/>Despesas Pessoais</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespPess + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(totPessPDF) + '</td></tr></table></div>' +
+   '<div class="section"><h2>🏠 Despesas do Casal</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespAB + '<tr class="total-row"><td colspan="2">Total (minha parte: ' + contrib + '%)</td><td class="right">' + fmt(minhaABPDF) + '</td></tr></table></div>' +
+   '<div class="section"><h2>👤 Despesas Pessoais</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th></tr>' + tabelaDespPess + '<tr class="total-row"><td colspan="2">Total</td><td class="right">' + fmt(totPessPDF) + '</td></tr></table></div>' +
    '</div>' +
    
-   '<div class="section"><h2><Ico e="📈"/>Investimentos do Mês</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>' + tabelaInv + '<tr class="total-row"><td colspan="2">Total Investido</td><td class="right">' + fmt(totInvPDF) + '</td><td></td></tr></table></div>' +
+   '<div class="section"><h2>📈 Investimentos do Mês</h2><table><tr><th>Descrição</th><th>Categoria</th><th class="right">Valor</th><th class="right">%</th></tr>' + tabelaInv + '<tr class="total-row"><td colspan="2">Total Investido</td><td class="right">' + fmt(totInvPDF) + '</td><td></td></tr></table></div>' +
    
    '<h2>💎 Resumo da Alocação</h2>' +
    '<div class="grid">' +
@@ -10920,25 +10820,25 @@ th{background:#f1f5f9;font-weight:600}
 <p style="color:#64748b">Gerado em ${new Date().toLocaleDateString('pt-PT')} • ${transacoesOrdenadas.length} transações</p>
 
 <div class="summary-grid">
-<div class="summary-card"><h3><Ico e="💰"/>Total Compras</h3><div class="value green">${fmt(totalCompras)}</div></div>
-<div class="summary-card"><h3><Ico e="📤"/>Total Vendas</h3><div class="value red">${fmt(totalVendas)}</div></div>
-<div class="summary-card"><h3><Ico e="💵"/>Dividendos</h3><div class="value amber">${fmt(totalDividendos)}</div></div>
-<div class="summary-card"><h3><Ico e="📊"/>Comissões</h3><div class="value purple">${fmt(totalComissoes)}</div></div>
+<div class="summary-card"><h3>💰 Total Compras</h3><div class="value green">${fmt(totalCompras)}</div></div>
+<div class="summary-card"><h3>📤 Total Vendas</h3><div class="value red">${fmt(totalVendas)}</div></div>
+<div class="summary-card"><h3>💵 Dividendos</h3><div class="value amber">${fmt(totalDividendos)}</div></div>
+<div class="summary-card"><h3>📊 Comissões</h3><div class="value purple">${fmt(totalComissoes)}</div></div>
 </div>
 
-<h2><Ico e="🏦"/>Por Corretora</h2>
+<h2>🏦 Por Corretora</h2>
 <table>
 <tr><th>Corretora</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
 ${porCorretora.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
 </table>
 
-<h2><Ico e="📁"/>Por Categoria</h2>
+<h2>📁 Por Categoria</h2>
 <table>
 <tr><th>Categoria</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
 ${porCategoria.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
 </table>
 
-<h2><Ico e="📝"/>Todas as Transações</h2>
+<h2>📝 Todas as Transações</h2>
 <table>
 <tr><th>Data</th><th>Tipo</th><th>Ticker</th><th>Categoria</th><th>Corretora</th><th>Qtd</th><th>Preço</th><th>Comissão</th><th>Total</th></tr>
 ${transacoesOrdenadas.map(t => `<tr>
@@ -12046,7 +11946,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      </div>
      
      ${relatorio.porCliente.length > 0 ? `
-     <h2><Ico e="👥"/>Receitas por Cliente</h2>
+     <h2>👥 Receitas por Cliente</h2>
      <div class="section">
        ${relatorio.porCliente.map(c => `
          <div class="client-row">
@@ -12058,7 +11958,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      ` : ''}
      
      ${(relatorio.creditosAtivos?.length > 0 || relatorio.creditosLiquidadosAno?.length > 0 || relatorio.totalAmortizadoAno > 0) ? `
-     <h2><Ico e="🏦"/>Créditos</h2>
+     <h2>🏦 Créditos</h2>
      <div class="grid">
        <div class="card"><div class="card-label">Dívida Total Ativa</div><div class="card-value" style="color: #ef4444;">${fmt(relatorio.totalDividaAtiva)}</div></div>
        <div class="card"><div class="card-label">Amortizado em ${relatorio.ano}</div><div class="card-value green">${fmt(relatorio.totalAmortizadoAno)}</div></div>
@@ -13238,8 +13138,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='portfolio' && <Portfolio/>}
  {tab==='transacoes' && <Transacoes/>}
  {tab==='credito' && <Credito/>}
- {tab==='vendacasa' && <VendaCasa G={G} uG={uG} theme={theme}/>}
- {tab==='patrimonio' && <Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/>}
+ {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
+ {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
 
  {/* Modal: confirmar transações lidas de um ficheiro */}
  {txImport && (() => {
