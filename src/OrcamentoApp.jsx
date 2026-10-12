@@ -13286,6 +13286,28 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
+   onImportarClientes={lista => {
+     // Ficheiro de fichas: junta aos clientes que já existem (pelo nome ou outros nomes) ou cria-os; grava também os preços
+     saveUndo();
+     const norm = x => String(x || '').trim().toLowerCase();
+     const cores = ['#3b82f6', '#ec4899', '#10b981', '#f97316', '#8b5cf6', '#06b6d4'];
+     const atuais = [...(G.clientes || [])];
+     let maxId = Math.max(0, ...atuais.map(c => Number(c.id) || 0));
+     const porCliente = { ...(((G.clickup || {}).precos || {}).porCliente || {}) };
+     const ids = {};
+     (lista || []).forEach(e => {
+       if (!e || !e.nome) return;
+       const nomes = [e.nome, ...(e.aliases || [])].map(norm);
+       let i = atuais.findIndex(x => nomes.includes(norm(x.nome)) || (x.aliases || []).some(al => nomes.includes(norm(al))));
+       if (i < 0) { atuais.push({ id: ++maxId, nome: e.nome, cor: e.cor || cores[atuais.length % cores.length] }); i = atuais.length - 1; }
+       const c = atuais[i];
+       atuais[i] = { ...c, aliases: [...new Set([...(c.aliases || []), ...(e.aliases || [])])], tags: [...new Set([...(c.tags || []), ...(e.tags || [])])], fat: { ...(c.fat || {}), ...(e.fat || {}) }, recibo: { ...(c.recibo || {}), ...(e.recibo || {}) }, ...(e.estado ? { estado: e.estado } : {}) };
+       if (e.precos) porCliente[c.id] = { ...(porCliente[c.id] || {}), ...e.precos };
+       ids[e.nome] = c.id;
+     });
+     setG(p => ({ ...p, clientes: atuais, clickup: { ...(p.clickup || {}), precos: { ...((p.clickup || {}).precos || {}), porCliente } } }));
+     return ids;
+   }}
    onCliente={(id, patch) => { saveUndo(); uG('clientes', (G.clientes || []).map(c => (c.id === id ? { ...c, ...patch } : c))); }}
    onNovoCliente={(nome, extra = {}) => { saveUndo(); const id = Math.max(0, ...(G.clientes || []).map(c => Number(c.id) || 0)) + 1; const cores = ['#3b82f6', '#ec4899', '#10b981', '#f97316', '#8b5cf6', '#06b6d4']; uG('clientes', [...(G.clientes || []), { id, nome, cor: extra.cor || cores[(G.clientes || []).length % cores.length], ...(extra.aliases ? { aliases: extra.aliases } : {}) }]); return id; }}/></Suspense>}
  {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
