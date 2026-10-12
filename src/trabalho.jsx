@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
-  cuPreco, trabValor, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, cuEur, cuLerHoras, cuHorasTxt,
+  cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
   meses, Card, trabParar,
 } from './base';
 
@@ -142,7 +142,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
 
 // ── Lista de tarefas agrupada por estado ──
 // Ordem dos grupos na lista (o que está a mexer primeiro)
-const ORDEM_GRUPOS = ['feito', 'review', 'curso', 'aprovar', 'todo']; // como no ClickUp
+const ORDEM_GRUPOS = ['feito', 'review', 'curso', 'todo']; // como no ClickUp
 const ICONE_ESTADO = {
   todo: <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="2.2 1.6" />,
   aprovar: <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="2.2 1.6" />,
@@ -277,13 +277,16 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta })
         <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') criar(); }}
           placeholder={semPasta ? 'Escolhe uma pasta à esquerda para criar tarefas' : 'Nova tarefa — ex.: 2x New Videos - Halloween + 1x Variation'} disabled={semPasta}
           className={`${inputClass} flex-1 min-w-[220px] text-sm py-2`} />
-        <input type="date" value={prazo} onChange={e => setPrazo(e.target.value)} title="Prazo (opcional)" disabled={semPasta} className={`${inputClass} !w-auto text-sm py-2`} />
+        <label className={`flex items-center gap-2 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Prazo
+          <input type="date" value={prazo} onChange={e => setPrazo(e.target.value)} title="Prazo de entrega (opcional)" disabled={semPasta} className={`${inputClass} !w-auto text-sm py-2`} />
+        </label>
         <button type="button" onClick={criar} disabled={!txt.trim() || semPasta} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Adicionar</button>
       </div>
       {txt.trim() && (
         <p className={`mt-1.5 px-1 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>
           {pecas.length ? pecas.map(p => `${p.n} × ${(CU_TIPOS.find(x => x.id === p.tipo) || {}).curto || (CU_TIPOS.find(x => x.id === p.tipo) || {}).nome || p.tipo}`).join(' + ') : 'Tarefa sem peças (conta à hora)'}
           {preview > 0 && <> · vale <strong className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(preview)}</strong></>}
+          <> · fica criada hoje, {dataCurta(new Date().toISOString())}</>
         </p>
       )}
     </div>
@@ -351,119 +354,198 @@ const Notas = ({ notas, onMudar, theme, inputClass }) => {
   );
 };
 
-// ── Orçamento automático (pelas tarefas da pasta e das subpastas) ──
-const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMudar, nomeCliente }) => {
+// ── Campo de número que só grava ao sair (não perde o foco enquanto escreves) ──
+const NumIn = ({ valor, onGravar, className, placeholder, title, decimal = true }) => (
+  <input key={String(valor ?? '')} defaultValue={valor ?? ''} placeholder={placeholder} title={title} inputMode={decimal ? 'decimal' : 'numeric'}
+    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+    onBlur={e => { const x = e.target.value.trim(); const atual = valor == null ? '' : String(valor); if (x !== atual) onGravar(x === '' ? null : (Number(x.replace(',', '.')) || 0)); }}
+    className={className} />
+);
+const nomeTipo = id => { const t = CU_TIPOS.find(x => x.id === id); return t ? (t.curto || t.nome) : id; };
+const TIPOS_PECA = CU_TIPOS.filter(t => !t.porHora);
+
+// ── Orçamento da pasta: campos por tipo de peça, com quantidade, preço e valor ──
+const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMudar }) => {
   const claro = useClaro(theme);
-  const [copiado, setCopiado] = useState(false);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const orc = pasta.orcamento || {};
   const preco = tipo => cuPreco(cu, clientes, cid, tipo);
   const diaria = preco('dia'), hora = preco('hora');
-  const linhasMap = {};
+  // Quantidades que vêm das tarefas da pasta (e subpastas)
+  const auto = {};
   let horasExtra = 0, entregue = 0;
   const dias = new Set();
   tarefas.forEach(t => {
-    const manual = t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual));
-    if (manual) { const k = 'm:' + t.id; linhasMap[k] = { txt: t.nome, valor: Number(t.valorManual) }; }
-    else cuPecas(t.nome).forEach(p => {
-      if (p.tipo === 'extra' || p.tipo === 'outro') { horasExtra += trabHoras(t); return; }
-      const l = (linhasMap[p.tipo] = linhasMap[p.tipo] || { tipo: p.tipo, n: 0, unit: preco(p.tipo) });
-      l.n += p.n;
-    });
+    trabPecas(t).forEach(p => { if (p.tipo === 'extra' || p.tipo === 'outro') horasExtra += trabHoras(t); else auto[p.tipo] = (auto[p.tipo] || 0) + p.n; });
     (t.tempos || []).forEach(x => { if (trabMsTempo(x) > 0) dias.add(trabDia(x.ini)); });
     if (trabEntrega(t)) entregue += trabValor(t, cu, clientes);
   });
-  const linhas = [];
-  CU_TIPOS.forEach(tp => { const l = linhasMap[tp.id]; if (!l || !l.n) return; const [um, varios] = CU_NOMES_EN[tp.id] || [tp.nome, tp.plural]; linhas.push({ txt: `${l.n}x ${l.n === 1 ? um : varios}`, unit: l.unit, n: l.n, valor: l.n * l.unit }); });
-  Object.entries(linhasMap).filter(([k]) => k.startsWith('m:')).forEach(([, l]) => linhas.push(l));
-  if (diaria > 0 && dias.size) linhas.push({ txt: `${dias.size}x ${dias.size === 1 ? 'Day' : 'Days'}`, unit: diaria, n: dias.size, valor: dias.size * diaria });
-  else if (horasExtra > 0 && hora > 0) linhas.push({ txt: `Extra work ${cuHorasTxt(horasExtra)}`, unit: hora, porHora: true, valor: horasExtra * hora });
-  (orc.extras || []).forEach(e => { const v = Number(String(e.val || '').replace(',', '.')) || 0; if ((e.desc || '').trim() || v) linhas.push({ txt: (e.desc || '').trim() || 'Other', valor: v }); });
-  const total = linhas.reduce((a, l) => a + l.valor, 0);
-  const texto = linhas.length ? [
-    `${pasta.nome}${nomeCliente ? ` — ${nomeCliente}` : ''}`, '',
-    ...linhas.map(l => `${l.txt}${l.unit && l.n > 1 ? ` (${cuEur(l.unit)} each)` : l.porHora && l.unit ? ` (${cuEur(l.unit)}/h)` : ''} — ${cuEur(l.valor)}`),
-    '', `Total: ${cuEur(total)}`,
-  ].join('\n') : '';
-  const copiar = async () => {
-    try { await navigator.clipboard.writeText(texto); } catch (e) { /* sem acesso à área de transferência */ }
-    setCopiado(true); setTimeout(() => setCopiado(false), 1600);
-  };
+  const qtdMao = orc.qtd || {};
+  const precoMao = orc.preco || {};
+  const qtd = tipo => (qtdMao[tipo] != null ? Number(qtdMao[tipo]) || 0 : auto[tipo] || 0);
+  const pu = tipo => (precoMao[tipo] != null ? Number(precoMao[tipo]) || 0 : preco(tipo));
+  // Linhas: os tipos com preço para este cliente, mais os que aparecem nas tarefas
+  const tipos = TIPOS_PECA.filter(t => preco(t.id) > 0 || auto[t.id] || qtdMao[t.id] != null);
+  const linhas = tipos.map(t => ({ id: t.id, nome: t.curto || t.nome, q: qtd(t.id), p: pu(t.id), auto: auto[t.id] || 0, mao: qtdMao[t.id] != null }));
+  const hExtra = orc.horas != null ? Number(orc.horas) || 0 : horasExtra;
+  const nDias = orc.dias != null ? Number(orc.dias) || 0 : dias.size;
+  const subtotalPecas = linhas.reduce((a, l) => a + l.q * l.p, 0);
+  const vExtra = diaria > 0 ? 0 : hExtra * hora;
+  const vDias = diaria > 0 ? nDias * diaria : 0;
+  const extras = (orc.extras || []).map(e => ({ ...e, v: Number(String(e.val ?? '').replace(',', '.')) || 0 }));
+  const vExtras = extras.reduce((a, e) => a + e.v, 0);
+  const total = subtotalPecas + vExtra + vDias + vExtras;
+  const final = orc.acordado != null && orc.acordado !== '' ? Number(orc.acordado) : null;
+  const ref = final ?? total;
+  const setOrc = patch => onMudar({ ...orc, ...patch });
+  const setMapa = (campo, tipo, v) => { const m = { ...(orc[campo] || {}) }; if (v == null) delete m[tipo]; else m[tipo] = v; setOrc({ [campo]: m }); };
   const estados = [['rascunho', 'Rascunho'], ['enviado', 'Enviado'], ['aprovado', 'Aprovado'], ['faturado', 'Faturado']];
-  const acordado = orc.acordado != null && orc.acordado !== '' ? Number(orc.acordado) : null;
-  const ref = acordado ?? total;
+  const cel = `${inputClass} !w-full text-sm py-1 text-right tabular-nums`;
+  const linha = `grid grid-cols-[minmax(0,1fr)_52px_64px_74px] sm:grid-cols-[minmax(0,1fr)_76px_96px_104px] items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5`;
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <div className="space-y-3 min-w-0">
-        <div className="grid grid-cols-3 gap-2">
-          {[['Orçamento', eur(total)], ['Já entregue', eur(entregue)], ['Falta', eur(Math.max(0, ref - entregue))]].map(([k, v]) => (
-            <div key={k} className={`rounded-xl p-2.5 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}><p className={`text-[11px] ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{k}</p><p className="text-base font-semibold tabular-nums">{v}</p></div>
-          ))}
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+        <div className={`${linha} h-9 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
+          <span>Item</span><span className="text-right">Qtd.</span><span className="text-right">Preço</span><span className="text-right">Valor</span>
         </div>
-        {ref > 0 && (
-          <div className={`h-2 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}><div className="h-full rounded-full bg-emerald-500 progress-animated" style={{ width: `${Math.min(100, (entregue / ref) * 100)}%` }} /></div>
+        {linhas.map(l => (
+          <div key={l.id} className={`${linha} border-b ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+            <span className="text-sm min-w-0 truncate">{l.nome}{l.mao && l.auto !== l.q && <span className={`ml-2 text-[11px] ${sub}`} title="Nas tarefas há outra quantidade">tarefas: {l.auto}</span>}</span>
+            <NumIn valor={qtdMao[l.id] ?? null} placeholder={String(l.auto)} decimal={false} title="Vazio = conta pelas tarefas" onGravar={v => setMapa('qtd', l.id, v)} className={cel} />
+            <NumIn valor={precoMao[l.id] ?? null} placeholder={String(preco(l.id))} title="Vazio = preço do cliente" onGravar={v => setMapa('preco', l.id, v)} className={cel} />
+            <span className={`text-right text-sm tabular-nums ${l.q * l.p ? '' : 'opacity-40'}`}>{eur(l.q * l.p)}</span>
+          </div>
+        ))}
+        {diaria > 0 ? (
+          <div className={`${linha} border-b ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+            <span className="text-sm">Dias</span>
+            <NumIn valor={orc.dias ?? null} placeholder={String(dias.size)} decimal={false} onGravar={v => setOrc({ dias: v })} className={cel} />
+            <span className={`text-right text-sm ${sub}`}>{eur(diaria)}</span>
+            <span className="text-right text-sm tabular-nums">{eur(vDias)}</span>
+          </div>
+        ) : (
+          <div className={`${linha} border-b ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+            <span className="text-sm leading-tight">Horas extra <span className={`block sm:inline text-[11px] ${sub}`}>(registadas: {tempoTxt(horasExtra)})</span></span>
+            <NumIn valor={orc.horas ?? null} placeholder={String(Math.round(horasExtra * 100) / 100).replace('.', ',')} title="Horas (ex.: 4,5)" onGravar={v => setOrc({ horas: v })} className={cel} />
+            <span className={`text-right text-sm ${sub}`}>{eur(hora)}/h</span>
+            <span className="text-right text-sm tabular-nums">{eur(vExtra)}</span>
+          </div>
         )}
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className={claro ? 'text-slate-500' : 'text-slate-400'}>Estado:</span>
-          {estados.map(([k, n]) => (
-            <button key={k} type="button" onClick={() => onMudar({ ...orc, estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(orc.estado || 'rascunho') === k ? 'border-violet-400 bg-violet-500/15 text-violet-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{n}</button>
-          ))}
+        {extras.map((e, i) => (
+          <div key={i} className={`grid grid-cols-[minmax(0,1fr)_92px_24px] sm:grid-cols-[minmax(0,1fr)_128px_104px_28px] items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 border-b ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+            <input defaultValue={e.desc || ''} placeholder="Ex.: AI Credits, acerto, licença…" onBlur={ev => setOrc({ extras: orc.extras.map((x, k) => (k === i ? { ...x, desc: ev.target.value } : x)) })} className={`${inputClass} !w-full text-sm py-1 col-span-3 sm:col-span-1`} />
+            <input type="date" defaultValue={e.data || trabDia(new Date().toISOString())} title="Mês em que conta nas receitas" onBlur={ev => setOrc({ extras: orc.extras.map((x, k) => (k === i ? { ...x, data: ev.target.value } : x)) })} className={`${inputClass} !w-full text-xs py-1 col-span-1`} />
+            <NumIn valor={e.val === '' ? null : e.val} placeholder="€ (pode ser negativo)" onGravar={v => setOrc({ extras: orc.extras.map((x, k) => (k === i ? { ...x, val: v } : x)) })} className={cel} />
+            <button type="button" className={`text-xs ${sub} hover:text-red-400`} onClick={() => setOrc({ extras: orc.extras.filter((_, k) => k !== i) })} aria-label="Tirar linha">✕</button>
+          </div>
+        ))}
+        <div className="px-3 py-2"><button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={() => setOrc({ extras: [...(orc.extras || []), { desc: '', val: '', data: trabDia(new Date().toISOString()) }] })}>+ Linha à parte (AI Credits, compras, acertos…)</button></div>
+        <div className={`${linha} border-t ${claro ? 'border-slate-200' : 'border-white/[0.08]'}`}>
+          <span className="text-sm font-semibold col-span-3">Total calculado</span>
+          <span className="text-right text-base font-bold tabular-nums">{eur(total)}</span>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <span className={claro ? 'text-slate-500' : 'text-slate-400'}>Valor acordado com o cliente</span>
-          <input type="text" inputMode="decimal" key={String(orc.acordado ?? '')} defaultValue={orc.acordado ?? ''} placeholder={String(Math.round(total))}
-            onBlur={e => { const v = e.target.value.trim(); onMudar({ ...orc, acordado: v === '' ? null : Number(v.replace(',', '.')) || 0 }); }}
-            className={`${inputClass} !w-28 text-sm py-1 text-right`} />
-        </label>
-        <div className="space-y-1.5">
-          <p className={`text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Linhas à parte (ex.: AI Credits, licenças)</p>
-          {(orc.extras || []).map((e, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input defaultValue={e.desc || ''} placeholder="Ex.: AI Credits" onBlur={ev => onMudar({ ...orc, extras: orc.extras.map((x, k) => (k === i ? { ...x, desc: ev.target.value } : x)) })} className={`${inputClass} flex-1 text-sm py-1`} />
-              <input defaultValue={e.val || ''} placeholder="€" inputMode="decimal" onBlur={ev => onMudar({ ...orc, extras: orc.extras.map((x, k) => (k === i ? { ...x, val: ev.target.value } : x)) })} className={`${inputClass} !w-24 text-sm py-1 text-right`} />
-              <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1" onClick={() => onMudar({ ...orc, extras: orc.extras.filter((_, k) => k !== i) })} aria-label="Tirar">✕</button>
-            </div>
-          ))}
-          <button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={() => onMudar({ ...orc, extras: [...(orc.extras || []), { desc: '', val: '' }] })}>+ linha à parte</button>
+        <div className={`${linha} pb-3`}>
+          <span className="text-sm font-semibold col-span-3">Valor final <span className={`font-normal text-[11px] ${sub}`}>o que vais faturar (vazio = total)</span></span>
+          <NumIn valor={orc.acordado ?? null} placeholder={String(Math.round(total))} onGravar={v => setOrc({ acordado: v })} className={`${cel} font-semibold`} />
         </div>
       </div>
-      <div>
-        <div className={`rounded-xl border p-3 ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-700/60'}`}>
-          {texto ? <pre className="whitespace-pre-wrap font-sans text-sm leading-6 tabular-nums">{texto}</pre>
-            : <p className={`text-sm ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Adiciona tarefas (ex.: "3x New Videos") e o orçamento faz-se sozinho.</p>}
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 xl:grid-cols-1 gap-2">
+          {[['A faturar', eur(ref)], ['Já entregue', eur(entregue)], ['Falta entregar', eur(Math.max(0, ref - entregue))]].map(([k, v]) => (
+            <div key={k} className={`rounded-xl p-3 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}><p className={`text-[11px] ${sub}`}>{k}</p><p className="text-lg font-semibold tabular-nums">{v}</p></div>
+          ))}
         </div>
-        <button type="button" disabled={!texto} onClick={copiar} className={`mt-2 px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-40 text-white ${copiado ? 'bg-emerald-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{copiado ? '✓ Copiado' : 'Copiar orçamento'}</button>
+        {ref > 0 && <div className={`h-2 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}><div className="h-full rounded-full bg-emerald-500 progress-animated" style={{ width: `${Math.min(100, (entregue / ref) * 100)}%` }} /></div>}
+        {final != null && Math.abs(final - total) >= 1 && <p className={`text-xs ${sub}`}>Diferença para o calculado: {final > total ? '+' : '−'}{eur(Math.abs(final - total))}</p>}
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          <span className={`text-xs ${sub} mr-1`}>Estado:</span>
+          {estados.map(([k, n]) => (
+            <button key={k} type="button" onClick={() => setOrc({ estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(orc.estado || 'rascunho') === k ? 'border-violet-400 bg-violet-500/15 text-violet-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{n}</button>
+          ))}
+        </div>
+        <p className={`text-[11px] ${sub}`}>As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas.</p>
+      </div>
+    </div>
+  );
+};
+
+// ── Preços do cliente (alimentam o valor das tarefas, os orçamentos e as receitas estimadas) ──
+const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const precos = (cu && cu.precos) || {};
+  const meus = (precos.porCliente || {})[cid] || {};
+  const pre = cuPresetCliente(clientes, cid);
+  const padrao = { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) };
+  const gravar = (campo, v) => {
+    const pc = { ...meus };
+    if (v == null) delete pc[campo]; else pc[campo] = v;
+    onPrecos({ ...precos, porCliente: { ...(precos.porCliente || {}), [cid]: pc } });
+  };
+  return (
+    <div className="space-y-3 max-w-3xl">
+      <p className={`text-sm ${sub}`}>Preços de <strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{nome}</strong>. Contam no valor de cada tarefa, nos orçamentos e nas receitas estimadas. Vazio = usa o padrão.</p>
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+        {CU_CAMPOS_PRECO.map(t => {
+          const base = pre[t.id] != null ? pre[t.id] : padrao[t.id];
+          return (
+            <div key={t.id} className={`grid grid-cols-[minmax(0,1fr)_120px] items-center gap-3 px-3 py-1.5 border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+              <span className="text-sm">{t.nome}</span>
+              <NumIn valor={meus[t.id] ?? null} placeholder={base != null ? String(base) : '—'} onGravar={v => gravar(t.id, v)} className={`${inputClass} !w-full text-sm py-1 text-right tabular-nums`} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 };
 
 // ── Detalhe de uma tarefa (painel lateral) ──
+const PRIORIDADES = [['urgente', 'Urgente', '#ef4444'], ['alta', 'Alta', '#f59e0b'], ['normal', 'Normal', '#3b82f6'], ['baixa', 'Baixa', '#94a3b8']];
+const FORMATOS = ['9:16', '1:1', '4:5', '16:9'];
 const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
+  const [maisTipos, setMaisTipos] = useState(false);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
   if (!t) return null;
   const set = patch => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, ...patch })));
   const v = trabValor(t, cu, clientes);
+  const vAuto = trabValorAuto(t, cu, clientes);
   const corre = (t.tempos || []).some(x => !x.fim);
   const pastasCli = (trab.pastas || []).filter(p => String(p.cid) === String(t.cid));
   const caminhoTxt = p => caminho(trab, p.id).map(x => x.nome).join(' / ');
   const lab = `text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`;
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const caixa = `rounded-xl border p-3 ${claro ? 'border-slate-200' : 'border-slate-700'}`;
+  // Peças da tarefa: à mão (t.pecas) ou lidas do nome
+  const pecasAtuais = {}; trabPecas(t).forEach(p => { if (p.tipo !== 'outro' && p.tipo !== 'extra') pecasAtuais[p.tipo] = (pecasAtuais[p.tipo] || 0) + p.n; });
+  const temMao = t.pecas && Object.keys(t.pecas).length > 0;
+  const preco = tipo => cuPreco(cu, clientes, t.cid, tipo);
+  const tiposVis = TIPOS_PECA.filter(x => maisTipos || preco(x.id) > 0 || pecasAtuais[x.id]);
+  const setPeca = (tipo, n) => { const base = temMao ? { ...t.pecas } : { ...pecasAtuais }; if (!n) delete base[tipo]; else base[tipo] = n; set({ pecas: base }); };
+  const horasTarefa = trabHoras(t);
+  const est = Number(t.estimativa) || 0;
+  const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
+  const custo = Number(t.custoOutsourcing) || 0;
   return (
     <div className="fixed inset-0 z-50 flex justify-end animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: 'rgba(0,0,0,.45)' }}>
-      <div className={`w-full max-w-lg h-full overflow-y-auto shadow-2xl animate-slideInRight ${claro ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}`}>
+      <div className={`w-full max-w-xl h-full overflow-y-auto shadow-2xl animate-slideInRight ${claro ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
+          {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
+          <span className={`text-sm tabular-nums ${sub}`}><HorasVivas t={t} /></span>
           <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
         <div className="p-4 space-y-4">
           <textarea key={t.id + 'n'} defaultValue={t.nome} rows={2} onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) set({ nome: n }); }}
             className={`w-full bg-transparent text-lg font-semibold resize-none focus:outline-none rounded-lg px-1 ${claro ? 'focus:bg-slate-50' : 'focus:bg-white/5'}`} />
+
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Pasta</span>
+            <label className="flex flex-col gap-1 min-w-0 col-span-2"><span className={lab}>Pasta</span>
               <select value={t.pastaId || ''} onChange={e => set({ pastaId: e.target.value || null })} className={`${inputClass} text-sm py-1.5`}>
                 {pastasCli.map(p => <option key={p.id} value={p.id}>{caminhoTxt(p)}</option>)}
               </select>
@@ -471,17 +553,91 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Prazo</span>
               <input type="date" value={t.prazo || ''} onChange={e => set({ prazo: e.target.value })} className={`${inputClass} text-sm py-1.5`} />
             </label>
-            <div className="flex flex-col gap-1"><span className={lab}>Vale</span>
+            <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Prioridade</span>
+              <select value={t.prioridade || ''} onChange={e => set({ prioridade: e.target.value || null })} className={`${inputClass} text-sm py-1.5`}>
+                <option value="">—</option>{PRIORIDADES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Estimativa de horas</span>
+              <NumIn valor={t.estimativa ?? null} placeholder="ex.: 6" onGravar={x => set({ estimativa: x })} className={`${inputClass} text-sm py-1.5`} />
+            </label>
+            <div className="flex flex-col gap-1 min-w-0"><span className={lab}>Tempo vs estimativa</span>
+              <p className={`text-sm py-1.5 tabular-nums ${est && horasTarefa > est ? 'text-red-400' : ''}`}>{tempoTxt(horasTarefa)}{est ? ` de ${tempoTxt(est)} (${Math.round(horasTarefa / est * 100)}%)` : ''}</p>
+            </div>
+          </div>
+
+          {/* Valor da tarefa: peças por tipo, com preço do cliente */}
+          <div className={caixa}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium">Valor</p>
               <p className={`text-lg font-semibold tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(v)}</p>
             </div>
-            <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Valor à mão (opcional)</span>
-              <input key={t.id + 'v' + (t.valorManual ?? '')} defaultValue={t.valorManual ?? ''} inputMode="decimal" placeholder="automático"
-                onBlur={e => { const x = e.target.value.trim(); set({ valorManual: x === '' ? null : Number(x.replace(',', '.')) || 0 }); }} className={`${inputClass} text-sm py-1.5`} />
+            <div className="space-y-1">
+              {tiposVis.map(x => {
+                const n = pecasAtuais[x.id] || 0;
+                return (
+                  <div key={x.id} className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
+                    <span className={n ? '' : sub}>{x.curto || x.nome}</span>
+                    <NumIn valor={n || null} placeholder="0" decimal={false} onGravar={q => setPeca(x.id, q || 0)} className={`${inputClass} !w-full text-sm py-1 text-right`} />
+                    <span className={`text-right text-xs ${sub}`}>× {eur(preco(x.id))}</span>
+                    <span className="text-right tabular-nums">{n ? eur(n * preco(x.id)) : '—'}</span>
+                  </div>
+                );
+              })}
+              {trabPecas(t).some(p => p.tipo === 'extra' || p.tipo === 'outro') && (
+                <div className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
+                  <span>Horas (à hora)</span><span className="text-right tabular-nums">{tempoTxt(horasTarefa)}</span>
+                  <span className={`text-right text-xs ${sub}`}>× {eur(preco('hora'))}/h</span>
+                  <span className="text-right tabular-nums">{preco('dia') > 0 ? 'nos dias' : eur(horasTarefa * preco('hora'))}</span>
+                </div>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
+              {temMao ? <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button> : <span className={sub}>lido do nome da tarefa</span>}
+            </div>
+            <div className={`mt-3 pt-3 border-t grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+              <span className="text-sm">Valor final <span className={`text-[11px] ${sub}`}>(vazio = {eur(vAuto)})</span></span>
+              <NumIn valor={t.valorManual ?? null} placeholder={String(Math.round(vAuto))} onGravar={x => set({ valorManual: x })} className={`${inputClass} !w-full text-sm py-1 text-right font-semibold`} />
+            </div>
+          </div>
+
+          {/* Entrega */}
+          <div className={`${caixa} space-y-3`}>
+            <p className="text-sm font-medium">Entrega</p>
+            <div>
+              <span className={lab}>Formatos</span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {FORMATOS.map(f => { const on = (t.formatos || []).includes(f); return (
+                  <button key={f} type="button" onClick={() => set({ formatos: on ? (t.formatos || []).filter(x => x !== f) : [...(t.formatos || []), f] })}
+                    className={`px-2.5 py-1 rounded-md text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{f}</button>
+                ); })}
+              </div>
+            </div>
+            <label className="flex flex-col gap-1"><span className={lab}>Link da entrega (Frame.io, Drive…)</span>
+              <div className="flex gap-2">
+                <input key={t.id + 'l' + (t.link || '')} defaultValue={t.link || ''} placeholder="https://" onBlur={e => { if (e.target.value !== (t.link || '')) set({ link: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
+                {t.link && <a href={t.link} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
+              </div>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!t.faturada} onChange={e => set({ faturada: e.target.checked })} />
+              Já faturada ao cliente
             </label>
           </div>
-          <p className={lab}>Peças lidas do nome: {cuPecas(t.nome).map(p => `${p.n} × ${(CU_TIPOS.find(x => x.id === p.tipo) || {}).curto || (CU_TIPOS.find(x => x.id === p.tipo) || {}).nome || p.tipo}`).join(' + ')}</p>
 
-          <div className={`rounded-xl border p-3 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+          {/* Outsourcing */}
+          <div className={`${caixa} space-y-2`}>
+            <p className="text-sm font-medium">Outsourcing <span className={`font-normal text-xs ${sub}`}>(se passaste a tarefa a outro freelancer)</span></p>
+            <div className="grid grid-cols-2 gap-2">
+              <input key={t.id + 'q' + (t.outsourcing || '')} defaultValue={t.outsourcing || ''} placeholder="Quem fez" onBlur={e => { if (e.target.value !== (t.outsourcing || '')) set({ outsourcing: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
+              <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
+            </div>
+            {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
+          </div>
+
+          {/* Tempo */}
+          <div className={caixa}>
             <div className="flex items-center justify-between mb-2"><p className="text-sm font-medium">Tempo</p><p className="text-sm tabular-nums font-semibold"><HorasVivas t={t} /></p></div>
             <div className="space-y-1">
               {(t.tempos || []).slice().reverse().map(x => (
@@ -508,7 +664,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </div>
           </div>
 
-          <div className={`rounded-xl border p-3 text-xs space-y-1 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+          <div className={`${caixa} text-xs space-y-1`}>
             <p className="text-sm font-medium mb-1">Registo automático</p>
             {[['Criada', t.criada], ['Começada', t.iniciada], ['Posta em review', t.review], ['Terminada', t.feita]].map(([k, d]) => (
               <div key={k} className="flex justify-between"><span className={lab}>{k}</span><span className="tabular-nums">{dataHora(d)}</span></div>
@@ -516,10 +672,10 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           </div>
 
           <label className="flex flex-col gap-1"><span className={lab}>Notas da tarefa</span>
-            <textarea key={t.id + 'x'} defaultValue={t.notas || ''} rows={4} onBlur={e => { if (e.target.value !== (t.notas || '')) set({ notas: e.target.value }); }} className={`${inputClass} text-sm`} placeholder="Links, feedback do cliente, ideias…" />
+            <textarea key={t.id + 'x'} defaultValue={t.notas || ''} rows={4} onBlur={e => { if (e.target.value !== (t.notas || '')) set({ notas: e.target.value }); }} className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
           </label>
           <div className="flex justify-between">
-            <button type="button" className="text-xs text-slate-400 hover:text-blue-400" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null }] }))}>Duplicar</button>
+            <button type="button" className="text-xs text-slate-400 hover:text-blue-400" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
             <button type="button" className="text-xs text-red-400 hover:text-red-300" onClick={() => { if (window.confirm('Apagar esta tarefa?')) { mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar(); } }}>Apagar tarefa</button>
           </div>
         </div>
@@ -529,7 +685,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 };
 
 // ── Árvore de pastas ──
-const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar, onFav }) => {
+const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar, onFav, onSub }) => {
   const claro = useClaro(theme);
   const fav = (trab.favoritos || []).includes(p.id);
   const filhas = filhasDe(trab, p.id);
@@ -542,15 +698,17 @@ const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar
         <button type="button" onClick={() => alternar(p.id)} className={`w-5 h-6 inline-flex items-center justify-center ${filhas.length ? '' : 'invisible'} ${claro ? 'text-slate-400' : 'text-slate-500'}`} aria-label={aberta ? 'Fechar' : 'Abrir'}>
           <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: aberta ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true"><path d="M3 1.5 7 5l-4 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </button>
-        <button type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className="flex-1 min-w-0 flex items-center gap-2 py-1.5 text-left">
-          <span className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
-          <span className="truncate">{p.nome}</span>
+        <button type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className="flex-1 min-w-0 flex items-start gap-2 py-1.5 text-left">
+          <span className="w-2.5 h-2.5 mt-[5px] rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
+          <span className="break-words leading-snug">{p.nome}</span>
         </button>
+        <button type="button" onClick={() => onSub(p)} title="Nova subpasta" aria-label={`Nova subpasta em ${p.nome}`}
+          className={`w-5 h-5 inline-flex items-center justify-center rounded text-[15px] leading-none opacity-0 group-hover:opacity-100 ${claro ? 'text-slate-400 hover:text-blue-600' : 'text-slate-500 hover:text-blue-400'}`}>+</button>
         <button type="button" onClick={() => onFav(p.id)} title={fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'} aria-label={fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'}
           className={`w-5 h-5 inline-flex items-center justify-center rounded text-[13px] leading-none ${fav ? 'text-amber-400' : `opacity-0 group-hover:opacity-100 ${claro ? 'text-slate-400 hover:text-amber-500' : 'text-slate-500 hover:text-amber-400'}`}`}>{fav ? '★' : '☆'}</button>
         {n > 0 && <span className={`text-[11px] tabular-nums w-5 text-right ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{n}</span>}
       </div>
-      {aberta && filhas.map(f => <NoPasta key={f.id} p={f} trab={trab} nivel={nivel + 1} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={onFav} />)}
+      {aberta && filhas.map(f => <NoPasta key={f.id} p={f} trab={trab} nivel={nivel + 1} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={onFav} onSub={onSub} />)}
     </div>
   );
 };
@@ -634,7 +792,7 @@ const importarFicheiro = async (file, trab, clientes) => {
   });
   novasP.forEach(p => { p.paiId = p.paiOrigem ? (mapaId[p.paiOrigem] || null) : null; delete p.paiOrigem; });
   const novasT = j.tarefas.filter(t => !jaT.has(t.origem)).map((t, i) => ({
-    id: trabId() + 't' + i, origem: t.origem, pastaId: mapaId[t.pastaOrigem] || null, cid: cidDe(t.cliente), nome: t.nome, estado: t.estado || 'todo',
+    id: trabId() + 't' + i, origem: t.origem, pastaId: mapaId[t.pastaOrigem] || null, cid: cidDe(t.cliente), nome: t.nome, estado: t.estado === 'aprovar' ? 'todo' : (t.estado || 'todo'),
     criada: t.criada || agoraIso(), iniciada: t.iniciada || null, review: t.review || null, feita: t.feita || null, prazo: t.prazo || '', notas: t.notas || '',
     tempos: (t.tempos || []).map((x, k) => ({ id: trabId() + k, ini: x.ini, fim: x.fim })),
   }));
@@ -655,7 +813,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast }) => {
+const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -677,6 +835,8 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const alternarArvore = () => setSemArvore(v => { try { localStorage.setItem('trab-sem-arvore', v ? '0' : '1'); } catch (e) { /* sem armazenamento */ } return !v; });
   const ficheiroRef = useRef(null);
 
+  // Estado antigo "Por aprovar" passa a "Por começar"
+  useEffect(() => { if ((trab.tarefas || []).some(t => t.estado === 'aprovar')) mudar(tr => ({ ...tr, tarefas: tr.tarefas.map(t => (t.estado === 'aprovar' ? { ...t, estado: 'todo' } : t)) })); }, [trab.tarefas]); // eslint-disable-line react-hooks/exhaustive-deps
   const pasta = sel.tipo === 'pasta' ? (trab.pastas || []).find(p => p.id === sel.id) : null;
   const cidSel = pasta ? pasta.cid : sel.tipo === 'cliente' ? sel.id : null;
   const cliente = clientes.find(c => String(c.id) === String(cidSel));
@@ -738,9 +898,9 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
             const n = contar(p.id);
             return (
               <div key={p.id} className={`group flex items-center gap-2 px-2 rounded-lg text-sm ${ativo ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-                <button type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className="flex-1 min-w-0 flex items-center gap-2 py-1.5 text-left" title={caminho(trab, p.id).map(x => x.nome).join(' / ')}>
-                  <span className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
-                  <span className="truncate">{p.nome}</span>
+                <button type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className="flex-1 min-w-0 flex items-start gap-2 py-1.5 text-left" title={caminho(trab, p.id).map(x => x.nome).join(' / ')}>
+                  <span className="w-2.5 h-2.5 mt-[5px] rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
+                  <span className="break-words leading-snug">{p.nome}</span>
                 </button>
                 <button type="button" onClick={() => mudar(tr => opFavorito(tr, p.id))} className="text-amber-400 text-[13px] opacity-60 group-hover:opacity-100" title="Tirar dos favoritos" aria-label="Tirar dos favoritos">★</button>
                 {n > 0 && <span className={`text-[11px] tabular-nums w-5 text-right ${sub}`}>{n}</span>}
@@ -760,9 +920,9 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                 <span className="w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ background: c.cor || '#64748b' }}>{String(c.nome || '?').charAt(0).toUpperCase()}</span>
                 <span className="text-sm font-semibold truncate">{c.nome}</span>
               </button>
-              <button type="button" onClick={() => novaPasta(c.id, null)} className={`w-6 h-6 rounded-md text-base leading-none ${sub} hover:text-blue-400 opacity-60 group-hover:opacity-100`} title="Nova pasta" aria-label={`Nova pasta em ${c.nome}`}>+</button>
+              <button type="button" onClick={() => novaPasta(c.id, null)} className={`w-6 h-6 rounded-md text-base leading-none ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Nova pasta" aria-label={`Nova pasta em ${c.nome}`}>+</button>
             </div>
-            <div className="ml-1">{raiz.map(p => <NoPasta key={p.id} p={p} trab={trab} nivel={0} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={id => mudar(tr => opFavorito(tr, id))} />)}</div>
+            <div className="ml-1">{raiz.map(p => <NoPasta key={p.id} p={p} trab={trab} nivel={0} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={id => mudar(tr => opFavorito(tr, id))} onSub={pp => novaPasta(pp.cid, pp.id)} />)}</div>
           </div>
         );
       })}
@@ -774,7 +934,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
-  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões']] : [];
+  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
   const abaAtual = abas.some(a => a[0] === aba) ? aba : 'tarefas';
   const valorAberto = tarefas.filter(t => t.estado !== 'feito').reduce((a, t) => a + trabValor(t, cu, clientes), 0);
   const horasTot = tarefas.reduce((a, t) => a + trabHoras(t), 0);
@@ -795,7 +955,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
         <button type="button" onClick={() => ficheiroRef.current && ficheiroRef.current.click()} className={`px-3 py-2 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Importar do ClickUp</button>
         <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
       </div>
-      <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[272px_minmax(0,1fr)]'}`}>
+      <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[330px_minmax(0,1fr)]'}`}>
         <aside className={`${arvoreMob ? 'block' : 'hidden'} ${semArvore ? 'lg:hidden' : 'lg:block'} lg:sticky lg:top-[150px] rounded-2xl border p-2 lg:max-h-[calc(100vh-170px)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
         <section className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -855,9 +1015,12 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
             </div>
           )}
           {abaAtual === 'notas' && (pasta || sel.tipo === 'cliente') && <Notas notas={notasAlvo} onMudar={mudarNotas} theme={theme} inputClass={inputClass} />}
+          {abaAtual === 'precos' && sel.tipo === 'cliente' && onPrecos && (
+            <PrecosCliente cid={sel.id} nome={cliente ? cliente.nome : ''} cu={cu} clientes={clientesIn} theme={theme} inputClass={inputClass} onPrecos={onPrecos} />
+          )}
           {abaAtual === 'orcamento' && pasta && (
-            <Card><Orcamento pasta={pasta} tarefas={tarefas} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} nomeCliente={cliente ? cliente.nome : ''}
-              onMudar={orcamento => mudar(tr => opPasta(tr, pasta.id, { orcamento }))} /></Card>
+            <Orcamento pasta={pasta} tarefas={tarefas} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
+              onMudar={orcamento => mudar(tr => opPasta(tr, pasta.id, { orcamento }))} />
           )}
         </section>
       </div>
