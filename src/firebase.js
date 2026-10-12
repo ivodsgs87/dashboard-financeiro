@@ -60,6 +60,23 @@ export const subscribeToUserData = (userId, callback) => {
   });
 };
 
+// Separador Trabalho (tarefas, pastas, tempos): documento à parte, users/<uid>/trabalho/dados,
+// para não encher o documento principal (o Firestore aceita até 1 MB por documento).
+const docTrabalho = (userId) => doc(db, 'users', userId, 'trabalho', 'dados');
+
+export const guardarTrabalho = async (userId, dados) => {
+  await setDoc(docTrabalho(userId), dados);
+};
+
+// Chama cb(dados, pendente) sempre que o documento muda (também noutro dispositivo).
+// Se não houver autorização, chama erro(e) — a app passa então a gravar no documento principal.
+export const ouvirTrabalho = (userId, cb, erro) => onSnapshot(
+  docTrabalho(userId),
+  { includeMetadataChanges: false },
+  (snap) => cb(snap.exists() ? snap.data() : null, snap.metadata.hasPendingWrites),
+  (e) => { console.error('Trabalho:', e); if (erro) erro(e); }
+);
+
 // Google Sheets API - Criar nova spreadsheet
 export const createGoogleSheet = async (title, sheetsData) => {
   if (!accessToken) {
