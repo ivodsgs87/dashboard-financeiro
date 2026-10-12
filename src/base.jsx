@@ -168,313 +168,231 @@ const SliderWithInput = memo(({value, onChange, min = 0, max = 100, unit = '%', 
 });
 
 // Charts
-const PieChart = memo(({data, size = 200}) => {
- const total = data.reduce((a, d) => a + d.value, 0);
- if (total === 0) return null;
- let cumulative = 0;
- const createArc = (startAngle, endAngle) => {
- const start = (startAngle - 90) * Math.PI / 180;
- const end = (endAngle - 90) * Math.PI / 180;
- const r = size / 2 - 10;
- const cx = size / 2, cy = size / 2;
- const x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
- const x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
- return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${endAngle - startAngle > 180 ? 1 : 0} 1 ${x2} ${y2} Z`;
- };
- return (
- <svg width={size} height={size} className="drop-shadow-lg">
- {data.map((d, i) => {
- if (d.value === 0) return null;
- const startAngle = (cumulative / total) * 360;
- cumulative += d.value;
- return <path key={i} d={createArc(startAngle, (cumulative / total) * 360)} fill={d.color} stroke="#1e293b" strokeWidth="2" className="hover:opacity-80 transition-opacity"/>;
- })}
- <circle cx={size/2} cy={size/2} r={size/4} fill="#1e293b" />
- </svg>
- );
+// ══ GRÁFICOS ════════════════════════════════════════════════════════════════
+// Desenhados à largura real do cartão (sem esticar o SVG), linhas finas, grelha discreta,
+// eixo com valores redondos e um cursor com caixa de valores ao passar o rato / tocar.
+// As cores de grelha, texto e caixa vêm de variáveis CSS (--graf-*) definidas por tema.
+const useLargura = (padrao = 600) => {
+  // ref de callback: volta a medir mesmo que o gráfico só apareça depois (quando os dados chegam)
+  const [el, ref] = useState(null);
+  const [w, setW] = useState(padrao);
+  useEffect(() => {
+    if (!el) return undefined;
+    const medir = () => setW(Math.max(120, Math.round(el.clientWidth || padrao)));
+    medir();
+    if (typeof ResizeObserver === 'undefined') { window.addEventListener('resize', medir); return () => window.removeEventListener('resize', medir); }
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el, padrao]);
+  return [ref, w];
+};
+// Marcas do eixo em números redondos (1, 2, 2,5, 5 × 10ⁿ)
+const grafMarcas = (min, max, n = 4) => {
+  const span = (max - min) || Math.abs(max) || 1;
+  const bruto = span / n, p = Math.pow(10, Math.floor(Math.log10(bruto))), f = bruto / p;
+  const passo = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  const lo = Math.floor(min / passo) * passo, hi = Math.ceil(max / passo) * passo;
+  const out = [];
+  for (let v = lo; v <= hi + passo / 2; v += passo) out.push(Math.round(v * 100) / 100);
+  return out.length > 1 ? out : [lo, lo + passo];
+};
+const grafCompacto = v => {
+  const a = Math.abs(v), s = v < 0 ? '-' : '';
+  if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',').replace(/,0$/, '') + 'M';
+  if (a >= 1000) return s + (a / 1000).toFixed(a >= 1e4 ? 0 : 1).replace('.', ',').replace(/,0$/, '') + 'k';
+  return s + Math.round(a);
+};
+const GrafCaixa = ({ x, largura, titulo, linhas }) => (
+  <div className="absolute top-1 z-10 pointer-events-none rounded-lg border px-3 py-2 text-xs shadow-xl min-w-[150px]"
+    style={{ left: Math.max(4, Math.min(x + 14, largura - 190)), background: 'var(--graf-caixa)', borderColor: 'var(--graf-caixa-borda)', color: 'var(--graf-texto)' }}>
+    <p className="mb-1" style={{ color: 'var(--graf-eixo)' }}>{titulo}</p>
+    {linhas.map((l, k) => (
+      <p key={k} className="flex items-center gap-2 leading-5">
+        {l.cor && <span className="inline-block w-3 rounded-full flex-shrink-0" style={{ height: 2, background: l.cor }} />}
+        <span className="font-semibold">{l.valor}</span>
+        {l.nome && <span style={{ color: 'var(--graf-eixo)' }}>{l.nome}</span>}
+      </p>
+    ))}
+  </div>
+);
+// Linhas (uma ou várias séries) com área opcional
+const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fmtEUR.format(v), rotuloFinal = null, aria = 'Gráfico' }) => {
+  const [ref, w] = useLargura();
+  const [hi, setHi] = useState(null);
+  const n = rotulos.length;
+  if (!n) return null;
+  const todos = series.flatMap(s => s.valores.filter(v => v != null && Number.isFinite(v)));
+  if (!todos.length) return null;
+  const marcas = grafMarcas(Math.min(0, ...todos), Math.max(0, ...todos));
+  const y0 = marcas[0], y1 = marcas[marcas.length - 1];
+  const pl = 44, pr = 18, pt = rotuloFinal ? 24 : 12, pb = 26;
+  const iw = Math.max(10, w - pl - pr), ih = Math.max(10, height - pt - pb);
+  const X = i => pl + (n === 1 ? iw / 2 : (i * iw) / (n - 1));
+  const Y = v => pt + ih - ((v - y0) / ((y1 - y0) || 1)) * ih;
+  const cada = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(iw / 54))));
+  const mostraX = i => i === n - 1 || (i % cada === 0 && (n - 1 - i) >= cada * 0.6);
+  const caminho = vals => vals.reduce((d, v, i) => (v == null || !Number.isFinite(v) ? d : d + (d ? ' L ' : 'M ') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)), '');
+  const area = vals => {
+    const idx = vals.map((v, i) => (v == null || !Number.isFinite(v) ? null : i)).filter(i => i != null);
+    if (idx.length < 2) return '';
+    return caminho(vals) + ` L ${X(idx[idx.length - 1]).toFixed(1)} ${Y(Math.max(y0, 0)).toFixed(1)} L ${X(idx[0]).toFixed(1)} ${Y(Math.max(y0, 0)).toFixed(1)} Z`;
+  };
+  const mover = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const i = n === 1 ? 0 : Math.round(((e.clientX - r.left - pl) / iw) * (n - 1));
+    setHi(Math.max(0, Math.min(n - 1, i)));
+  };
+  const s0 = series[0];
+  const ultI = s0.valores.reduce((a, v, i) => (v != null && Number.isFinite(v) ? i : a), -1);
+  return (
+    <div ref={ref} className="relative w-full select-none" style={{ height }}>
+      <svg width={w} height={height} className="block" role="img" aria-label={aria}
+        onPointerMove={mover} onPointerDown={mover} onPointerLeave={() => setHi(null)} style={{ touchAction: 'pan-y' }}>
+        <rect x={pl} y={pt} width={iw} height={ih} fill="transparent" />
+        {marcas.map(t => (
+          <g key={t}>
+            <line x1={pl} x2={w - pr} y1={Y(t)} y2={Y(t)} strokeWidth="1" style={{ stroke: t === 0 ? 'var(--graf-base)' : 'var(--graf-grelha)' }} />
+            <text x={pl - 8} y={Y(t) + 4} textAnchor="end" fontSize="11" style={{ fill: 'var(--graf-eixo)', fontVariantNumeric: 'tabular-nums' }}>{grafCompacto(t)}</text>
+          </g>
+        ))}
+        {rotulos.map((l, i) => (mostraX(i) ? <text key={i} x={X(i)} y={height - 6} textAnchor={n > 1 && i === n - 1 ? 'end' : n > 1 && i === 0 ? 'start' : 'middle'} fontSize="11" style={{ fill: 'var(--graf-eixo)' }}>{l}</text> : null))}
+        {series.map((s, k) => s.area && <path key={'a' + k} d={area(s.valores)} fill={s.cor} fillOpacity="0.12" />)}
+        {series.map((s, k) => <path key={'l' + k} d={caminho(s.valores)} fill="none" stroke={s.cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.tracejado ? '5 4' : undefined} />)}
+        {hi != null && <line x1={X(hi)} x2={X(hi)} y1={pt} y2={pt + ih} strokeWidth="1" style={{ stroke: 'var(--graf-eixo)', opacity: 0.6 }} />}
+        {ultI >= 0 && hi == null && <circle cx={X(ultI)} cy={Y(s0.valores[ultI])} r="4" fill={s0.cor} strokeWidth="2" style={{ stroke: 'var(--graf-fundo)' }} />}
+        {hi != null && series.map((s, k) => (s.valores[hi] != null && Number.isFinite(s.valores[hi])
+          ? <circle key={'h' + k} cx={X(hi)} cy={Y(s.valores[hi])} r="4.5" fill={s.cor} strokeWidth="2" style={{ stroke: 'var(--graf-fundo)' }} /> : null))}
+        {rotuloFinal && ultI >= 0 && hi == null && (
+          <text x={X(ultI)} y={Y(s0.valores[ultI]) - 10} textAnchor={ultI === 0 ? 'start' : 'end'} fontSize="12" fontWeight="600" style={{ fill: 'var(--graf-texto)' }}>{rotuloFinal(s0.valores[ultI])}</text>
+        )}
+      </svg>
+      {hi != null && (
+        <GrafCaixa x={X(hi)} largura={w} titulo={rotulos[hi]}
+          linhas={series.filter(s => s.valores[hi] != null && Number.isFinite(s.valores[hi])).map(s => ({ cor: series.length > 1 ? s.cor : null, valor: formatarValor(s.valores[hi]), nome: s.nome }))} />
+      )}
+    </div>
+  );
+};
+
+const LineChart = memo(({ data, height = 200, color = '#3b82f6', showValues = false, formatValue }) => {
+  if (!data || data.length === 0) return null;
+  return (
+    <GraficoLinhas height={height} rotulos={data.map(d => d.label)} aria="Evolução"
+      series={[{ nome: '', cor: color, valores: data.map(d => Number(d.value) || 0), area: true }]}
+      rotuloFinal={showValues ? (formatValue || grafCompacto) : null} />
+  );
 });
 
-const LineChart = memo(({data, height = 200, color = '#3b82f6', showValues = false, formatValue}) => {
- if (data.length === 0) return null;
- const values = data.map(d => d.value);
- const max = Math.max(...values, 1);
- const min = Math.min(...values, 0);
- const range = max - min || 1;
- const padding = 10;
- const chartWidth = 100;
- const chartHeight = height - 40;
- const getX = (i) => padding + (i / (data.length - 1 || 1)) * (chartWidth - padding * 2);
- const getY = (v) => 15 + chartHeight - ((v - min) / range) * (chartHeight - 10);
- const pathD = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.value)}`).join(' ');
- const areaD = pathD + ` L ${getX(data.length - 1)} ${chartHeight + 15} L ${getX(0)} ${chartHeight + 15} Z`;
- 
- const fmtVal = formatValue || ((v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v.toString());
- 
- return (
- <div className="relative w-full" style={{height}}>
- <svg viewBox={`0 0 ${chartWidth} ${height}`} className="w-full h-full" preserveAspectRatio="none">
- <defs>
- <linearGradient id={`grad-${color.replace('#','')}`} x1="0%" y1="0%" x2="0%" y2="100%">
- <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
- <stop offset="100%" stopColor={color} stopOpacity="0"/>
- </linearGradient>
- </defs>
- {[0,1,2,3,4].map(i => <line key={i} x1={padding} x2={chartWidth-padding} y1={15 + i*(chartHeight-10)/4} y2={15 + i*(chartHeight-10)/4} stroke="#334155" strokeWidth="0.3" strokeDasharray="1"/>)}
- <path d={areaD} fill={`url(#grad-${color.replace('#','')})`}/>
- <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
- {data.map((d, i) => <circle key={i} cx={getX(i)} cy={getY(d.value)} r="2" fill={color} stroke="#1e293b" strokeWidth="1"/>)}
- </svg>
- {showValues && (
- <div className="absolute inset-0 pointer-events-none">
- {data.map((d, i) => {
- const xPercent = (getX(i) / chartWidth) * 100;
- const yPercent = ((getY(d.value) - 22) / height) * 100;
- return (
- <div 
- key={`val-${i}`} 
- className="absolute font-bold transform -translate-x-1/2"
- style={{
- left: `${xPercent}%`,
- top: `${yPercent}%`,
- color: color,
- fontSize: '12px',
- textShadow: '0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.5)'
- }}
- >
- {fmtVal(d.value)}
- </div>
- );
- })}
- </div>
- )}
- <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-xs text-slate-500">
- {data.map((d, i) => <span key={i} className="text-center truncate" style={{width: `${100/data.length}%`}}>{d.label}</span>)}
- </div>
- </div>
- );
+// Receitas de sempre: série principal com área + média móvel de 3 meses
+const AreaChartAllTime = memo(({ data, height = 280 }) => {
+  if (!data || data.length === 0) return null;
+  const vals = data.map(d => Number(d.value) || 0);
+  const media = vals.map((_, i) => (i < 2 ? null : (vals[i] + vals[i - 1] + vals[i - 2]) / 3));
+  return (
+    <div>
+      <div className="flex justify-end gap-4 text-xs mb-1" style={{ color: 'var(--graf-eixo)' }}>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 rounded-full" style={{ height: 2, background: '#3b82f6' }} />Receita</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: 'repeating-linear-gradient(90deg, #d97706 0 5px, transparent 5px 9px)' }} />Média 3 meses</span>
+      </div>
+      <GraficoLinhas height={height - 20} rotulos={data.map(d => d.label)} aria="Receitas ao longo do tempo"
+        series={[{ nome: 'Receita', cor: '#3b82f6', valores: vals, area: true }, { nome: 'Média 3m', cor: '#d97706', valores: media, tracejado: true }]} />
+    </div>
+  );
 });
 
-// Area Chart mais bonito para All-Time
-const AreaChartAllTime = memo(({data, height = 280}) => {
- if (data.length === 0) return null;
- 
- const values = data.map(d => d.value);
- const max = Math.max(...values, 1);
- const min = 0; // Sempre começar do 0 para melhor visualização
- const range = max - min || 1;
- 
- const paddingLeft = 50;
- const paddingRight = 20;
- const paddingTop = 20;
- const paddingBottom = 50;
- const chartWidth = 800;
- const chartHeight = height - paddingTop - paddingBottom;
- 
- const getX = (i) => paddingLeft + (i / (data.length - 1 || 1)) * (chartWidth - paddingLeft - paddingRight);
- const getY = (v) => paddingTop + chartHeight - ((v - min) / range) * chartHeight;
- 
- // Criar path suave com curvas
- const createSmoothPath = () => {
-   if (data.length < 2) return '';
-   let path = `M ${getX(0)} ${getY(data[0].value)}`;
-   for (let i = 1; i < data.length; i++) {
-     const x0 = getX(i - 1);
-     const y0 = getY(data[i - 1].value);
-     const x1 = getX(i);
-     const y1 = getY(data[i].value);
-     const cpx = (x0 + x1) / 2;
-     path += ` C ${cpx} ${y0}, ${cpx} ${y1}, ${x1} ${y1}`;
-   }
-   return path;
- };
- 
- const smoothPath = createSmoothPath();
- const areaPath = smoothPath + ` L ${getX(data.length - 1)} ${paddingTop + chartHeight} L ${getX(0)} ${paddingTop + chartHeight} Z`;
- 
- // Valores do eixo Y
- const yAxisValues = [0, 1, 2, 3, 4].map(i => min + (range * (4 - i) / 4));
- 
- // Calcular média móvel (3 meses)
- const movingAvg = data.map((d, i) => {
-   if (i < 2) return null;
-   const avg = (data[i].value + data[i-1].value + data[i-2].value) / 3;
-   return { x: getX(i), y: getY(avg) };
- }).filter(Boolean);
- 
- const movingAvgPath = movingAvg.length > 1 
-   ? `M ${movingAvg[0].x} ${movingAvg[0].y} ` + movingAvg.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
-   : '';
- 
- // Labels do eixo X (mostrar apenas alguns para não sobrecarregar)
- const step = Math.ceil(data.length / 12);
- const xLabels = data.filter((_, i) => i % step === 0 || i === data.length - 1);
- 
- const formatVal = (v) => v >= 1000 ? `${(v/1000).toFixed(0)}k€` : `${v}€`;
- 
- return (
-   <div className="relative w-full overflow-hidden" style={{height}}>
-     <svg viewBox={`0 0 ${chartWidth} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-       <defs>
-         <linearGradient id="areaGradientAllTime" x1="0%" y1="0%" x2="0%" y2="100%">
-           <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
-           <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.2"/>
-           <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0"/>
-         </linearGradient>
-         <filter id="glow">
-           <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-           <feMerge>
-             <feMergeNode in="coloredBlur"/>
-             <feMergeNode in="SourceGraphic"/>
-           </feMerge>
-         </filter>
-       </defs>
-       
-       {/* Linhas de grelha horizontais */}
-       {[0,1,2,3,4].map(i => (
-         <g key={i}>
-           <line 
-             x1={paddingLeft} 
-             x2={chartWidth - paddingRight} 
-             y1={paddingTop + (i * chartHeight / 4)} 
-             y2={paddingTop + (i * chartHeight / 4)} 
-             stroke="#334155" 
-             strokeWidth="1" 
-             strokeDasharray="4 4"
-             opacity="0.5"
-           />
-           <text 
-             x={paddingLeft - 8} 
-             y={paddingTop + (i * chartHeight / 4) + 4} 
-             fill="#64748b" 
-             fontSize="11" 
-             textAnchor="end"
-           >
-             {formatVal(yAxisValues[i])}
-           </text>
-         </g>
-       ))}
-       
-       {/* Área preenchida */}
-       <path d={areaPath} fill="url(#areaGradientAllTime)"/>
-       
-       {/* Linha de média móvel */}
-       {movingAvgPath && (
-         <path 
-           d={movingAvgPath} 
-           fill="none" 
-           stroke="#f59e0b" 
-           strokeWidth="2" 
-           strokeDasharray="6 3"
-           opacity="0.7"
-         />
-       )}
-       
-       {/* Linha principal */}
-       <path 
-         d={smoothPath} 
-         fill="none" 
-         stroke="url(#lineGradient)" 
-         strokeWidth="3" 
-         strokeLinecap="round"
-         filter="url(#glow)"
-       />
-       <defs>
-         <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-           <stop offset="0%" stopColor="#3b82f6"/>
-           <stop offset="100%" stopColor="#8b5cf6"/>
-         </linearGradient>
-       </defs>
-       
-       {/* Pontos nos dados com valores */}
-       {data.map((d, i) => {
-         // Mostrar valores: sempre se <= 12 pontos, ou a cada N pontos se mais
-         const showValue = data.length <= 12 || i % Math.ceil(data.length / 12) === 0 || i === data.length - 1;
-         const valueY = getY(d.value) - 12;
-         const shortVal = d.value >= 1000 ? `${(d.value/1000).toFixed(1)}k` : d.value;
-         
-         return (
-           <g key={i}>
-             <circle 
-               cx={getX(i)} 
-               cy={getY(d.value)} 
-               r={data.length > 24 ? 3 : 5} 
-               fill="#1e293b" 
-               stroke="#3b82f6" 
-               strokeWidth="2"
-             />
-             {showValue && (
-               <text
-                 x={getX(i)}
-                 y={valueY}
-                 fill="#94a3b8"
-                 fontSize="9"
-                 textAnchor="middle"
-                 fontWeight="500"
-               >
-                 {shortVal}
-               </text>
-             )}
-           </g>
-         );
-       })}
-       
-       {/* Labels do eixo X */}
-       {xLabels.map((d, i) => {
-         const originalIndex = data.findIndex(x => x === d);
-         return (
-           <text 
-             key={i}
-             x={getX(originalIndex)} 
-             y={height - 15} 
-             fill="#64748b" 
-             fontSize="11" 
-             textAnchor="middle"
-           >
-             {d.label}
-           </text>
-         );
-       })}
-     </svg>
-     
-     {/* Legenda */}
-     <div className="absolute top-2 right-4 flex gap-4 text-xs">
-       <div className="flex items-center gap-1">
-         <div className="w-4 h-0.5 bg-blue-600 rounded"/>
-         <span className="text-slate-400">Receita</span>
-       </div>
-       <div className="flex items-center gap-1">
-         <div className="w-4 h-0.5 bg-amber-500 rounded" style={{backgroundImage: 'repeating-linear-gradient(90deg, #f59e0b 0, #f59e0b 4px, transparent 4px, transparent 8px)'}}/>
-         <span className="text-slate-400">Média 3m</span>
-       </div>
-     </div>
-   </div>
- );
+// Barras empilhadas: recibos com taxas (cima) e sem taxas (base)
+const GRAF_COM = '#ea580c';
+const GRAF_SEM = '#059669';
+const BarChart = memo(({ data, height = 220 }) => {
+  const [ref, w] = useLargura();
+  const [hi, setHi] = useState(null);
+  if (!data || data.length === 0) return null;
+  const tot = d => (Number(d.com) || 0) + (Number(d.sem) || 0);
+  const marcas = grafMarcas(0, Math.max(1, ...data.map(tot)));
+  const topo = marcas[marcas.length - 1];
+  const pl = 44, pr = 8, pt = 10, pb = 26;
+  const iw = Math.max(10, w - pl - pr), ih = Math.max(10, height - pt - pb);
+  const banda = iw / data.length, bw = Math.max(6, Math.min(24, banda * 0.62));
+  const Y = v => pt + ih - (v / topo) * ih;
+  const topoRedondo = (x, y, l, h, r) => {
+    if (h <= 0) return '';
+    const rr = Math.min(r, l / 2, h);
+    return `M ${x} ${y + h} L ${x} ${y + rr} Q ${x} ${y} ${x + rr} ${y} L ${x + l - rr} ${y} Q ${x + l} ${y} ${x + l} ${y + rr} L ${x + l} ${y + h} Z`;
+  };
+  const cada = Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor(iw / 34))));
+  return (
+    <div ref={ref} className="relative w-full select-none" style={{ height }}>
+      <svg width={w} height={height} className="block" role="img" aria-label="Receitas por mês" onPointerLeave={() => setHi(null)} style={{ touchAction: 'pan-y' }}>
+        {marcas.map(t => (
+          <g key={t}>
+            <line x1={pl} x2={w - pr} y1={Y(t)} y2={Y(t)} strokeWidth="1" style={{ stroke: t === 0 ? 'var(--graf-base)' : 'var(--graf-grelha)' }} />
+            <text x={pl - 8} y={Y(t) + 4} textAnchor="end" fontSize="11" style={{ fill: 'var(--graf-eixo)', fontVariantNumeric: 'tabular-nums' }}>{grafCompacto(t)}</text>
+          </g>
+        ))}
+        {data.map((d, i) => {
+          const x = pl + banda * i + (banda - bw) / 2;
+          const sem = Number(d.sem) || 0, com = Number(d.com) || 0;
+          const hSem = (sem / topo) * ih, hCom = (com / topo) * ih;
+          const gap = sem > 0 && com > 0 ? 2 : 0;
+          const apagado = hi != null && hi !== i;
+          return (
+            <g key={i} style={{ opacity: apagado ? 0.45 : 1, transition: 'opacity .15s' }}>
+              {sem > 0 && (com > 0
+                ? <rect x={x} y={pt + ih - hSem} width={bw} height={Math.max(0, hSem)} fill={GRAF_SEM} />
+                : <path d={topoRedondo(x, pt + ih - hSem, bw, hSem, 4)} fill={GRAF_SEM} />)}
+              {com > 0 && <path d={topoRedondo(x, pt + ih - hSem - gap - hCom, bw, Math.max(0, hCom), 4)} fill={GRAF_COM} />}
+              {(i % cada === 0) && <text x={x + bw / 2} y={height - 6} textAnchor="middle" fontSize="11" style={{ fill: 'var(--graf-eixo)' }}>{d.label}</text>}
+              <rect x={pl + banda * i} y={pt} width={banda} height={ih} fill="transparent" onPointerEnter={() => setHi(i)} onPointerDown={() => setHi(i)} />
+            </g>
+          );
+        })}
+      </svg>
+      {hi != null && (
+        <GrafCaixa x={pl + banda * hi + banda / 2} largura={w} titulo={data[hi].label}
+          linhas={[
+            { cor: GRAF_COM, valor: _fmtEUR.format(Number(data[hi].com) || 0), nome: 'Com taxas' },
+            ...((Number(data[hi].sem) || 0) > 0 ? [{ cor: GRAF_SEM, valor: _fmtEUR.format(Number(data[hi].sem) || 0), nome: 'Sem taxas' }] : []),
+            { valor: _fmtEUR.format(tot(data[hi])), nome: 'Total' },
+          ]} />
+      )}
+    </div>
+  );
 });
 
-
-const BarChart = memo(({data, height = 220}) => {
- if (data.length === 0) return null;
- const max = Math.max(...data.map(d => (d.com||0) + (d.sem||0)), 1);
- return (
- <div className="relative" style={{height}}>
- <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6">
- {[0,1,2,3,4].map(i => <div key={i} className="border-t border-slate-700/30 w-full" />)}
- </div>
- <div className="absolute inset-0 flex items-end justify-around px-2 pb-6">
- {data.map((d, i) => (
- <div key={i} className="flex flex-col items-center" style={{width: `${85/data.length}%`}}>
- <div className="w-full flex flex-col justify-end" style={{height: height - 30}}>
- <div className="w-full bg-orange-500 rounded-t transition-all duration-500" style={{height: `${((d.com||0)/max)*100}%`}}/>
- <div className="w-full bg-emerald-500 rounded-b transition-all duration-500" style={{height: `${((d.sem||0)/max)*100}%`}}/>
- </div>
- </div>
- ))}
- </div>
- <div className="absolute bottom-0 left-0 right-0 flex justify-around text-xs text-slate-400">
- {data.map((d, i) => <span key={i}>{d.label}</span>)}
- </div>
- </div>
- );
+// Donut: fatias separadas por uma linha da cor do fundo; o centro mostra o total ou a fatia escolhida
+const PieChart = memo(({ data, size = 200 }) => {
+  const [hi, setHi] = useState(null);
+  const itens = (data || []).filter(d => Number(d.value) > 0);
+  const total = itens.reduce((a, d) => a + Number(d.value), 0);
+  if (!total) return null;
+  const cx = size / 2, cy = size / 2, r = size / 2 - 4, ri = r * 0.64;
+  const pt = (ang, raio) => [cx + raio * Math.cos(ang), cy + raio * Math.sin(ang)];
+  let acc = 0;
+  const fatias = itens.map(d => {
+    const a0 = (acc / total) * Math.PI * 2 - Math.PI / 2;
+    acc += Number(d.value);
+    const a1 = Math.min((acc / total) * Math.PI * 2 - Math.PI / 2, a0 + Math.PI * 2 - 0.0001);
+    const g = a1 - a0 > Math.PI ? 1 : 0;
+    const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r), [x2, y2] = pt(a1, ri), [x3, y3] = pt(a0, ri);
+    return { d, path: `M ${x0} ${y0} A ${r} ${r} 0 ${g} 1 ${x1} ${y1} L ${x2} ${y2} A ${ri} ${ri} 0 ${g} 0 ${x3} ${y3} Z` };
+  });
+  const sel = hi != null ? itens[hi] : null;
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} role="img" aria-label="Distribuição" onPointerLeave={() => setHi(null)}>
+        {fatias.map((f, i) => (
+          <path key={i} d={f.path} fill={f.d.color} strokeWidth="2" style={{ stroke: 'var(--graf-fundo)', opacity: hi != null && hi !== i ? 0.45 : 1, transition: 'opacity .15s', cursor: 'default' }}
+            onPointerEnter={() => setHi(i)} onPointerDown={() => setHi(i)} />
+        ))}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-6">
+        <span className="text-[11px] leading-tight truncate max-w-full" style={{ color: 'var(--graf-eixo)' }}>{sel ? (sel.label || '') : 'Total'}</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--graf-texto)' }}>{_fmtEUR.format(sel ? Number(sel.value) : total)}</span>
+        {sel && <span className="text-[11px]" style={{ color: 'var(--graf-eixo)' }}>{Math.round((Number(sel.value) / total) * 100)}%</span>}
+      </div>
+    </div>
+  );
 });
 
 // Input para adicionar cliente (isolado para evitar re-renders)
@@ -1403,10 +1321,11 @@ const PROCESS_INVOICE_URLS = [
 // Componente ao nível do módulo (estado próprio, sem remount). Recebe G/uG por props.
 
 export {
-  StableInput, StableDateInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput,
-  DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
-  Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
-  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  StableInput, StableDateInput, SliderWithInput, useLargura, grafMarcas, grafCompacto, GrafCaixa, GraficoLinhas,
+  LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, PieChart, AddClienteInput, DraggableList,
+  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO, mesDoRecibo,
+  retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG, Ico,
+  IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos,
+  BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo,
+  _normNome, clienteDoNome, PROCESS_INVOICE_URLS
 };
