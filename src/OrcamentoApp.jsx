@@ -16,7 +16,7 @@ import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio, CSS_MOBILE
+  patRegistosEfetivos, CompararAnos, ChatGemini, Patrimonio, CSS_BASE, CSS_MOBILE
 } from './patrimonio';
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -823,8 +823,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // (clientes fora da UE). Antes só incidia sobre regCom, pelo que o rendimento
  // estrangeiro — justamente o que não tem retenção na fonte — entrava inteiro no
  // disponível e inflacionava o valor a investir.
- const valTax = (inComOwn + inSemOwn) * (taxa/100) + retSara;
- const recLiq = totRec - valTax;
+ // Orçamento do mês: os recibos ficam no mês em que foram passados (impostos), mas um recibo
+ // marcado "orcProx" só conta para a Alocação/transferências do mês seguinte — para investir
+ // uma vez por mês. Este mês perde esses recibos e ganha os do mês anterior marcados assim.
+ const _mAntOrc = M[patKey(patIdx(mesKey) - 1)] || {};
+ const orcEntra = [...(_mAntOrc.regCom || []), ...(_mAntOrc.regSem || [])].filter(r => r && r.orcProx);
+ const orcSai = [...regCom, ...regSem].filter(r => r && r.orcProx);
+ const regsOrc = [...regCom, ...regSem].filter(r => r && !r.orcProx).concat(orcEntra);
+ const _somaOrc = f => regsOrc.reduce((a, r) => a + (Number(f(r)) || 0), 0);
+ const totRecOrc = _somaOrc(r => r.val);
+ const valTax = orcEntra.length || orcSai.length
+   ? _somaOrc(r => r.emitidoPorSara ? 0 : r.val) * (taxa/100) + _somaOrc(r => r.emitidoPorSara ? r.retIRS : 0)
+   : (inComOwn + inSemOwn) * (taxa/100) + retSara;
+ const recLiq = (orcEntra.length || orcSai.length ? totRecOrc : totRec) - valTax;
  const totAB = despABanca.reduce((a,d)=>a+d.val,0);
  const minhaAB = totAB * (contrib/100);
  const parteSaraAB = totAB * (1-contrib/100);
@@ -839,10 +850,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const feriasExtra = restante > 0 ? restante * (alocFerias/100) : 0;
  const totalFerias = ferias + feriasExtra;
  // O que chega de facto à conta: valor + IVA − retenção (o cliente já entregou a retenção às Finanças)
- const _regsMes = [...regCom, ...regSem];
+ const _regsMes = regsOrc;
  const ivaMes = _regsMes.reduce((a, r) => a + (parseFloat(r.iva) || 0), 0);
  const retMes = _regsMes.reduce((a, r) => a + (parseFloat(r.retIRS) || 0), 0);
- const recebidoMes = totRec + ivaMes - retMes;
+ const recebidoMes = (orcEntra.length || orcSai.length ? totRecOrc : totRec) + ivaMes - retMes;
  // Fica na TR para impostos: a reserva menos o que já foi retido, mais o IVA cobrado (é do Estado)
  const impostosNaTR = Math.max(0, valTax - retMes) + ivaMes;
  const guia = guiaTransfCalc({ minhaAB, investFilhos, impostosNaTR, inv, restante, alocAmort, alocFerias, totalFerias, recebidoMes, totPess, adiantou: !!(transf && transf.g_adiant) });
@@ -1453,6 +1464,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    L.push({ id: 'r-prep', dia: Math.min(20, nDias), cat: 'Rotina', titulo: `Preparar ${meses[m % 12]}: rever despesas e mandar a ABanca antes do dia 1`, curto: `Preparar ${meses[m % 12]}`, valor: guia.valAB, estado: prepFeito ? 'ok' : est(false, nDias), ir: () => { setAno(Math.floor((idx + 1) / 12)); setMes(meses[(idx + 1) % 12]); setTab('resumo'); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); } });
    return L.sort((a, b) => a.dia - b.dia);
  };
+ // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
+ useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
+
  // ══ Notificações no computador ══
  // Avisam no dia e na véspera dos eventos do Calendário (impostos, transferências, preparar o mês...).
  // Funcionam enquanto a app estiver aberta num separador do browser (mesmo que não seja o ativo).
@@ -2188,12 +2202,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          </div>
        ))}
-       {guia.porAlocar > 0.5 && (regCom.length + regSem.length) > 0 && (
-         <div className={`text-xs p-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${claro ? 'border-blue-300 bg-blue-50' : 'border-blue-500/30 bg-blue-500/10'}`}>
-           <span className="text-blue-400">💡 Há {fmt(guia.porAlocar)} por investir que ainda não estão na Alocação (ex.: um recibo que chegou depois). Junta-os à Alocação e os passos mostram só o que falta transferir.</span>
-           <button onClick={() => setTab('invest')} className="px-2 py-1 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 whitespace-nowrap">Alocar →</button>
-         </div>
+       {orcEntra.length > 0 && (
+         <p className="text-xs text-blue-400">📥 Inclui {fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de {orcEntra.length === 1 ? 'um recibo' : `${orcEntra.length} recibos`} de {nomeAnt} que passaste para investir este mês.</p>
        )}
+       {orcSai.length > 0 && (
+         <p className="text-xs text-slate-400">⏭ {fmt(orcSai.reduce((a, r) => a + (Number(r.val) || 0), 0))} de recibos deste mês ficam para investir em {nomeProx}.</p>
+       )}
+       {guia.porAlocar > 50 && (regCom.length + regSem.length) > 0 && (() => {
+         // Recibos que ainda contam este mês — o mais recente primeiro (normalmente é esse que chegou depois)
+         const lista = [...regCom.map(r => ({ r, k: 'regCom' })), ...regSem.map(r => ({ r, k: 'regSem' }))].filter(x => !x.r.orcProx).sort((a, b) => String(b.r.data || '').localeCompare(String(a.r.data || ''))).slice(0, 4);
+         const passar = (k, id) => { const l = k === 'regCom' ? regCom : regSem; uM(k, l.map(x => x.id === id ? { ...x, orcProx: true } : x)); };
+         return (
+           <div className={`text-xs p-2 rounded-lg border space-y-2 ${claro ? 'border-blue-300 bg-blue-50' : 'border-blue-500/30 bg-blue-500/10'}`}>
+             <p className="text-blue-400">💡 Há {fmt(guia.porAlocar)} por investir que ainda não estão na Alocação (ex.: um recibo que chegou a meio do mês). Como só investes uma vez por mês, passa esse recibo para {nomeProx}: fica neste mês para os impostos e entra na Alocação de {nomeProx}.</p>
+             <div className="flex flex-wrap gap-1.5">
+               {lista.map(({ r, k }) => (
+                 <button key={k + r.id} onClick={() => passar(k, r.id)} className="px-2 py-1 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 whitespace-nowrap">
+                   ⏭ {(clientes.find(c => c.id === r.cid) || {}).nome || r.desc || 'Recibo'} {fmt(r.val)}{r.data ? ` · ${String(r.data).slice(8, 10)}/${String(r.data).slice(5, 7)}` : ''} → {nomeProx}
+                 </button>
+               ))}
+               <button onClick={() => setTab('invest')} className={`px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'bg-slate-200 text-slate-700' : 'bg-slate-700/60 text-slate-300'}`}>ou alocar já →</button>
+             </div>
+           </div>
+         );
+       })()}
        {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
        {f2.map(x => passo(x))}
      </div>
@@ -3862,6 +3894,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · SS ≈ ${fmt(_e.ss)} · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
+       {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12]; return r.orcProx
+         ? <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
+         : <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
         {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
        {r.ficheiro && (
          <button 
@@ -3900,6 +3935,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · sem SS · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
         {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
+        {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12]; return r.orcProx
+         ? <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
+         : <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
        {r.ficheiro && (
          <button 
            onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
@@ -13101,7 +13139,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           })}
         </div>
       </nav>
-      <style>{CSS_MOBILE}</style>
+      <style>{CSS_BASE + CSS_MOBILE}</style>
       <main className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && (
           <div className="sm:hidden no-print">
