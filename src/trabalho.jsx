@@ -11,6 +11,8 @@ import {
 // ── Operações (recebem os dados e devolvem os dados novos) ──
 const agoraIso = () => new Date().toISOString();
 const eur = v => cuEur(Math.round(Number(v) || 0));
+// Tempo com minutos: 1m, 25m, 4h, 4h 29m (até 1 minuto conta como 1m)
+const tempoTxt = h => { const ms = (Number(h) || 0) * 3600000; if (ms <= 0) return '0m'; const min = Math.max(1, Math.round(ms / 60000)); const hh = Math.floor(min / 60), mm = min % 60; return hh ? (mm ? `${hh}h ${mm}m` : `${hh}h`) : `${mm}m`; };
 const CORES_PASTA = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
 const filhasDe = (trab, paiId, cid) => (trab.pastas || []).filter(p => (p.paiId || null) === (paiId || null) && (paiId ? true : String(p.cid) === String(cid)))
   .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0) || String(a.nome).localeCompare(String(b.nome), 'pt', { numeric: true }));
@@ -30,9 +32,15 @@ const opNovaPasta = (trab, { cid, paiId, nome, cor }) => {
   return [{ ...trab, pastas: [...(trab.pastas || []), { id, cid, paiId: paiId || null, nome: nome || 'Nova pasta', cor: cor || CORES_PASTA[(trab.pastas || []).length % CORES_PASTA.length], criada: agoraIso(), notas: [], orcamento: {} }] }, id];
 };
 const opPasta = (trab, id, patch) => ({ ...trab, pastas: (trab.pastas || []).map(p => (p.id === id ? { ...p, ...patch } : p)) });
+const opFavorito = (trab, id) => { const f = new Set(trab.favoritos || []); if (f.has(id)) f.delete(id); else f.add(id); return { ...trab, favoritos: [...f] }; };
+// Passar uma pasta (com subpastas e tarefas) para outro cliente
+const opMudarCliente = (trab, id, cid) => {
+  const ids = new Set(descendentes(trab, id));
+  return { ...trab, pastas: (trab.pastas || []).map(p => (ids.has(p.id) ? { ...p, cid } : p)), tarefas: (trab.tarefas || []).map(t => (ids.has(t.pastaId) ? { ...t, cid } : t)) };
+};
 const opApagarPasta = (trab, id) => {
   const ids = new Set(descendentes(trab, id));
-  return { ...trab, pastas: (trab.pastas || []).filter(p => !ids.has(p.id)), tarefas: (trab.tarefas || []).filter(t => !ids.has(t.pastaId)) };
+  return { ...trab, pastas: (trab.pastas || []).filter(p => !ids.has(p.id)), tarefas: (trab.tarefas || []).filter(t => !ids.has(t.pastaId)), favoritos: (trab.favoritos || []).filter(f => !ids.has(f)) };
 };
 const opNovaTarefa = (trab, { pastaId, cid, nome, prazo }) => ({
   ...trab, tarefas: [...(trab.tarefas || []), { id: trabId(), pastaId: pastaId || null, cid: cid ?? null, nome: nome.trim(), estado: 'todo', criada: agoraIso(), prazo: prazo || '', tempos: [], notas: '' }],
@@ -72,17 +80,17 @@ const EstadoPill = ({ estado, onMudar, theme, compacto = false }) => {
   return (
     <div ref={ref} className="relative flex-shrink-0">
       <button type="button" onClick={() => setAberto(!aberto)} title="Mudar o estado"
-        className={`inline-flex items-center gap-1.5 rounded-full border text-[11px] font-semibold uppercase tracking-wide ${compacto ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}
-        style={{ color: e.cor, borderColor: e.cor + '66', background: e.cor + '1a' }}>
-        <span className="w-2 h-2 rounded-full" style={{ background: e.cor }} />
+        className={compacto ? 'inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/10' : 'inline-flex items-center gap-1.5 rounded-md text-[10.5px] font-bold uppercase tracking-wide px-2 py-1 text-white whitespace-nowrap'}
+        style={compacto ? undefined : { background: e.cor }}>
+        {compacto ? <IcoEstado id={e.id} cor={e.cor} size={13} /> : <span className="w-2 h-2 rounded-full" style={{ background: e.cor }} />}
         {!compacto && e.nome}
       </button>
       {aberto && (
-        <div className={`absolute z-30 left-0 top-full mt-1 w-40 rounded-xl border p-1 shadow-xl animate-fadeInScale ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+        <div className={`absolute z-40 left-0 top-full mt-1 w-44 rounded-xl border p-1 shadow-xl animate-fadeInScale ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
           {TRAB_ESTADOS.map(x => (
             <button key={x.id} type="button" onClick={() => { setAberto(false); if (x.id !== estado) onMudar(x.id); }}
               className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm text-left ${x.id === estado ? (claro ? 'bg-slate-100' : 'bg-white/10') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: x.cor }} />{x.nome}
+              <IcoEstado id={x.id} cor={x.cor} />{x.nome}
             </button>
           ))}
         </div>
@@ -90,11 +98,12 @@ const EstadoPill = ({ estado, onMudar, theme, compacto = false }) => {
     </div>
   );
 };
-const BotaoCrono = ({ aCorrer, onIniciar, onParar, theme }) => {
+const BotaoCrono = ({ aCorrer, onIniciar, onParar, theme, pequeno = false }) => {
   const claro = useClaro(theme);
+  const tam = pequeno ? 'w-6 h-6' : 'w-7 h-7';
   return aCorrer
-    ? <button type="button" onClick={onParar} title="Parar o cronómetro" aria-label="Parar o cronómetro" className="w-7 h-7 inline-flex items-center justify-center rounded-full bg-red-500 text-white shadow-sm"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg></button>
-    : <button type="button" onClick={onIniciar} title="Começar o cronómetro" aria-label="Começar o cronómetro" className={`w-7 h-7 inline-flex items-center justify-center rounded-full border ${claro ? 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600' : 'border-slate-600 text-slate-400 hover:border-blue-400 hover:text-blue-300'}`}><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z" fill="currentColor" /></svg></button>;
+    ? <button type="button" onClick={onParar} title="Parar o cronómetro" aria-label="Parar o cronómetro" className={`${tam} inline-flex items-center justify-center rounded-full bg-red-500 text-white shadow-sm`}><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg></button>
+    : <button type="button" onClick={onIniciar} title="Começar o cronómetro" aria-label="Começar o cronómetro" className={`${tam} inline-flex items-center justify-center rounded-full border ${claro ? 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600' : 'border-slate-600 text-slate-400 hover:border-blue-400 hover:text-blue-300'}`}><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z" fill="currentColor" /></svg></button>;
 };
 // Horas de uma tarefa a contar ao segundo enquanto o cronómetro corre
 const HorasVivas = ({ t }) => {
@@ -103,7 +112,7 @@ const HorasVivas = ({ t }) => {
   useEffect(() => { if (!corre) return undefined; const i = setInterval(() => setTic(x => x + 1), 1000); return () => clearInterval(i); }, [corre]);
   const ms = (t.tempos || []).reduce((a, x) => a + trabMsTempo(x), 0);
   if (!ms) return <span className="opacity-40">—</span>;
-  return <span className={`tabular-nums ${corre ? 'text-red-400 font-semibold' : ''}`}>{corre ? trabRelogio(ms) : cuHorasTxt(ms / 3600000)}</span>;
+  return <span className={`tabular-nums ${corre ? 'text-red-400 font-semibold' : ''}`}>{corre ? trabRelogio(ms) : tempoTxt(ms / 3600000)}</span>;
 };
 const dataCurta = iso => { const d = trabDia(iso); return d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : ''; };
 const dataHora = iso => { if (!iso) return '—'; const d = new Date(iso); return `${dataCurta(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -132,29 +141,122 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
 };
 
 // ── Lista de tarefas agrupada por estado ──
-const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, mostrarPasta, verFeitas, setVerFeitas }) => {
+// Ordem dos grupos na lista (o que está a mexer primeiro)
+const ORDEM_GRUPOS = ['feito', 'review', 'curso', 'aprovar', 'todo']; // como no ClickUp
+const ICONE_ESTADO = {
+  todo: <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="2.2 1.6" />,
+  aprovar: <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="2.2 1.6" />,
+  curso: <><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M6 1.5a4.5 4.5 0 0 1 0 9z" fill="currentColor" /></>,
+  review: <><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M6 1.5a4.5 4.5 0 1 1-4.5 4.5H6z" fill="currentColor" /></>,
+  feito: <><circle cx="6" cy="6" r="5" fill="currentColor" /><path d="m3.6 6.1 1.6 1.6 3.2-3.3" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></>,
+};
+const IcoEstado = ({ id, cor, size = 12 }) => <svg width={size} height={size} viewBox="0 0 12 12" style={{ color: cor }} aria-hidden="true">{ICONE_ESTADO[id] || ICONE_ESTADO.todo}</svg>;
+const haQuanto = iso => {
+  if (!iso) return '—';
+  const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000);
+  if (d <= 0) return 'hoje';
+  if (d === 1) return 'ontem';
+  if (d < 30) return `há ${d} dias`;
+  return dataCurta(iso) + '/' + String(trabDia(iso)).slice(2, 4);
+};
+const useLargo = (q = '(min-width: 900px)') => {
+  const [l, setL] = useState(() => typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(q).matches : true);
+  useEffect(() => { if (!window.matchMedia) return undefined; const m = window.matchMedia(q); const f = () => setL(m.matches); m.addEventListener ? m.addEventListener('change', f) : m.addListener(f); return () => { m.removeEventListener ? m.removeEventListener('change', f) : m.removeListener(f); }; }, []);
+  return l;
+};
+// Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
+const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_96px_108px_84px_96px_84px] items-center gap-x-3';
+const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_108px_76px_80px] items-center gap-x-3';
+// Grupos fechados/abertos (fica lembrado)
+const useGruposFechados = () => {
+  const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
+  const alternar = id => setF(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-grupos-fechados', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
+  return [f, alternar];
+};
+const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true }) => {
   const claro = useClaro(theme);
-  const nomePasta = t => caminho(trab, t.pastaId).map(p => p.nome).slice(-2).join(' / ');
-  const grupos = TRAB_ESTADOS.map(e => ({ ...e, lista: tarefas.filter(t => t.estado === e.id) }));
+  const corre = (t.tempos || []).some(x => !x.fim);
+  const v = trabValor(t, cu, clientes);
+  const hoje = trabDia(new Date().toISOString());
+  const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
   return (
-    <div className="space-y-3">
+    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 h-11 border-b text-[13px] transition-colors ${corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
+        <button type="button" onClick={() => onAbrir(t.id)} className="min-w-0 text-left">
+          <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
+          {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
+        </button>
+        {t.notas && <span className={`text-[11px] ${sub}`} title="Tem notas">✎</span>}
+      </div>
+      <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
+      {cheio && <div className={sub}>{haQuanto(t.criada)}</div>}
+      <div className="flex items-center gap-2">
+        <BotaoCrono aCorrer={corre} theme={theme} pequeno onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
+        <span className={sub}><HorasVivas t={t} /></span>
+      </div>
+      <div className={`tabular-nums ${atrasada ? 'text-red-400 font-medium' : sub}`}>{t.prazo ? dataCurta(t.prazo) : '—'}</div>
+      {cheio && <div className={sub}>{t.feita ? haQuanto(t.feita) : '—'}</div>}
+      <div className={`text-right tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</div>
+    </div>
+  );
+};
+const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, mostrarPasta, onCriarNoEstado }) => {
+  const claro = useClaro(theme);
+  const largo = useLargo();
+  const cheio = useLargo('(min-width: 1400px)');
+  const [fechados, alternar] = useGruposFechados();
+  const [novaEm, setNovaEm] = useState(null);
+  const [txt, setTxt] = useState('');
+  const nomePasta = t => (mostrarPasta ? caminho(trab, t.pastaId).map(p => p.nome).slice(-2).join(' / ') : '');
+  const grupos = ORDEM_GRUPOS.map(id => ({ ...TRAB_ESTADOS.find(e => e.id === id), lista: tarefas.filter(t => t.estado === id) })).filter(g => g.lista.length || (onCriarNoEstado && g.id === 'todo'));
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const criar = id => { if (txt.trim()) { onCriarNoEstado(txt, id); setTxt(''); } };
+  if (!grupos.length) return <p className={`px-2 py-6 text-sm ${sub}`}>Sem tarefas.</p>;
+  return (
+    <div className="space-y-5">
       {grupos.map(g => {
-        if (!g.lista.length && g.id !== 'todo') return null;
-        const fechado = g.id === 'feito' && !verFeitas;
+        const fechado = fechados.has(g.id);
+        const valor = g.lista.reduce((a, t) => a + trabValor(t, cu, clientes), 0);
+        const horas = g.lista.reduce((a, t) => a + trabHoras(t), 0);
         return (
-          <div key={g.id}>
-            <button type="button" onClick={() => g.id === 'feito' && setVerFeitas(!verFeitas)} className={`flex items-center gap-2 mb-1 px-1 text-xs font-semibold uppercase tracking-wide ${g.id === 'feito' ? 'cursor-pointer' : 'cursor-default'}`} style={{ color: g.cor }}>
-              <span className="w-2 h-2 rounded-full" style={{ background: g.cor }} />{g.nome}
-              <span className={`font-normal ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{g.lista.length}</span>
-              {g.id === 'feito' && <span className={`font-normal normal-case ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{fechado ? '· mostrar' : '· esconder'}</span>}
-            </button>
+          <section key={g.id}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <button type="button" onClick={() => alternar(g.id)} className={`w-5 h-5 inline-flex items-center justify-center rounded ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label={fechado ? 'Abrir grupo' : 'Fechar grupo'}>
+                <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: fechado ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true"><path d="M1.5 3 5 7l3.5-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+              </button>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide text-white" style={{ background: g.cor }}>
+                <IcoEstado id={g.id} cor="#fff" size={11} />{g.nome}
+              </span>
+              <span className={`text-xs ${sub}`}>{g.lista.length}</span>
+              {(valor > 0 || horas > 0) && <span className={`text-xs ${sub}`}>· {horas > 0 ? tempoTxt(horas) : ''}{horas > 0 && valor > 0 ? ' · ' : ''}{valor > 0 ? eur(valor) : ''}</span>}
+            </div>
             {!fechado && (
-              <div className="space-y-0.5">
-                {g.lista.map(t => <LinhaTarefa key={t.id} t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} mostrarPasta={mostrarPasta} nomePasta={nomePasta(t)} />)}
-                {!g.lista.length && <p className={`px-3 py-2 text-xs ${claro ? 'text-slate-400' : 'text-slate-500'}`}>Nada por fazer aqui.</p>}
+              <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+                {largo && g.lista.length > 0 && (
+                  <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
+                    <span>Nome</span><span>Estado</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                  </div>
+                )}
+                {g.lista.map(t => (largo
+                  ? <LinhaTabela key={t.id} t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} nomePasta={nomePasta(t)} cheio={cheio} />
+                  : <div key={t.id} className={`border-b px-1 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}><LinhaTarefa t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} mostrarPasta={!!mostrarPasta} nomePasta={nomePasta(t)} /></div>))}
+                {onCriarNoEstado && (novaEm === g.id ? (
+                  <div className="flex items-center gap-2 px-3 h-11">
+                    <IcoEstado id={g.id} cor={g.cor} />
+                    <input autoFocus value={txt} onChange={e => setTxt(e.target.value)} placeholder="Nome da tarefa — Enter para criar, Esc para sair"
+                      onKeyDown={e => { if (e.key === 'Enter') criar(g.id); if (e.key === 'Escape') { e.stopPropagation(); setNovaEm(null); setTxt(''); } }}
+                      onBlur={() => { if (!txt.trim()) setNovaEm(null); }}
+                      className="flex-1 bg-transparent text-[13px] focus:outline-none" />
+                    <button type="button" onClick={() => criar(g.id)} className="px-2.5 py-1 text-xs rounded-md bg-blue-600 text-white">Criar</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => { setNovaEm(g.id); setTxt(''); }} className={`w-full flex items-center gap-2 px-3 h-9 text-[13px] text-left ${sub} ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>+ Adicionar tarefa</button>
+                ))}
               </div>
             )}
-          </div>
+          </section>
         );
       })}
     </div>
@@ -388,7 +490,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                   <span className="opacity-50">→</span>
                   {x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(x.fim)} key={x.fim} onBlur={e => { if (!e.target.value) return; const fim = new Date(e.target.value).toISOString(); mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.map(z => (z.id === x.id ? { ...z, fim } : z)) }))); }} className={`${inputClass} !w-auto text-xs py-1`} />
                     : <span className="text-red-400 font-medium">a correr</span>}
-                  <span className="flex-1 text-right tabular-nums">{cuHorasTxt(trabMsTempo(x) / 3600000)}</span>
+                  <span className="flex-1 text-right tabular-nums">{tempoTxt(trabMsTempo(x) / 3600000)}</span>
                   <button type="button" className="text-slate-400 hover:text-red-400" aria-label="Apagar este tempo" onClick={() => mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.filter(z => z.id !== x.id) })))}>✕</button>
                 </div>
               ))}
@@ -427,8 +529,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 };
 
 // ── Árvore de pastas ──
-const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar }) => {
+const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar, onFav }) => {
   const claro = useClaro(theme);
+  const fav = (trab.favoritos || []).includes(p.id);
   const filhas = filhasDe(trab, p.id);
   const aberta = abertas.has(p.id);
   const ativo = sel.tipo === 'pasta' && sel.id === p.id;
@@ -443,9 +546,11 @@ const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar
           <span className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
           <span className="truncate">{p.nome}</span>
         </button>
-        {n > 0 && <span className={`text-[11px] tabular-nums ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{n}</span>}
+        <button type="button" onClick={() => onFav(p.id)} title={fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'} aria-label={fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'}
+          className={`w-5 h-5 inline-flex items-center justify-center rounded text-[13px] leading-none ${fav ? 'text-amber-400' : `opacity-0 group-hover:opacity-100 ${claro ? 'text-slate-400 hover:text-amber-500' : 'text-slate-500 hover:text-amber-400'}`}`}>{fav ? '★' : '☆'}</button>
+        {n > 0 && <span className={`text-[11px] tabular-nums w-5 text-right ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{n}</span>}
       </div>
-      {aberta && filhas.map(f => <NoPasta key={f.id} p={f} trab={trab} nivel={nivel + 1} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} />)}
+      {aberta && filhas.map(f => <NoPasta key={f.id} p={f} trab={trab} nivel={nivel + 1} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={onFav} />)}
     </div>
   );
 };
@@ -489,7 +594,7 @@ const VisaoGeral = ({ trab, cu, clientes, theme, mudar, onAbrir, ano, mesNum }) 
               <div key={cid} className={`rounded-xl p-3 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`} style={{ borderLeft: `3px solid ${corCli(cid)}` }}>
                 <p className="text-sm font-medium">{nomeCli(cid)}</p>
                 <p className="text-lg font-semibold tabular-nums">{eur(c.v)}</p>
-                <p className={`text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{c.porDia ? `${c.dias.size} dia${c.dias.size === 1 ? '' : 's'} × ${eur(c.porDia)}` : `${c.n} entregue${c.n === 1 ? '' : 's'}`} · {cuHorasTxt(c.h)}</p>
+                <p className={`text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{c.porDia ? `${c.dias.size} dia${c.dias.size === 1 ? '' : 's'} × ${eur(c.porDia)}` : `${c.n} entregue${c.n === 1 ? '' : 's'}`} · {tempoTxt(c.h)}</p>
               </div>
             ))}
           </div>
@@ -533,7 +638,20 @@ const importarFicheiro = async (file, trab, clientes) => {
     criada: t.criada || agoraIso(), iniciada: t.iniciada || null, review: t.review || null, feita: t.feita || null, prazo: t.prazo || '', notas: t.notas || '',
     tempos: (t.tempos || []).map((x, k) => ({ id: trabId() + k, ini: x.ini, fim: x.fim })),
   }));
-  return [{ ...trab, pastas: [...(trab.pastas || []), ...novasP], tarefas: [...(trab.tarefas || []), ...novasT] }, novasP.length, novasT.length];
+  // Tarefas já importadas antes: só se acrescentam os tempos que faltam (o resto que mudaste na app fica)
+  const porOrigem = {};
+  j.tarefas.forEach(t => { if (t.origem) porOrigem[t.origem] = t; });
+  let atualizadas = 0;
+  const antigas = (trab.tarefas || []).map(t => {
+    const n = t.origem && porOrigem[t.origem];
+    if (!n) return t;
+    const jaIni = new Set((t.tempos || []).map(x => x.ini));
+    const novos = (n.tempos || []).filter(x => !jaIni.has(x.ini)).map((x, k) => ({ id: trabId() + 'u' + k, ini: x.ini, fim: x.fim }));
+    if (!novos.length) return t;
+    atualizadas += 1;
+    return { ...t, tempos: [...(t.tempos || []), ...novos].sort((a, b) => String(a.ini).localeCompare(String(b.ini))), iniciada: t.iniciada || n.iniciada || null };
+  });
+  return [{ ...trab, pastas: [...(trab.pastas || []), ...novasP], tarefas: [...antigas, ...novasT] }, novasP.length, novasT.length, atualizadas];
 };
 
 // ══ O separador ══
@@ -553,9 +671,10 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
   const [aba, setAba] = useState('tarefas');
   const [tarefaAberta, setTarefaAberta] = useState(null);
-  const [verFeitas, setVerFeitas] = useState(false);
   const [procura, setProcura] = useState('');
   const [arvoreMob, setArvoreMob] = useState(false);
+  const [semArvore, setSemArvore] = useState(() => { try { return localStorage.getItem('trab-sem-arvore') === '1'; } catch (e) { return false; } });
+  const alternarArvore = () => setSemArvore(v => { try { localStorage.setItem('trab-sem-arvore', v ? '0' : '1'); } catch (e) { /* sem armazenamento */ } return !v; });
   const ficheiroRef = useRef(null);
 
   const pasta = sel.tipo === 'pasta' ? (trab.pastas || []).find(p => p.id === sel.id) : null;
@@ -597,11 +716,9 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
     if (!f) return;
     if (modo === 'g' && !window.confirm('Ainda não tens a regra do Firestore para o Trabalho, por isso tudo fica no documento principal (que tem um limite de 1 MB). Importar o ClickUp ocupa ~200 KB. Queres importar mesmo assim?')) return;
     try {
-      let np = 0, nt = 0;
-      const [n, a, b] = await importarFicheiro(f, trab, clientes);
-      np = a; nt = b;
+      const [n, np, nt, nu] = await importarFicheiro(f, trab, clientes);
       mudar(() => n);
-      showToast && showToast(`Importado: ${np} pastas e ${nt} tarefas`, 'success');
+      showToast && showToast(np || nt || nu ? `Importado: ${np} pastas e ${nt} tarefas novas${nu ? ` · ${nu} tarefas com tempos atualizados` : ''}` : 'Nada de novo para importar', 'success');
     } catch (err) { showToast && showToast(err.message || 'Não consegui ler o ficheiro', 'error'); }
   };
 
@@ -613,6 +730,26 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
       <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${sel.tipo === 'geral' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <span aria-hidden="true">🏠</span> Visão geral
       </button>
+      {(trab.favoritos || []).length > 0 && (
+        <div>
+          <p className={`px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Favoritos</p>
+          {(trab.favoritos || []).map(id => (trab.pastas || []).find(p => p.id === id)).filter(Boolean).map(p => {
+            const ativo = sel.tipo === 'pasta' && sel.id === p.id;
+            const n = contar(p.id);
+            return (
+              <div key={p.id} className={`group flex items-center gap-2 px-2 rounded-lg text-sm ${ativo ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+                <button type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className="flex-1 min-w-0 flex items-center gap-2 py-1.5 text-left" title={caminho(trab, p.id).map(x => x.nome).join(' / ')}>
+                  <span className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ background: p.cor || '#64748b' }} />
+                  <span className="truncate">{p.nome}</span>
+                </button>
+                <button type="button" onClick={() => mudar(tr => opFavorito(tr, p.id))} className="text-amber-400 text-[13px] opacity-60 group-hover:opacity-100" title="Tirar dos favoritos" aria-label="Tirar dos favoritos">★</button>
+                {n > 0 && <span className={`text-[11px] tabular-nums w-5 text-right ${sub}`}>{n}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className={`px-2 -mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Clientes</p>
       {clientes.map(c => {
         const raiz = filhasDe(trab, null, c.id);
         const ativo = sel.tipo === 'cliente' && String(sel.id) === String(c.id);
@@ -625,7 +762,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               </button>
               <button type="button" onClick={() => novaPasta(c.id, null)} className={`w-6 h-6 rounded-md text-base leading-none ${sub} hover:text-blue-400 opacity-60 group-hover:opacity-100`} title="Nova pasta" aria-label={`Nova pasta em ${c.nome}`}>+</button>
             </div>
-            <div className="ml-1">{raiz.map(p => <NoPasta key={p.id} p={p} trab={trab} nivel={0} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} />)}</div>
+            <div className="ml-1">{raiz.map(p => <NoPasta key={p.id} p={p} trab={trab} nivel={0} sel={sel} setSel={setSel} abertas={abertas} alternar={alternar} theme={theme} contar={contar} onFav={id => mudar(tr => opFavorito(tr, id))} />)}</div>
           </div>
         );
       })}
@@ -648,14 +785,18 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setArvoreMob(!arvoreMob)} className={`lg:hidden px-3 py-2 text-sm rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>📁 Pastas</button>
+        <button type="button" onClick={alternarArvore} title={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas (mais espaço para as tarefas)'} aria-label={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas'}
+          className={`hidden lg:inline-flex w-9 h-9 items-center justify-center rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-500' : 'border-slate-700 hover:bg-white/5 text-slate-400'}`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />{semArvore ? <path d="m13 10 2 2-2 2" /> : <path d="m16 10-2 2 2 2" />}</svg>
+        </button>
         <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} flex-1 min-w-[160px] max-w-sm text-sm py-2`} />
         <span className="flex-1" />
         {modo === 'g' && <span className="text-[11px] text-amber-400" title="As regras do Firestore ainda não deixam gravar à parte. Os dados ficam no documento principal.">a gravar no documento principal</span>}
         <button type="button" onClick={() => ficheiroRef.current && ficheiroRef.current.click()} className={`px-3 py-2 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Importar do ClickUp</button>
         <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)] items-start">
-        <aside className={`${arvoreMob ? 'block' : 'hidden'} lg:block lg:sticky lg:top-28 rounded-2xl border p-2 max-h-[calc(100vh-8rem)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
+      <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[272px_minmax(0,1fr)]'}`}>
+        <aside className={`${arvoreMob ? 'block' : 'hidden'} ${semArvore ? 'lg:hidden' : 'lg:block'} lg:sticky lg:top-[150px] rounded-2xl border p-2 lg:max-h-[calc(100vh-170px)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
         <section className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
             <div className="min-w-0 w-full sm:w-auto sm:flex-1">
@@ -668,13 +809,20 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
             {(pasta || sel.tipo === 'cliente') && (
               <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${sub}`}>
                 <span><strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{tarefas.filter(t => t.estado !== 'feito').length}</strong> por acabar</span>
-                <span><strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{cuHorasTxt(horasTot)}</strong> registadas</span>
+                <span><strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{tempoTxt(horasTot)}</strong> registadas</span>
                 <span><strong className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(valorAberto)}</strong> por entregar</span>
               </div>
             )}
           </div>
           {pasta && (
             <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => mudar(tr => opFavorito(tr, pasta.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${(trab.favoritos || []).includes(pasta.id) ? 'border-amber-400/50 text-amber-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{(trab.favoritos || []).includes(pasta.id) ? '★ Favorito' : '☆ Favorito'}</button>
+              {!pasta.paiId && (
+                <select value={String(pasta.cid ?? '')} onChange={e => { const v = e.target.value; const c = clientes.find(x => String(x.id) === v); if (c) mudar(tr => opMudarCliente(tr, pasta.id, c.id)); }}
+                  className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Cliente desta pasta">
+                  {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
+                </select>
+              )}
               <button type="button" onClick={() => novaPasta(pasta.cid, pasta.id)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Subpasta</button>
               <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opPasta(tr, pasta.id, { nome: n })) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
               <div className="flex items-center gap-1">
@@ -700,9 +848,10 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               {sel.tipo === 'cliente' && !procura.trim() && !filhasDe(trab, null, sel.id).length && (
                 <Card><p className="text-sm">Ainda não há pastas para {cliente ? cliente.nome : 'este cliente'}. Carrega no <strong>+</strong> ao lado do nome, à esquerda.</p></Card>
               )}
-              <Card className="!p-2 sm:!p-3">
-                <ListaTarefas tarefas={tarefas} trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} mostrarPasta={!pasta || descendentes(trab, pasta.id).length > 1} verFeitas={verFeitas} setVerFeitas={setVerFeitas} />
-              </Card>
+              <div>
+                <ListaTarefas tarefas={tarefas} trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} mostrarPasta={!pasta || descendentes(trab, pasta.id).length > 1}
+                  onCriarNoEstado={pasta ? (txt, estado) => mudar(tr => { const n = opNovaTarefa(tr, { pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo: '' }); const nova = n.tarefas[n.tarefas.length - 1]; return estado === 'todo' ? n : opEstado(n, nova.id, estado); }) : null} />
+              </div>
             </div>
           )}
           {abaAtual === 'notas' && (pasta || sel.tipo === 'cliente') && <Notas notas={notasAlvo} onMudar={mudarNotas} theme={theme} inputClass={inputClass} />}
