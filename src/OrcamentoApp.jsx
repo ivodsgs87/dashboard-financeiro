@@ -6,8 +6,8 @@ import { createGoogleSheet, getAccessToken } from './firebase';
 import {
   StableInput, SliderWithInput, PieChart, LineChart, AreaChartAllTime, BarChart, AddClienteInput, DraggableList,
   impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc,
-  transfFalta, transfFeita, Ico, IcoTxt, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
-  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
+  transfFalta, transfFeita, Ico, IcoTxt, copiasLocais, CalendarioFinanceiro, impCalc, anos,
+  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS
 } from './base';
 import {
   VendaCasa
@@ -421,6 +421,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     }
   }, [G, M, showToast]);
   const diasSemBackup = G.ultimoBackup ? Math.floor((Date.now() - Date.parse(G.ultimoBackup)) / 864e5) : null;
+  // Cópia automática semanal no browser (15 s depois de os dados carregarem)
+  const [ultimaCopiaAuto, setUltimaCopiaAuto] = useState(null);
+  const [copiasLista, setCopiasLista] = useState(null);
+  const gmCopiaRef = useRef(null);
+  gmCopiaRef.current = { G, M };
+  useEffect(() => {
+    if (!dataLoaded || typeof indexedDB === 'undefined') return;
+    const t = setTimeout(async () => {
+      try {
+        const lista = await copiasLocais.todas();
+        if (lista[0] && Date.now() - Date.parse(lista[0].id) < 7 * 864e5) { setUltimaCopiaAuto(lista[0].id); return; }
+        const { G: g, M: m } = gmCopiaRef.current || {};
+        if (!g || !m || !Object.keys(m).length) return;
+        await copiasLocais.guardar(JSON.stringify({ g, m, version: 1, exportDate: new Date().toISOString(), automatica: true }));
+        setUltimaCopiaAuto(new Date().toISOString());
+      } catch (e) { /* browser sem IndexedDB: fica só a cópia manual */ }
+    }, 15000);
+    return () => clearTimeout(t);
+  }, [dataLoaded]);
+  const abrirCopias = async () => {
+    try { setCopiasLista(await copiasLocais.todas()); } catch (e) { showToast('Este browser não guarda cópias automáticas', 'error'); }
+  };
   const isSavingRef = useRef(false);
 
   // Categorias unificadas (derivadas do extrato, partilhadas com casal/pessoais)
@@ -1467,6 +1489,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
  useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
 
+ // Resumo: lista das tarefas em atraso aberta ou fechada (fechada por defeito)
+ const [verAtrasadas, setVerAtrasadas] = useState(false);
+
  // ══ Notificações no computador ══
  // Avisam no dia e na véspera dos eventos do Calendário (impostos, transferências, preparar o mês...).
  // Funcionam enquanto a app estiver aberta num separador do browser (mesmo que não seja o ativo).
@@ -1727,9 +1752,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <button onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }} className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">🔄 Resetar tarefas</button>
              </div>
            )}
-           {(tarefasPend.atrasadas || []).length > 2 && (
-             <button onClick={() => { saveUndo(); const novas = {...(G.tarefasConcluidas || {})}; (tarefasPend.atrasadas || []).forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="w-full text-center text-xs px-2 py-1.5 mb-1 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors">✓ Marcar todas concluídas ({(tarefasPend.atrasadas || []).length})</button>
+           {(tarefasPend.atrasadas || []).length > 0 && (
+             <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg border border-orange-500/40 bg-orange-500/10 text-sm">
+               <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠️"/>{(tarefasPend.atrasadas || []).length} {(tarefasPend.atrasadas || []).length === 1 ? 'tarefa' : 'tarefas'} em atraso</span>
+               <button onClick={() => { saveUndo(); const novas = {...(G.tarefasConcluidas || {})}; (tarefasPend.atrasadas || []).forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">✓ Marcar todas feitas</button>
+               <button onClick={() => setVerAtrasadas(v => !v)} aria-expanded={verAtrasadas} className="text-xs px-2 py-1 rounded-md bg-orange-500/15 text-orange-400 hover:bg-orange-500/25">{verAtrasadas ? 'Esconder' : 'Ver quais'}</button>
+             </div>
            )}
+           {verAtrasadas && (<>
            {(tarefasPend.atrasadas || []).slice(0, 8).map((t, i) => {
              const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
              const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
@@ -1746,6 +1776,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {(tarefasPend.atrasadas || []).length > 8 && (
              <button onClick={() => setTab('calfin')} className="w-full text-xs text-center text-orange-400/70 hover:text-orange-300 py-1">e mais {(tarefasPend.atrasadas || []).length - 8} atrasadas → ver no calendário</button>
            )}
+           </>)}
            {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
              const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
              const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
@@ -1848,12 +1879,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <h3 className="font-semibold"><Ico e="💎"/>Património Líquido</h3>
        <p className="text-xs text-slate-500">{patRotulo(patUlt.idx)} · <button onClick={() => setTab('patrimonio')} className="text-blue-400 hover:text-blue-300">ver detalhe →</button></p>
      </div>
-     <span className="text-2xl font-bold text-emerald-400">{fmt(patUlt.total)}</span>
+     {patUlt.imoveis < 0.5 && patUlt.dividas > 0.5 ? <button onClick={() => setTab('patrimonio')} className="text-sm text-slate-500 hover:text-blue-400 text-right">Falta o valor dos imóveis para o total →</button> : <span className={`text-2xl font-bold ${patUlt.total < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(patUlt.total)}</span>}
    </div>
    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
      <div className="p-3 tile rounded-xl">
        <p className="text-xs text-slate-400 mb-1"><Ico e="📊"/>Investimentos</p>
-       <p className="text-lg font-bold text-blue-400">{fmt(patUlt.invest)}</p>
+       {patUlt.invest > 0.5 ? <p className="text-lg font-bold text-blue-400">{fmt(patUlt.invest)}</p> : <button onClick={() => setTab('portfolio')} className="text-sm font-medium text-slate-500 hover:text-blue-400">Por preencher →</button>}
        <p className="text-[10px] text-slate-500 mt-1">sem o dinheiro parado</p>
      </div>
      <div className="p-3 tile rounded-xl">
@@ -1863,7 +1894,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
      <div className="p-3 tile rounded-xl">
        <p className="text-xs text-slate-400 mb-1"><Ico e="🏠"/>Imóveis</p>
-       <p className="text-lg font-bold text-purple-400">{fmt(patUlt.imoveis)}</p>
+       {patUlt.imoveis > 0.5 ? <p className="text-lg font-bold text-purple-400">{fmt(patUlt.imoveis)}</p> : <button onClick={() => setTab('patrimonio')} className="text-sm font-medium text-slate-500 hover:text-blue-400">Por preencher →</button>}
        <p className="text-[10px] text-slate-500 mt-1">líquido de dívida: {fmt(patUlt.imoveis - patUlt.dividas)}</p>
      </div>
      <div className="p-3 tile rounded-xl">
@@ -1877,22 +1908,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
      <h3 className="font-semibold"><Ico e="💎"/>Património Líquido</h3>
-     <span className={`text-2xl font-bold ${patrimonio.total < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(patrimonio.total)}</span>
+     {patrimonio.valorCasa < 0.5 && patrimonio.dividaAtual > 0.5 ? <button onClick={() => setTab('credito')} className="text-sm text-slate-500 hover:text-blue-400 text-right">Falta o valor da casa para o total →</button> : <span className={`text-2xl font-bold ${patrimonio.total < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(patrimonio.total)}</span>}
    </div>
    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
      <div className="p-3 tile rounded-xl">
        <p className="text-xs text-slate-400 mb-1"><Ico e="📊"/>Portfolio</p>
-       <p className="text-lg font-bold text-blue-400">{fmt(patrimonio.portfolio)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.portfolio / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>
+       {patrimonio.portfolio > 0.5 ? <p className="text-lg font-bold text-blue-400">{fmt(patrimonio.portfolio)}</p> : <button onClick={() => setTab('portfolio')} className="text-sm font-medium text-slate-500 hover:text-blue-400">Por preencher →</button>}
+       {patrimonio.portfolio > 0.5 && <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.portfolio / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>}
      </div>
      <div className="p-3 tile rounded-xl">
        <p className="text-xs text-slate-400 mb-1"><Ico e="🏠"/>Casa (líquido)</p>
-       <p className="text-lg font-bold text-purple-400">{fmt(patrimonio.casaLiquida)}</p>
-       <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.casaLiquida / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>
+       {patrimonio.valorCasa > 0.5 ? <p className="text-lg font-bold text-purple-400">{fmt(patrimonio.casaLiquida)}</p> : <button onClick={() => setTab('credito')} className="text-sm font-medium text-slate-500 hover:text-blue-400">Por preencher →</button>}
+       {patrimonio.valorCasa > 0.5 && <p className="text-[10px] text-slate-500 mt-1">{patrimonio.total > 0 ? ((patrimonio.casaLiquida / patrimonio.total) * 100).toFixed(0) : 0}% do total</p>}
      </div>
      <div className="p-3 tile rounded-xl">
        <p className="text-xs text-slate-400 mb-1"><Ico e="🏦"/>Valor Casa</p>
-       <p className="text-lg font-bold text-emerald-400">{fmt(patrimonio.valorCasa)}</p>
+       {patrimonio.valorCasa > 0.5 ? <p className="text-lg font-bold text-emerald-400">{fmt(patrimonio.valorCasa)}</p> : <button onClick={() => setTab('credito')} className="text-sm font-medium text-slate-500 hover:text-blue-400">Por preencher →</button>}
        <p className="text-[10px] text-slate-500 mt-1">Avaliação atual</p>
      </div>
      <div className="p-3 tile rounded-xl">
@@ -12497,6 +12528,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  try {
  const data = JSON.parse(backupData);
  if (data.g && data.m) {
+ saveUndo();
  setG(data.g);
  setM(data.m);
  setBackupStatus('✅ Dados importados com sucesso!');
@@ -12779,6 +12811,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <button onClick={() => { exportExtratoExcel(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato Excel</button>
        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
        <button onClick={() => { fazerBackup(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Cópia de segurança (descarregar){diasSemBackup != null ? ` · há ${diasSemBackup} ${diasSemBackup === 1 ? 'dia' : 'dias'}` : ''}</button>
+       <button onClick={() => { abrirCopias(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>🕘 Cópias automáticas{ultimaCopiaAuto ? ` · última ${new Date(ultimaCopiaAuto).toLocaleDateString('pt-PT')}` : ''}</button>
        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
        <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
      </div>
@@ -13139,6 +13172,28 @@ ${transacoesOrdenadas.map(t => `<tr>
           })}
         </div>
       </nav>
+      {copiasLista && (
+        <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" onMouseDown={e => { if (e.target === e.currentTarget) setCopiasLista(null); }}>
+          <div className={`${modalBg} w-full max-w-md rounded-2xl border ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} p-4 space-y-3`}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold"><Ico e="📦"/>Cópias automáticas</h3>
+              <button onClick={() => setCopiasLista(null)} aria-label="Fechar" className="text-slate-400 px-2">✕</button>
+            </div>
+            <p className="text-xs text-slate-500">A app guarda sozinha uma cópia por semana neste browser (ficam as 6 mais recentes). Para voltar atrás, escolhe uma e confirma em «Importar Dados». Se te enganares, o ↩️ desfaz.</p>
+            {copiasLista.length === 0 ? <p className="text-sm text-slate-500 py-4 text-center">Ainda não há cópias. A primeira é feita uns segundos depois de abrires a app.</p> : (
+              <div className="space-y-2">
+                {copiasLista.map(c => (
+                  <div key={c.id} className="flex items-center gap-2 p-2 tile rounded-lg text-sm">
+                    <span className="flex-1">{new Date(c.id).toLocaleString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}<span className="block text-xs text-slate-500">{(c.conteudo.length / 1048576).toFixed(1).replace('.', ',')} MB</span></span>
+                    <button onClick={() => { const url = URL.createObjectURL(new Blob([c.conteudo], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = `backup-orcamento-${c.id.slice(0, 10)}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); }} className="text-xs px-2 py-1 rounded-md tile">Descarregar</button>
+                    <button onClick={() => { setBackupData(c.conteudo); setBackupStatus(''); setBackupMode('import'); setShowBackupModal(true); setCopiasLista(null); }} className="text-xs px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white">Restaurar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
       <main className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && (
@@ -13155,7 +13210,7 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         )}
         <div key={tab} className="animate-fadeIn">
-        {tab==='resumo' && dataLoaded && (diasSemBackup == null || diasSemBackup >= 30) && (
+        {tab==='resumo' && dataLoaded && !ultimaCopiaAuto && (diasSemBackup == null || diasSemBackup >= 30) && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 no-print ${theme === 'light' ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'}`}>
             <span>💾 {diasSemBackup == null ? 'Ainda não fizeste nenhuma cópia de segurança dos teus dados.' : `A última cópia de segurança foi há ${diasSemBackup} dias.`}</span>
             <button onClick={fazerBackup} className="px-3 py-1.5 rounded-lg font-medium bg-amber-500/20 hover:bg-amber-500/30">Descarregar cópia agora</button>
