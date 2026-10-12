@@ -99,8 +99,8 @@ const opApagarPasta = (trab, id) => {
   const ids = new Set(descendentes(trab, id));
   return { ...trab, pastas: (trab.pastas || []).filter(p => !ids.has(p.id)), tarefas: (trab.tarefas || []).filter(t => !ids.has(t.pastaId)), favoritos: (trab.favoritos || []).filter(f => !ids.has(f)) };
 };
-const opNovaTarefa = (trab, { pastaId, cid, nome, prazo }) => ({
-  ...trab, tarefas: [...(trab.tarefas || []), { id: trabId(), pastaId: pastaId || null, cid: cid ?? null, nome: nome.trim(), estado: 'todo', criada: agoraIso(), prazo: prazo || '', tempos: [], notas: '' }],
+const opNovaTarefa = (trab, { pastaId, cid, nome, prazo, pecas }) => ({
+  ...trab, tarefas: [...(trab.tarefas || []), { id: trabId(), pastaId: pastaId || null, cid: cid ?? null, nome: nome.trim(), estado: 'todo', criada: agoraIso(), prazo: prazo || '', tempos: [], notas: '', ...(pecas ? { pecas } : {}) }],
 });
 const opTarefa = (trab, id, fn) => ({ ...trab, tarefas: (trab.tarefas || []).map(t => (t.id === id ? fn(t) : t)) });
 const opParar = trabParar;
@@ -237,15 +237,28 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
   const hoje = trabDia(new Date().toISOString());
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const [editar, setEditar] = useState(false);
+  const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
     <div className={`${cheio ? COLS : COLS_CURTO} group px-3 h-11 border-b text-[13px] transition-colors ${corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
-        <button type="button" onClick={() => onAbrir(t.id)} className="min-w-0 text-left">
-          <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
-          {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
-        </button>
-        {t.notas && <span className={`text-[11px] ${sub}`} title="Tem notas">✎</span>}
+        {editar ? (
+          <input autoFocus defaultValue={t.nome} onFocus={e => e.target.select()} onBlur={e => gravarNome(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.stopPropagation(); setEditar(false); } }}
+            className={`flex-1 min-w-0 h-8 px-2 rounded-md text-[13px] font-medium outline-none ring-2 ring-blue-500 ${claro ? 'bg-white' : 'bg-slate-800'}`} aria-label="Nome da tarefa" />
+        ) : (
+          <>
+            <button type="button" onClick={() => onAbrir(t.id)} className="min-w-0 text-left">
+              <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
+              {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
+            </button>
+            <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
+            </button>
+            {t.notas && <span className={`text-[11px] ${sub}`} title="Tem notas">📝</span>}
+          </>
+        )}
       </div>
       <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
       {cheio && <div className={sub}>{haQuanto(t.criada)}</div>}
@@ -321,19 +334,79 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
 };
 
 // ── Escrever uma tarefa nova (com o valor a aparecer enquanto escreves) ──
-const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta }) => {
+// Sugestões ao escrever uma tarefa nova: tipos de tarefa (com o nome em inglês, como no ClickUp) e nomes já usados
+const semAcentos = x => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const sugestoesTarefa = (txt, cu, preco, nomesUsados) => {
+  const m = /^\s*(\d+)\s*x?\s*(.*)$/i.exec(txt);
+  const qtd = m && m[1] ? Number(m[1]) : null;
+  const resto = semAcentos(m ? m[2] : txt).trim();
+  if (!resto && !qtd) return [];
+  const n = qtd || 1;
+  const tipos = tiposDe(cu).filter(t => preco(t.id) > 0 || String(t.id).startsWith('x_'));
+  const out = [];
+  tipos.forEach(t => {
+    const en = CU_NOMES_EN[t.id];
+    const rot = en ? en[n === 1 ? 0 : 1] : t.nome;
+    const alvos = [rot, t.nome, t.curto || '', en ? en[0] : ''].map(semAcentos);
+    if (!resto || alvos.some(a => a.startsWith(resto) || a.split(/[\s/]+/).some(w => w.startsWith(resto)))) out.push({ k: 't:' + t.id, tipo: t.id, n, texto: `${n}x ${rot} - `, rot: `${n}x ${rot}`, sub: t.nome, valor: preco(t.id) * n });
+  });
+  if (resto && ['extra', 'ideation', 'ideacao', 'hora', 'call', 'reuniao', 'meeting'].some(a => a.startsWith(resto) || resto.startsWith(a))) out.push({ k: 'h', tipo: 'extra', n: 1, texto: 'Ideation / Extra work', rot: 'Ideation / Extra work', sub: 'à hora', valor: null });
+  if (resto.length >= 2) {
+    nomesUsados.filter(x => semAcentos(x).includes(resto) && !out.some(o => o.texto.trim() === x)).slice(0, 4)
+      .forEach(x => out.push({ k: 'n:' + x, tipo: null, n: 0, texto: x, rot: x, sub: 'já usado', valor: null }));
+  }
+  return out.slice(0, 8);
+};
+const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta, nomesUsados = [] }) => {
   const [txt, setTxt] = useState('');
   const [prazo, setPrazo] = useState('');
+  const [tipoEsc, setTipoEsc] = useState(null);
+  const [foco, setFoco] = useState(false);
+  const [ativa, setAtiva] = useState(-1);
+  const inRef = useRef(null);
   const claro = useClaro(theme);
-  const preview = txt.trim() ? trabValor({ nome: txt, cid, tempos: [] }, cu, clientes) : 0;
-  const pecas = txt.trim() ? cuPecas(txt).filter(p => p.tipo !== 'outro') : [];
-  const criar = () => { if (!txt.trim()) return; onCriar(txt, prazo); setTxt(''); };
+  const preco = tipo => cuPreco(cu, clientes, cid, tipo);
+  const pecasEsc = tipoEsc ? { [tipoEsc.tipo]: tipoEsc.n } : null;
+  const preview = txt.trim() ? trabValor({ nome: txt, cid, tempos: [], pecas: pecasEsc }, cu, clientes) : 0;
+  const pecas = pecasEsc ? Object.entries(pecasEsc).map(([tipo, n]) => ({ tipo, n })).filter(p => p.tipo !== 'extra') : txt.trim() ? cuPecas(txt).filter(p => p.tipo !== 'outro') : [];
+  const sug = foco && !semPasta && !tipoEsc ? sugestoesTarefa(txt, cu, preco, nomesUsados) : [];
+  const escolher = o => {
+    setTxt(o.texto);
+    setTipoEsc(o.tipo ? { tipo: o.tipo, n: o.n } : null);
+    setAtiva(-1);
+    setTimeout(() => { const el = inRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);
+  };
+  const criar = () => { if (!txt.trim()) return; onCriar(txt.replace(/\s*-\s*$/, ''), prazo, pecasEsc); setTxt(''); setTipoEsc(null); setAtiva(-1); };
+  const nomeTipo = id => { const t = tiposDe(cu, { [id]: 1 }).find(x => x.id === id); return t ? (t.curto || t.nome) : id; };
   return (
-    <div className={`rounded-xl border p-2 ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/30'}`}>
+    <div className={`relative rounded-xl border p-2 ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/30'}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') criar(); }}
-          placeholder={semPasta ? 'Escolhe uma pasta à esquerda para criar tarefas' : 'Nova tarefa — ex.: 2x New Videos - Halloween + 1x Variation'} disabled={semPasta}
-          className={`${inputClass} flex-1 min-w-[220px] text-sm py-2`} />
+        <div className="relative flex-1 min-w-[220px]">
+          <input ref={inRef} value={txt} onChange={e => { setTxt(e.target.value); setAtiva(-1); if (!e.target.value.trim()) setTipoEsc(null); }}
+            onFocus={() => setFoco(true)} onBlur={() => setTimeout(() => setFoco(false), 150)}
+            onKeyDown={e => {
+              if (sug.length && e.key === 'ArrowDown') { e.preventDefault(); setAtiva(a => (a + 1) % sug.length); return; }
+              if (sug.length && e.key === 'ArrowUp') { e.preventDefault(); setAtiva(a => (a <= 0 ? sug.length - 1 : a - 1)); return; }
+              if (sug.length && (e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); escolher(sug[Math.max(0, ativa)]); return; }
+              if (e.key === 'Enter') { if (ativa >= 0 && sug[ativa]) escolher(sug[ativa]); else criar(); }
+              if (e.key === 'Escape') { e.stopPropagation(); setFoco(false); }
+            }}
+            placeholder={semPasta ? 'Escolhe uma pasta à esquerda para criar tarefas' : 'Nova tarefa — começa a escrever (ex.: "new", "var", "2x ite")'} disabled={semPasta}
+            className={`${inputClass} text-sm py-2`} role="combobox" aria-expanded={sug.length > 0} aria-autocomplete="list" />
+          {sug.length > 0 && (
+            <div role="listbox" className={`absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border shadow-xl overflow-hidden animate-modalIn ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+              {sug.map((o, i) => (
+                <button key={o.k} type="button" role="option" aria-selected={i === ativa} onMouseDown={e => e.preventDefault()} onClick={() => escolher(o)} onMouseEnter={() => setAtiva(i)}
+                  className={`w-full flex items-center gap-3 px-3 py-1.5 text-left text-sm ${i === ativa ? (claro ? 'bg-blue-50' : 'bg-blue-500/15') : ''}`}>
+                  <span className="flex-1 min-w-0 truncate">{o.rot}</span>
+                  <span className={`text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{o.sub}</span>
+                  {o.valor ? <span className={`text-xs tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(o.valor)}</span> : null}
+                </button>
+              ))}
+              <p className={`px-3 py-1 text-[10px] border-t ${claro ? 'text-slate-400 border-slate-100' : 'text-slate-500 border-white/[0.06]'}`}>↑↓ para escolher · Tab ou Enter para usar · depois escreve o resto (ex.: o jogo)</p>
+            </div>
+          )}
+        </div>
         <label className={`flex items-center gap-2 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Prazo
           <input type="date" value={prazo} onChange={e => setPrazo(e.target.value)} title="Prazo de entrega (opcional)" disabled={semPasta} className={`${inputClass} !w-auto text-sm py-2`} />
         </label>
@@ -341,7 +414,8 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta })
       </div>
       {txt.trim() && (
         <p className={`mt-1.5 px-1 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>
-          {pecas.length ? pecas.map(p => `${p.n} × ${(CU_TIPOS.find(x => x.id === p.tipo) || {}).curto || (CU_TIPOS.find(x => x.id === p.tipo) || {}).nome || p.tipo}`).join(' + ') : 'Tarefa sem peças (conta à hora)'}
+          {tipoEsc && <button type="button" onClick={() => setTipoEsc(null)} className="mr-1.5 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400" title="Tirar o tipo escolhido">{tipoEsc.tipo === 'extra' ? 'À hora' : `${tipoEsc.n} × ${nomeTipo(tipoEsc.tipo)}`} ✕</button>}
+          {!tipoEsc && (pecas.length ? pecas.map(p => `${p.n} × ${nomeTipo(p.tipo)}`).join(' + ') : 'Tarefa sem peças (conta à hora)')}
           {preview > 0 && <> · vale <strong className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(preview)}</strong></>}
           <> · fica criada hoje, {dataCurta(new Date().toISOString())}</>
         </p>
@@ -442,7 +516,7 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
   const qtd = tipo => (qtdMao[tipo] != null ? Number(qtdMao[tipo]) || 0 : auto[tipo] || 0);
   const pu = tipo => (precoMao[tipo] != null ? Number(precoMao[tipo]) || 0 : preco(tipo));
   // Linhas: os tipos com preço para este cliente, mais os que aparecem nas tarefas
-  const tipos = TIPOS_PECA.filter(t => preco(t.id) > 0 || auto[t.id] || qtdMao[t.id] != null);
+  const tipos = tiposDe(cu, { ...auto, ...qtdMao }).filter(t => preco(t.id) > 0 || auto[t.id] || qtdMao[t.id] != null);
   const linhas = tipos.map(t => ({ id: t.id, nome: t.curto || t.nome, q: qtd(t.id), p: pu(t.id), auto: auto[t.id] || 0, mao: qtdMao[t.id] != null }));
   const hExtra = orc.horas != null ? Number(orc.horas) || 0 : horasExtra;
   const nDias = orc.dias != null ? Number(orc.dias) || 0 : dias.size;
@@ -585,7 +659,7 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
     <div className="space-y-3 max-w-3xl">
       <p className={`text-sm ${sub}`}>Preços de <strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{nome}</strong>. Contam no valor de cada tarefa, nos orçamentos e nas receitas estimadas. Vazio = usa o padrão.</p>
       <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
-        {CU_CAMPOS_PRECO.map(t => {
+        {[...tiposDe(cu), ...CAMPOS_EXTRA_PRECO].map(t => {
           const base = pre[t.id] != null ? pre[t.id] : padrao[t.id];
           return (
             <div key={t.id} className={`grid grid-cols-[minmax(0,1fr)_120px] items-center gap-3 px-3 py-1.5 border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
@@ -608,6 +682,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
   const [maisTipos, setMaisTipos] = useState(false);
   const [varias, setVarias] = useState(false);
+  const [gravou, setGravou] = useState(false);
+  useEffect(() => { if (!gravou) return undefined; const i = setTimeout(() => setGravou(false), 1600); return () => clearTimeout(i); }, [gravou]);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
   if (!t) return null;
   const set = patch => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, ...patch })));
@@ -623,7 +699,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const pecasAtuais = {}; trabPecas(t).forEach(p => { if (p.tipo !== 'outro' && p.tipo !== 'extra') pecasAtuais[p.tipo] = (pecasAtuais[p.tipo] || 0) + p.n; });
   const temMao = t.pecas && Object.keys(t.pecas).length > 0;
   const preco = tipo => cuPreco(cu, clientes, t.cid, tipo);
-  const tiposVis = TIPOS_PECA.filter(x => maisTipos || preco(x.id) > 0 || pecasAtuais[x.id]);
+  const tiposVis = tiposDe(cu, pecasAtuais).filter(x => maisTipos || preco(x.id) > 0 || pecasAtuais[x.id]);
   const setPeca = (tipo, n) => { const base = temMao ? { ...t.pecas } : { ...pecasAtuais }; if (!n) delete base[tipo]; else base[tipo] = n; set({ pecas: base }); };
   const horasTarefa = trabHoras(t);
   const est = Number(t.estimativa) || 0;
@@ -691,14 +767,14 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                 <>
                   {!verQtd ? (
                     <div>
-                      <span className={lab}>O que é esta tarefa?</span>
+                      <span className={lab}>O que é esta tarefa? <span className={gravou ? 'text-emerald-400' : 'opacity-70'}>{gravou ? '✓ gravado' : '— carrega noutro para mudar, grava logo'}</span></span>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {tiposVis.map(x => (
-                          <button key={x.id} type="button" onClick={() => set({ pecas: { [x.id]: 1 } })} className={chip(simples && tiposCom[0] === x.id)}>
+                          <button key={x.id} type="button" onClick={() => { set({ pecas: { [x.id]: 1 } }); setGravou(true); }} className={chip(simples && tiposCom[0] === x.id)}>
                             {x.curto || x.nome} <span className="opacity-60 tabular-nums">{eur(preco(x.id))}</span>
                           </button>
                         ))}
-                        <button type="button" onClick={() => set({ pecas: { extra: 1 } })} className={chip(porHora)}>
+                        <button type="button" onClick={() => { set({ pecas: { extra: 1 } }); setGravou(true); }} className={chip(porHora)}>
                           À hora <span className="opacity-60 tabular-nums">{preco('dia') > 0 ? `${eur(preco('dia'))}/dia` : `${eur(preco('hora'))}/h`}</span>
                         </button>
                       </div>
@@ -846,6 +922,292 @@ const NoPasta = ({ p, trab, nivel, sel, setSel, abertas, alternar, theme, contar
 };
 
 // ── Visão geral (sem pasta escolhida) ──
+// ── Tipos de tarefa (base de dados): nome, preço padrão e preço de cada cliente ──
+// Os tipos de base vêm da app; podes mudar-lhes o nome, escondê-los ou criar tipos novos.
+const tiposDe = (cu, usados = {}) => {
+  const ocultos = new Set((cu && cu.tiposOcultos) || []);
+  const nomes = (cu && cu.tiposNomes) || {};
+  const base = CU_TIPOS.filter(t => !t.porHora).map(t => (nomes[t.id] ? { ...t, nome: nomes[t.id], curto: nomes[t.id] } : t));
+  return [...base, ...((cu && cu.tiposExtra) || [])].filter(t => !ocultos.has(t.id) || usados[t.id]);
+};
+const CAMPOS_EXTRA_PRECO = [
+  { id: 'hora', nome: 'Hora (extras / ideação)' },
+  { id: 'dia', nome: 'Diária (cada dia com horas = 1 dia)' },
+  { id: 'retainer', nome: 'Mínimo mensal garantido' },
+];
+const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const borda = claro ? 'border-slate-100' : 'border-white/[0.05]';
+  const [novo, setNovo] = useState('');
+  const [verOcultos, setVerOcultos] = useState(false);
+  const precos = (cu && cu.precos) || {};
+  const padrao = { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) };
+  const ocultos = new Set((cu && cu.tiposOcultos) || []);
+  const nomes = (cu && cu.tiposNomes) || {};
+  const extra = (cu && cu.tiposExtra) || [];
+  const clis = clientes.filter(c => c.estado !== 'antigo');
+  const todos = [...CU_TIPOS.filter(t => !t.porHora).map(t => ({ ...t, base: true, nome: nomes[t.id] || t.nome })), ...extra.map(t => ({ ...t, base: false }))];
+  const linhas = todos.filter(t => verOcultos || !ocultos.has(t.id));
+  const gravarPadrao = (tipo, v) => { const p = { ...(precos.padrao || {}) }; if (v == null) delete p[tipo]; else p[tipo] = v; onPrecos({ ...precos, padrao: p }); };
+  const gravarCli = (cid, tipo, v) => {
+    const pc = { ...((precos.porCliente || {})[cid] || {}) };
+    if (v == null) delete pc[tipo]; else pc[tipo] = v;
+    onPrecos({ ...precos, porCliente: { ...(precos.porCliente || {}), [cid]: pc } });
+  };
+  const valCli = (cid, tipo) => { const pc = (precos.porCliente || {})[cid] || {}; return pc[tipo] != null && pc[tipo] !== '' ? pc[tipo] : null; };
+  const herdado = (cid, tipo) => { const pre = cuPresetCliente(clientes, cid); return pre[tipo] != null ? pre[tipo] : padrao[tipo]; };
+  const mudarNome = (t, v) => {
+    if (!v) return;
+    if (t.base) { const n = { ...nomes }; const orig = (CU_TIPOS.find(x => x.id === t.id) || {}).nome; if (v === orig) delete n[t.id]; else n[t.id] = v; onCu({ tiposNomes: n }); }
+    else onCu({ tiposExtra: extra.map(x => (x.id === t.id ? { ...x, nome: v, curto: v } : x)) });
+  };
+  const alternarOculto = t => { const s = new Set(ocultos); if (s.has(t.id)) s.delete(t.id); else s.add(t.id); onCu({ tiposOcultos: [...s] }); };
+  const criar = () => {
+    const nome = novo.trim(); if (!nome) return;
+    const id = 'x_' + nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24) + '_' + Date.now().toString(36).slice(-4);
+    onCu({ tiposExtra: [...extra, { id, nome, curto: nome, plural: nome.toLowerCase() }] });
+    setNovo('');
+  };
+  const cel = `${inputClass} !w-full text-sm py-1 text-right tabular-nums`;
+  const cols = { gridTemplateColumns: `minmax(200px,1.6fr) 96px repeat(${clis.length}, minmax(88px,1fr)) 72px` };
+  const minW = 200 + 96 + clis.length * 88 + 72;
+  const linha = (t, campo) => (
+    <div className={`grid items-center gap-2 px-3 py-1.5 border-b ${borda} ${t && ocultos.has(t.id) ? 'opacity-50' : ''}`} style={cols}>
+      {campo ? <span className="text-sm">{campo.nome}</span> : (
+        <TxtIn valor={t.nome} onGravar={v => mudarNome(t, v)} className={`${inputClass} !w-full text-sm py-1`} />
+      )}
+      <NumIn valor={(precos.padrao || {})[(campo || t).id] ?? null} placeholder={CU_PRECOS_PADRAO[(campo || t).id] != null ? String(CU_PRECOS_PADRAO[(campo || t).id]) : '—'} onGravar={v => gravarPadrao((campo || t).id, v)} className={cel} />
+      {clis.map(c => {
+        const id = (campo || t).id;
+        const h = herdado(c.id, id);
+        return <NumIn key={c.id} valor={valCli(c.id, id)} placeholder={h != null && h !== 0 ? String(h) : '—'} onGravar={v => gravarCli(c.id, id, v)} className={cel} />;
+      })}
+      <div className="flex justify-end gap-1">
+        {t && <button type="button" onClick={() => alternarOculto(t)} className={`text-xs ${sub} hover:text-blue-400`} title={ocultos.has(t.id) ? 'Voltar a mostrar nas tarefas' : 'Esconder das tarefas'}>{ocultos.has(t.id) ? 'mostrar' : 'esconder'}</button>}
+        {t && !t.base && <button type="button" onClick={() => { if (window.confirm(`Apagar o tipo "${t.nome}"? As tarefas que o usam ficam sem valor automático.`)) onCu({ tiposExtra: extra.filter(x => x.id !== t.id) }); }} className={`text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${t.nome}`}>✕</button>}
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <p className={`text-sm ${sub}`}>Os tipos que escolhes em cada tarefa, com o preço padrão e o de cada cliente. Vazio = usa o valor cinzento (o padrão ou a tabela do cliente). Estes preços alimentam o valor das tarefas, os orçamentos e as receitas estimadas.</p>
+      <div className={`rounded-xl border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+        <div style={{ minWidth: minW }}>
+          <div className={`grid items-end gap-2 px-3 h-10 pb-1.5 border-b text-[11px] font-medium ${claro ? 'border-slate-200 text-slate-400' : 'border-white/[0.08] text-slate-500'}`} style={cols}>
+            <span>Tipo de tarefa</span><span className="text-right">Padrão</span>
+            {clis.map(c => <span key={c.id} className="text-right truncate" title={c.nome}><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: c.cor || '#64748b' }} />{c.nome}</span>)}
+            <span />
+          </div>
+          {linhas.map(t => <React.Fragment key={t.id}>{linha(t)}</React.Fragment>)}
+          <div className={`px-3 py-2 border-b ${borda} flex flex-wrap items-center gap-2`}>
+            <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') criar(); }} placeholder="Novo tipo (ex.: Playable ad)" className={`${inputClass} !w-56 text-sm py-1`} />
+            <button type="button" onClick={criar} className="px-3 py-1 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Tipo</button>
+            {ocultos.size > 0 && <button type="button" onClick={() => setVerOcultos(!verOcultos)} className={`text-xs ${sub} hover:text-blue-400`}>{verOcultos ? 'esconder os escondidos' : `ver escondidos (${ocultos.size})`}</button>}
+          </div>
+          <p className={`px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Outros preços</p>
+          {CAMPOS_EXTRA_PRECO.map(campo => <React.Fragment key={campo.id}>{linha(null, campo)}</React.Fragment>)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
+const PAISES_RECIBO = [['PT', '🇵🇹 Portugal'], ['UE', '🇪🇺 UE'], ['Fora UE', '🌍 Fora UE']];
+const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
+// Números de um cliente: faturado (recibos), horas e tarefas (Trabalho)
+const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
+  const f = (faturado || {})[c.id] || {};
+  const meses12 = f[ano] || Array(12).fill(0);
+  const fatAno = meses12.reduce((a, v) => a + v, 0);
+  const fatAnt = (f[ano - 1] || []).reduce((a, v) => a + v, 0);
+  let horasAno = 0, emCurso = 0, porEntregar = 0, entregueMes = 0;
+  const pref = `${ano}-`;
+  const prefMes = `${ano}-${String(mesNum).padStart(2, '0')}-`;
+  (trab.tarefas || []).forEach(t => {
+    if (String(t.cid) !== String(c.id)) return;
+    (t.tempos || []).forEach(x => { if (trabDia(x.ini).startsWith(pref)) horasAno += trabMsTempo(x) / 3600000; });
+    if (t.estado === 'curso') emCurso += 1;
+    if (t.estado !== 'feito' && t.estado !== 'review') porEntregar += trabValor(t, cu, clientes);
+    if (trabEntrega(t).startsWith(prefMes)) entregueMes += trabValor(t, cu, clientes);
+  });
+  let ultimo = null;
+  Object.keys(f).map(Number).sort((a, b) => b - a).some(a => { const i = (f[a] || []).map((v, k) => (v ? k : -1)).filter(k => k >= 0).pop(); if (i != null && i >= 0) { ultimo = `${meses[i]} ${a}`; return true; } return false; });
+  return { meses12, fatAno, fatAnt, horasAno, emCurso, porEntregar, entregueMes, ultimo, eurHora: horasAno > 0 ? fatAno / horasAno : 0 };
+};
+const Campo = ({ rot, children, largo }) => (
+  <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-400">{rot}</span>{children}</label>
+);
+const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text' }) => (
+  <input key={String(valor ?? '')} type={type} defaultValue={valor ?? ''} placeholder={placeholder} className={className}
+    onBlur={e => { const v = e.target.value.trim(); if (v !== String(valor ?? '')) onGravar(v); }}
+    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+);
+const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const [novaTag, setNovaTag] = useState('');
+  if (c.soTrabalho) {
+    return (
+      <div className={`${caixa} max-w-xl space-y-3`}>
+        <p className="text-sm">O cliente <strong>{c.nome}</strong> veio do ClickUp e ainda não existe na app, por isso ainda não tem ficha, preços próprios nem recibos.</p>
+        <button type="button" onClick={onCriarDoClickUp} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Criar o cliente "{c.nome}"</button>
+        <p className={`text-xs ${sub}`}>As pastas e tarefas dele passam para o cliente novo.</p>
+      </div>
+    );
+  }
+  const fat = c.fat || {};
+  const rec = c.recibo || {};
+  const set = patch => onCliente(c.id, patch);
+  const setFat = patch => set({ fat: { ...fat, ...patch } });
+  const setRec = patch => set({ recibo: { ...rec, ...patch } });
+  const n = numerosCliente(c, trab, faturado, ano, mesNum, cu, clientes);
+  const tags = c.tags || [];
+  const juntarTag = () => { const v = novaTag.trim().replace(/^#/, ''); if (v && !tags.includes(v)) set({ tags: [...tags, v] }); setNovaTag(''); };
+  const ic = `${inputClass} text-sm py-1.5`;
+  const chip = on => `px-2.5 py-1 rounded-full text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
+  const maxMes = Math.max(1, ...n.meses12);
+  const regime = rec.regime || ((rec.pais || 'PT') === 'Fora UE' ? 'sem' : 'com');
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+      <div className="space-y-4 min-w-0">
+        <div className={caixa}>
+          <p className="text-sm font-semibold mb-3">Geral</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Campo rot="Nome na app"><TxtIn valor={c.nome} onGravar={v => v && set({ nome: v })} className={ic} /></Campo>
+            <Campo rot="Cor">
+              <div className="flex flex-wrap gap-1.5 py-1">{CORES_PASTA.map(cor => <button key={cor} type="button" onClick={() => set({ cor })} className={`w-6 h-6 rounded-md ${c.cor === cor ? 'ring-2 ring-offset-2 ring-blue-500 ' + (claro ? 'ring-offset-white' : 'ring-offset-slate-900') : ''}`} style={{ background: cor }} aria-label={`Cor ${cor}`} />)}</div>
+            </Campo>
+            <Campo rot="Outros nomes (separados por vírgulas — o OCR e o ClickUp reconhecem o cliente por eles)" largo>
+              <TxtIn valor={(c.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Anorak Games, Anorak" className={ic} />
+            </Campo>
+            <Campo rot="Tags" largo>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {tags.map(t => <span key={t} className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full text-xs ${claro ? 'bg-slate-100 text-slate-700' : 'bg-white/10 text-slate-200'}`}>#{t}<button type="button" onClick={() => set({ tags: tags.filter(x => x !== t) })} className="w-4 h-4 rounded-full hover:text-red-400" aria-label={`Tirar ${t}`}>×</button></span>)}
+                <input value={novaTag} onChange={e => setNovaTag(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); juntarTag(); } }} onBlur={juntarTag} placeholder="+ tag (ex.: gaming)" className={`${inputClass} !w-40 text-xs py-1`} />
+              </div>
+            </Campo>
+            <Campo rot="Estado">
+              <div className="flex gap-1.5">{[['ativo', 'Ativo'], ['pausa', 'Em pausa'], ['antigo', 'Antigo']].map(([k, nm]) => <button key={k} type="button" onClick={() => set({ estado: k })} className={chip((c.estado || 'ativo') === k)}>{nm}</button>)}</div>
+            </Campo>
+          </div>
+        </div>
+
+        <div className={caixa}>
+          <p className="text-sm font-semibold mb-3">Faturação</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Campo rot="Nome legal (como vai na fatura)" largo><TxtIn valor={fat.nomeLegal} onGravar={v => setFat({ nomeLegal: v })} placeholder="ex.: Anorak Games GmbH" className={ic} /></Campo>
+            <Campo rot="NIF / VAT"><TxtIn valor={fat.nif} onGravar={v => setFat({ nif: v })} placeholder="ex.: DE123456789" className={ic} /></Campo>
+            <Campo rot="Email de faturação"><TxtIn type="email" valor={fat.email} onGravar={v => setFat({ email: v })} placeholder="invoices@…" className={ic} /></Campo>
+            <Campo rot="Morada" largo><TxtIn valor={fat.morada} onGravar={v => setFat({ morada: v })} placeholder="Rua, código postal, cidade, país" className={ic} /></Campo>
+            <Campo rot="Moeda">
+              <select value={fat.moeda || 'EUR'} onChange={e => setFat({ moeda: e.target.value })} className={ic}>{MOEDAS.map(m => <option key={m} value={m}>{m}</option>)}</select>
+            </Campo>
+            <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
+          </div>
+        </div>
+
+        <div className={caixa}>
+          <p className="text-sm font-semibold">Regras dos recibos</p>
+          <p className={`text-xs mb-3 ${sub}`}>Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Campo rot="País do cliente">
+              <div className="flex flex-wrap gap-1.5">{PAISES_RECIBO.map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ pais: k, regime: k === 'Fora UE' ? 'sem' : (rec.regime === 'sem' && rec.pais === 'Fora UE' ? 'com' : rec.regime || 'com') })} className={chip((rec.pais || 'PT') === k)}>{nm}</button>)}</div>
+            </Campo>
+            <Campo rot="Onde entram os recibos">
+              <div className="flex flex-wrap gap-1.5">{[['com', 'Com taxas'], ['sem', 'Sem taxas']].map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ regime: k })} className={chip(regime === k)}>{nm}</button>)}</div>
+            </Campo>
+            {(rec.pais || 'PT') === 'PT' && (
+              <>
+                <Campo rot="IVA (%)"><NumIn valor={rec.taxaIva ?? null} placeholder="23" onGravar={v => setRec({ taxaIva: v })} className={ic} /></Campo>
+                <Campo rot="Retenção na fonte (%)"><NumIn valor={rec.taxaRet ?? null} placeholder="padrão" onGravar={v => setRec({ taxaRet: v })} className={ic} /></Campo>
+              </>
+            )}
+            {(rec.pais || 'PT') !== 'PT' && <p className={`text-xs sm:col-span-2 ${sub}`}>Fora de Portugal o recibo vai sem IVA nem retenção (autoliquidação / exportação de serviços).</p>}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className={caixa}>
+          <p className="text-sm font-semibold mb-3">Números de {ano}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ['Faturado', eur(n.fatAno), n.fatAnt ? `${ano - 1}: ${eur(n.fatAnt)}` : ''],
+              ['Por entregar', eur(n.porEntregar), 'tarefas ainda abertas'],
+              ['Entregue este mês', eur(n.entregueMes), meses[mesNum - 1]],
+              ['Horas', tempoTxt(n.horasAno), n.emCurso ? `${n.emCurso} em curso` : ''],
+              ['€ / hora', n.eurHora ? eur(n.eurHora) : '—', 'faturado ÷ horas'],
+              ['Último recibo', n.ultimo || '—', ''],
+            ].map(([k, v, nota]) => (
+              <div key={k} className={`rounded-lg p-2.5 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}>
+                <p className={`text-[11px] ${sub}`}>{k}</p>
+                <p className="text-base font-semibold tabular-nums">{v}</p>
+                {nota && <p className={`text-[10px] ${sub}`}>{nota}</p>}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-end gap-1 h-16" aria-label="Faturado por mês">
+            {n.meses12.map((v, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${meses[i]}: ${eur(v)}`}>
+                <div className="w-full rounded-sm" style={{ height: `${Math.max(v ? 4 : 2, (v / maxMes) * 52)}px`, background: v ? (c.cor || '#3b82f6') : (claro ? '#e2e8f0' : '#334155') }} />
+                <span className={`text-[9px] ${sub}`}>{meses[i].charAt(0)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <button type="button" onClick={onIrPrecos} className="text-xs text-blue-400 hover:text-blue-300">✏️ Preços de {c.nome} →</button>
+        <p className={`text-[11px] ${sub}`}>O NIF e a morada ficam só na app — não vão no resumo do chat.</p>
+      </div>
+    </div>
+  );
+};
+const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbrir, onNovo }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const [nome, setNome] = useState('');
+  const [verAntigos, setVerAntigos] = useState(false);
+  const linhas = clientes.map(c => ({ c, n: c.soTrabalho ? null : numerosCliente(c, trab, faturado, ano, mesNum, cu, clientes) }));
+  const visiveis = linhas.filter(l => verAntigos || (l.c.estado || 'ativo') !== 'antigo').sort((a, b) => ((b.n && b.n.fatAno) || 0) - ((a.n && a.n.fatAno) || 0));
+  const nAntigos = linhas.length - linhas.filter(l => (l.c.estado || 'ativo') !== 'antigo').length;
+  const cols = 'grid grid-cols-[minmax(0,1fr)_88px_88px] md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_96px_96px_80px_80px] items-center gap-3 px-3';
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <form onSubmit={e => { e.preventDefault(); if (nome.trim()) { onNovo(nome.trim()); setNome(''); } }} className="flex gap-2">
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do cliente novo" className={`text-sm rounded-lg border px-3 py-1.5 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'}`} />
+          <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Cliente</button>
+        </form>
+        <div className="flex-1" />
+        {nAntigos > 0 && <button type="button" onClick={() => setVerAntigos(!verAntigos)} className={`text-xs ${sub} hover:text-blue-400`}>{verAntigos ? 'Esconder antigos' : `Ver antigos (${nAntigos})`}</button>}
+      </div>
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+        <div className={`${cols} h-9 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
+          <span>Cliente</span><span className="hidden md:block">Tags</span><span className="text-right">Faturado {ano}</span><span className="text-right">Por entregar</span><span className="hidden md:block text-right">Horas</span><span className="hidden md:block text-right">€/h</span>
+        </div>
+        {visiveis.map(({ c, n }) => (
+          <button key={c.id} type="button" onClick={() => onAbrir(c.id)} className={`${cols} w-full py-2 text-left border-b last:border-b-0 ${claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'} ${(c.estado || 'ativo') === 'antigo' ? 'opacity-50' : ''}`}>
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ background: c.cor || '#64748b' }}>{String(c.nome || '?').charAt(0).toUpperCase()}</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium truncate">{c.nome}</span>
+                <span className={`block text-[11px] truncate ${sub}`}>{c.soTrabalho ? 'só no ClickUp — falta criar' : [c.recibo && c.recibo.pais, c.estado === 'pausa' ? 'em pausa' : c.estado === 'antigo' ? 'antigo' : '', c.fat && c.fat.nomeLegal].filter(Boolean).join(' · ') || 'sem ficha preenchida'}</span>
+              </span>
+            </span>
+            <span className="hidden md:flex flex-wrap gap-1 min-w-0">{(c.tags || []).map(t => <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] ${claro ? 'bg-slate-100 text-slate-600' : 'bg-white/10 text-slate-300'}`}>#{t}</span>)}</span>
+            <span className="text-right text-sm tabular-nums">{n ? eur(n.fatAno) : '—'}</span>
+            <span className="text-right text-sm tabular-nums">{n ? eur(n.porEntregar) : '—'}</span>
+            <span className="hidden md:block text-right text-sm tabular-nums">{n ? tempoTxt(n.horasAno) : '—'}</span>
+            <span className="hidden md:block text-right text-sm tabular-nums">{n && n.eurHora ? eur(n.eurHora) : '—'}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ── Timesheet semanal (como no ClickUp): tarefas × dias, com totais e edição direta ──
 const DIAS_SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MESES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -1166,7 +1528,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos }) => {
+const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -1219,9 +1581,9 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
     if (paiId) setAbertas(prev => new Set([...prev, paiId]));
     setTimeout(() => { if (novoId) setSel({ tipo: 'pasta', id: novoId }); }, 0);
   } });
-  const criarTarefa = (txt, prazo) => {
+  const criarTarefa = (txt, prazo, pecas) => {
     if (!pasta) return;
-    mudar(tr => opNovaTarefa(tr, { pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo }));
+    mudar(tr => opNovaTarefa(tr, { pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo, pecas }));
   };
   const importar = async e => {
     const f = e.target.files && e.target.files[0];
@@ -1246,6 +1608,16 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
       <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'timesheet' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <span aria-hidden="true">⏱</span> Timesheet
       </button>
+      {onCliente && (
+        <button type="button" onClick={() => setSel({ tipo: 'clientes' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'clientes' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+          <span aria-hidden="true">👥</span> Clientes
+        </button>
+      )}
+      {onCu && onPrecos && (
+        <button type="button" onClick={() => setSel({ tipo: 'tipos' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'tipos' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+          <span aria-hidden="true">🏷</span> Tipos e preços
+        </button>
+      )}
       {(trab.favoritos || []).length > 0 && (
         <div>
           <p className={`px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Favoritos</p>
@@ -1266,7 +1638,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
         </div>
       )}
       <p className={`px-2 -mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Clientes</p>
-      {clientes.map(c => {
+      {clientes.filter(c => c.estado !== 'antigo' || (sel.tipo === 'cliente' && String(sel.id) === String(c.id)) || (pasta && String(pasta.cid) === String(c.id))).map(c => {
         const raiz = filhasDe(trab, null, c.id);
         const ativo = sel.tipo === 'cliente' && String(sel.id) === String(c.id);
         return (
@@ -1282,18 +1654,33 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           </div>
         );
       })}
-      {!clientes.length && <p className={`text-xs ${sub}`}>Adiciona primeiro os teus clientes (no menu do teu nome → Clientes).</p>}
+      {!clientes.length && <p className={`text-xs ${sub}`}>Adiciona primeiro os teus clientes em 👥 Clientes.</p>}
     </div>
   );
 
-  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : 'Visão geral';
+  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : 'Visão geral';
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
-  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
+  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
   const abaAtual = abas.some(a => a[0] === aba) ? aba : 'tarefas';
   const valorAberto = tarefas.filter(t => t.estado !== 'feito').reduce((a, t) => a + trabValor(t, cu, clientes), 0);
   const horasTot = tarefas.reduce((a, t) => a + trabHoras(t), 0);
+
+  // Nomes de tarefas já usados neste cliente (mais recentes primeiro), para as sugestões
+  const nomesUsados = useMemo(() => {
+    if (!pasta) return [];
+    const vistos = new Set();
+    return (trab.tarefas || []).filter(t => String(t.cid) === String(pasta.cid)).sort((a, b) => String(b.criada || '').localeCompare(String(a.criada || '')))
+      .map(t => t.nome).filter(n => { if (vistos.has(n)) return false; vistos.add(n); return true; }).slice(0, 300);
+  }, [trab.tarefas, pasta && pasta.cid]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pastas de ano (raiz) que ainda têm subpastas que não são meses → podem ser organizadas por meses
+  const porOrganizar = p => p && !p.mesNum && (!p.paiId || /^\s*\d{4}\s*$/.test(p.nome)) && (trab.pastas || []).some(f => f.paiId === p.id && !f.mesNum);
+  const anosPorOrganizar = sel.tipo === 'cliente' ? filhasDe(trab, null, sel.id).filter(porOrganizar) : [];
+  const organizarCliente = () => {
+    const planos = anosPorOrganizar.map(p => ({ p, n: planoPorMeses(trab, p.id).length }));
+    if (window.confirm(`Organizar por meses: ${planos.map(x => `${x.p.nome} (${x.n} listas)`).join(', ')}?\n\nCada lista vai para a pasta do mês dela. As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => anosPorOrganizar.reduce((acc, p) => opPorMeses(acc, p.id), tr));
+  };
 
   if (modo === 'carregar') return <div className="py-16 text-center text-slate-400 text-sm">A carregar o teu trabalho…</div>;
 
@@ -1330,6 +1717,11 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               </div>
             )}
           </div>
+          {anosPorOrganizar.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>📅 Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>
+            </div>
+          )}
           {pasta && (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => mudar(tr => opFavorito(tr, pasta.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${(trab.favoritos || []).includes(pasta.id) ? 'border-amber-400/50 text-amber-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{(trab.favoritos || []).includes(pasta.id) ? '★ Favorito' : '☆ Favorito'}</button>
@@ -1339,7 +1731,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
                   {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
                 </select>
               )}
-              {(trab.pastas || []).some(f => f.paiId === pasta.id) && !pasta.mesNum && (
+              {porOrganizar(pasta) && (
                 <button type="button" onClick={() => {
                   const plano = planoPorMeses(trab, pasta.id);
                   const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
@@ -1367,9 +1759,24 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           )}
           {sel.tipo === 'geral' && !procura.trim() && <VisaoGeral trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} ano={ano} mesNum={mesNum} />}
           {sel.tipo === 'timesheet' && !procura.trim() && <Timesheet trab={trab} mudar={mudar} clientes={clientes} theme={theme} onAbrir={setTarefaAberta} />}
-          {((sel.tipo !== 'geral' && sel.tipo !== 'timesheet') || procura.trim()) && abaAtual === 'tarefas' && (
+          {sel.tipo === 'tipos' && !procura.trim() && <TiposTarefa cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} onPrecos={onPrecos} onCu={onCu} />}
+          {sel.tipo === 'clientes' && !procura.trim() && <ListaClientes clientes={clientes} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} theme={theme}
+            onAbrir={id => { setSel({ tipo: 'cliente', id }); setAba('ficha'); }}
+            onNovo={nome => { const id = onNovoCliente(nome); if (id != null) { setSel({ tipo: 'cliente', id }); setAba('ficha'); } }} />}
+          {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
+            <FichaCliente c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
+              onCliente={onCliente} onIrPrecos={() => setAba('precos')}
+              onCriarDoClickUp={() => {
+                const velho = cliente.id;
+                const id = onNovoCliente(cliente.nome, { cor: cliente.cor && cliente.cor !== '#64748b' ? cliente.cor : undefined, aliases: [cliente.nome] });
+                if (id == null) return;
+                mudar(tr => ({ ...tr, pastas: (tr.pastas || []).map(p => (String(p.cid) === String(velho) ? { ...p, cid: id } : p)), tarefas: (tr.tarefas || []).map(t => (String(t.cid) === String(velho) ? { ...t, cid: id } : t)) }));
+                setSel({ tipo: 'cliente', id });
+              }} />
+          )}
+          {((sel.tipo !== 'geral' && sel.tipo !== 'timesheet' && sel.tipo !== 'clientes' && sel.tipo !== 'tipos') || procura.trim()) && abaAtual === 'tarefas' && (
             <div className="space-y-3">
-              {pasta && <NovaTarefa onCriar={criarTarefa} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} />}
+              {pasta && <NovaTarefa onCriar={criarTarefa} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} nomesUsados={nomesUsados} />}
               {sel.tipo === 'cliente' && !procura.trim() && !filhasDe(trab, null, sel.id).length && (
                 <Card><p className="text-sm">Ainda não há pastas para {cliente ? cliente.nome : 'este cliente'}. Carrega no <strong>+</strong> ao lado do nome, à esquerda.</p></Card>
               )}
