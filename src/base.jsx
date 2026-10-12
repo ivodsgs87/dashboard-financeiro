@@ -374,7 +374,7 @@ const BarChart = memo(({ data, height = 220 }) => {
 
 // Barras agrupadas (uma ou mais séries por mês), com linha de referência opcional (ex.: meta)
 // e caixa de valores ao passar o rato / tocar.
-const GraficoBarras = ({ rotulos, series, height = 200, referencia = null, apagado = () => false, extraTip = null, aria = 'Gráfico de barras' }) => {
+const GraficoBarras = ({ rotulos, series, height = 200, referencia = null, apagado = () => false, extraTip = null, aria = 'Gráfico de barras', tituloTip = null }) => {
   const [ref, w] = useLargura();
   const [hi, setHi] = useState(null);
   const n = rotulos.length;
@@ -423,7 +423,7 @@ const GraficoBarras = ({ rotulos, series, height = 200, referencia = null, apaga
         )}
       </svg>
       {hi != null && (
-        <GrafCaixa x={pl + banda * hi + banda / 2} largura={w} titulo={rotulos[hi]}
+        <GrafCaixa x={pl + banda * hi + banda / 2} largura={w} titulo={tituloTip ? tituloTip(hi) : rotulos[hi]}
           linhas={[
             ...series.map(s => ({ cor: typeof s.cor === 'function' ? s.cor(hi, Number(s.valores[hi]) || 0) : s.cor, valor: _fmtEUR.format(Number(s.valores[hi]) || 0), nome: s.nome })),
             ...(referencia && Number(referencia.valor) > 0 ? [{ valor: _fmtEUR.format(Number(referencia.valor)), nome: referencia.nome }] : []),
@@ -1642,6 +1642,27 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
             </div>
             <GraficoLinhas height={190} rotulos={rotulos} series={series} aria={`Faturação acumulada por dia em ${meses[mesNum - 1]} (ClickUp)`}
               formatarValor={v => f(v)} extraTip={i => (i < ate ? noDia(i) : [])} />
+            {(() => {
+              // Ganho em cada dia (só o produzido — o mínimo garantido não é ganho num dia concreto)
+              const porDia = est.acumulado.map((v, i) => (i < ate ? v - (i > 0 ? est.acumulado[i - 1] : 0) : 0));
+              const fds = i => { const wd = new Date(ano, mesNum - 1, i + 1).getDay(); return wd === 0 || wd === 6; };
+              let uteis = 0; for (let i = 0; i < ate; i++) if (!fds(i)) uteis++;
+              const media = uteis ? est.acumulado[ate - 1] / uteis : 0;
+              const corCli = c => ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).cor || '#64748b';
+              return (
+                <div className="mt-4">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs mb-1" style={{ color: 'var(--graf-eixo)' }}>
+                    <span>Ganho por dia (só o produzido)</span>
+                    {media > 0 && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: 'repeating-linear-gradient(90deg, var(--graf-eixo) 0 5px, transparent 5px 9px)' }} />média por dia útil {f(media)}</span>}
+                  </div>
+                  <GraficoBarras height={150} rotulos={rotulos.map((_, i) => String(i + 1))} tituloTip={i => rotulos[i]} aria={`Ganho por dia em ${meses[mesNum - 1]} (ClickUp)`}
+                    series={[{ nome: 'nesse dia', cor: '#10b981', valores: porDia }]}
+                    referencia={media > 0 ? { valor: Math.round(media), nome: 'média por dia útil' } : null}
+                    apagado={fds}
+                    extraTip={i => est.clientes.filter(c => (c.diario[i + 1] || 0) > 0).map(c => ({ cor: corCli(c), valor: f(c.diario[i + 1]), nome: nomeCli(c) }))} />
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
