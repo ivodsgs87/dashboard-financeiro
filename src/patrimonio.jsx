@@ -1315,7 +1315,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   // ── estilos ──
   const escuro = theme !== 'light';
-  const card = `backdrop-blur-sm rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white/80 border-slate-200 shadow-sm'}`;
+  const card = `rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white/80 border-slate-200 shadow-sm'}`;
   const inp = escuro
     ? 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50'
     : 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
@@ -1933,6 +1933,8 @@ html[data-tema="claro"] .text-slate-400 { color: #6b7789; }
 .ico-solo { margin-right: 0; }
 html[data-tema="escuro"] .tile { background: rgba(15, 23, 42, .45); border: 1px solid rgba(71, 85, 105, .5); }
 html[data-tema="claro"] .tile { background: #f8fafc; border: 1px solid #e2e8f0; }
+html[data-tema="escuro"] { --graf-grelha: rgba(148, 163, 184, .12); --graf-base: rgba(148, 163, 184, .35); --graf-eixo: #8a97ab; --graf-texto: #f1f5f9; --graf-fundo: #1e293b; --graf-caixa: #0f172a; --graf-caixa-borda: #334155; }
+html[data-tema="claro"] { --graf-grelha: #eef2f6; --graf-base: #cbd5e1; --graf-eixo: #64748b; --graf-texto: #0f172a; --graf-fundo: #ffffff; --graf-caixa: #ffffff; --graf-caixa-borda: #e2e8f0; }
 /* Tema claro: peças antigas que tinham cores escuras fixas passam a claras */
 html[data-tema="claro"] .bg-slate-900, html[data-tema="claro"] .bg-slate-800 { background-color: #ffffff; }
 html[data-tema="claro"] [class^="bg-slate-900/"], html[data-tema="claro"] [class*=" bg-slate-900/"], html[data-tema="claro"] [class^="bg-slate-800/"], html[data-tema="claro"] [class*=" bg-slate-800/"] { background-color: rgba(255, 255, 255, .85); }
