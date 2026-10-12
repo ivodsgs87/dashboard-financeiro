@@ -217,7 +217,7 @@ const GrafCaixa = ({ x, largura, titulo, linhas }) => (
   </div>
 );
 // Linhas (uma ou várias séries) com área opcional
-const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fmtEUR.format(v), rotuloFinal = null, aria = 'Gráfico' }) => {
+const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fmtEUR.format(v), rotuloFinal = null, aria = 'Gráfico', extraTip = null }) => {
   const [ref, w] = useLargura();
   const [hi, setHi] = useState(null);
   const n = rotulos.length;
@@ -269,7 +269,7 @@ const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fm
       </svg>
       {hi != null && (
         <GrafCaixa x={X(hi)} largura={w} titulo={rotulos[hi]}
-          linhas={series.filter(s => s.valores[hi] != null && Number.isFinite(s.valores[hi])).map(s => ({ cor: series.length > 1 ? s.cor : null, valor: formatarValor(s.valores[hi]), nome: s.nome }))} />
+          linhas={[...series.filter(s => s.valores[hi] != null && Number.isFinite(s.valores[hi])).map(s => ({ cor: series.length > 1 ? s.cor : null, valor: formatarValor(s.valores[hi]), nome: s.nome })), ...(extraTip ? extraTip(hi) : [])]} />
       )}
     </div>
   );
@@ -359,6 +359,68 @@ const BarChart = memo(({ data, height = 220 }) => {
     </div>
   );
 });
+
+// Barras agrupadas (uma ou mais séries por mês), com linha de referência opcional (ex.: meta)
+// e caixa de valores ao passar o rato / tocar.
+const GraficoBarras = ({ rotulos, series, height = 200, referencia = null, apagado = () => false, extraTip = null, aria = 'Gráfico de barras' }) => {
+  const [ref, w] = useLargura();
+  const [hi, setHi] = useState(null);
+  const n = rotulos.length;
+  if (!n) return null;
+  const todos = series.flatMap(s => s.valores.map(v => Number(v) || 0));
+  const marcas = grafMarcas(0, Math.max(1, ...todos, referencia ? Number(referencia.valor) || 0 : 0));
+  const topo = marcas[marcas.length - 1];
+  const pl = 44, pr = 8, pt = 10, pb = 26;
+  const iw = Math.max(10, w - pl - pr), ih = Math.max(10, height - pt - pb);
+  const banda = iw / n, k = series.length;
+  const bw = Math.max(4, Math.min(24, (banda * 0.7 - (k - 1) * 2) / k));
+  const grupo = k * bw + (k - 1) * 2;
+  const Y = v => pt + ih - (Math.max(0, v) / topo) * ih;
+  const topoRedondo = (x, y, l, h, r) => {
+    if (h <= 0.5) return '';
+    const rr = Math.min(r, l / 2, h);
+    return `M ${x} ${y + h} L ${x} ${y + rr} Q ${x} ${y} ${x + rr} ${y} L ${x + l - rr} ${y} Q ${x + l} ${y} ${x + l} ${y + rr} L ${x + l} ${y + h} Z`;
+  };
+  const cada = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(iw / 34))));
+  return (
+    <div ref={ref} className="relative w-full select-none" style={{ height }}>
+      <svg width={w} height={height} className="block" role="img" aria-label={aria} onPointerLeave={() => setHi(null)} style={{ touchAction: 'pan-y' }}>
+        {marcas.map(t => (
+          <g key={t}>
+            <line x1={pl} x2={w - pr} y1={Y(t)} y2={Y(t)} strokeWidth="1" style={{ stroke: t === 0 ? 'var(--graf-base)' : 'var(--graf-grelha)' }} />
+            <text x={pl - 8} y={Y(t) + 4} textAnchor="end" fontSize="11" style={{ fill: 'var(--graf-eixo)', fontVariantNumeric: 'tabular-nums' }}>{grafCompacto(t)}</text>
+          </g>
+        ))}
+        {rotulos.map((r, i) => {
+          const x0 = pl + banda * i + (banda - grupo) / 2;
+          const fraco = apagado(i) || (hi != null && hi !== i);
+          return (
+            <g key={i} style={{ opacity: fraco ? 0.4 : 1, transition: 'opacity .15s' }}>
+              {series.map((s, j) => {
+                const v = Number(s.valores[i]) || 0;
+                const cor = typeof s.cor === 'function' ? s.cor(i, v) : s.cor;
+                return <path key={j} d={topoRedondo(x0 + j * (bw + 2), Y(v), bw, pt + ih - Y(v), 4)} fill={cor} />;
+              })}
+              {(i % cada === 0) && <text x={pl + banda * i + banda / 2} y={height - 6} textAnchor="middle" fontSize="11" style={{ fill: 'var(--graf-eixo)' }}>{r}</text>}
+              <rect x={pl + banda * i} y={pt} width={banda} height={ih} fill="transparent" onPointerEnter={() => setHi(i)} onPointerDown={() => setHi(i)} />
+            </g>
+          );
+        })}
+        {referencia && Number(referencia.valor) > 0 && (
+          <line x1={pl} x2={w - pr} y1={Y(referencia.valor)} y2={Y(referencia.valor)} strokeWidth="1.5" strokeDasharray="5 4" style={{ stroke: 'var(--graf-eixo)' }} pointerEvents="none" />
+        )}
+      </svg>
+      {hi != null && (
+        <GrafCaixa x={pl + banda * hi + banda / 2} largura={w} titulo={rotulos[hi]}
+          linhas={[
+            ...series.map(s => ({ cor: typeof s.cor === 'function' ? s.cor(hi, Number(s.valores[hi]) || 0) : s.cor, valor: _fmtEUR.format(Number(s.valores[hi]) || 0), nome: s.nome })),
+            ...(referencia && Number(referencia.valor) > 0 ? [{ valor: _fmtEUR.format(Number(referencia.valor)), nome: referencia.nome }] : []),
+            ...(extraTip ? extraTip(hi) : []),
+          ]} />
+      )}
+    </div>
+  );
+};
 
 // Donut: fatias separadas por uma linha da cor do fundo; o centro mostra o total ou a fatia escolhida
 const PieChart = memo(({ data, size = 200 }) => {
@@ -1317,15 +1379,41 @@ const PROCESS_INVOICE_URLS = [
   'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/processInvoice'
 ];
 
-// ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
-// Componente ao nível do módulo (estado próprio, sem remount). Recebe G/uG por props.
+// Separadores que vêm num ficheiro à parte (só se descarregam quando são precisos).
+// Se o ficheiro falhar (p.ex. a app foi atualizada enquanto estava aberta), recarrega
+// a página uma vez; se voltar a falhar, mostra um aviso em vez de um ecrã em branco.
+const lazySeparador = (carregar, nome) => React.lazy(() => carregar()
+  .then(m => { try { sessionStorage.removeItem('app-recarregada'); } catch (e) { /* sem acesso */ } return { default: m[nome] }; })
+  .catch(() => {
+    let ja = null;
+    try { ja = sessionStorage.getItem('app-recarregada'); sessionStorage.setItem('app-recarregada', '1'); } catch (e) { ja = '1'; }
+    if (!ja) { window.location.reload(); return new Promise(() => {}); }
+    return { default: () => <div className="py-16 text-center text-slate-400">Não foi possível abrir este separador. Verifica a ligação à internet e recarrega a página.</div> };
+  }));
+const SeparadorCarregar = () => <div className="py-16 text-center text-slate-400 text-sm">A carregar…</div>;
+
+
+const VC_DEFAULT = {
+  dataVenda: '',
+  valorVenda: 0,
+  comissaoPct: 4,
+  creditoAmortizado: 0,
+  penalizacaoPct: 0.5,
+  custoEscritura: 0,
+  rendasAdiantadas: 0,
+  outrosCustos: 0,
+  valorAquisicao: 0,
+  hppOverride: null,
+  movimentos: [],
+  repor: []   // dinheiro teu adiantado que vais tirar da venda: {id, desc, val, quando: 'sinal'|'escritura', reposto: 'YYYY-MM-DD'|null}
+};
 
 export {
   StableInput, StableDateInput, SliderWithInput, useLargura, grafMarcas, grafCompacto, GrafCaixa, GraficoLinhas,
-  LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, PieChart, AddClienteInput, DraggableList,
-  impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO, mesDoRecibo,
-  retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG, Ico,
-  IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos,
-  BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo,
-  _normNome, clienteDoNome, PROCESS_INVOICE_URLS
+  LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, GraficoBarras, PieChart, AddClienteInput,
+  DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
+  mesDoRecibo, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
+  Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
+  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, lazySeparador, SeparadorCarregar, VC_DEFAULT
 };
