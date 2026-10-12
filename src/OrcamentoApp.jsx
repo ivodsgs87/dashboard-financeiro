@@ -8,7 +8,7 @@ import {
   GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
   IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
   copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, lazySeparador, SeparadorCarregar
+  PROCESS_INVOICE_URLS, MenuTopo, lazySeparador, SeparadorCarregar
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -6732,7 +6732,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      ))}
    </div>
  </div>
- {simCreditoTab === 'prestacao' && (<>
+ {/* Os 3 simuladores ficam sobrepostos na mesma célula: o cartão tem sempre a altura do maior,
+     por isso mudar de separador não mexe na página */}
+ <div className="grid">
+ <div role="tabpanel" aria-hidden={simCreditoTab !== 'prestacao'} style={{ gridArea: '1 / 1' }} className={simCreditoTab === 'prestacao' ? '' : 'invisible'}>
  <p className="text-sm text-slate-400 mb-4">Simula como a prestação varia com diferentes taxas de juro</p>
  
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -6815,8 +6818,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  Onde: D = {fmt(dividaParaSimular)} | i = {((taxaSimulada/100)/12).toFixed(6)} | n = {mesesParaSimular} meses
  </p>
  </div>
- </>)}
- {simCreditoTab === 'amortizacao' && (<>
+ </div>
+ <div role="tabpanel" aria-hidden={simCreditoTab !== 'amortizacao'} style={{ gridArea: '1 / 1' }} className={simCreditoTab === 'amortizacao' ? '' : 'invisible'}>
  
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
  <div className="p-3 tile rounded-xl">
@@ -6861,8 +6864,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="text-xs text-slate-500">Extra necessário</p>
  </div>
  </div>
- </>)}
- {simCreditoTab === 'projecao' && (<>
+ </div>
+ <div role="tabpanel" aria-hidden={simCreditoTab !== 'projecao'} style={{ gridArea: '1 / 1' }} className={simCreditoTab === 'projecao' ? '' : 'invisible'}>
  <div className="grid grid-cols-2 gap-6">
  <div>
  <p className="text-sm text-slate-400 mb-3">Sem amortização extra</p>
@@ -6873,7 +6876,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <LineChart data={projecaoComAmort} height={150} color="#10b981"/>
  </div>
  </div>
- </>)}
+ </div>
+ </div>
  </Card>
  </>
  )}
@@ -10476,27 +10480,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  if (grupoMob) ultMobRef.current[grupoMob.id] = tab;
  const ultimaSubRef = useRef({});
  if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
- // Menu de cada grupo: abre ao passar o rato e fica aberto até passares por outro grupo,
- // escolheres um separador, clicares fora ou carregares em Esc.
- const [menuAberto, setMenuAberto] = useState(null);
- const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
- const menuRef = useRef(null);
- const abrirMenu = (id, el) => {
-   const r = el.getBoundingClientRect();
-   setMenuPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 210)), top: r.bottom + 6 });
-   setMenuAberto(id);
- };
- useEffect(() => { setMenuAberto(null); }, [tab]);
  // Início: vai para o Resumo e volta ao topo da página
- const irInicio = () => { setMenuAberto(null); setTab('resumo'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
- useEffect(() => {
-   if (!menuAberto) return;
-   const fora = e => { if (menuRef.current && !menuRef.current.contains(e.target) && !e.target.closest('[data-grupo-menu]')) setMenuAberto(null); };
-   const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setMenuAberto(null); } };
-   const fechar = () => setMenuAberto(null);
-   document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc); window.addEventListener('resize', fechar);
-   return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); window.removeEventListener('resize', fechar); };
- }, [menuAberto]);
+ const irInicio = () => { setTab('resumo'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
  // Função para exportar PDF mensal
  const exportToPDF = () => {
@@ -12997,62 +12982,8 @@ ${transacoesOrdenadas.map(t => `<tr>
           </div>
         </header>
 
-      <nav className={`hidden sm:flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
-        <button onClick={irInicio} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Resumo)" title="Início (Resumo) · tecla Esc"
-          className={`flex-shrink-0 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all ${theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
-        </button>
-        <div className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
-        {tabs.map(t => {
-          // Verificar se alguma sub-tab está ativa
-          const isSubActive = t.submenu?.some(sub => tab === sub.id);
-          
-          return t.separator ? (
-            <div key={t.id} className={`flex-shrink-0 w-px h-8 my-auto ${theme === 'light' ? 'bg-slate-300' : 'bg-slate-600'}`} />
-          ) : t.submenu ? (
-            <button key={t.id} data-grupo-menu aria-label={t.label}
-              aria-haspopup="menu" aria-expanded={menuAberto === t.id}
-              onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
-              onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
-              className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
-                isSubActive
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
-                  : theme === 'light'
-                    ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              <span className="sm:mr-1 inline-flex align-middle"><Ico e={t.icon} className="ico-nav"/></span>
-              <span className="hidden sm:inline">{t.label}</span>
-              <span className={`ml-1 text-xs inline-block transition-transform ${menuAberto === t.id ? 'rotate-180' : ''}`}>▾</span>
-            </button>
-          ) : (
-            <button key={t.id} aria-label={t.label} onMouseEnter={() => setMenuAberto(null)} onClick={()=>setTab(t.id)} className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 hover-scale ${tab===t.id?'bg-blue-600 text-white shadow-lg shadow-blue-500/25': theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}><span className="sm:mr-1 inline-flex align-middle"><Ico e={t.icon} className="ico-nav"/></span><span className="hidden sm:inline">{t.label}</span></button>
-          );
-        })}
-      </nav>
+      <MenuTopo tabs={tabs} tab={tab} setTab={setTab} theme={theme} irInicio={irInicio} />
       </div>{/* end sticky header+nav wrapper */}
-      {menuAberto && (() => {
-        const g = tabs.find(t => t.id === menuAberto);
-        if (!g || !g.submenu) return null;
-        return (
-          <div ref={menuRef} role="menu" className="fixed z-50 animate-fadeIn" style={{ left: menuPos.left, top: menuPos.top }}>
-            <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[180px]`}>
-              {g.submenu.map(sub => (
-                <button key={sub.id} role="menuitem"
-                  onClick={() => { setTab(sub.id); setMenuAberto(null); }}
-                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 ${
-                    tab === sub.id
-                      ? 'bg-blue-500/20 text-blue-400'
-                      : theme === 'light' ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-700'
-                  }`}>
-                  <Ico e={sub.icon} className="ico-nav"/><span>{sub.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
       
       {/* Telemóvel: menu fixo em baixo (no computador fica a barra de cima) */}
       <nav aria-label="Menu principal" className="sm:hidden fixed bottom-0 inset-x-0 z-40 px-3 pt-2 no-print" style={{ paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
