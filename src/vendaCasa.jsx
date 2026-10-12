@@ -1,7 +1,7 @@
 // Separador "Venda da Casa". Só é descarregado quando se abre o separador.
 import React, { useState } from 'react';
 import {
-  meses, Ico, _fmtEUR, VC_DEFAULT
+  meses, Ico, _fmtEUR, VC_DEFAULT, VC_DIAS_SEMANA, vcPrazosCPCV
 } from './base';
 
 // ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
@@ -116,6 +116,11 @@ const VendaCasa = ({ G, uG, theme }) => {
 
   const movsOrd = [...movs].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 
+  // Prazos do CPCV (os "feitos" ficam nas tarefas concluídas, como no Calendário)
+  const prazosCPCV = vcPrazosCPCV(vc, G.tarefasConcluidas || {});
+  const hojeCPCV = new Date(); hojeCPCV.setHours(0, 0, 0, 0);
+  const marcarCPCV = (k, v) => { const c = { ...(G.tarefasConcluidas || {}) }; if (v) c[k] = true; else delete c[k]; uG('tarefasConcluidas', c); };
+
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
 
@@ -143,6 +148,51 @@ const VendaCasa = ({ G, uG, theme }) => {
         </div>
         {porAlocar < -0.01 && (
           <p className="text-xs text-red-400 mt-3">⚠️ Os movimentos somam mais do que o capital líquido. Verifica os valores.</p>
+        )}
+      </div>
+
+      {/* Contrato-promessa (CPCV): prazos até à escritura */}
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+        <h3 className="text-lg font-semibold"><Ico e="📝"/>Contrato-promessa (CPCV)</h3>
+        <p className={`text-xs mb-3 ${sub}`}>Os prazos aparecem também no Calendário e nas notificações.</p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className={`text-xs ${sub}`}>Data do CPCV</span>
+            <input type="date" key={'c' + (vc.dataCPCV || '')} defaultValue={vc.dataCPCV} onBlur={e => { if (e.target.value !== (vc.dataCPCV || '')) set({ dataCPCV: e.target.value }); }} className={inp} />
+          </label>
+          <NumField label="Sinal" val={vc.sinal} onSave={v => set({ sinal: n(v) })} suffix="€" />
+          <NumField label="Prazo para a escritura" val={vc.prazoEscrituraDias} onSave={v => set({ prazoEscrituraDias: Math.max(1, Math.round(n(v))) || 45 })} suffix="dias" />
+          <label className="flex flex-col gap-1">
+            <span className={`text-xs ${sub}`}>Escritura marcada para</span>
+            <input type="date" key={'e' + (vc.dataVenda || '')} defaultValue={vc.dataVenda} onBlur={e => { if (e.target.value !== (vc.dataVenda || '')) set({ dataVenda: e.target.value }); }} className={inp} />
+          </label>
+        </div>
+        {prazosCPCV.length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {prazosCPCV.map(p => {
+              const dias = Math.round((p.data - hojeCPCV) / 86400000);
+              const quando = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : dias > 1 ? `daqui a ${dias} dias` : null;
+              const cor = p.estado === 'ok' ? '' : p.estado === 'atrasado' ? 'text-red-400' : dias <= 7 ? 'text-amber-400' : '';
+              return (
+                <li key={p.id} className={`flex items-start gap-3 rounded-xl px-3 py-2 tile ${p.estado === 'ok' ? 'opacity-60' : ''}`}>
+                  <input type="checkbox" aria-label={`${p.titulo} feito`} className="mt-1 w-4 h-4 accent-emerald-500 flex-shrink-0" checked={p.estado === 'ok'} onChange={e => marcarCPCV(p.chave, e.target.checked)} />
+                  <div className="w-14 sm:w-20 flex-shrink-0">
+                    <p className={`text-sm font-semibold tabular-nums ${cor}`}>{String(p.data.getDate()).padStart(2, '0')}/{String(p.data.getMonth() + 1).padStart(2, '0')}</p>
+                    <p className={`text-[11px] ${sub}`}>{VC_DIAS_SEMANA[p.data.getDay()]}</p>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-medium ${p.estado === 'ok' ? 'line-through' : ''}`}>{p.titulo}{p.estado !== 'ok' && quando && <span className={`ml-2 text-xs font-normal ${cor || sub}`}>{quando}</span>}{p.estado === 'atrasado' && <span className="ml-2 text-xs font-normal text-red-400">já passou</span>}</p>
+                    {p.nota && <p className={`text-xs ${sub}`}>{p.nota}</p>}
+                    {p.lista && p.estado !== 'ok' && (
+                      <ol className={`mt-1 text-xs list-decimal pl-4 space-y-0.5 ${sub}`}>{p.lista.map((x, i) => <li key={i}>{x}</li>)}</ol>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className={`text-sm mt-3 ${sub}`}>Põe a data do CPCV para veres aqui os prazos até à escritura.</p>
         )}
       </div>
 
@@ -189,7 +239,7 @@ const VendaCasa = ({ G, uG, theme }) => {
           <NumField label="Valor de aquisição da casa (opcional)" val={vc.valorAquisicao} onSave={v => set({ valorAquisicao: n(v) })} />
           <label className="flex flex-col gap-1">
             <span className={`text-xs ${sub}`}>Data da escritura</span>
-            <input type="date" defaultValue={vc.dataVenda} onBlur={e => set({ dataVenda: e.target.value })} className={inp} />
+            <input type="date" key={'h' + (vc.dataVenda || '')} defaultValue={vc.dataVenda} onBlur={e => { if (e.target.value !== (vc.dataVenda || '')) set({ dataVenda: e.target.value }); }} className={inp} />
           </label>
         </div>
         <p className={`text-[11px] mt-3 ${sub}`}>Estimativas simplificadas — não substituem o teu contabilista. A mais-valia real depende do valor de aquisição corrigido, encargos e obras comprovadas.</p>
