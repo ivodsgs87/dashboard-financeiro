@@ -1661,7 +1661,7 @@ const PlanoMesClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onGuard
   const produzido = produzidoDe ? produzidoDe(cid) : null;
   const num = `${inputClass} !w-16 text-sm py-1 text-center tabular-nums`;
   return (
-    <div className="mt-3 pt-3 border-t border-slate-700/50">
+    <div className={`mt-3 mb-1 rounded-xl border p-3 sm:p-4 animate-fadeIn ${claro ? 'border-violet-200 bg-violet-50/40' : 'border-violet-500/25 bg-violet-500/5'}`}>
       <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
         <span className="font-medium">Plano de {meses[mesNum - 1].toLowerCase()} para</span>
         <select className={`${inputClass} !w-auto text-sm py-1`} value={cid} onChange={e => setCid(e.target.value)}>
@@ -1766,8 +1766,17 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
-        {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
+          <button type="button" onClick={() => setPlanear(!planear)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${planear ? (claro ? 'bg-violet-100 border-violet-200 text-violet-700' : 'bg-violet-500/15 border-violet-500/30 text-violet-300') : claro ? 'border-slate-200 text-slate-700 hover:bg-slate-100' : 'border-slate-600 text-slate-200 hover:bg-white/10'}`}>
+            📝 {planear ? 'Fechar plano' : 'Plano do mês'}
+          </button>
+        </div>
       </div>
+      {planear && <PlanoMesClickUp cu={cu} ano={ano} mesNum={mesNum} clientes={clientes} theme={theme} inputClass={inputClass}
+        onGuardar={(k, v) => onPlano && onPlano(k, v)}
+        produzidoDe={id => { const c = est.clientes.find(x => String(x.cid) === String(id)); return c ? c.produzido : 0; }} />}
       {temMin && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <button type="button" role="switch" aria-checked={comMin} onClick={() => mudarMin(!comMin)} className="inline-flex items-center gap-2">
@@ -1846,11 +1855,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations"). Tarefas em review contam como entregues.</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
-        <button className="text-blue-400 hover:text-blue-300" onClick={() => setPlanear(!planear)}>{planear ? 'fechar plano' : 'plano do mês / texto para o ClickUp →'}</button>
       </div>
-      {planear && <PlanoMesClickUp cu={cu} ano={ano} mesNum={mesNum} clientes={clientes} theme={theme} inputClass={inputClass}
-        onGuardar={(k, v) => onPlano && onPlano(k, v)}
-        produzidoDe={id => { const c = est.clientes.find(x => String(x.cid) === String(id)); return c ? c.produzido : 0; }} />}
       {editar && (
         <div className="mt-3 pt-3 border-t border-slate-700/50">
           <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
