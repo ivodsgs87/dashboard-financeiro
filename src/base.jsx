@@ -1555,6 +1555,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
         </div>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nos extras, sem horas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations").</span>
         <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
