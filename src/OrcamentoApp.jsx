@@ -3896,7 +3896,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
  <EntregasClickUp cu={G.clickup} ano={ano} mesNum={meses.indexOf(mes) + 1} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
-   onPrecos={precos => cuMudar(() => ({ precos }))} />
+   onPrecos={precos => cuMudar(() => ({ precos }))}
+   onPlano={(k, v) => setG(p => ({ ...p, clickup: { ...(p.clickup || {}), planos: { ...((p.clickup || {}).planos || {}), [k]: v } } }))} />
 
  <Card>
  <div className="flex justify-between items-center mb-4">
