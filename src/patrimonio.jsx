@@ -1933,6 +1933,18 @@ html[data-tema="claro"] .text-slate-400 { color: #6b7789; }
 .ico-solo { margin-right: 0; }
 html[data-tema="escuro"] .tile { background: rgba(15, 23, 42, .45); border: 1px solid rgba(71, 85, 105, .5); }
 html[data-tema="claro"] .tile { background: #f8fafc; border: 1px solid #e2e8f0; }
+/* Tema claro: peças antigas que tinham cores escuras fixas passam a claras */
+html[data-tema="claro"] .bg-slate-900, html[data-tema="claro"] .bg-slate-800 { background-color: #ffffff; }
+html[data-tema="claro"] [class^="bg-slate-900/"], html[data-tema="claro"] [class*=" bg-slate-900/"], html[data-tema="claro"] [class^="bg-slate-800/"], html[data-tema="claro"] [class*=" bg-slate-800/"] { background-color: rgba(255, 255, 255, .85); }
+html[data-tema="claro"] .bg-slate-700, html[data-tema="claro"] .bg-slate-600 { background-color: #e2e8f0; }
+html[data-tema="claro"] [class^="bg-slate-700/"], html[data-tema="claro"] [class*=" bg-slate-700/"], html[data-tema="claro"] [class^="bg-slate-600/"], html[data-tema="claro"] [class*=" bg-slate-600/"] { background-color: #f1f5f9; }
+html[data-tema="claro"] .hover\\:bg-slate-600:hover, html[data-tema="claro"] .hover\\:bg-slate-700:hover, html[data-tema="claro"] [class*="hover:bg-slate-700/"]:hover, html[data-tema="claro"] [class*="hover:bg-slate-600/"]:hover { background-color: #e2e8f0; }
+html[data-tema="claro"] .border-slate-600, html[data-tema="claro"] .border-slate-700, html[data-tema="claro"] [class^="border-slate-700/"], html[data-tema="claro"] [class*=" border-slate-700/"], html[data-tema="claro"] [class^="border-slate-600/"], html[data-tema="claro"] [class*=" border-slate-600/"] { border-color: #e2e8f0; }
+html[data-tema="claro"] .divide-slate-700 > * + *, html[data-tema="claro"] .divide-slate-600 > * + * { border-color: #e2e8f0; }
+html[data-tema="claro"] .text-slate-300 { color: #334155; }
+html[data-tema="claro"] .text-slate-200, html[data-tema="claro"] .text-slate-100 { color: #1e293b; }
+html[data-tema="claro"] input.text-white, html[data-tema="claro"] select.text-white, html[data-tema="claro"] textarea.text-white, html[data-tema="claro"] .bg-slate-700.text-white, html[data-tema="claro"] .bg-slate-600.text-white, html[data-tema="claro"] .bg-slate-800 .text-white:not([class*="bg-"]), html[data-tema="claro"] .bg-slate-900 .text-white:not([class*="bg-"]), html[data-tema="claro"] [class^="bg-slate-700/"], html[data-tema="claro"] [class*=" bg-slate-700/"].text-white { color: #0f172a; }
+html[data-tema="claro"] .hover\\:text-white:not([class*="bg-"]):hover { color: #0f172a; }
 `;
 
 // Ajustes só para o telemóvel (ecrãs < 640px). As classes m-* não fazem nada no computador.
