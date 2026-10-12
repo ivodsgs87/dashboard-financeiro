@@ -1520,7 +1520,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (manual) saveUndo();
      setG(p => {
        const cu = p.clickup || {};
-       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { meses: j.meses || {}, entregues: Array.isArray(j.entregues) ? j.entregues : null } } } };
+       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { meses: j.meses || {}, entregues: Array.isArray(j.entregues) ? j.entregues : null, avisoEntregues: j.avisoEntregues || '' } } } };
      });
      // Horas de cada mês → "Horas trabalhadas" (só onde não as escreveste à mão)
      setM(p => {
