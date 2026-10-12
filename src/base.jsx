@@ -1115,7 +1115,18 @@ const impCalc = (G, M, hoje = new Date()) => {
 const anos = [2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047,2048,2049,2050];
 
 // Formatadores criados uma só vez (evita instanciar Intl.NumberFormat a cada chamada)
-const _fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
+// Valores em euros sempre com espaço nos milhares (o pt-PT do browser não separa 4 dígitos:
+// dava "9000,00 €" ao lado de "65 023,50 €") e sem ",00" quando não há cêntimos.
+const _fmtEUR = {
+  format: v => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '0\u00a0€';
+    const centimos = Math.round(Math.abs(n) * 100);
+    const inteiro = String(Math.floor(centimos / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
+    const c = centimos % 100;
+    return (n < 0 && centimos > 0 ? '-' : '') + inteiro + (c ? ',' + String(c).padStart(2, '0') : '') + '\u00a0€';
+  }
+};
 
 // ── Mapeamento das despesas para as categorias da app Bilance ──
 // Primeiro tenta pela descrição (mais preciso), depois pela categoria interna.
