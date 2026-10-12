@@ -18,6 +18,26 @@ const OrcamentoApp = React.lazy(() => appPromessa
     return { default: () => <EcraCarregar texto="Não foi possível abrir a app. Verifica a ligação à internet e recarrega a página." /> };
   }));
 
+// Último recurso: se a app inteira der erro, mostra um aviso em vez de um ecrã em branco
+class ProtecaoApp extends React.Component {
+  constructor(props) { super(props); this.state = { erro: null }; }
+  static getDerivedStateFromError(erro) { return { erro }; }
+  componentDidCatch(erro) { console.error('Erro na app:', erro); }
+  render() {
+    if (!this.state.erro) return this.props.children;
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div role="alert" className="max-w-md w-full text-center bg-slate-800/60 border border-slate-700 rounded-2xl p-6 text-slate-300">
+          <p className="text-lg font-semibold mb-1">Algo correu mal</p>
+          <p className="text-sm opacity-80 mb-5">Os teus dados estão guardados na cloud. Recarrega a página para continuar.</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white">Recarregar a página</button>
+          <p className="mt-4 text-xs opacity-60 break-words">{String(this.state.erro?.message || this.state.erro)}</p>
+        </div>
+      </div>
+    );
+  }
+}
+
 const EcraCarregar = ({ texto }) => (
   <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
     <div className="text-center">
@@ -146,6 +166,7 @@ const App = () => {
   }
 
   return (
+    <ProtecaoApp>
     <Suspense fallback={<EcraCarregar texto="A carregar os teus dados..." />}>
       <MemoOrcamentoApp 
         user={user}
@@ -156,6 +177,7 @@ const App = () => {
         lastSync={lastSync}
       />
     </Suspense>
+    </ProtecaoApp>
   );
 };
 
