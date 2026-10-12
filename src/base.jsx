@@ -852,6 +852,7 @@ const transfFalta = (t, x) => {
 const transfFeita = (t, x) => transfFalta(t, x) < 0.5;
 
 const ICO_SVG = {
+  '🗂': '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/>',
   "💬": "<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>",
   "📊": "<path d=\"M3 3v18h18\"/><path d=\"M7 16v-5M12 16V7M17 16v-8\"/>",
   "📈": "<polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/>",
@@ -1497,7 +1498,7 @@ const cuClienteDe = (cu, sid, fid, clientes, nomeEsp) => {
   if (cid === undefined || cid === null || cid === '') { const c = clienteDoNome(clientes, nomeEsp); cid = c ? c.id : null; }
   return cid === 'x' ? 'x' : cid;
 };
-const cuEntregasMes = (cu, ano, mesNum, clientes) => {
+const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
   const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
   const nomes = {}; ((cu && cu.espacos) || []).forEach(e => { nomes[e.id] = e.nome; });
   const precos = (cu && cu.precos) || {};
@@ -1512,16 +1513,21 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
   };
   const porCli = {};
   let total = 0, totalProduzido = 0, semPreco = 0;
-  const tarefas = (((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref));
+  // Tarefas importadas do ClickUp para a app não contam duas vezes (fica a versão da app)
+  const naApp = new Set(((trab && trab.tarefas) || []).map(t => t.origem).filter(Boolean));
+  const tarefas = [...(((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref) && !naApp.has('cu:' + t.id)), ...(trab ? trabEntreguesMes(trab, ano, mesNum) : [])];
   const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set(), diario: Array(32).fill(0) });
   tarefas.forEach(t => {
-    const cid = cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
+    const cid = t.app ? (t.cid ?? null) : cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
     if (cid === 'x') return;
     const k = cid == null ? `esp:${t.espaco}` : String(cid);
     const c = (porCli[k] = porCli[k] || novoCli(cid, t.espaco));
     let v = 0;
     let horasExtra = 0;
+    const manual = t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual));
+    if (manual) v = Number(t.valorManual);
     cuPecas(t.nome).forEach(p => {
+      if (manual) { c.contagem[p.tipo] = (c.contagem[p.tipo] || 0) + p.n; return; }
       if (p.tipo === 'extra' || p.tipo === 'outro') {
         horasExtra = Number(t.horas) || 0;
         c.horasExtra = (c.horasExtra || 0) + horasExtra;
@@ -1548,6 +1554,11 @@ const cuEntregasMes = (cu, ano, mesNum, clientes) => {
       const c = (porCli[k] = porCli[k] || novoCli(cid, sid));
       (fd.dias || sd.dias || []).forEach(d => c.dias.add(d));
     });
+  });
+  if (trab) Object.entries(trabDiasMes(trab, ano, mesNum)).forEach(([cid, dias]) => {
+    if (cid === 'undefined' || cid === 'null' || !(preco(cid, 'dia') > 0)) return;
+    const c = (porCli[cid] = porCli[cid] || novoCli(isNaN(Number(cid)) ? cid : Number(cid), ''));
+    dias.forEach(d => c.dias.add(d));
   });
   Object.values(porCli).forEach(c => {
     if (c.diaria > 0 && c.dias.size) { c.nDias = c.dias.size; c.valorDias = c.nDias * c.diaria; c.total += c.valorDias; c.dias.forEach(d => { c.diario[Number(d) || 1] += c.diaria; }); }
@@ -1724,14 +1735,16 @@ const PlanoMesClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onGuard
   );
 };
 
-const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPrecos, onPlano }) => {
+const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, clientes, theme, inputClass, onPrecos, onPlano }) => {
+  const temApp = !!(trab && (trab.tarefas || []).length);
+  const cu = cuIn && cuIn.anos && cuIn.anos[ano] ? cuIn : { ...(cuIn || {}), anos: { ...((cuIn && cuIn.anos) || {}), [ano]: { entregues: [] } } };
   const [editar, setEditar] = useState(false);
   const [planear, setPlanear] = useState(false);
   const [quem, setQuem] = useState('padrao');
   // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
   const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
   const mudarMin = v => { setComMin(v); try { localStorage.setItem('cu-com-minimo', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
-  if (!(cu && cu.anos && cu.anos[ano])) return null;
+  if (!(cuIn && cuIn.anos && cuIn.anos[ano]) && !temApp) return null;
   if (!Array.isArray(cu.anos[ano].entregues)) {
     // A função na Firebase ainda é a versão antiga (não manda as tarefas fechadas)
     const claro0 = theme === 'light';
@@ -1744,12 +1757,12 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
-  const est = cuEntregasMes(cu, ano, mesNum, clientes);
+  const est = cuEntregasMes(cu, ano, mesNum, clientes, trab);
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
-  const estPrev = cu.anos[aPrev] && cu.anos[aPrev].entregues ? cuEntregasMes(cu, aPrev, mPrev, clientes) : null;
+  const estPrev = (cu.anos[aPrev] && cu.anos[aPrev].entregues) || temApp ? cuEntregasMes(cu.anos[aPrev] ? cu : { ...cu, anos: { ...cu.anos, [aPrev]: { entregues: [] } } }, aPrev, mPrev, clientes, trab) : null;
   const temMin = est.comRetainer.length > 0 || !!(estPrev && estPrev.comRetainer.length);
   const usaMin = comMin || !temMin;
-  const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
+  const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : String(c.cid).startsWith('cu:') ? String(c.cid).slice(3) : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
   const resumoContagem = (cont, hx) => [...CU_TIPOS.filter(t => cont[t.id] && !t.porHora).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).replace(/^./, x => x.toLowerCase()) : t.plural}`), ...(cont.extra || cont.outro ? [`${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h à hora`] : [])].join(', ');
   const precos = cu.precos || {};
   const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : { ...cuPresetCliente(clientes, quem), ...((precos.porCliente || {})[quem] || {}) };
@@ -1765,7 +1778,7 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
   return (
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]} (ClickUp):</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
+        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]}{temApp ? '' : ' (ClickUp)'}:</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
           <button type="button" onClick={() => setPlanear(!planear)}
@@ -1850,6 +1863,34 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
           ))}
         </div>
       )}
+      {estPrev && estPrev.clientes.length > 0 && M && (() => {
+        // Receita provisória (o que se estimou entregue no mês passado) vs final (recibos passados este mês)
+        const k = `${ano}-${mesNum}`;
+        const recs = [...(((M[k] || {}).regCom) || []), ...(((M[k] || {}).regSem) || [])];
+        const fat = cid => recs.filter(r => String(r.cid) === String(cid)).reduce((a, r) => a + (parseFloat(r.valIliq != null && r.valIliq !== '' ? r.valIliq : r.val) || 0), 0);
+        const linhas = estPrev.clientes.filter(c => c.cid != null).map(c => ({ c, est: usaMin ? c.total : c.produzido, fat: fat(c.cid) }));
+        if (!linhas.length) return null;
+        return (
+          <details className={`mt-3 rounded-xl border px-3 py-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
+            <summary className="cursor-pointer text-sm"><span className="font-medium">Fecho de {meses[mPrev - 1].toLowerCase()}</span> <span className={`text-xs ${sub}`}>· estimado {f(linhas.reduce((a, l) => a + l.est, 0))} · faturado em {meses[mesNum - 1].toLowerCase()} {f(linhas.reduce((a, l) => a + l.fat, 0))}</span></summary>
+            <div className="mt-2 space-y-1 text-sm">
+              {linhas.map(({ c, est: e, fat: fv }) => {
+                const dif = fv - e;
+                return (
+                  <div key={String(c.cid)} className="flex flex-wrap items-baseline gap-x-3">
+                    <span className="font-medium min-w-[90px]">{nomeCli(c)}</span>
+                    <span className={`text-xs ${sub}`}>estimado {f(e)}</span>
+                    <span className={`text-xs ${sub}`}>faturado {f(fv)}</span>
+                    <span className={`ml-auto text-xs font-medium ${fv === 0 ? 'text-amber-400' : Math.abs(dif) < 1 ? 'text-emerald-400' : dif < 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {fv === 0 ? 'por faturar' : Math.abs(dif) < 1 ? 'certo' : `${dif > 0 ? '+' : '−'}${f(Math.abs(dif))}`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })()}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
@@ -1878,6 +1919,90 @@ const EntregasClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onPreco
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ══ TRABALHO: tarefas, pastas e tempos da própria app (substitui o ClickUp) ══
+// Os dados vivem num documento à parte no Firestore (users/<uid>/trabalho/dados).
+// Aqui ficam só as contas (usadas também pela estimativa de receitas); o ecrã está em trabalho.jsx.
+const TRAB_ESTADOS = [
+  { id: 'aprovar', nome: 'Por aprovar', cor: '#a855f7' },
+  { id: 'todo', nome: 'Por fazer', cor: '#94a3b8' },
+  { id: 'curso', nome: 'Em curso', cor: '#3b82f6' },
+  { id: 'review', nome: 'Review', cor: '#f59e0b' },
+  { id: 'feito', nome: 'Feito', cor: '#10b981' },
+];
+const TRAB_VAZIO = { v: 1, pastas: [], tarefas: [], notasCliente: {} };
+const trabId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const trabDia = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const trabMsTempo = (x, agora = Date.now()) => Math.max(0, (x.fim ? Date.parse(x.fim) : agora) - Date.parse(x.ini));
+const trabHoras = (t, agora) => (t.tempos || []).reduce((a, x) => a + trabMsTempo(x, agora), 0) / 3600000;
+const trabACorrer = trab => { for (const t of ((trab && trab.tarefas) || [])) { const x = (t.tempos || []).find(y => !y.fim); if (x) return { tarefa: t, tempo: x }; } return null; };
+// Dia em que a tarefa conta como entregue: quando foi para review (ou, se saltou o review, quando ficou feita)
+const trabEntrega = t => (t.estado === 'review' || t.estado === 'feito') ? trabDia(t.review || t.feita || '') : '';
+// Preço de um tipo de peça para um cliente: o que puseste em "preços" → a tabela do cliente → o padrão
+const cuPreco = (cu, clientes, cid, tipo) => {
+  const precos = (cu && cu.precos) || {};
+  const pc = (precos.porCliente || {})[cid] || {};
+  if (pc[tipo] != null && pc[tipo] !== '') return Number(pc[tipo]) || 0;
+  const pre = cuPresetCliente(clientes, cid);
+  if (pre[tipo] != null) return Number(pre[tipo]) || 0;
+  return Number({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[tipo]) || 0;
+};
+// Quanto vale uma tarefa (pelas peças no nome: "2x New Videos + 1x Variation"; as tarefas à hora
+// usam as horas registadas). Nos clientes à diária as horas contam nos dias, não na tarefa.
+const trabValor = (t, cu, clientes) => {
+  if (t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual))) return Number(t.valorManual);
+  const cid = t.cid;
+  const diaria = cuPreco(cu, clientes, cid, 'dia');
+  let v = 0;
+  cuPecas(t.nome).forEach(p => {
+    if (p.tipo === 'extra' || p.tipo === 'outro') { if (!(diaria > 0)) v += cuPreco(cu, clientes, cid, 'hora') * trabHoras(t); }
+    else v += cuPreco(cu, clientes, cid, p.tipo) * p.n;
+  });
+  return v;
+};
+// Tarefas da app entregues num mês, no mesmo formato das do ClickUp (para a estimativa)
+const trabEntreguesMes = (trab, ano, mesNum) => {
+  const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
+  return ((trab && trab.tarefas) || []).filter(t => trabEntrega(t).startsWith(pref)).map(t => ({
+    id: 'app:' + t.id, nome: t.nome, fechada: trabEntrega(t), cid: t.cid, app: true, valorManual: t.valorManual,
+    horas: Math.round(trabHoras(t) * 100) / 100, emReview: t.estado === 'review',
+  }));
+};
+// Dias do mês com horas registadas na app, por cliente (para quem paga à diária)
+const trabDiasMes = (trab, ano, mesNum) => {
+  const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
+  const out = {};
+  ((trab && trab.tarefas) || []).forEach(t => (t.tempos || []).forEach(x => {
+    const d = trabDia(x.ini);
+    if (d.startsWith(pref) && trabMsTempo(x) > 0) (out[t.cid] = out[t.cid] || new Set()).add(Number(d.slice(8, 10)));
+  }));
+  return out;
+};
+// Parar o cronómetro que estiver a correr (em qualquer tarefa)
+const trabParar = trab => ({
+  ...trab, tarefas: ((trab && trab.tarefas) || []).map(t => ((t.tempos || []).some(x => !x.fim) ? { ...t, tempos: t.tempos.map(x => (x.fim ? x : { ...x, fim: new Date().toISOString() })) } : t)),
+});
+// Cronómetro a correr, mostrado no topo da app (atualiza só ele, uma vez por segundo)
+const trabRelogio = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const CronoTopo = ({ trab, onParar, onAbrir, theme }) => {
+  const corre = trabACorrer(trab);
+  const [, setTic] = useState(0);
+  useEffect(() => { if (!corre) return undefined; const i = setInterval(() => setTic(x => x + 1), 1000); return () => clearInterval(i); }, [!!corre]);
+  if (!corre) return null;
+  const claro = theme === 'light';
+  return (
+    <div className={`flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full border text-xs ${claro ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-500/30 bg-blue-500/10 text-blue-300'}`}>
+      <button type="button" onClick={onAbrir} className="flex items-center gap-1.5 min-w-0" title={corre.tarefa.nome}>
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+        <span className="font-semibold tabular-nums">{trabRelogio(trabMsTempo(corre.tempo))}</span>
+        <span className="hidden md:inline max-w-[140px] truncate">{corre.tarefa.nome}</span>
+      </button>
+      <button type="button" onClick={onParar} className={`w-6 h-6 inline-flex items-center justify-center rounded-full ${claro ? 'hover:bg-blue-100' : 'hover:bg-white/10'}`} title="Parar o cronómetro" aria-label="Parar o cronómetro">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
+      </button>
     </div>
   );
 };
@@ -2279,8 +2404,10 @@ export {
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
   estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
-  cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, MenuTopo, TemaCtx, Card,
-  StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras,
-  cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
-  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId,
+  trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabValor, trabEntreguesMes,
+  trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
+  Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos, cuHoras, cuDesde,
+  CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
+  VC_DIAS_SEMANA, vcPrazosCPCV
 };
