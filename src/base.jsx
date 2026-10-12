@@ -1606,141 +1606,9 @@ const cuLerHoras = t => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 const cuHorasTxt = h => { const t = Math.round(h * 60); const hh = Math.floor(t / 60), mm = t % 60; return mm ? `${hh}h${String(mm).padStart(2, '0')}` : `${hh}h`; };
-const PlanoMesClickUp = ({ cu, ano, mesNum, clientes, theme, inputClass, onGuardar, produzidoDe }) => {
-  const claro = theme === 'light';
-  const sub = claro ? 'text-slate-500' : 'text-slate-400';
-  const lista = (clientes || []).filter(c => !/reembolso/i.test(c.nome || ''));
-  const precos = (cu && cu.precos) || {};
-  const [cid, setCid] = useState(() => {
-    const comPlano = lista.find(c => ((cu && cu.planos) || {})[`${ano}-${mesNum}-${c.id}`]);
-    const comTabela = lista.find(c => Object.keys(cuPresetCliente(clientes, c.id)).length);
-    return String((comPlano || comTabela || lista[0] || {}).id ?? '');
-  });
-  const chave = `${ano}-${mesNum}-${cid}`;
-  const guardado = ((cu && cu.planos) || {})[chave];
-  const vazio = { qtd: {}, horas: '', dias: '', extras: [] };
-  const [pl, setPl] = useState(guardado || vazio);
-  const [copiado, setCopiado] = useState(false);
-  const ultimaChave = useRef(chave);
-  useEffect(() => { if (ultimaChave.current !== chave) { ultimaChave.current = chave; setPl(guardado || vazio); } }, [chave]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Guarda sozinho (meio segundo depois de parares de escrever)
-  const porGuardar = useRef(false);
-  useEffect(() => {
-    if (!porGuardar.current) return undefined;
-    const t = setTimeout(() => { porGuardar.current = false; onGuardar(chave, pl); }, 600);
-    return () => clearTimeout(t);
-  }, [pl]); // eslint-disable-line react-hooks/exhaustive-deps
-  const mudar = fn => { porGuardar.current = true; setPl(p => fn({ ...vazio, ...p })); };
-  const preco = tipo => {
-    const pc = (precos.porCliente || {})[cid] || {};
-    if (pc[tipo] != null && pc[tipo] !== '') return Number(pc[tipo]) || 0;
-    const pre = cuPresetCliente(clientes, cid);
-    if (pre[tipo] != null) return Number(pre[tipo]) || 0;
-    return Number({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[tipo]) || 0;
-  };
-  const diaria = preco('dia'), retainer = preco('retainer'), hora = preco('hora');
-  // Tipos a mostrar: os que têm preço para este cliente (mais os que já tens no plano)
-  const tipos = CU_TIPOS.filter(t => !t.porHora && CU_NOMES_EN[t.id] && (preco(t.id) > 0 || Number((pl.qtd || {})[t.id]) > 0));
-  const linhas = [];
-  tipos.forEach(t => {
-    const n = Math.max(0, parseInt((pl.qtd || {})[t.id], 10) || 0);
-    if (!n) return;
-    const [um, varios] = CU_NOMES_EN[t.id];
-    linhas.push({ txt: `${n}x ${n === 1 ? um : varios}`, unit: preco(t.id), valor: n * preco(t.id), n });
-  });
-  const nDias = Math.max(0, parseInt(pl.dias, 10) || 0);
-  if (diaria > 0 && nDias) linhas.push({ txt: `${nDias}x ${nDias === 1 ? 'Day' : 'Days'}`, unit: diaria, valor: nDias * diaria, n: nDias });
-  const h = cuLerHoras(pl.horas);
-  if (h > 0) linhas.push({ txt: `Extra work ${cuHorasTxt(h)}`, unit: hora, valor: h * hora, porHora: true });
-  (pl.extras || []).forEach(e => { const v = Number(String(e.val || '').replace(',', '.')) || 0; if ((e.desc || '').trim() || v) linhas.push({ txt: (e.desc || '').trim() || 'Other', valor: v, extra: true }); });
-  const total = linhas.reduce((a, l) => a + l.valor, 0);
-  const aFaturar = retainer > 0 ? Math.max(total, retainer) : total;
-  const nomeCli = (lista.find(c => String(c.id) === cid) || {}).nome || '';
-  const texto = linhas.length ? [
-    `${MESES_EN[mesNum - 1]} ${ano}`,
-    '',
-    ...linhas.map(l => `${l.txt}${l.unit && l.n > 1 ? ` (${cuEur(l.unit)} each)` : l.porHora && l.unit ? ` (${cuEur(l.unit)}/h)` : ''} — ${cuEur(l.valor)}`),
-    '',
-    `Total: ${cuEur(total)}`,
-    ...(retainer > 0 && total < retainer ? [`Monthly minimum (retainer): ${cuEur(retainer)}`] : []),
-  ].join('\n') : '';
-  const copiar = async () => {
-    try { await navigator.clipboard.writeText(texto); }
-    catch (e) { const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e2) { /* sem cópia */ } ta.remove(); }
-    setCopiado(true); setTimeout(() => setCopiado(false), 1600);
-  };
-  const produzido = produzidoDe ? produzidoDe(cid) : null;
-  const num = `${inputClass} !w-16 text-sm py-1 text-center tabular-nums`;
-  return (
-    <div className={`mt-3 mb-1 rounded-xl border p-3 sm:p-4 animate-fadeIn ${claro ? 'border-violet-200 bg-violet-50/40' : 'border-violet-500/25 bg-violet-500/5'}`}>
-      <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
-        <span className="font-medium">Plano de {meses[mesNum - 1].toLowerCase()} para</span>
-        <select className={`${inputClass} !w-auto text-sm py-1`} value={cid} onChange={e => setCid(e.target.value)}>
-          {lista.map(c => <option key={c.id} value={String(c.id)}>{c.nome}</option>)}
-        </select>
-        {retainer > 0 && <span className={`text-xs ${sub}`}>mínimo garantido {cuEur(retainer)}</span>}
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
-            {tipos.map(t => (
-              <label key={t.id} className="flex items-center gap-2 text-sm">
-                <input type="number" min="0" inputMode="numeric" className={num} value={(pl.qtd || {})[t.id] ?? ''} placeholder="0"
-                  onChange={e => { const v = e.target.value; mudar(p => ({ ...p, qtd: { ...(p.qtd || {}), [t.id]: v } })); }} />
-                <span className="flex-1 min-w-0 truncate">{t.curto || t.nome}</span>
-                <span className={`text-xs tabular-nums ${sub}`}>{cuEur(preco(t.id))}</span>
-              </label>
-            ))}
-            {diaria > 0 && (
-              <label className="flex items-center gap-2 text-sm">
-                <input type="number" min="0" inputMode="numeric" className={num} value={pl.dias ?? ''} placeholder="0" onChange={e => { const v = e.target.value; mudar(p => ({ ...p, dias: v })); }} />
-                <span className="flex-1">Dias</span><span className={`text-xs tabular-nums ${sub}`}>{cuEur(diaria)}</span>
-              </label>
-            )}
-            {hora > 0 && (
-              <label className="flex items-center gap-2 text-sm">
-                <input type="text" className={num} value={pl.horas ?? ''} placeholder="0h" onChange={e => { const v = e.target.value; mudar(p => ({ ...p, horas: v })); }} />
-                <span className="flex-1">Horas extra</span><span className={`text-xs tabular-nums ${sub}`}>{cuEur(hora)}/h</span>
-              </label>
-            )}
-          </div>
-          {!tipos.length && !(diaria > 0) && <p className={`text-xs ${sub}`}>Este cliente ainda não tem preços. Põe-nos em "preços →".</p>}
-          <div className="space-y-1.5">
-            {(pl.extras || []).map((e, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input type="text" className={`${inputClass} text-sm py-1 flex-1`} placeholder="Ex.: AI Credits" value={e.desc || ''}
-                  onChange={ev => { const v = ev.target.value; mudar(p => ({ ...p, extras: p.extras.map((x, k) => (k === i ? { ...x, desc: v } : x)) })); }} />
-                <input type="text" inputMode="decimal" className={`${inputClass} !w-24 text-sm py-1 text-right tabular-nums`} placeholder="€" value={e.val || ''}
-                  onChange={ev => { const v = ev.target.value; mudar(p => ({ ...p, extras: p.extras.map((x, k) => (k === i ? { ...x, val: v } : x)) })); }} />
-                <button type="button" className={`text-xs ${sub} hover:text-red-400 px-1`} aria-label="Tirar esta linha" onClick={() => mudar(p => ({ ...p, extras: p.extras.filter((_, k) => k !== i) }))}>✕</button>
-              </div>
-            ))}
-            <button type="button" className="text-xs text-blue-400 hover:text-blue-300" onClick={() => mudar(p => ({ ...p, extras: [...(p.extras || []), { desc: '', val: '' }] }))}>+ outra linha (ex.: AI Credits)</button>
-          </div>
-        </div>
-        <div>
-          <div className={`rounded-xl border p-3 text-sm ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-700/60'}`}>
-            {texto
-              ? <pre className="whitespace-pre-wrap font-sans text-sm leading-6 tabular-nums">{texto}</pre>
-              : <p className={sub}>Escreve as quantidades e aparece aqui o texto para o ClickUp.</p>}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <button type="button" disabled={!texto} onClick={copiar} className={`px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-40 ${copiado ? 'bg-emerald-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}>{copiado ? '✓ Copiado' : 'Copiar texto'}</button>
-            {retainer > 0 && total > 0 && total < retainer && <span className="text-xs text-amber-400">Abaixo do mínimo: faturas {cuEur(aFaturar)}</span>}
-            {produzido != null && total > 0 && <span className={`text-xs ${sub}`}>Entregue até agora: {cuEur(produzido)} ({Math.round(produzido / total * 100)}% do plano)</span>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, clientes, theme, inputClass, onPrecos, onPlano }) => {
+const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, clientes, theme, inputClass, onIrPrecos }) => {
   const temApp = !!(trab && (trab.tarefas || []).length);
   const cu = cuIn && cuIn.anos && cuIn.anos[ano] ? cuIn : { ...(cuIn || {}), anos: { ...((cuIn && cuIn.anos) || {}), [ano]: { entregues: [] } } };
-  const [editar, setEditar] = useState(false);
-  const [planear, setPlanear] = useState(false);
-  const [quem, setQuem] = useState('padrao');
   // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
   const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
   const mudarMin = v => { setComMin(v); try { localStorage.setItem('cu-com-minimo', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
@@ -1765,27 +1633,12 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
   const usaMin = comMin || !temMin;
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : String(c.cid).startsWith('cu:') ? String(c.cid).slice(3) : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
   const resumoContagem = (cont, hx) => [...CU_TIPOS.filter(t => cont[t.id] && !t.porHora).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).replace(/^./, x => x.toLowerCase()) : t.plural}`), ...(cont.extra || cont.outro ? [`${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h à hora`] : [])].join(', ');
-  const precos = cu.precos || {};
-  const tabela = quem === 'padrao' ? { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) } : { ...cuPresetCliente(clientes, quem), ...((precos.porCliente || {})[quem] || {}) };
-  const guardar = (tipo, v) => {
-    const num = v === '' ? null : Math.max(0, Number(String(v).replace(',', '.')) || 0);
-    if (quem === 'padrao') onPrecos({ ...precos, padrao: { ...CU_PRECOS_PADRAO, ...(precos.padrao || {}), [tipo]: num == null ? 0 : num } });
-    else {
-      const pc = { ...((precos.porCliente || {})[quem] || {}) };
-      if (num == null) delete pc[tipo]; else pc[tipo] = num;
-      onPrecos({ ...precos, porCliente: { ...(precos.porCliente || {}), [quem]: pc } });
-    }
-  };
   return (
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]}{temApp ? '' : ' (ClickUp)'}:</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
-          <button type="button" onClick={() => setPlanear(!planear)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${planear ? (claro ? 'bg-violet-100 border-violet-200 text-violet-700' : 'bg-violet-500/15 border-violet-500/30 text-violet-300') : claro ? 'border-slate-200 text-slate-700 hover:bg-slate-100' : 'border-slate-600 text-slate-200 hover:bg-white/10'}`}>
-            📝 {planear ? 'Fechar plano' : 'Plano do mês'}
-          </button>
         </div>
       </div>
       {custosMes.total > 0 && (
@@ -1795,9 +1648,6 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
           <span className={sub}> ({custosMes.linhas.map(l => l.quem || l.desc).filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 3).join(', ')})</span>
         </p>
       )}
-      {planear && <PlanoMesClickUp cu={cu} ano={ano} mesNum={mesNum} clientes={clientes} theme={theme} inputClass={inputClass}
-        onGuardar={(k, v) => onPlano && onPlano(k, v)}
-        produzidoDe={id => { const c = est.clientes.find(x => String(x.cid) === String(id)); return c ? c.produzido : 0; }} />}
       {temMin && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <button type="button" role="switch" aria-checked={comMin} onClick={() => mudarMin(!comMin)} className="inline-flex items-center gap-2">
@@ -1903,30 +1753,8 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
         {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
         <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations"). Tarefas em review contam como entregues.</span>
-        <button className="text-blue-400 hover:text-blue-300" onClick={() => setEditar(!editar)}>{editar ? 'fechar preços' : 'preços →'}</button>
+        {onIrPrecos && <button className="text-blue-400 hover:text-blue-300" onClick={onIrPrecos}>preços → Trabalho</button>}
       </div>
-      {editar && (
-        <div className="mt-3 pt-3 border-t border-slate-700/50">
-          <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
-            <span className={sub}>Preços de</span>
-            <select className={`${inputClass} !w-auto text-sm py-1`} value={quem} onChange={e => setQuem(e.target.value)}>
-              <option value="padrao">todos os clientes (padrão)</option>
-              {(clientes || []).filter(c => !/reembolso/i.test(c.nome || '')).map(c => <option key={c.id} value={String(c.id)}>{c.nome}</option>)}
-            </select>
-            {quem !== 'padrao' && <span className={`text-xs ${sub}`}>vazio = usa o padrão</span>}
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {CU_CAMPOS_PRECO.map(t => (
-              <label key={quem + t.id} className="flex flex-col gap-1 text-xs">
-                <span className={sub}>{t.nome}</span>
-                <input type="number" min="0" step="any" className={`${inputClass} text-sm py-1`} defaultValue={tabela[t.id] != null ? tabela[t.id] : ''}
-                  placeholder={quem !== 'padrao' ? String({ ...CU_PRECOS_PADRAO, ...(precos.padrao || {}) }[t.id] || 0) : '0'}
-                  onBlur={e => { const atual = tabela[t.id] != null ? String(tabela[t.id]) : ''; if (e.target.value !== atual) guardar(t.id, e.target.value); }} />
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -2446,10 +2274,10 @@ export {
   _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
   estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
-  cuEur, cuLerHoras, cuHorasTxt, PlanoMesClickUp, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId,
-  trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto,
-  trabValor, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo,
-  TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS,
-  cuGrupos, cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
+  trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
+  trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx,
+  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos,
+  cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
+  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
