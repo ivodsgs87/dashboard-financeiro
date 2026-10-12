@@ -8,7 +8,8 @@ import {
   GraficoBarras, PieChart, AddClienteInput, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses,
   IRS_CFG_PADRAO, mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
   copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  PROCESS_INVOICE_URLS, ProtecaoErro, MenuTopo, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1487,6 +1488,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mk = patKey(idx), md = M[mk] || {};
    const temRec = ((md.regCom || []).length + (md.regSem || []).length) > 0;
    L.push({ id: 'r-inicio', dia: Math.min(3, nDias), cat: 'Rotina', titulo: 'Recibos, Alocação e transferências (quando os clientes pagarem)', curto: 'Recibos e alocação', estado: temRec ? 'ok' : est(false, 3), ir: () => { setAno(y); setMes(meses[m - 1]); setTab('resumo'); } });
+   // Entregas com prazo no ClickUp (lidas na última atualização; fechar a tarefa faz-se no ClickUp)
+   if (G.clickup && G.clickup.calendario !== false) {
+     const nomesEsp = {}; (G.clickup.espacos || []).forEach(e => { nomesEsp[e.id] = e.nome; });
+     const pref = `${y}-${String(m).padStart(2, '0')}-`;
+     (G.clickup.tarefas || []).filter(t => String(t.prazo || '').startsWith(pref)).forEach(t => {
+       const d = Number(String(t.prazo).slice(8, 10));
+       L.push({ id: 'cu-' + t.id, dia: d, cat: 'ClickUp', titulo: `Entrega: ${t.nome}`, curto: t.nome, nota: [nomesEsp[t.espaco], t.lista, t.estado].filter(Boolean).join(' · '), estado: est(false, d), ir: t.url ? () => window.open(t.url, '_blank', 'noopener') : () => setTab('performance') });
+     });
+   }
    // Venda da casa: prazos do CPCV (separador Venda da Casa)
    vcPrazosCPCV({ ...VC_DEFAULT, ...(G.vendaCasa || {}) }, conc)
      .filter(p => p.data.getFullYear() === y && p.data.getMonth() + 1 === m)
@@ -1498,6 +1508,58 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
  useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
+
+ // ══ ClickUp: horas por cliente (função clickupHoras na Firebase) ══
+ const [cuEstado, setCuEstado] = useState({ aCarregar: false, erro: '', codigo: '' });
+ const cuACarregar = useRef(false);
+ const sincClickUp = async (manual = true, anoPedido = ano) => {
+   if (cuACarregar.current) return;
+   cuACarregar.current = true;
+   setCuEstado({ aCarregar: true, erro: '', codigo: '' });
+   try {
+     const token = user && user.getIdToken ? await user.getIdToken() : '';
+     let r = null;
+     for (const url of CLICKUP_URLS) {
+       try { r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ ano: anoPedido }) }); break; }
+       catch (e) { r = null; }
+     }
+     if (!r) throw Object.assign(new Error('Não consegui falar com a função do ClickUp. Já fizeste o deploy das functions?'), { codigo: 'rede' });
+     if (r.status === 404) throw Object.assign(new Error('A função do ClickUp ainda não está na Firebase: falta fazer "firebase deploy --only functions".'), { codigo: 'nao_encontrada' });
+     const j = await r.json().catch(() => ({}));
+     if (!r.ok) throw Object.assign(new Error((j.error && j.error.message) || `Erro ${r.status}`), { codigo: (j.error && j.error.codigo) || 'erro' });
+     if (manual) saveUndo();
+     setG(p => {
+       const cu = p.clickup || {};
+       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], anos: { ...(cu.anos || {}), [j.ano]: { meses: j.meses || {} } } } };
+     });
+     // Horas de cada mês → "Horas trabalhadas" (só onde não as escreveste à mão)
+     setM(p => {
+       let mudou = false; const out = { ...p };
+       Object.entries(j.meses || {}).forEach(([m, md]) => {
+         const k = `${j.ano}-${m}`, h = Math.round((md.h || 0) * 10) / 10;
+         const a = p[k];
+         if (!(h > 0)) return;
+         if (a && a.horasTrabalhadas > 0 && a.horasOrigem !== 'clickup') return;
+         if (a && a.horasTrabalhadas === h && a.horasOrigem === 'clickup') return;
+         out[k] = { ...(a || defM), horasTrabalhadas: h, horasOrigem: 'clickup' }; mudou = true;
+       });
+       return mudou ? out : p;
+     });
+     setCuEstado({ aCarregar: false, erro: '', codigo: '' });
+     if (manual) showToast(`ClickUp: ${j.registos || 0} registos de horas lidos`);
+   } catch (e) {
+     setCuEstado({ aCarregar: false, erro: e.message || 'Erro ao ler o ClickUp', codigo: e.codigo || 'erro' });
+   } finally { cuACarregar.current = false; }
+ };
+ // Atualiza sozinho ao abrir a app (se já estiver ligado e a última leitura tiver mais de 6 horas)
+ useEffect(() => {
+   if (!dataLoaded || !(G.clickup && G.clickup.ativo)) return;
+   const t = Date.parse(G.clickup.sinc || '');
+   if (t && Date.now() - t < 6 * 3600000) return;
+   const id = setTimeout(() => sincClickUp(false, anoAtualSistema), 3000);
+   return () => clearTimeout(id);
+ }, [dataLoaded]);
+ const cuMudar = patch => { saveUndo(); setG(p => ({ ...p, clickup: { ...(p.clickup || {}), ...patch(p.clickup || {}) } })); };
 
  // Crédito: separador dos simuladores (fica guardado enquanto a app está aberta)
  const [simCreditoTab, setSimCreditoTab] = useState('prestacao');
@@ -2822,10 +2884,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      type="number" 
                      className={`w-20 ${inputClass} text-center font-bold`}
                      initialValue={M[mesKey]?.horasTrabalhadas || 0}
-                     onSave={v => uM('horasTrabalhadas', Math.max(0, v))}
+                     onSave={v => { saveUndo(); setM(p => { const a = p[mesKey] || defM; return { ...p, [mesKey]: { ...a, horasTrabalhadas: Math.max(0, v), horasOrigem: null } }; }); }}
                      placeholder="0"
                    />
                    <span className="text-sm text-slate-400">/ {metas.horasMensais || 120}h</span>
+                   {M[mesKey]?.horasOrigem === 'clickup' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400" title="Vem do ClickUp. Se escreveres outro valor, fica o teu.">ClickUp</span>}
                    {M[mesKey]?.horasTrabalhadas > 0 && (
                      <span className="text-sm text-slate-500">
                        ({(M[mesKey].horasTrabalhadas / 8).toFixed(1)}d)
@@ -2954,6 +3017,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            })()}
          </Card>
        </div>
+
+       <Card>
+         <HorasClickUp cu={G.clickup} estado={cuEstado} ano={ano} mesNum={meses.indexOf(mes) + 1} M={M} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
+           onSinc={() => sincClickUp(true, ano)}
+           onMapa={(k, v) => cuMudar(cu => ({ mapa: { ...(cu.mapa || {}), [k]: v === '' ? null : (v === 'x' ? 'x' : (isNaN(Number(v)) ? v : Number(v))) } }))}
+           onDividir={(sid, sim) => cuMudar(cu => ({ dividir: { ...(cu.dividir || {}), [sid]: sim } }))}
+           onCalendario={v => cuMudar(() => ({ calendario: v }))} />
+       </Card>
        
        {/* Gráfico de Horas Trabalhadas */}
        {(() => {
