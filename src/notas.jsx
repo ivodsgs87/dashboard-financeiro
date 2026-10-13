@@ -831,6 +831,27 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
       <div className="space-y-0.5">
         <button type="button" onClick={() => { setFiltro('recentes'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'recentes')}><Ic n="relogio" className={`w-4 h-4 ${sub}`} /> Recentes</button>
         <button type="button" onClick={() => { setFiltro('favoritos'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'favoritos')}><Ic n="estrela" className={`w-4 h-4 ${sub}`} /> Favoritos <span className={`ml-auto text-xs ${sub}`}>{(ix.paginas || []).filter(p => p.fav).length || ''}</span></button>
+        {/* As páginas favoritas ficam logo aqui, à mão (como os projetos favoritos no Trabalho) */}
+        {(() => {
+          const favs = (ix.paginas || []).filter(p => p.fav).sort((a, b) => String(tituloDe(a)).localeCompare(String(tituloDe(b)), 'pt'));
+          if (!favs.length) return null;
+          return (
+            <div className="ml-4 pl-2 space-y-0.5">
+              {favs.map(p => {
+                const s = secDe(p.seccaoId);
+                const ativa = pagId === p.id && !filtro && !q;
+                return (
+                  <button key={p.id} type="button" onClick={() => { setFiltro(null); setProcura(''); setSecId(p.seccaoId); setPagId(p.id); setVista('pagina'); }}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 lg:py-1 rounded-lg text-sm text-left ${ativa ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} title={s ? `${s.nome} › ${tituloDe(p)}` : tituloDe(p)}>
+                    <span className="w-1 h-3.5 rounded-full shrink-0" style={{ background: s ? s.cor : '#94a3b8' }} />
+                    <span className="truncate min-w-0">{tituloDe(p)}</span>
+                    {p.tituloC && !chave && <Ic n="cadeado" className="w-3 h-3 text-amber-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
       <div>
         <div className="flex items-center justify-between px-2 mb-1">
