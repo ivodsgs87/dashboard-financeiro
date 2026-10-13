@@ -580,7 +580,7 @@ const PaginaAberta = ({ onPlanearCompras, historicoCompras, meta, seccao, claro,
         {onVoltar && <button type="button" onClick={onVoltar} className={`lg:hidden -ml-2 w-9 h-9 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} aria-label="Voltar"><Ic n="voltar" className="w-5 h-5" /></button>}
         <span className={`text-xs truncate ${sub}`}>{seccao ? seccao.nome : ''}{partilhada && <span className="inline-flex items-center gap-1 ml-2 text-emerald-500"><Ic n="pessoas" className="w-3.5 h-3.5" /> partilhada</span>}{protegida && <span className="inline-flex items-center gap-1 ml-2 text-amber-400"><Ic n="cadeado" className="w-3.5 h-3.5" /> protegida</span>}</span>
         <span className="flex-1" />
-        {onPlanearCompras && !senha && typeof conteudo === 'string' && conteudo !== '__trancada' && /data-chk/.test(htmlRef.current || conteudo) && (
+        {onPlanearCompras && !senha && typeof conteudo === 'string' && conteudo !== '__trancada' && ehCompras(meta, tituloRef.current) && /data-chk/.test(htmlRef.current || conteudo) && (
           <button type="button" onClick={() => { const l = itensDaLista(htmlRef.current || conteudo); if (!l.length) { if (showToast) showToast('Não há nada por comprar (tudo riscado).', 'error'); return; } onPlanearCompras(l, tituloRef.current || 'Lista'); }}
             className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/10'}`} title="Organizar por loja, com preços estimados e trocas mais saudáveis">✨ Planear compras</button>
         )}
