@@ -299,6 +299,12 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
         <span className={`block truncate text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`}>{t.nome}</span>
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
+      {((t.anexos || []).length > 0 || (t.notas && String(t.notas).trim())) && (
+        <span className={`shrink-0 inline-flex items-center gap-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
+          {(t.anexos || []).length > 0 && <span title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" /></span>}
+          {t.notas && String(t.notas).trim() && <span title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
+        </span>
+      )}
       <EtiquetaTipo t={t} cu={cu} claro={claro} className="hidden sm:inline-block" />
       {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataCurta(t.prazo)}</span>}
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
@@ -364,7 +370,7 @@ const EtiquetaTipo = ({ t, cu, claro, className = '' }) => {
     : { background: `hsla(${h}, 70%, 45%, .12)`, color: `hsl(${h} 62% 62%)`, boxShadow: `inset 0 0 0 1px hsla(${h}, 70%, 50%, .22)` };
   return <span className={cls} style={est} title={txt}>{txt}</span>;
 };
-const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true }) => {
+const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true, marcada = false, algumaMarcada = false, onMarcar }) => {
   const claro = useClaro(theme);
   const corre = (t.tempos || []).some(x => !x.fim);
   const v = trabValor(t, cu, clientes);
@@ -374,8 +380,12 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
   const [editar, setEditar] = useState(false);
   const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
-    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
+        {onMarcar && (
+          <input type="checkbox" checked={marcada} onChange={() => {}} onClick={e => { e.stopPropagation(); onMarcar(t.id, e.shiftKey); }}
+            className={`-ml-1 w-3.5 h-3.5 shrink-0 accent-blue-500 cursor-pointer ${marcada || algumaMarcada ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`} aria-label={`Selecionar ${t.nome}`} title="Selecionar (Shift para várias seguidas)" />
+        )}
         <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
         {editar ? (
           <input autoFocus defaultValue={t.nome} onFocus={e => e.target.select()} onBlur={e => gravarNome(e.target.value)}
@@ -392,7 +402,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
             {(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}
-            {t.notas && <span className={sub} title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
+            {t.notas && String(t.notas).trim() && <button type="button" onClick={e => { e.stopPropagation(); onAbrir(t.id); }} className={`inline-flex items-center px-1 rounded ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} title={`Notas: ${String(t.notas).slice(0, 300)}`} aria-label="Ver as notas da tarefa"><IcoT n="nota" className="w-3.5 h-3.5" /></button>}
           </>
         )}
       </div>
@@ -428,9 +438,53 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
   const grupos = ORDEM_GRUPOS.map(id => ({ ...TRAB_ESTADOS.find(e => e.id === id), lista: tarefas.filter(t => t.estado === id) })).filter(g => g.lista.length || (onCriarNoEstado && g.id === 'todo'));
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const criar = id => { if (txt.trim()) { onCriarNoEstado(txt, id); setTxt(''); } };
+  // Seleção de várias tarefas (para mudar o prazo, o estado ou a prioridade de uma vez)
+  const [marcadas, setMarcadas] = useState(() => new Set());
+  const ultimaMarcada = useRef(null);
+  const visiveis = grupos.filter(g => !fechados.has(g.id)).flatMap(g => g.lista.map(t => t.id));
+  const idsTodos = new Set(tarefas.map(t => t.id));
+  const sel = [...marcadas].filter(id => idsTodos.has(id));
+  const marcar = (id, shift) => setMarcadas(prev => {
+    const n = new Set(prev);
+    if (shift && ultimaMarcada.current && visiveis.includes(ultimaMarcada.current)) {
+      const a = visiveis.indexOf(ultimaMarcada.current), b = visiveis.indexOf(id);
+      visiveis.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => n.add(x));
+    } else if (n.has(id)) n.delete(id); else n.add(id);
+    ultimaMarcada.current = id;
+    return n;
+  });
+  const limparSel = () => { setMarcadas(new Set()); ultimaMarcada.current = null; };
+  useEffect(() => {
+    if (!sel.length) return undefined;
+    const esc = e => { if (e.key === 'Escape' && !(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && !e.target.closest('[role=toolbar]'))) { e.stopPropagation(); limparSel(); } };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [sel.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emTodas = fn => { const ids = new Set(sel); mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (ids.has(x.id) ? fn(x) : x)) })); };
+  const estadoTodas = e => { const ids = [...sel]; mudar(tr => ids.reduce((acc, id) => opEstado(acc, id, e), tr)); };
   if (!grupos.length) return <p className={`px-2 py-6 text-sm ${sub}`}>Sem tarefas.</p>;
   return (
     <div className="space-y-5">
+      {sel.length > 0 && (
+        <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl border shadow-2xl animate-modalIn max-w-[calc(100vw-2rem)] ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`} role="toolbar" aria-label="Ações para as tarefas selecionadas">
+          <span className="text-sm font-semibold px-1">{sel.length} selecionada{sel.length === 1 ? '' : 's'}</span>
+          <span className={`w-px h-5 ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} />
+          <label className={`flex items-center gap-1.5 text-xs ${sub}`}>Prazo
+            <input type="date" onChange={e => { if (e.target.value) emTodas(x => ({ ...x, prazo: e.target.value })); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-600 text-slate-100'}`} aria-label="Prazo para as selecionadas" />
+          </label>
+          <button type="button" onClick={() => emTodas(x => ({ ...x, prazo: null }))} className={`text-xs ${sub} hover:text-red-400`}>Tirar prazo</button>
+          <select value="" onChange={e => { if (e.target.value) estadoTodas(e.target.value); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Estado para as selecionadas">
+            <option value="">Estado…</option>
+            {TRAB_ESTADOS.map(e2 => <option key={e2.id} value={e2.id}>{e2.nome}</option>)}
+          </select>
+          <select value="" onChange={e => { const v = e.target.value; if (v) emTodas(x => ({ ...x, prioridade: v === '-' ? null : v })); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Prioridade para as selecionadas">
+            <option value="">Prioridade…</option>
+            {PRIORIDADES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            <option value="-">Sem prioridade</option>
+          </select>
+          <button type="button" onClick={limparSel} className={`ml-1 w-7 h-7 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} title="Limpar a seleção (Esc)" aria-label="Limpar a seleção">✕</button>
+        </div>
+      )}
       {grupos.map(g => {
         const fechado = fechados.has(g.id);
         const valor = g.lista.reduce((a, t) => a + trabValor(t, cu, clientes), 0);
@@ -445,6 +499,9 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                 <IcoEstado id={g.id} cor="#fff" size={11} />{g.nome}
               </span>
               <span className={`text-xs ${sub}`}>{g.lista.length}</span>
+              {largo && g.lista.length > 1 && (() => { const todas = g.lista.every(x => marcadas.has(x.id)); return (
+                <button type="button" onClick={() => setMarcadas(prev => { const n = new Set(prev); g.lista.forEach(x => (todas ? n.delete(x.id) : n.add(x.id))); return n; })} className={`text-[11px] ${sub} hover:text-blue-400 ${sel.length ? '' : 'opacity-0 hover:opacity-100 focus:opacity-100'}`}>{todas ? 'Desmarcar' : 'Selecionar todas'}</button>
+              ); })()}
               {(valor > 0 || horas > 0) && <span className={`text-xs ${sub}`}>· {horas > 0 ? tempoTxt(horas) : ''}{horas > 0 && valor > 0 ? ' · ' : ''}{valor > 0 ? eur(valor) : ''}</span>}
             </div>
             {!fechado && (
@@ -455,7 +512,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                   </div>
                 )}
                 {g.lista.map(t => (largo
-                  ? <LinhaTabela key={t.id} t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} nomePasta={nomePasta(t)} cheio={cheio} />
+                  ? <LinhaTabela key={t.id} t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} nomePasta={nomePasta(t)} cheio={cheio} marcada={marcadas.has(t.id)} algumaMarcada={sel.length > 0} onMarcar={marcar} />
                   : <div key={t.id} className={`border-b px-1 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}><LinhaTarefa t={t} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={onAbrir} mostrarPasta={!!mostrarPasta} nomePasta={nomePasta(t)} /></div>))}
                 {onCriarNoEstado && (novaEm === g.id ? (
                   <div className="flex items-center gap-2 px-3 h-11">
@@ -1134,6 +1191,30 @@ const ChecklistTarefa = ({ t, mudar, claro, sub, caixa, inputClass }) => {
 // ── Detalhe de uma tarefa (painel lateral) ──
 const PRIORIDADES = [['urgente', 'Urgente', '#ef4444'], ['alta', 'Alta', '#f59e0b'], ['normal', 'Normal', '#3b82f6'], ['baixa', 'Baixa', '#94a3b8']];
 const FORMATOS = ['9:16', '1:1', '4:5', '16:9'];
+// Notas da tarefa: gravam enquanto escreves (e ao fechar a tarefa), não só ao sair do campo
+const NotasDaTarefa = ({ t, set, inputClass, lab, sub }) => {
+  const [v, setV] = useState(t.notas || '');
+  const vRef = useRef(t.notas || ''); const ultimo = useRef(t.notas || '');
+  const timer = useRef(null);
+  const setRef = useRef(set); setRef.current = set;
+  const [gravado, setGravado] = useState(false);
+  const gravar = () => {
+    clearTimeout(timer.current); timer.current = null;
+    if (vRef.current === ultimo.current) return;
+    ultimo.current = vRef.current;
+    setRef.current({ notas: vRef.current });
+    setGravado(true);
+  };
+  useEffect(() => () => gravar(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!gravado) return undefined; const i = setTimeout(() => setGravado(false), 1500); return () => clearTimeout(i); }, [gravado]);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={`${lab} flex items-center gap-2`}>Notas da tarefa{gravado && <span className={`text-[11px] font-normal ${sub}`}>✓ gravado</span>}</span>
+      <textarea value={v} rows={4} onChange={e => { setV(e.target.value); vRef.current = e.target.value; clearTimeout(timer.current); timer.current = setTimeout(gravar, 700); }} onBlur={gravar}
+        className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
+    </label>
+  );
+};
 const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
@@ -1196,9 +1277,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 
           <AnexosTarefa t={t} trab={trab} mudar={mudar} onEnviar={onEnviarAnexo} onApagarFicheiro={onApagarAnexo} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} showToast={showToast} />
 
-          <label className="flex flex-col gap-1"><span className={lab}>Notas da tarefa</span>
-            <textarea key={t.id + 'x'} defaultValue={t.notas || ''} rows={4} onBlur={e => { if (e.target.value !== (t.notas || '')) set({ notas: e.target.value }); }} className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
-          </label>
+          <NotasDaTarefa key={t.id + 'x'} t={t} set={set} inputClass={inputClass} lab={lab} sub={sub} />
 
           <ChecklistTarefa t={t} mudar={mudar} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} />
 
