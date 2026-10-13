@@ -13859,7 +13859,14 @@ ${transacoesOrdenadas.map(t => `<tr>
                 )}
               </div>
 
-              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onAbrir={() => setTab('trabalho')} />
+              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onAbrir={() => {
+                // Abre a lista (projeto) da tarefa que está a gravar
+                const c = trabACorrer(trabalho); const pid = c && c.tarefa && c.tarefa.pastaId;
+                const sel = pid ? { tipo: 'pasta', id: pid } : (c && c.tarefa && c.tarefa.cid != null ? { tipo: 'cliente', id: c.tarefa.cid } : null);
+                if (sel && tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel } })); return; }
+                if (sel) { try { localStorage.setItem('trab-sel', JSON.stringify(sel)); localStorage.setItem('trab-aba-inicial', 'tarefas'); } catch (e) { /* sem armazenamento */ } }
+                setTab('trabalho'); window.scrollTo({ top: 0 });
+              }} />
               {/* Estado: offline / a guardar / guardado */}
               {!isOnline ? (
                 <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-amber-600' : 'text-amber-400'}`} title="Sem internet — guarda quando voltar"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"/><span className="hidden sm:inline">Offline</span></span>
@@ -14132,8 +14139,8 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  {/* SIDEBAR MENU */}
  {showSidebar && (
-   <div className="fixed inset-0 z-50" onClick={e => { if (e.target === e.currentTarget) setShowSidebar(false); }}>
-     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-backdropIn" />
+   <div className="fixed inset-0 z-50" onKeyDown={e => { if (e.key === 'Escape') setShowSidebar(false); }}>
+     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-backdropIn" onClick={() => setShowSidebar(false)} aria-hidden="true" />
      <div className={`absolute right-0 top-0 bottom-0 w-full max-w-md ${theme === 'light' ? 'bg-white' : 'bg-slate-900'} shadow-2xl overflow-y-auto animate-slideInRight`}>
        {/* Header */}
        <div className={`sticky top-0 z-10 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'} border-b backdrop-blur-sm px-6 py-4`}>
