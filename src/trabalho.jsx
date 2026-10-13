@@ -1820,6 +1820,25 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     const tk = tokenGuardado();
     if (tk && raiz && r.conceito && !fx.versao && !versaoAnterior && !verSug) { try { setVerSug(await adivinharVersao(tk)); } catch (e) { /* adivinha ao enviar */ } }
   };
+  const temVersao = !!versaoDe(verSug);
+  const comHandle = lista.filter(x => x.handle && x.formato && x.estado !== 'feito');
+  const renomearAgora = async () => {
+    let ok = 0, falhou = 0;
+    for (const it of comHandle) {
+      const h = it.handle; const novo = nomeFinal(it);
+      if (typeof h.move !== 'function') { falhou++; continue; }
+      try {
+        let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
+        if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') { falhou++; continue; }
+        if (h.name !== novo) await h.move(novo);
+        const f = await h.getFile();
+        mudarItem(it.id, { file: f, renomeado: true });
+        ok++;
+      } catch (e) { falhou++; }
+    }
+    setMsg(ok ? `✓ ${ok} ficheiro${ok === 1 ? '' : 's'} renomeado${ok === 1 ? '' : 's'} no PC${falhou ? ` (${falhou} não deu)` : ''}` : '⚠ O browser não deixou mudar o nome no PC (usa o Chrome e arrasta os ficheiros do Explorador).');
+  };
   // Mudar o nome dos ficheiros no próprio PC (Chrome: só os que foram arrastados do Explorador)
   const renomearNoPc = async itens => {
     let ok = 0, falhou = 0, semSuporte = 0;
@@ -1872,7 +1891,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
           const res = await enviarParaDrive(token, { file: item.file, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
           mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex });
           enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
-          if (item.handle && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
+          if (item.handle && !item.renomeado && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
         } catch (e) { mudarItem(item.id, { estado: 'erro', erro: String(e.message || e) }); }
       }
       const url = pVersao.webViewLink || `https://drive.google.com/drive/folders/${pVersao.id}`;
@@ -1940,6 +1959,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="flex-1" />
+                {comHandle.length > 0 ? (
+                  <button type="button" disabled={aEnviar || !temVersao || comHandle.every(x => x.renomeado)} onClick={renomearAgora} title={!temVersao ? 'Escreve a versão (ou envia primeiro, que a app vê a versão no Drive)' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏️ Renomear no PC'}</button>
+                ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
               </div>
             </div>
