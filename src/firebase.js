@@ -215,3 +215,24 @@ export const createGoogleSheet = async (title, sheetsData) => {
   
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
 };
+
+// ── Anexos das tarefas (Firebase Storage). Só se carrega quando é preciso ──
+let _storage = null;
+const storageMod = async () => {
+  if (!_storage) { const m = await import('firebase/storage'); _storage = { m, s: m.getStorage(app) }; }
+  return _storage;
+};
+export const enviarAnexo = async (userId, caminho, ficheiro, onProgresso) => {
+  const { m, s } = await storageMod();
+  const r = m.ref(s, `users/${userId}/${caminho}`);
+  return new Promise((ok, falha) => {
+    const tarefa = m.uploadBytesResumable(r, ficheiro, { contentType: ficheiro.type || 'application/octet-stream' });
+    tarefa.on('state_changed',
+      x => { if (onProgresso) onProgresso(x.bytesTransferred / Math.max(1, x.totalBytes)); },
+      falha,
+      async () => { try { ok({ url: await m.getDownloadURL(tarefa.snapshot.ref), caminho: tarefa.snapshot.ref.fullPath }); } catch (e) { falha(e); } });
+  });
+};
+export const apagarAnexo = async (caminho) => {
+  try { const { m, s } = await storageMod(); await m.deleteObject(m.ref(s, caminho)); } catch (e) { console.warn('Anexo:', e); }
+};
