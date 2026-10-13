@@ -1072,6 +1072,9 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
     const usado = (trab.tarefas || []).some(o => o.id !== t.id && (o.anexos || []).some(y => y.caminho && y.caminho === a.caminho));
     if (a.caminho && !usado && onApagarFicheiro) onApagarFicheiro(a.caminho);
   };
+  // Sem anexos, o campo do link já aparece aberto (95% dos briefs são links)
+  const campoLink = link || (!anexos.length ? { url: '', nome: '' } : null);
+  const setCampo = patch => setLink({ ...(link || { url: '', nome: '' }), ...patch });
   const gravarLink = () => {
     const url = (link && link.url || '').trim();
     if (!url) { setLink(null); return; }
@@ -1105,16 +1108,17 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium flex items-center gap-1.5"><IcoA n="clip" className="w-4 h-4" /> Brief e anexos {anexos.length > 0 && <span className={`text-xs font-normal ${sub}`}>{anexos.length}</span>}</p>
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => setLink({ url: '', nome: '' })} className="px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Link</button>
+          {anexos.length > 0 && <button type="button" onClick={() => setLink({ url: '', nome: '', foco: true })} className="px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Link</button>}
           <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Carregar ficheiro</button>
           <input ref={inRef} type="file" multiple className="hidden" onChange={e => { enviar(e.target.files); e.target.value = ''; }} />
         </div>
       </div>
-      {link && (
+      {campoLink && (
         <div className="grid grid-cols-[minmax(0,1fr)_140px_auto] gap-2">
-          <input autoFocus value={link.url} onChange={e => setLink({ ...link, url: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); if (e.key === 'Escape') { e.stopPropagation(); setLink(null); } }} placeholder="https://docs.google.com/… (brief, Figma, Drive…)" className={`${inputClass} text-sm py-1.5`} />
-          <input value={link.nome} onChange={e => setLink({ ...link, nome: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); }} placeholder="Nome (opcional)" className={`${inputClass} text-sm py-1.5`} />
-          <button type="button" onClick={gravarLink} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Juntar</button>
+          <input autoFocus={!!campoLink.foco} value={campoLink.url} aria-label="Link do brief" onChange={e => setCampo({ url: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); if (e.key === 'Escape' && link) { e.stopPropagation(); setLink(null); } }}
+            onBlur={e => { if (/^https?:\/\/\S+$/i.test(e.target.value.trim()) && !(e.relatedTarget && e.relatedTarget.dataset && e.relatedTarget.dataset.link)) gravarLink(); }} placeholder="https://docs.google.com/… (brief, Figma, Drive…)" className={`${inputClass} text-sm py-1.5`} />
+          <input value={campoLink.nome} data-link="1" onChange={e => setCampo({ nome: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); }} placeholder="Nome (opcional)" className={`${inputClass} text-sm py-1.5`} />
+          <button type="button" data-link="1" onClick={gravarLink} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Juntar</button>
         </div>
       )}
       {temGoogle && (
@@ -1830,22 +1834,31 @@ const copiarComLink = async (texto, url) => {
   copiar(texto); return false;
 };
 // Junta "NOME com link" na primeira linha vazia da coluna A da tab certa (só Google Sheets; um .xlsx não dá para editar assim)
-const juntarNaSpreadsheet = async (token, sheetUrl, nome, link) => {
+const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) => {
   const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
   if (!id) return { erro: 'O link da spreadsheet não parece certo.' };
   const gid = Number((/[#&?]gid=(\d+)/.exec(String(sheetUrl)) || [])[1] ?? NaN);
   const meta = await driveApi(token, `${DRV}/${id}?fields=mimeType,name&supportsAllDrives=true`);
   if (meta.mimeType !== 'application/vnd.google-apps.spreadsheet') return { xlsx: true, nomeFicheiro: meta.name };
-  const ss = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`);
+  const ss = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title,gridProperties)`);
   const folhas = (ss.sheets || []).map(x => x.properties);
-  const f = folhas.find(x => x.sheetId === gid) || folhas[0];
-  if (!f) return { erro: 'Não encontrei a tab da spreadsheet.' };
+  // A tab do jogo: pelo nome (ex.: "Sniper Creative tracker" para o Sniper Battle); senão a do link (gid)
+  const GENERICAS = /^(battle|game|games|the|creative|tracker|mobile|clash|world|super)$/i;
+  const palavras = [...new Set(nomesJogo.flatMap(n => String(n || '').split(/[^A-Za-zÀ-ÿ0-9]+/)).filter(w => w.length >= 4 && !GENERICAS.test(w)).map(w => w.toLowerCase()))];
+  const peloNome = palavras.length ? folhas.find(x => palavras.some(w => x.title.toLowerCase().includes(w))) : null;
+  const f = peloNome || folhas.find(x => x.sheetId === gid) || (folhas.length === 1 ? folhas[0] : null);
+  if (!f) return { erro: 'Não sei em que tab escrever — abre a tab do jogo na spreadsheet e copia esse link para o jogo (cliente → Jogos).' };
   const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${f.title}'!A:A`)}`);
   const linhas = vals.values || [];
   const ja = linhas.findIndex(l => String((l && l[0]) || '').trim().toUpperCase() === String(nome).toUpperCase());
   if (ja >= 0) return { ok: true, linha: ja + 1, tab: f.title, jaExistia: true };
   const linha = linhas.length; // 0-based: a seguir à última preenchida
-  await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ updateCells: {
+  // A linha nova fica igual à de cima (formato e as caixinhas das networks, por marcar) e depois leva o nome com o link
+  const nCols = Math.min(26, Number(f.gridProperties && f.gridProperties.columnCount) || 10);
+  const copiarDeCima = linha >= 2 ? ['PASTE_FORMAT', 'PASTE_DATA_VALIDATION'].map(pasteType => ({ copyPaste: {
+    source: { sheetId: f.sheetId, startRowIndex: linha - 1, endRowIndex: linha, startColumnIndex: 0, endColumnIndex: nCols },
+    destination: { sheetId: f.sheetId, startRowIndex: linha, endRowIndex: linha + 1, startColumnIndex: 0, endColumnIndex: nCols }, pasteType } })) : [];
+  await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [...copiarDeCima, { updateCells: {
     start: { sheetId: f.sheetId, rowIndex: linha, columnIndex: 0 },
     rows: [{ values: [{ userEnteredValue: { stringValue: nome }, textFormatRuns: [{ startIndex: 0, format: { link: { uri: link } } }] }] }],
     fields: 'userEnteredValue,textFormatRuns',
@@ -1896,11 +1909,24 @@ const procurarNaPasta = async (raiz, h) => {
   }
   return null;
 };
+// NUNCA escreve por cima de outro ficheiro: se o nome novo já existir na pasta, pára e avisa.
+// Só apaga o original depois de confirmar que a cópia com o nome novo ficou com o mesmo tamanho.
 const renomearEm = async ({ dir, nome }, novo) => {
+  if (nome === novo) return dir.getFileHandle(nome);
+  let existe = false;
+  try { await dir.getFileHandle(novo); existe = true; } catch (e) { /* não existe: ótimo */ }
+  if (existe) { const er = new Error(`já existe um ficheiro "${novo}" na pasta "${dir.name}" — não mexi em nada`); er.name = 'JaExiste'; throw er; }
   const src = await (await dir.getFileHandle(nome)).getFile();
   const nh = await dir.getFileHandle(novo, { create: true });
-  const w = await nh.createWritable();
-  await src.stream().pipeTo(w);
+  try {
+    const w = await nh.createWritable();
+    await src.stream().pipeTo(w);
+    const copia = await nh.getFile();
+    if (copia.size !== src.size) throw new Error(`a cópia de "${nome}" não ficou completa`);
+  } catch (e) {
+    try { await dir.removeEntry(novo); } catch (e2) { /* */ }
+    throw e;
+  }
   await dir.removeEntry(nome);
   return nh;
 };
@@ -1998,13 +2024,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const renomearFicheiros = async (alvos, escolhida = null, desfazer = false) => {
     let ok = 0; const erros = []; const faltam = []; const feitos = [];
     let conhecidas = null;
+    // Segurança: dois ficheiros nunca podem ficar com o mesmo nome (um apagaria o outro)
+    const iguais = alvos.map(a => a.novo).filter((n, i, arr) => arr.indexOf(n) !== i);
+    if (iguais.length) return { ok: 0, erros: [`dois ficheiros ficavam com o mesmo nome (${iguais[0]}) — muda o formato de um deles. Não mexi em nada`], faltam: [] };
     for (const a of alvos) {
       const h = a.handle;
       if (!h) { erros.push('sem acesso ao ficheiro'); continue; }
       if (h.name === a.novo) { ok++; a.feito = true; continue; }
       const antes = h.name;
       let feito = false;
-      if (typeof h.move === 'function' && !usarPastaExports) {
+      if (false && typeof h.move === 'function' && !usarPastaExports) { // desligado: o move() do Chrome pode escrever por cima de um ficheiro com o mesmo nome
         try {
           let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
           if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
@@ -2166,7 +2195,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
       let folha = null;
       if (jogo.sheet && enviados.length) {
         setMsg('A juntar à spreadsheet…');
-        try { folha = await juntarNaSpreadsheet(token, jogo.sheet, reg.nomeBase, url); } catch (e) { folha = { erro: String(e.message || e) }; }
+        try { folha = await juntarNaSpreadsheet(token, jogo.sheet, reg.nomeBase, url, [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); } catch (e) { folha = { erro: String(e.message || e) }; }
         reg.folha = folha;
         set({ drive: reg });
         setResultado({ ...reg });
@@ -2221,7 +2250,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="flex-1" />
                 {comHandle.length > 0 ? (
-                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado)} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
+                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏️ Renomear no PC'}</button>
                 ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
