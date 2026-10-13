@@ -9,8 +9,8 @@ import {
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
   ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
-  trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar,
-  AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  isoDia, planearMes, trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
+  Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -8308,6 +8308,51 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Filtros de visualização
    const [showProjetos, setShowProjetos] = useState(true);
+   const [projFeitosAbertos, setProjFeitosAbertos] = useState(false);
+   // Plano do resto do mês (distribuir o trabalho que falta pelos dias úteis)
+   const [planoAberto, setPlanoAberto] = useState(false);
+   const [horasDia, setHorasDia] = useState(() => { try { return Number(localStorage.getItem('plano-horas')) || 6; } catch (e) { return 6; } });
+   const [showPlano, setShowPlano] = useState(true);
+   const folgasEu = useMemo(() => { const out = new Set(); (G.feriasCalendario || []).filter(f => f.quem === 'eu' && f.dataInicio && f.dataFim).forEach(f => { for (let d = new Date(f.dataInicio); isoDia(d) <= f.dataFim; d.setDate(d.getDate() + 1)) out.add(isoDia(d)); }); return out; }, [G.feriasCalendario]);
+   const planoPrevia = useMemo(() => (planoAberto ? planearMes({ trab: trabalho, horasDia, folgas: folgasEu, incluirHoje: new Date().getHours() < 17 }) : null), [planoAberto, trabalho, horasDia, folgasEu]);
+   const planoGuardado = (trabalho && trabalho.plano) || null;
+   const planoVer = planoPrevia || (showPlano ? planoGuardado : null);
+   const planoDoDia = iso => { if (!planoVer) return []; const d = planoVer.dias.find(x => x.d === iso); return d ? d.itens : []; };
+   const abrirTarefaTrab = (tid, pastaId) => {
+     if (tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel: pastaId ? { tipo: 'pasta', id: pastaId } : null, tarefa: tid } })); return; }
+     try { if (pastaId) localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'pasta', id: pastaId })); localStorage.setItem('trab-abrir-tarefa', tid); } catch (e) { /* sem armazenamento */ }
+     setTab('trabalho'); window.scrollTo({ top: 0 });
+   };
+   const [showTrab, setShowTrab] = useState(() => { try { return localStorage.getItem('cal-trab') !== '0'; } catch (e) { return true; } });
+   // Listas do Trabalho (ex.: "44 - Mahjong - Oct") como projetos: do primeiro dia com trabalho à entrega (ou ao prazo / hoje se ainda está aberta)
+   const projetosTrab = useMemo(() => {
+     const tr = trabalho || {}; const porPasta = {};
+     (tr.tarefas || []).forEach(t => { if (t.pastaId) (porPasta[t.pastaId] = porPasta[t.pastaId] || []).push(t); });
+     const hojeIso = trabDia(new Date().toISOString());
+     return (tr.pastas || []).filter(pa => porPasta[pa.id]).map(pa => {
+       const ts = porPasta[pa.id];
+       const inis = [], fins = [];
+       const dias = new Set(), marcos = {};
+       let abertas = 0;
+       ts.forEach(t => {
+         const c = trabDia(t.criada || ''); if (c) inis.push(c);
+         (t.tempos || []).forEach(x => { const d = trabDia(x.ini); if (d) { inis.push(d); fins.push(d); dias.add(d); } });
+         const ent = trabEntrega(t);
+         if (ent) { fins.push(ent); marcos[ent] = marcos[ent] || 'entrega'; }
+         else { abertas++; if (t.prazo) { fins.push(t.prazo); marcos[t.prazo] = 'prazo'; } else fins.push(hojeIso); }
+       });
+       if (!inis.length) return null;
+       const ini = inis.sort()[0]; const fim = [...fins, ini].sort().pop();
+       const cli = clientes.find(c => String(c.id) === String(pa.cid));
+       return { id: 'tb-' + pa.id, pastaId: pa.id, trab: true, nome: pa.nome, clienteId: cli ? cli.id : null, cor: pa.cor || (cli && cli.cor) || '#64748b', dataInicio: ini, dataFim: fim, excluirSab: true, excluirDom: true, concluido: abertas === 0, n: ts.length, abertas, dias, marcos };
+     }).filter(Boolean);
+   }, [trabalho, clientes]);
+   const abrirPastaTrab = pid => {
+     const sel = { tipo: 'pasta', id: pid };
+     if (tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: sel })); return; }
+     try { localStorage.setItem('trab-sel', JSON.stringify(sel)); } catch (e) { /* sem armazenamento */ }
+     setTab('trabalho'); window.scrollTo({ top: 0 });
+   };
    const [showFeriasFilter, setShowFeriasFilter] = useState(true);
    
    // Google Calendar state
@@ -8633,12 +8678,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Verificar se projeto está num dia - useCallback
    const projetosNoDia = useCallback((dia, mesD, anoD) => {
-     if (!showProjetos) return [];
      const dataStr = `${anoD}-${String(mesD + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
      const dataCheck = new Date(dataStr);
      const diaSemana = dataCheck.getDay();
      
-     return projetos.filter(p => {
+     const doTrab = showTrab ? projetosTrab.filter(p => p.dias.has(dataStr) || p.marcos[dataStr]).map(p => ({ ...p, marco: p.marcos[dataStr] || null })) : [];
+     return [...(showProjetos ? (G.projetos || []) : []).filter(p => {
        const inicio = new Date(p.dataInicio);
        const fim = new Date(p.dataFim);
        if (dataCheck < inicio || dataCheck > fim) return false;
@@ -8646,8 +8691,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        if (p.excluirDom && diaSemana === 0) return false;
        if (p.diasExcluidos && p.diasExcluidos.includes(dataStr)) return false;
        return true;
-     });
-   }, [projetos, showProjetos]);
+     }), ...doTrab];
+   }, [G.projetos, showProjetos, showTrab, projetosTrab]);
    
    // Verificar férias num dia - useCallback
    const feriasNoDia = useCallback((dia, mesD, anoD) => {
@@ -8778,6 +8823,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    📋 Projetos
                  </button>
                  <button 
+                   onClick={() => setShowTrab(v => { try { localStorage.setItem('cal-trab', v ? '0' : '1'); } catch (e) { /* sem armazenamento */ } return !v; })} 
+                   className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showTrab ? 'bg-violet-500/20 text-violet-400 border border-violet-500/50' : 'text-slate-500 hover:text-slate-300'}`}
+                   title="Mostrar/ocultar as listas do Trabalho (ex.: 44 - Mahjong - Oct)"
+                 >
+                   🗂️ Trabalho
+                 </button>
+                 {planoGuardado && <button onClick={() => setShowPlano(v => !v)} className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showPlano ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'text-slate-500 hover:text-slate-300'}`} title="Mostrar/ocultar o plano do mês">⏱ Plano</button>}
+                 <button 
                    onClick={() => setShowFeriasFilter(!showFeriasFilter)} 
                    className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showFeriasFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-slate-500 hover:text-slate-300'}`}
                    title="Mostrar/ocultar férias"
@@ -8795,6 +8848,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                )}
                
                <Button size="sm" onClick={() => { setShowAddProjeto(true); setEditProjeto(null); setNovoProjeto({ nome: '', clienteId: clientes[0]?.id || 0, dataInicio: '', dataFim: '', cor: '#3b82f6', excluirSab: false, excluirDom: false, diasExcluidos: [] }); }}>+ Projeto</Button>
+               <button onClick={() => { setPlanoAberto(v => !v); const h = new Date(); setVista('mes'); setCalMes(h.getMonth()); setCalAno(h.getFullYear()); }}
+                 className={`px-3 py-1.5 text-xs font-semibold rounded-xl border ${planoAberto ? 'bg-violet-500/20 border-violet-500/50 text-violet-300' : 'border-violet-500/40 text-violet-400 hover:bg-violet-500/10'}`}
+                 title="Distribuir o trabalho que falta pelos dias úteis até ao fim do mês">🧭 Planear o resto do mês</button>
                <button 
                  onClick={() => { setShowAddFerias(true); setEditFerias(null); setNovasFerias({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' }); }} 
                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white shadow-lg shadow-cyan-500/25"
@@ -8833,6 +8889,66 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        </Card>
        
+       {planoPrevia && (() => {
+         const P = planoPrevia;
+         const fimTxt = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' });
+         const aperta = P.precisaDia > horasDia + 0.05;
+         const riscos = P.tarefas.filter(t => t.risco);
+         const SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']; const diaTxt = iso => { const d = new Date(iso + 'T12:00'); return `${SEM[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`; };
+         const claroP = theme === 'light';
+         return (
+           <Card>
+             <div className="flex flex-wrap items-center gap-3 mb-3">
+               <h3 className="text-lg font-semibold flex-1 min-w-[200px]">🧭 Plano até {fimTxt}</h3>
+               <label className="flex items-center gap-2 text-xs text-slate-400">Horas de produção por dia
+                 <input type="number" min="1" max="14" step="0.5" value={horasDia} onChange={e => { const v = Math.max(1, Math.min(14, Number(e.target.value) || 6)); setHorasDia(v); try { localStorage.setItem('plano-horas', String(v)); } catch (er) { /* sem armazenamento */ } }} className={`${inputClass} !w-16 text-sm py-1 text-right`} />
+               </label>
+               <button onClick={() => setPlanoAberto(false)} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar o plano">✕</button>
+             </div>
+             {!P.tarefas.length ? <p className="text-sm text-slate-500 py-4">Não há tarefas por fazer com prazo até ao fim do mês nem nas listas deste mês. 🎉</p> : (
+               <>
+                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                   {[['Trabalho que falta', `${P.totalH} h`, `${P.tarefas.length} tarefa${P.tarefas.length === 1 ? '' : 's'}`], ['Dias úteis', P.nDias, 'sem fins de semana, feriados e férias'], ['Precisas de', `${P.precisaDia} h/dia`, `tens ${horasDia} h/dia`], ['Não cabe', P.sobra ? `${P.sobra} h` : '—', P.sobra ? 'ver opções abaixo' : 'cabe tudo']].map(([r, v, d], k) => (
+                     <div key={r} className={`p-2.5 rounded-xl ${(k === 2 && aperta) || (k === 3 && P.sobra) ? 'bg-red-500/10' : claroP ? 'bg-slate-100' : 'bg-white/[0.04]'}`}>
+                       <p className="text-[11px] text-slate-500">{r}</p>
+                       <p className={`text-lg font-semibold tabular-nums ${(k === 2 && aperta) || (k === 3 && P.sobra) ? 'text-red-400' : ''}`}>{v}</p>
+                       <p className="text-[11px] text-slate-500">{d}</p>
+                     </div>
+                   ))}
+                 </div>
+                 {(P.sobra > 0 || riscos.length > 0) && (
+                   <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-sm space-y-1">
+                     <p className="font-medium text-amber-500">⚠ {P.sobra > 0 ? `Com ${horasDia} h/dia não chegas a tudo: faltam ${P.sobra} h.` : 'Algumas tarefas acabam depois do prazo.'} Podes subir as horas por dia, pedir mais prazo ou passar alguma a um freelancer.</p>
+                     {riscos.slice(0, 8).map(t => <p key={t.tid} className="text-xs text-slate-400">• <button onClick={() => abrirTarefaTrab(t.tid, null)} className="hover:underline hover:text-blue-400">{t.nome}</button>{t.atrasada ? ` — já passou do prazo (${new Date(t.prazo + 'T12:00').toLocaleDateString('pt-PT')})` : t.prazo ? ` — prazo ${diaTxt(t.prazo)}` : ''}{t.naoCabe ? `, faltam ${t.naoCabe} h` : t.fim ? `, fica pronta ${diaTxt(t.fim)}` : ''}</p>)}
+                   </div>
+                 )}
+                 <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
+                   {P.dias.map(d => {
+                     const tot = d.itens.reduce((a, x) => a + x.h, 0);
+                     return (
+                       <div key={d.d} className="flex items-start gap-3 text-sm">
+                         <span className="w-24 shrink-0 text-xs text-slate-400 pt-1 capitalize">{diaTxt(d.d)} <span className="tabular-nums">· {Math.round(tot * 4) / 4}h</span></span>
+                         <div className="flex-1 min-w-0 flex flex-wrap gap-1">
+                           {d.itens.map((it, k) => (
+                             <button key={k} onClick={() => abrirTarefaTrab(it.tid, it.pastaId)} className="text-xs px-2 py-1 rounded-md border border-dashed text-left max-w-full truncate hover:bg-white/5" style={{ borderColor: `${it.cor}aa` }} title={it.pasta}>
+                               <span className="text-slate-400 tabular-nums">{it.h}h</span> {it.nome}
+                             </button>
+                           ))}
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+                 <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-700/50">
+                   <p className="text-[11px] text-slate-500 flex-1 min-w-[220px]">{P.antigas > 0 ? `Deixei de fora ${P.antigas} tarefa${P.antigas === 1 ? '' : 's'} com prazo de há mais de mês e meio (fecha-as ou dá-lhes prazo novo). ` : ''}As horas vêm da <b>Estimativa</b> de cada tarefa ou, se não tiver, da média das tuas tarefas do mesmo tipo (menos o tempo já registado). Primeiro o que tem prazo mais cedo e prioridade mais alta.</p>
+                   {planoGuardado && <button onClick={() => { mudarTrab(tr => { const { plano, ...resto } = tr; return resto; }); showToast('Plano tirado do calendário'); }} className="px-3 py-1.5 text-xs rounded-lg text-slate-400 hover:text-red-400">Tirar o plano do calendário</button>}
+                   <button onClick={() => { mudarTrab(tr => ({ ...tr, plano: P })); setShowPlano(true); setPlanoAberto(false); showToast('Plano posto no calendário (tracejado). Refaz quando quiseres.'); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-violet-600 hover:bg-violet-500 text-white">Pôr no calendário</button>
+                 </div>
+               </>
+             )}
+           </Card>
+         );
+       })()}
        {/* Calendário */}
        <Card className="overflow-hidden">
          {/* Dias da semana */}
@@ -8847,6 +8963,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {dias.map((d, i) => {
              const projetosHoje = projetosNoDia(d.dia, d.mes, d.ano);
              const feriasHoje = feriasNoDia(d.dia, d.mes, d.ano);
+             const planoHoje = planoDoDia(`${d.ano}-${String(d.mes + 1).padStart(2, '0')}-${String(d.dia).padStart(2, '0')}`);
              const isHoje = d.dia === hoje.getDate() && d.mes === hoje.getMonth() && d.ano === hoje.getFullYear();
              const totalItems = projetosHoje.length + feriasHoje.length;
              const maxItems = vista === 'mes' ? 3 : 10;
@@ -8890,15 +9007,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      return (
                        <div 
                          key={p.id} 
-                         onClick={(e) => { e.stopPropagation(); setEditProjeto(p); setNovoProjeto({...p, excluirSab: p.excluirSab || false, excluirDom: p.excluirDom || false, diasExcluidos: p.diasExcluidos || []}); setShowAddProjeto(true); }}
-                         className={`text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 ${p.concluido ? 'opacity-50 line-through' : ''}`}
+                         onClick={(e) => { e.stopPropagation(); if (p.trab) { abrirPastaTrab(p.pastaId); return; } setEditProjeto(p); setNovoProjeto({...p, excluirSab: p.excluirSab || false, excluirDom: p.excluirDom || false, diasExcluidos: p.diasExcluidos || []}); setShowAddProjeto(true); }}
+                         className={`text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 ${p.concluido ? (p.trab ? 'opacity-60' : 'opacity-50 line-through') : ''}`}
                          style={{ background: `${p.cor}30`, borderLeft: `2px solid ${p.cor}` }}
-                         title={`${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
+                         title={p.trab ? `${p.nome}${cliente ? ` · ${cliente.nome}` : ''} — ${p.n} tarefa${p.n === 1 ? '' : 's'}${p.abertas ? `, ${p.abertas} por acabar` : ', tudo entregue'} · abrir no Trabalho` : `${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
                        >
-                         {cliente ? `${cliente.nome}: ` : ''}{p.nome}
+                         {p.marco === 'prazo' ? '⏰ ' : p.marco === 'entrega' ? '✓ ' : ''}{cliente && !p.trab ? `${cliente.nome}: ` : ''}{p.nome}
                        </div>
                      );
                    })}
+                   {/* Plano do mês: o que fazer neste dia */}
+                   {planoHoje.slice(0, vista === 'mes' ? 3 : 10).map((it, k) => (
+                     <div key={`pl-${it.tid}-${k}`} onClick={e => { e.stopPropagation(); abrirTarefaTrab(it.tid, it.pastaId); }}
+                       className="text-[11px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border border-dashed"
+                       style={{ borderColor: `${it.cor}99`, color: 'inherit' }} title={`${it.h}h · ${it.nome}${it.pasta ? ` (${it.pasta})` : ''} — abrir a tarefa`}>
+                       <span className="tabular-nums text-slate-400">{it.h}h</span> {it.nome}
+                     </div>
+                   ))}
+                   {planoHoje.length > (vista === 'mes' ? 3 : 10) && <div className="text-[11px] text-slate-500 px-1">+{planoHoje.length - 3} no plano</div>}
                    {totalItems > maxItems && (
                      <div className="text-xs text-slate-500 px-1">+{totalItems - maxItems}</div>
                    )}
@@ -8910,60 +9036,70 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </Card>
        
        {/* Lista de projetos */}
-       <Card>
-         <div className="flex justify-between items-center mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="📋"/>Todos os Projetos</h3>
-           <span className="text-sm text-slate-400">{projetos.length} projeto(s)</span>
-         </div>
-         
-         {projetos.length === 0 ? (
-           <p className="text-slate-500 text-center py-8">Nenhum projeto. Clica em "+ Projeto" para adicionar.</p>
-         ) : (
-           <div className="space-y-2">
-             {projetos.sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(p => {
-               const cliente = clientes.find(c => c.id === p.clienteId);
-               const inicio = new Date(p.dataInicio);
-               const fim = new Date(p.dataFim);
-               const diasTotal = Math.ceil((fim - inicio) / (1000 * 60 * 60 * 24)) + 1;
-               const hojeDate = new Date();
-               const diasPassados = Math.max(0, Math.ceil((hojeDate - inicio) / (1000 * 60 * 60 * 24)));
-               const progresso = Math.min(100, (diasPassados / diasTotal) * 100);
-               const status = p.concluido ? 'concluido' : hojeDate > fim ? 'atrasado' : hojeDate >= inicio ? 'ativo' : 'futuro';
-               
+       {(() => {
+         const hojeD = new Date(); hojeD.setHours(0, 0, 0, 0);
+         const dt = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d; };
+         const curto = d => d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' }).replace('.', '');
+         const intervalo = (a, b) => { const ia = dt(a), ib = dt(b); const ano = ib.getFullYear() !== hojeD.getFullYear() ? ` ${ib.getFullYear()}` : ''; return +ia === +ib ? `${curto(ia)}${ano}` : `${curto(ia)} – ${curto(ib)}${ano}`; };
+         const lista = [...projetos].sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio));
+         const grupos = [
+           ['ativos', 'Em curso', lista.filter(p => !p.concluido && dt(p.dataInicio) <= hojeD && dt(p.dataFim) >= hojeD)],
+           ['proximos', 'Próximos', lista.filter(p => !p.concluido && dt(p.dataInicio) > hojeD)],
+           ['fechar', 'Passou a data — fechar?', lista.filter(p => !p.concluido && dt(p.dataFim) < hojeD).reverse()],
+           ['feitos', 'Concluídos', lista.filter(p => p.concluido).reverse()],
+         ];
+         const claroP = theme === 'light';
+         const linha = p => {
+           const cliente = clientes.find(c => c.id === p.clienteId);
+           const ini = dt(p.dataInicio), fim = dt(p.dataFim);
+           const diasTotal = Math.round((fim - ini) / 86400000) + 1;
+           const prog = Math.min(100, Math.max(0, (Math.round((hojeD - ini) / 86400000) + 1) / diasTotal * 100));
+           const ativo = !p.concluido && ini <= hojeD && fim >= hojeD;
+           return (
+             <div key={p.id} className={`group flex items-center gap-3 pl-2 pr-1 h-11 rounded-lg ${claroP ? 'hover:bg-slate-100' : 'hover:bg-white/[0.04]'}`}>
+               <button type="button" onClick={() => toggleConcluido(p.id)} aria-pressed={!!p.concluido} title={p.concluido ? 'Voltar a abrir' : 'Marcar como concluído'}
+                 className={`w-5 h-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center text-[11px] ${p.concluido ? 'bg-emerald-500 border-emerald-500 text-white' : claroP ? 'border-slate-300 hover:border-emerald-500' : 'border-slate-600 hover:border-emerald-400'}`}>{p.concluido ? '✓' : ''}</button>
+               <span className="w-1 h-6 rounded-full shrink-0" style={{ background: p.cor }} />
+               <span className={`min-w-0 truncate text-sm font-medium ${p.concluido ? 'text-slate-500 line-through' : ''}`}>{p.nome}</span>
+               {cliente && <span className="hidden sm:inline text-[11px] px-1.5 py-0.5 rounded-md shrink-0" style={{ background: `${cliente.cor}22`, color: cliente.cor }}>{cliente.nome}</span>}
+               {p.gcalEventId && <span className="text-[11px] text-blue-400 shrink-0" title="No Google Calendar">G</span>}
+               <span className="flex-1" />
+               {ativo && <span className={`hidden md:block w-20 h-1 rounded-full overflow-hidden shrink-0 ${claroP ? 'bg-slate-200' : 'bg-slate-700'}`}><span className="block h-full rounded-full" style={{ width: `${prog}%`, background: p.cor }} /></span>}
+               <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap shrink-0">{intervalo(p.dataInicio, p.dataFim)}<span className="hidden sm:inline"> · {diasTotal} dia{diasTotal === 1 ? '' : 's'}</span></span>
+               <span className="flex items-center shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
+                 <button type="button" onClick={() => { setEditProjeto(p); setNovoProjeto(p); setShowAddProjeto(true); }} className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-blue-400" title="Editar" aria-label={`Editar ${p.nome}`}>
+                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.5 4.5l5 5L9 20H4v-5z"/></svg></button>
+                 <button type="button" onClick={() => deleteProjeto(p.id)} className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-red-400" title="Apagar" aria-label={`Apagar ${p.nome}`}>
+                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+               </span>
+             </div>
+           );
+         };
+         return (
+           <Card>
+             <div className="flex justify-between items-center mb-2">
+               <h3 className="text-lg font-semibold"><Ico e="📋"/>Projetos</h3>
+               <span className="text-xs text-slate-500">{projetos.length} projeto{projetos.length === 1 ? '' : 's'} à mão · as listas do Trabalho aparecem no calendário</span>
+             </div>
+             {projetos.length === 0 ? <p className="text-slate-500 text-center py-8 text-sm">Nenhum projeto. Clica em "+ Projeto" para adicionar.</p> : grupos.map(([id, nome, l]) => {
+               if (!l.length) return null;
+               const fechado = id === 'feitos' && !projFeitosAbertos;
                return (
-                 <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 ${p.concluido ? 'opacity-60' : ''}`}>
-                   <input type="checkbox" checked={p.concluido} onChange={() => toggleConcluido(p.id)} className="w-5 h-5 accent-green-500 cursor-pointer" />
-                   <div className="w-1 h-10 rounded-full" style={{ background: p.cor }} />
-                   <div className="flex-1 min-w-0">
-                     <div className="flex items-center gap-2">
-                       <span className={`font-medium ${p.concluido ? 'line-through text-slate-400' : ''}`}>{p.nome}</span>
-                       {cliente && (
-                         <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: `${cliente.cor}30`, color: cliente.cor }}>{cliente.nome}</span>
-                       )}
-                       {p.gcalEventId && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full" title="Sincronizado com Google Calendar">📅</span>}
-                       {status === 'atrasado' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full">Atrasado</span>}
-                       {status === 'ativo' && !p.concluido && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">Ativo</span>}
-                     </div>
-                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                       <span>{inicio.toLocaleDateString('pt-PT')} → {fim.toLocaleDateString('pt-PT')}</span>
-                       <span>({diasTotal} dias)</span>
-                     </div>
-                     {!p.concluido && status !== 'futuro' && (
-                       <div className="mt-1.5 h-1 bg-slate-600 rounded-full overflow-hidden">
-                         <div className="h-full rounded-full" style={{ width: `${progresso}%`, background: p.cor }} />
-                       </div>
-                     )}
+                 <div key={id} className="mt-3 first:mt-0">
+                   <div className="flex items-center gap-2 px-2 mb-1">
+                     <button type="button" onClick={() => id === 'feitos' && setProjFeitosAbertos(v => !v)} className={`text-[11px] font-semibold uppercase tracking-wide ${id === 'fechar' ? 'text-amber-500' : 'text-slate-500'} ${id === 'feitos' ? 'hover:opacity-80' : 'cursor-default'}`}>
+                       {id === 'feitos' ? (fechado ? '▸ ' : '▾ ') : ''}{nome} <span className="font-normal">{l.length}</span>
+                     </button>
+                     <span className="flex-1" />
+                     {id === 'fechar' && <button type="button" onClick={() => { saveUndo(); const ids = new Set(l.map(p => p.id)); uG('projetos', projetos.map(p => (ids.has(p.id) ? { ...p, concluido: true } : p))); }} className="text-xs text-slate-500 hover:text-emerald-400">✓ Marcar todos como concluídos</button>}
                    </div>
-                   <div className="flex gap-1">
-                     <button onClick={() => { setEditProjeto(p); setNovoProjeto(p); setShowAddProjeto(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg" title="Editar">✏️</button>
-                     <button onClick={() => deleteProjeto(p.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg" title="Apagar">🗑️</button>
-                   </div>
+                   {!fechado && <div>{l.map(linha)}</div>}
                  </div>
                );
              })}
-           </div>
-         )}
-       </Card>
+           </Card>
+         );
+       })()}
        
        {/* Lista de Férias */}
        <Card>
@@ -13559,7 +13695,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    <button onClick={() => setChatAberto(true)} className="fixed bottom-4 right-4 z-40 no-print px-4 py-3 rounded-full shadow-xl bg-blue-600 text-white text-sm font-medium hover:opacity-90 m-fab" aria-label="Perguntar ao Gemini">✨<span className="m-fab-txt"> Perguntar</span></button>
  )}
    {/* Telemóvel: registo rápido */}
-   <button onClick={() => setRapidoAberto(true)} aria-label="Registo rápido" className="sm:hidden fixed right-4 z-40 no-print w-14 h-14 rounded-full shadow-xl bg-blue-600 text-white text-3xl leading-none flex items-center justify-center active:scale-95" style={{ bottom: 'calc(max(0.6rem, env(safe-area-inset-bottom)) + 84px)' }}>+</button>
+   {tab !== 'trabalho' && tab !== 'notas' && <button onClick={() => setRapidoAberto(true)} aria-label="Registo rápido" className="sm:hidden fixed right-4 z-40 no-print w-14 h-14 rounded-full shadow-xl bg-blue-600 text-white text-3xl leading-none flex items-center justify-center active:scale-95" style={{ bottom: 'calc(max(0.6rem, env(safe-area-inset-bottom)) + 84px)' }}>+</button>}
    {rapidoAberto && createPortal(
      <div className="sm:hidden fixed inset-0 z-50 flex items-end bg-black/50 animate-backdropIn" onClick={() => setRapidoAberto(false)}>
        <div role="dialog" aria-label="Registo rápido" onClick={e => e.stopPropagation()} className={`w-full rounded-t-3xl p-4 pb-8 animate-sheetIn ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`} style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
