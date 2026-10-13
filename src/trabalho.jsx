@@ -2346,7 +2346,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onIrMes }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onIrMes }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -2373,6 +2373,27 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const [abertas, setAbertas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-abertas')) || []); } catch (e) { return new Set(); } });
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
   const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || 'tarefas'; } catch (e) { return 'tarefas'; } });
+  // Recuar/avançar da app: cada ecrã (cliente, pasta, separador da ficha) fica no histórico
+  const navT = useRef({ primeiro: true, deFora: false, ult: null, desde: Date.now() });
+  useEffect(() => {
+    const r = navT.current; const sub = { sel, aba }; const k = JSON.stringify(sub);
+    if (r.primeiro) { r.primeiro = false; r.ult = k; const tm = setTimeout(() => { if (onNavSubstituir) onNavSubstituir(sub); }, 0); return () => clearTimeout(tm); }
+    if (k === r.ult) return undefined;
+    r.ult = k;
+    if (r.deFora) { r.deFora = false; return undefined; }
+    // Escolhas automáticas logo ao abrir não contam como um ecrã novo
+    if (Date.now() - r.desde < 1200) { if (onNavSubstituir) onNavSubstituir(sub); return undefined; }
+    if (onNavEmpurrar) onNavEmpurrar(sub);
+    return undefined;
+  }, [sel, aba]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!navSub || !navSub.sub) return;
+    const s2 = navSub.sub.sel || { tipo: 'geral' }, a2 = navSub.sub.aba || aba;
+    if (JSON.stringify({ sel: s2, aba: a2 }) === navT.current.ult) return;
+    navT.current.deFora = true;
+    const h = historico.current; if (h.length && JSON.stringify(h[h.length - 1].sel) === JSON.stringify(s2)) historico.current = h.slice(0, -1);
+    irPara(s2); setAba(a2);
+  }, [navSub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tarefaAberta, setTarefaAberta] = useState(() => { try { const t = localStorage.getItem('trab-abrir-tarefa'); localStorage.removeItem('trab-abrir-tarefa'); return t || null; } catch (e) { return null; } });
   const [procura, setProcura] = useState('');
   const [arvoreMob, setArvoreMob] = useState(false);
@@ -2523,6 +2544,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const podeVoltar = historico.current.length > 0 || !!pasta || sel.tipo !== 'geral';
   const voltar = () => {
     const h = historico.current;
+    if (h.length && onNavEmpurrar) { try { window.history.back(); return; } catch (e) { /* segue abaixo */ } }
     if (h.length) { const ant = h[h.length - 1]; historico.current = h.slice(0, -1); irPara(ant.sel); if (ant.aba) setAba(ant.aba); return; }
     if (pasta && pasta.paiId) irPara({ tipo: 'pasta', id: pasta.paiId });
     else if (pasta) irPara({ tipo: 'cliente', id: pasta.cid });
