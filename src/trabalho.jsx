@@ -1650,7 +1650,7 @@ const nomesFicheiros = (trab, t) => {
   const conceito = slugF(fx.conceito || conceitoDoNome(t.nome));
   const versao = fx.versao ? `V${String(fx.versao).replace(/^v/i, '')}` : '';
   const variacao = slugF(fx.variacao);
-  const dia = fx.data || trabEntrega(t) || trabDia(new Date().toISOString());
+  const dia = fx.data || trabDia(new Date().toISOString()); // a data do nome é a do dia do export, a não ser que escolhas outra
   const ddmmyy = dia ? `${dia.slice(8, 10)}${dia.slice(5, 7)}${dia.slice(2, 4)}` : '';
   const dur = fx.duracao ? `${Math.round(Number(fx.duracao))}S` : '';
   const base = [conceito, versao, variacao].filter(Boolean).join('_');
@@ -1781,6 +1781,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const [msg, setMsg] = useState('');
   const [resultado, setResultado] = useState(t.drive || null);
   const [copiadoS, setCopiadoS] = useState(false);
+  const [verSug, setVerSug] = useState(null);
+  const [renomeados, setRenomeados] = useState(null); // itens enviados que ainda podem mudar de nome no PC
   const inRef = useRef(null);
   useEffect(() => { carregarGis().catch(() => {}); }, []);
   const jogo = r.jogo && !r.jogo.semJogo ? r.jogo : null;
@@ -1789,14 +1791,51 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const raiz = idPastaDrive(raizUrl);
   const conta = contaDe(t.cid);
   const fx = t.ficheiros || {};
-  const nomeBase = [r.cod, r.tipo, r.base].filter(Boolean).join('_');
+  // Versão: a que escreveste; senão a da última vez que esta tarefa foi enviada; senão a adivinhada pelo Drive
+  const versaoAnterior = (() => { const m = t.drive && /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
+  const versaoDe = v => String(fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
+  const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
+  const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
   const durDe = item => fx.duracao || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
-  const nomeFinal = item => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(item.file.name) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, r.base, item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
-  const juntar = async fs => {
+  const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(item.file.name) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
+  // Adivinhar a versão pelas pastas que já estão no Drive (CONCEITO_V1, _V2…): vídeo novo → a seguinte; variação/iteração → a última
+  const novoVideo = trabPecas(t).some(p => ['video', 'video3d', 'ai_clip', 'aso'].includes(p.tipo));
+  const adivinharVersao = async token => {
+    const fs = await filhosDrive(token, raiz, true);
+    const pc = fs.find(x => slugF(x.name) === slugF(r.conceito));
+    if (!pc) return '1';
+    const subs = await filhosDrive(token, pc.id, true);
+    const re = new RegExp(`^${slugF(r.conceito)}_V(\\d+)(?:_|$)`);
+    const max = subs.reduce((a, x) => { const m = re.exec(slugF(x.name)); return m ? Math.max(a, Number(m[1])) : a; }, 0);
+    return String(novoVideo ? max + 1 : Math.max(1, max));
+  };
+  const tokenGuardado = () => { const c = tokensDrive[conta || '_']; return c && c.exp > Date.now() + 60000 ? c.t : null; };
+  const juntar = async (fs, handles = []) => {
     setMsg('');
     const novos = [];
-    for (const f of Array.from(fs || [])) { const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
+    const arr = Array.from(fs || []);
+    for (let i = 0; i < arr.length; i++) { const f = arr[i]; if (!f) continue; const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, handle: handles[i] || null, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
     setLista(l => [...l, ...novos]);
+    // Se já tens sessão na Google, a versão aparece logo
+    const tk = tokenGuardado();
+    if (tk && raiz && r.conceito && !fx.versao && !versaoAnterior && !verSug) { try { setVerSug(await adivinharVersao(tk)); } catch (e) { /* adivinha ao enviar */ } }
+  };
+  // Mudar o nome dos ficheiros no próprio PC (Chrome: só os que foram arrastados do Explorador)
+  const renomearNoPc = async itens => {
+    let ok = 0, falhou = 0, semSuporte = 0;
+    for (const it of itens) {
+      const h = it.handle;
+      if (!h || typeof h.move !== 'function') { semSuporte++; continue; }
+      try {
+        let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
+        if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') { falhou++; continue; }
+        if (h.name !== it.nomeNovo) await h.move(it.nomeNovo);
+        ok++;
+      } catch (e) { falhou++; }
+    }
+    setRenomeados(null);
+    setMsg(ok ? `✓ ${ok} ficheiro${ok === 1 ? '' : 's'} com o nome novo também no PC${falhou ? ` (${falhou} não deu)` : ''}` : semSuporte ? '⚠ Este browser não deixa mudar o nome no PC (usa o Chrome e arrasta os ficheiros do Explorador). No Drive já ficaram com o nome certo.' : '⚠ Não consegui mudar o nome no PC (sem autorização).');
   };
   const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
@@ -1816,12 +1855,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         else if (e.status === 404) throw new Error(`A conta ${conta || 'Google'} não vê a pasta do jogo. Confirma o link no separador Jogos e que a pasta está partilhada com essa conta.`);
         else throw e;
       }
-      const nomeVersao = r.base || r.conceito;
+      // Versão: escrita, da última vez, ou adivinhada agora pelo Drive
+      let v = fx.versao || versaoAnterior || verSug;
+      if (!v) { setMsg('A ver as versões que já estão no Drive…'); v = await adivinharVersao(token); setVerSug(v); }
+      const nomeVersao = baseDe(v) || r.conceito;
       pVersao = nomeVersao === r.conceito ? pConceito : await pastaDrive(token, pConceito.id, nomeVersao, true);
       const existentes = await filhosDrive(token, pVersao.id, false);
       const enviados = [];
+      const paraRenomear = [];
       for (const item of lista) {
-        const nome = nomeFinal(item);
+        const nome = nomeFinal(item, v);
         const ex = existentes.find(f => f.name === nome);
         mudarItem(item.id, { estado: 'a enviar', prog: 0 });
         setMsg(`A enviar ${nome}…`);
@@ -1829,14 +1872,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
           const res = await enviarParaDrive(token, { file: item.file, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
           mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex });
           enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
+          if (item.handle && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
         } catch (e) { mudarItem(item.id, { estado: 'erro', erro: String(e.message || e) }); }
       }
       const url = pVersao.webViewLink || `https://drive.google.com/drive/folders/${pVersao.id}`;
-      const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, conceito: pConceito.name, nomeBase, enviados, em: new Date().toISOString() };
+      const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, conceito: pConceito.name, nomeBase: [r.cod, r.tipo, baseDe(v)].filter(Boolean).join('_'), enviados, em: new Date().toISOString() };
+      setRenomeados(paraRenomear.length ? paraRenomear : null);
       setResultado(reg);
       const durs = lista.map(durDe).filter(Boolean);
       const formatos = [...new Set([...(t.formatos || []), ...lista.map(x => x.formato)])];
-      set({ drive: reg, link: url, formatos, ...(!fx.duracao && durs.length ? { ficheiros: { ...fx, duracao: durs[0] } } : {}) });
+      set({ drive: reg, link: url, formatos, ficheiros: { ...fx, versao: String(v), ...(!fx.duracao && durs.length ? { duracao: durs[0] } : {}) } });
       // Spreadsheet do jogo: se for uma Google Sheet, junta a linha sozinha (nome com o link da pasta)
       let folha = null;
       if (jogo.sheet && enviados.length) {
@@ -1857,12 +1902,18 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-sm font-medium flex-1">Enviar para o Drive</p>
-        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.base && r.base !== r.conceito ? ` › ${r.base}` : ''}</span>}
+        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.conceito ? ` › ${versaoDe(verSug) ? baseDe(verSug) : [r.conceito, 'V?', slugF(fx.variacao)].filter(Boolean).join('_')}` : ''}</span>}
       </div>
       {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
         <>
           <div
-            onDragOver={e => { e.preventDefault(); }} onDrop={e => { e.preventDefault(); juntar(e.dataTransfer.files); }}
+            onDragOver={e => { e.preventDefault(); }} onDrop={e => {
+              e.preventDefault();
+              const its = Array.from(e.dataTransfer.items || []).filter(i => i.kind === 'file');
+              const hs = its.map(i => (typeof i.getAsFileSystemHandle === 'function' ? i.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null)));
+              const fs = its.length ? its.map(i => i.getAsFile()) : Array.from(e.dataTransfer.files || []);
+              Promise.all(hs).then(h => juntar(fs, h));
+            }}
             onClick={() => inRef.current && inRef.current.click()}
             className={`rounded-lg border-2 border-dashed px-3 py-3 text-center text-xs cursor-pointer ${claro ? 'border-slate-300 hover:bg-slate-50' : 'border-slate-600 hover:bg-white/[0.03]'} ${sub}`}>
             Arrasta para aqui os exports (ou carrega para escolher). A app reconhece o formato e a duração de cada vídeo e dá-lhe o nome certo.
@@ -1893,7 +1944,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               </div>
             </div>
           )}
+          {lista.length > 0 && !fx.versao && (
+            <p className={`text-[11px] ${sub}`}>Versão: {versaoAnterior || verSug ? <b>V{versaoAnterior || verSug}</b> : 'vê-se no Drive ao enviar'} {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : ''} · para outra, escreve-a em "Versão" acima.</p>
+          )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+          {renomeados && renomeados.length > 0 && (
+            <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏️ Dar o mesmo nome aos {renomeados.length} ficheiros no PC</button>
+          )}
           {resultado && resultado.folha && (
             <p className={`text-xs ${resultado.folha.ok ? 'text-emerald-500' : resultado.folha.xlsx ? 'text-amber-500' : 'text-red-400'}`}>
               {resultado.folha.ok ? `✓ ${resultado.folha.jaExistia ? 'Já estava' : 'Juntei'} na spreadsheet (${resultado.folha.tab}, linha ${resultado.folha.linha})`
