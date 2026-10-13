@@ -3,6 +3,7 @@
 // à parte (um documento por página). As secções protegidas são cifradas no próprio browser (AES-GCM),
 // com uma palavra-passe que nunca sai do dispositivo.
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 const nId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const agora = () => new Date().toISOString();
@@ -180,26 +181,40 @@ const Pedir = ({ titulo, texto, campos, ok, onFechar, claro, perigo }) => {
 
 // ── Menu pequeno (⋯) ──
 const Menu = ({ itens, claro, alinhar = 'right' }) => {
-  const [aberto, setAberto] = useState(false);
+  // O menu abre por cima de tudo (portal no <body>), para não ficar cortado dentro das colunas com scroll
+  const [pos, setPos] = useState(null);
   const ref = useRef(null);
+  const menuRef = useRef(null);
+  const lista = itens.filter(Boolean);
+  const abrir = () => {
+    const r = ref.current.getBoundingClientRect();
+    const alt = Math.min(lista.reduce((a, it) => a + (it === '-' ? 9 : 38), 10), window.innerHeight - 16);
+    const larg = 240;
+    const cabeEmBaixo = r.bottom + alt + 8 <= window.innerHeight;
+    const top = cabeEmBaixo ? r.bottom + 4 : Math.max(8, r.top - alt - 4);
+    const left = alinhar === 'right' ? Math.max(8, Math.min(r.right - larg, window.innerWidth - larg - 8)) : Math.max(8, Math.min(r.left, window.innerWidth - larg - 8));
+    setPos({ top, left, larg, alt });
+  };
   useEffect(() => {
-    if (!aberto) return undefined;
-    const fora = e => { if (ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    if (!pos) return undefined;
+    const fora = e => { if (ref.current && ref.current.contains(e.target)) return; if (menuRef.current && menuRef.current.contains(e.target)) return; setPos(null); };
+    const fechar = e => { if (menuRef.current && e && e.target && menuRef.current.contains(e.target)) return; setPos(null); };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setPos(null); } };
     document.addEventListener('mousedown', fora); document.addEventListener('touchstart', fora);
-    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('touchstart', fora); };
-  }, [aberto]);
+    window.addEventListener('scroll', fechar, true); window.addEventListener('resize', fechar); window.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('touchstart', fora); window.removeEventListener('scroll', fechar, true); window.removeEventListener('resize', fechar); window.removeEventListener('keydown', esc, true); };
+  }, [pos]);
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={e => { e.stopPropagation(); setAberto(!aberto); }} className={`w-8 h-8 inline-flex items-center justify-center rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-200/70' : 'text-slate-400 hover:bg-white/10'}`} aria-label="Mais opções"><Ic n="mais_v" /></button>
-      {aberto && (
-        <div className={`absolute z-40 mt-1 ${alinhar === 'right' ? 'right-0' : 'left-0'} min-w-[200px] rounded-xl border shadow-xl py-1 animate-modalIn ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
-          {itens.filter(Boolean).map((it, i) => it === '-' ? <div key={i} className={`my-1 border-t ${claro ? 'border-slate-100' : 'border-slate-700'}`} /> : (
-            <button key={i} type="button" onClick={e => { e.stopPropagation(); setAberto(false); it.fn(); }} className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left ${it.perigo ? 'text-red-400' : ''} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-              {it.ic && <Ic n={it.ic} />}{it.txt}
+      <button type="button" onClick={e => { e.stopPropagation(); if (pos) setPos(null); else abrir(); }} aria-expanded={!!pos} className={`w-8 h-8 inline-flex items-center justify-center rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-200/70' : 'text-slate-400 hover:bg-white/10'}`} aria-label="Mais opções"><Ic n="mais_v" /></button>
+      {pos && createPortal(
+        <div ref={menuRef} role="menu" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.larg, maxHeight: pos.alt + 2 }} className={`z-[80] overflow-y-auto rounded-xl border shadow-xl py-1 animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+          {lista.map((it, i) => it === '-' ? <div key={i} className={`my-1 border-t ${claro ? 'border-slate-100' : 'border-slate-700'}`} /> : (
+            <button key={i} type="button" role="menuitem" onClick={e => { e.stopPropagation(); setPos(null); it.fn(); }} className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left ${it.perigo ? 'text-red-400' : ''} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+              {it.ic && <Ic n={it.ic} />}<span className="truncate">{it.txt}</span>
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 };
@@ -500,6 +515,11 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
         <span className={`text-xs truncate ${sub}`}>{seccao ? seccao.nome : ''}{protegida && <span className="inline-flex items-center gap-1 ml-2 text-amber-400"><Ic n="cadeado" className="w-3.5 h-3.5" /> protegida</span>}</span>
         <span className="flex-1" />
         <span className={`text-xs ${sub}`} aria-live="polite">{estado}</span>
+        <button type="button" onClick={() => mudarIndice(i => ({ ...i, paginas: i.paginas.map(x => (x.id === meta.id ? { ...x, fav: !x.fav } : x)) }))} aria-pressed={!!meta.fav}
+          className={`w-8 h-8 inline-flex items-center justify-center rounded-lg ${meta.fav ? 'text-amber-400' : claro ? 'text-slate-400 hover:text-amber-500 hover:bg-slate-200/70' : 'text-slate-500 hover:text-amber-400 hover:bg-white/10'}`}
+          title={meta.fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'} aria-label={meta.fav ? 'Tirar dos favoritos' : 'Pôr nos favoritos'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill={meta.fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>
+        </button>
         {menuItens && <Menu claro={claro} itens={menuItens} />}
       </div>
       {conteudo === '__trancada' ? (
@@ -547,6 +567,14 @@ const Notas = ({ indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apa
   const [chave, setChave] = useState(null);
   const [titulosC, setTitulosC] = useState({});
   const [larguraTelemovel, setLarguraTelemovel] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
+  // As colunas da esquerda ficam presas logo abaixo da barra de cima da app (e não por baixo dela)
+  const [topo, setTopo] = useState(16);
+  useEffect(() => {
+    const medir = () => { const cab = document.querySelector('div.sticky.top-0.z-50'); setTopo(cab ? Math.round(cab.getBoundingClientRect().height) + 12 : 16); };
+    medir(); const t = setTimeout(medir, 400);
+    window.addEventListener('resize', medir);
+    return () => { clearTimeout(t); window.removeEventListener('resize', medir); };
+  }, []);
   const ultimaAtividade = useRef(Date.now());
   useEffect(() => { const r = () => setLarguraTelemovel(window.innerWidth < 1024); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
   useEffect(() => { try { if (secId) localStorage.setItem('notas-sec', secId); if (pagId) localStorage.setItem('notas-pag', pagId); else localStorage.removeItem('notas-pag'); } catch (e) { /* sem armazenamento */ } }, [secId, pagId]);
@@ -903,8 +931,8 @@ const Notas = ({ indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apa
         </div>
       ) : (
         <div className="grid grid-cols-[260px_280px_minmax(0,1fr)] gap-4 items-start">
-          <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">{arvore}</div>
-          <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">{paginas}</div>
+          <div className="sticky overflow-y-auto" style={{ top: topo, maxHeight: `calc(100vh - ${topo + 16}px)` }}>{arvore}</div>
+          <div className="sticky overflow-y-auto" style={{ top: topo, maxHeight: `calc(100vh - ${topo + 16}px)` }}>{paginas}</div>
           {editor}
         </div>
       )}
