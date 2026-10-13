@@ -2,15 +2,15 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabParar, CronoTopo, MenuTopo, TemaCtx, Card,
-  StatCard, Button, ProgressBar, AbaEstavel, CLICKUP_URLS, HorasClickUp, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcPrazosCPCV
+  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabParar, CronoTopo,
+  MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -26,6 +26,8 @@ const carregarPatrimonio = () => import('./patrimonioEcra');
 const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa');
 const carregarTrabalho = () => import('./trabalho');
 const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho');
+const carregarNotas = () => import('./notas');
+const Notas = lazySeparador(carregarNotas, 'Notas');
 const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio');
 setTimeout(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }, 4000);
 
@@ -462,6 +464,83 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       });
     }, 700);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Notas (estilo OneNote): índice num documento à parte (users/<uid>/notas/indice) e uma página por documento.
+  //    Sem autorização para esses documentos, grava tudo no documento principal (G.notas / G.notasPaginas).
+  const [notasDoc, setNotasDoc] = useState(null);
+  const [notasModo, setNotasModo] = useState('carregar');
+  const notasModoRef = useRef('carregar'); notasModoRef.current = notasModo;
+  const notasDocRef = useRef(null); notasDocRef.current = notasDoc;
+  const gNotasRef = useRef(null); gNotasRef.current = { idx: G.notas || null, pags: G.notasPaginas || {} };
+  const notasSujo = useRef(false);
+  const notasTimer = useRef(null);
+  const [notaAbrir, setNotaAbrir] = useState(null);
+  useEffect(() => {
+    const uid = user && user.uid;
+    if (!uid || typeof ouvirNotas !== 'function') { setNotasModo('g'); return undefined; }
+    let vivo = true; let parar = null;
+    try {
+      parar = ouvirNotas(uid, (dados, pendente) => {
+        if (!vivo || pendente || notasSujo.current) return;
+        setNotasDoc(dados || null);
+        setNotasModo('doc');
+      }, () => { if (vivo) setNotasModo('g'); });
+    } catch (e) { setNotasModo('g'); }
+    return () => { vivo = false; if (parar) parar(); };
+  }, [user && user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const NOTAS_VAZIO_APP = { v: 1, cadernos: [], seccoes: [], paginas: [] };
+  const notasIndice = notasModo === 'doc' ? (notasDoc || G.notas || NOTAS_VAZIO_APP) : (G.notas || NOTAS_VAZIO_APP);
+  const mudarNotas = useCallback(fn => {
+    if (notasModoRef.current !== 'doc') { setG(p => ({ ...p, notas: fn(p.notas || NOTAS_VAZIO_APP) })); return; }
+    const novo = fn(notasDocRef.current || gNotasRef.current.idx || NOTAS_VAZIO_APP);
+    notasDocRef.current = novo; setNotasDoc(novo); notasSujo.current = true;
+    clearTimeout(notasTimer.current);
+    notasTimer.current = setTimeout(() => {
+      const limpo = JSON.parse(JSON.stringify({ ...notasDocRef.current, atualizado: new Date().toISOString() }));
+      guardarNotas(user && user.uid, limpo).then(() => { notasSujo.current = false; }).catch(err => {
+        notasSujo.current = false; console.error('Notas: não consegui gravar à parte', err);
+        setG(p => ({ ...p, notas: limpo })); setNotasModo('g');
+      });
+    }, 600);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lerNotaApp = useCallback(async id => {
+    if (notasModoRef.current === 'doc') { try { return await lerPaginaNota(user.uid, id); } catch (e) { return gNotasRef.current.pags[id] || null; } }
+    return gNotasRef.current.pags[id] || null;
+  }, [user]);
+  const guardarNotaApp = useCallback(async (id, dados) => {
+    const limpo = JSON.parse(JSON.stringify(dados));
+    if (notasModoRef.current === 'doc') { await guardarPaginaNota(user.uid, id, limpo); return; }
+    setG(p => ({ ...p, notasPaginas: { ...(p.notasPaginas || {}), [id]: limpo } }));
+  }, [user]);
+  const apagarNotaApp = useCallback(async id => {
+    if (notasModoRef.current === 'doc') { await apagarPaginaNota(user.uid, id); return; }
+    setG(p => { const x = { ...(p.notasPaginas || {}) }; delete x[id]; return { ...p, notasPaginas: x }; });
+  }, [user]);
+  // Abrir no Trabalho o que foi marcado com @ numa nota
+  const irEntidade = useCallback((tipo, id) => {
+    const T = trabDocRef.current || gTrabRef.current || TRAB_VAZIO;
+    let sel = null, aba = null, tarefa = null;
+    if (tipo === 'cliente') { const c = (G.clientes || []).find(x => String(x.id) === String(id)); sel = { tipo: 'cliente', id: c ? c.id : id }; aba = 'ficha'; }
+    else if (tipo === 'jogo') { const j = (T.jogos || []).find(x => x.id === id); if (j) { sel = { tipo: 'cliente', id: j.cid }; aba = 'jogos'; } }
+    else if (tipo === 'freelancer') sel = { tipo: 'freelancers' };
+    else if (tipo === 'tarefa') { const t = (T.tarefas || []).find(x => x.id === id); if (t) { sel = t.pastaId ? { tipo: 'pasta', id: t.pastaId } : { tipo: 'cliente', id: t.cid }; tarefa = t.id; } }
+    if (!sel) { showToast('Já não encontro isso no Trabalho (pode ter sido apagado).', 'error'); return; }
+    try { localStorage.setItem('trab-sel', JSON.stringify(sel)); if (aba) localStorage.setItem('trab-aba-inicial', aba); if (tarefa) localStorage.setItem('trab-abrir-tarefa', tarefa); } catch (e) { /* sem armazenamento */ }
+    setTab('trabalho'); window.scrollTo({ top: 0 });
+  }, [G.clientes, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tudo o que se pode marcar com @ numa nota
+  const entidadesNotas = useMemo(() => {
+    const cls = (G.clientes || []).filter(c => !/reembolso/i.test(c.nome || ''));
+    const nomeCli = cid => ((cls.find(c => String(c.id) === String(cid))) || {}).nome || (typeof cid === 'string' && cid.startsWith('cu:') ? cid.slice(3) : '');
+    return [
+      ...cls.map(c => ({ t: 'cliente', id: String(c.id), nome: c.nome, cor: c.cor })),
+      ...(trabalho.jogos || []).map(j => ({ t: 'jogo', id: j.id, nome: j.nome, cor: j.cor, extra: nomeCli(j.cid) })),
+      ...(trabalho.freelancers || []).map(f => ({ t: 'freelancer', id: f.id, nome: f.nome, cor: '#8b5cf6', extra: f.faz || '' })),
+      ...(trabalho.tarefas || []).slice().sort((a, b) => String(b.criada || '').localeCompare(String(a.criada || ''))).slice(0, 500).map(t => ({ t: 'tarefa', id: t.id, nome: t.nome, cor: '#f59e0b', extra: nomeCli(t.cid) })),
+    ];
+  }, [G.clientes, trabalho]);
+  // Notas que falam de um cliente / jogo / tarefa (para mostrar no Trabalho)
+  const notasDe = useCallback((tipo, id) => ((notasIndice && notasIndice.paginas) || []).filter(p => (p.tags || []).some(t => t.t === tipo && String(t.id) === String(id))).sort((a, b) => String(b.editada || b.criada).localeCompare(String(a.editada || a.criada))), [notasIndice]);
+
   // Cópia de segurança num clique: descarrega tudo num ficheiro e regista a data
   const fazerBackup = useCallback(() => {
     try {
@@ -1544,13 +1623,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mk = patKey(idx), md = M[mk] || {};
    const temRec = ((md.regCom || []).length + (md.regSem || []).length) > 0;
    L.push({ id: 'r-inicio', dia: Math.min(3, nDias), cat: 'Rotina', titulo: 'Recibos, Alocação e transferências (quando os clientes pagarem)', curto: 'Recibos e alocação', estado: temRec ? 'ok' : est(false, 3), ir: () => { setAno(y); setMes(meses[m - 1]); setTab('resumo'); } });
-   // Entregas com prazo no ClickUp (lidas na última atualização; fechar a tarefa faz-se no ClickUp)
-   if (G.clickup && G.clickup.calendario !== false) {
-     const nomesEsp = {}; (G.clickup.espacos || []).forEach(e => { nomesEsp[e.id] = e.nome; });
+   // Entregas com prazo no Trabalho (tarefas ainda por entregar)
+   {
      const pref = `${y}-${String(m).padStart(2, '0')}-`;
-     (G.clickup.tarefas || []).filter(t => String(t.prazo || '').startsWith(pref)).forEach(t => {
+     const nomeCli = cid => ((G.clientes || []).find(c => String(c.id) === String(cid)) || {}).nome || '';
+     ((trabalho && trabalho.tarefas) || []).filter(t => String(t.prazo || '').startsWith(pref)).forEach(t => {
        const d = Number(String(t.prazo).slice(8, 10));
-       L.push({ id: 'cu-' + t.id, dia: d, cat: 'ClickUp', titulo: `Entrega: ${t.nome}`, curto: t.nome, nota: [nomesEsp[t.espaco], t.lista, t.estado].filter(Boolean).join(' · '), estado: est(false, d), ir: t.url ? () => window.open(t.url, '_blank', 'noopener') : () => setTab('performance') });
+       const entregue = t.estado === 'feito' || t.estado === 'review';
+       L.push({ id: 'tb-' + t.id, dia: d, cat: 'Trabalho', titulo: `Entrega: ${t.nome}`, curto: t.nome, nota: [nomeCli(t.cid), (TRAB_ESTADOS.find(e => e.id === t.estado) || {}).nome].filter(Boolean).join(' · '), estado: entregue ? 'ok' : est(false, d),
+         ir: () => { try { localStorage.setItem('trab-sel', JSON.stringify(t.pastaId ? { tipo: 'pasta', id: t.pastaId } : { tipo: 'cliente', id: t.cid })); localStorage.setItem('trab-abrir-tarefa', t.id); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } });
      });
    }
    // Venda da casa: prazos do CPCV (separador Venda da Casa)
@@ -1565,68 +1646,34 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
  useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
 
- // ══ ClickUp: horas por cliente (função clickupHoras na Firebase) ══
- const [cuEstado, setCuEstado] = useState({ aCarregar: false, erro: '', codigo: '' });
- const cuACarregar = useRef(false);
- const sincClickUp = async (manual = true, anoPedido = ano) => {
-   if (cuACarregar.current) return;
-   cuACarregar.current = true;
-   setCuEstado({ aCarregar: true, erro: '', codigo: '' });
-   try {
-     const token = user && user.getIdToken ? await user.getIdToken() : '';
-     let r = null;
-     for (const url of CLICKUP_URLS) {
-       try { r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ ano: anoPedido }) }); break; }
-       catch (e) { r = null; }
-     }
-     if (!r) throw Object.assign(new Error('Não consegui falar com a função do ClickUp. Já fizeste o deploy das functions?'), { codigo: 'rede' });
-     if (r.status === 404) throw Object.assign(new Error('A função do ClickUp ainda não está na Firebase: falta fazer "firebase deploy --only functions".'), { codigo: 'nao_encontrada' });
-     const j = await r.json().catch(() => ({}));
-     if (!r.ok) throw Object.assign(new Error((j.error && j.error.message) || `Erro ${r.status}`), { codigo: (j.error && j.error.codigo) || 'erro' });
-     if (manual) saveUndo();
-     setG(p => {
-       const cu = p.clickup || {};
-       // Dia em que cada tarefa foi posta em review. O ClickUp (neste plano) só diz a última
-       // alteração da tarefa, que avança se mexeres nela depois (comentário, ficheiro...). Por
-       // isso a app guarda o dia mais cedo que já viu para cada tarefa em review, e continua a
-       // usá-lo quando a tarefa for fechada (em vez do dia em que a fechaste).
-       const rev = { ...(cu.reviewDesde || {}) };
-       let ent = Array.isArray(j.entregues) ? j.entregues : null;
-       if (ent) {
-         ent.forEach(t => { if (t && t.emReview && t.fechada && (!rev[t.id] || t.fechada < rev[t.id])) rev[t.id] = t.fechada; });
-         ent = ent.map(t => (t && rev[t.id] && rev[t.id] < t.fechada ? { ...t, fechada: rev[t.id], diaReview: true } : t));
-         const limite = `${(Number(j.ano) || new Date().getFullYear()) - 1}-01-01`;
-         Object.keys(rev).forEach(k => { if (rev[k] < limite) delete rev[k]; });
-       }
-       return { ...p, clickup: { ...cu, ativo: true, sinc: j.atualizado || new Date().toISOString(), espacos: j.espacos || [], tarefas: j.tarefas || [], reviewDesde: rev, anos: { ...(cu.anos || {}), [j.ano]: { lido: j.atualizado || new Date().toISOString(), meses: j.meses || {}, entregues: ent, avisoEntregues: j.avisoEntregues || '' } } } };
-     });
-     // Horas de cada mês → "Horas trabalhadas" (só onde não as escreveste à mão)
+ // O ClickUp deixou de ser usado: limpa a cópia antiga das tarefas/horas (ficam só os preços e os tipos de tarefa)
+ useEffect(() => {
+   if (!dataLoaded) return;
+   const cu = G.clickup;
+   if (cu && (cu.anos || cu.tarefas || cu.espacos || cu.reviewDesde || cu.mapa || cu.dividir || cu.planos)) {
+     setG(p => { const { anos, tarefas, espacos, reviewDesde, mapa, dividir, planos, sinc, ativo, calendario, ...resto } = p.clickup || {}; return { ...p, clickup: resto }; });
+   }
+ }, [dataLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+ // Horas de cada mês vêm do Trabalho (cronómetro e registos) → "Horas trabalhadas" (só onde não as escreveste à mão)
+ useEffect(() => {
+   if (!dataLoaded) return undefined;
+   const id = setTimeout(() => {
+     const porMes = {};
+     ((trabalho && trabalho.tarefas) || []).forEach(t => (t.tempos || []).forEach(x => { const d = trabDia(x.ini); if (!d) return; const k = `${Number(d.slice(0, 4))}-${Number(d.slice(5, 7))}`; porMes[k] = (porMes[k] || 0) + trabMsTempo(x) / 3600000; }));
      setM(p => {
        let mudou = false; const out = { ...p };
-       Object.entries(j.meses || {}).forEach(([m, md]) => {
-         const k = `${j.ano}-${m}`, h = Math.round((md.h || 0) * 10) / 10;
-         const a = p[k];
+       Object.entries(porMes).forEach(([k, hh]) => {
+         const h = Math.round(hh * 10) / 10; const a = p[k];
          if (!(h > 0)) return;
-         if (a && a.horasTrabalhadas > 0 && a.horasOrigem !== 'clickup') return;
-         if (a && a.horasTrabalhadas === h && a.horasOrigem === 'clickup') return;
-         out[k] = { ...(a || defM), horasTrabalhadas: h, horasOrigem: 'clickup' }; mudou = true;
+         if (a && a.horasTrabalhadas > 0 && a.horasOrigem !== 'clickup' && a.horasOrigem !== 'trabalho') return;
+         if (a && a.horasTrabalhadas === h && a.horasOrigem === 'trabalho') return;
+         out[k] = { ...(a || defM), horasTrabalhadas: h, horasOrigem: 'trabalho' }; mudou = true;
        });
        return mudou ? out : p;
      });
-     setCuEstado({ aCarregar: false, erro: '', codigo: '' });
-     if (manual) showToast(`ClickUp: ${j.registos || 0} registos de horas lidos`);
-   } catch (e) {
-     setCuEstado({ aCarregar: false, erro: e.message || 'Erro ao ler o ClickUp', codigo: e.codigo || 'erro' });
-   } finally { cuACarregar.current = false; }
- };
- // Atualiza sozinho ao abrir a app (se já estiver ligado e a última leitura tiver mais de 6 horas)
- useEffect(() => {
-   if (!dataLoaded || !(G.clickup && G.clickup.ativo)) return;
-   const t = Date.parse(G.clickup.sinc || '');
-   if (t && Date.now() - t < 6 * 3600000) return;
-   const id = setTimeout(() => sincClickUp(false, anoAtualSistema), 3000);
+   }, 1500);
    return () => clearTimeout(id);
- }, [dataLoaded]);
+ }, [dataLoaded, trabalho && trabalho.tarefas]); // eslint-disable-line react-hooks/exhaustive-deps
  const cuMudar = patch => { saveUndo(); setG(p => ({ ...p, clickup: { ...(p.clickup || {}), ...patch(p.clickup || {}) } })); };
 
  // Crédito: separador dos simuladores (fica guardado enquanto a app está aberta)
@@ -1742,36 +1789,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mesIva = [2, 5, 8, 11].includes(mesIdx);
    const L = [];
    const yM = Math.floor(idx / 12), nM = idx % 12 + 1, fimM = new Date(yM, nM, 0).getDate();
-   // Horas no ClickUp: todos os dias úteis do mês (até ontem, no mês atual) devem ter horas registadas
-   const cu = G.clickup;
+   // Horas no Trabalho: todos os dias úteis do mês (até ontem, no mês atual) devem ter horas registadas
    let passoHoras = null;
-   if (cu && cu.ativo) {
-     const anoCu = (cu.anos || {})[yM];
-     const dm = anoCu && (anoCu.meses || {})[nM];
-     const hM = dm ? patNum(dm.h) : 0;
-     const esps = dm ? Object.values(dm.esp || {}) : [];
-     const temDias = esps.some(x => x && Array.isArray(x.dias));
-     const diasCom = new Set(); esps.forEach(x => ((x && x.dias) || []).forEach(d => diasCom.add(Number(d))));
+   {
+     const prefM = `${yM}-${String(nM).padStart(2, '0')}-`;
+     let hM = 0; const diasCom = new Set();
+     ((trabalho && trabalho.tarefas) || []).forEach(t => (t.tempos || []).forEach(x => { const d = trabDia(x.ini); if (d.startsWith(prefM)) { const h = trabMsTempo(x) / 3600000; hM += h; if (h > 0) diasCom.add(Number(d.slice(8, 10))); } }));
      const ateDia = atual ? new Date().getDate() - 1 : fimM;
      // Feriados nacionais (fixos + Sexta-feira Santa e Corpo de Deus, que dependem da Páscoa)
-     const pascoa = (() => { const a = yM % 19, b = Math.floor(yM / 100), c = yM % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451); return new Date(yM, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1); })();
+     const pascoa = (() => { const a = yM % 19, b = Math.floor(yM / 100), c = yM % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, mm = Math.floor((a + 11 * h + 22 * l) / 451), mes = Math.floor((h + l - 7 * mm + 114) / 31), dia = ((h + l - 7 * mm + 114) % 31) + 1; return new Date(yM, mes - 1, dia); })();
      const desloc = n => { const x = new Date(pascoa); x.setDate(x.getDate() + n); return `${x.getMonth() + 1}-${x.getDate()}`; };
      const feriados = new Set(['1-1', '4-25', '5-1', '6-10', '8-15', '10-5', '11-1', '12-1', '12-8', '12-25', desloc(-2), desloc(60)]);
      let semH = 0;
      for (let d = 1; d <= ateDia; d++) { const wd = new Date(yM, nM - 1, d).getDay(); if (wd !== 0 && wd !== 6 && !feriados.has(`${nM}-${d}`) && !diasCom.has(d)) semH++; }
      const hTxt = `${hM < 10 ? hM.toFixed(1).replace('.', ',') : Math.round(hM)} h`;
-     // Passo de fecho: só fica feito com uma leitura do ClickUp feita no último dia do mês (ou depois),
-     // ou seja, que já apanha o mês todo. Antes do último dia mostra só como vai.
      const cedoH = atual && new Date().getDate() < fimM;
-     const lido = Date.parse((anoCu && anoCu.lido) || cu.sinc || '');
-     const leituraCompleta = !!lido && lido >= new Date(yM, nM - 1, fimM).getTime();
-     const estH = !anoCu || hM <= 0 ? 'falta' : !leituraCompleta ? 'falta' : temDias && semH > 0 ? 'parcial' : 'ok';
-     const resumoH = hM <= 0 ? 'Sem horas registadas' : `${hTxt}${temDias ? (semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis') : ''}`;
-     const detH = !anoCu ? `Ler as horas de ${yM}` : !leituraCompleta && !cedoH ? `Ler de novo no fim do mês · ${resumoH}` : resumoH;
-     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar horas no ClickUp',
-       estado: idx > hojeIdx || cedoH ? 'na' : estH,
-       detalhe: cedoH ? `No último dia do mês · ${detH}` : detH,
-       ir: () => { setTab('performance'); sincClickUp(true, yM); setTimeout(() => document.getElementById('cartao-clickup')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } };
+     const resumoH = hM <= 0 ? 'Sem horas registadas' : `${hTxt}${semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis'}`;
+     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar as horas do mês (Timesheet)',
+       estado: idx > hojeIdx || cedoH ? 'na' : hM <= 0 ? 'falta' : semH > 0 ? 'parcial' : 'ok',
+       detalhe: cedoH ? `No último dia do mês · ${resumoH}` : resumoH,
+       ir: () => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'timesheet' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); window.scrollTo({ top: 0 }); } };
    }
    L.push({ id: 'rec', icon: '💰', titulo: 'Receitas', estado: nRec ? (recibosSemSuspeitos.length ? 'parcial' : 'ok') : (idx > hojeIdx ? 'na' : atual ? 'parcial' : 'falta'),
      detalhe: nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'} · ${fmt(totRec)}${recibosSemSuspeitos.length ? ` · ${recibosSemSuspeitos.length} por rever` : ''}` : atual ? 'À espera dos pagamentos' : 'Sem recibos', ir: () => setTab('receitas') });
@@ -3039,7 +3076,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      placeholder="0"
                    />
                    <span className="text-sm text-slate-400">/ {metas.horasMensais || 120}h</span>
-                   {M[mesKey]?.horasOrigem === 'clickup' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400" title="Vem do ClickUp. Se escreveres outro valor, fica o teu.">ClickUp</span>}
+                   {M[mesKey]?.horasOrigem === 'trabalho' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400" title="Vem do Trabalho (cronómetro e registos). Se escreveres outro valor, fica o teu.">Trabalho</span>}
                    {M[mesKey]?.horasTrabalhadas > 0 && (
                      <span className="text-sm text-slate-500">
                        ({(M[mesKey].horasTrabalhadas / 8).toFixed(1)}d)
@@ -3170,13 +3207,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </Card>
        </div>
 
-       <div id="cartao-clickup" className="scroll-mt-24"><Card>
-         <HorasClickUp cu={G.clickup} estado={cuEstado} ano={ano} mesNum={meses.indexOf(mes) + 1} M={M} clientes={G.clientes || []} theme={theme} inputClass={inputClass}
-           onSinc={() => sincClickUp(true, ano)}
-           onMapa={(k, v) => cuMudar(cu => ({ mapa: { ...(cu.mapa || {}), [k]: v === '' ? null : (v === 'x' ? 'x' : (isNaN(Number(v)) ? v : Number(v))) } }))}
-           onDividir={(sid, sim) => cuMudar(cu => ({ dividir: { ...(cu.dividir || {}), [sid]: sim } }))}
-           onCalendario={v => cuMudar(() => ({ calendario: v }))} />
-       </Card></div>
        
        {/* Gráfico de Horas Trabalhadas */}
        {(() => {
@@ -10669,6 +10699,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'ano',icon:'🧭',label:'O meu ano'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
    {id:'trabalho',icon:'🗂️',label:'Trabalho'},
+   {id:'notas',icon:'📓',label:'Notas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
@@ -10680,13 +10711,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Ao voltar a um grupo, abre o último separador que usaste nele.
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
  // Telemóvel: 5 secções no menu de baixo (estilo app), cada uma com os seus separadores no topo
- const subInfo = { trabalho: { icon: '🗂️', label: 'Trabalho' }, receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
+ const subInfo = { trabalho: { icon: '🗂️', label: 'Trabalho' }, notas: { icon: '📓', label: 'Notas' }, receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
    { id: 'chat', label: 'Chat IA' },
-   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'credito', 'vendacasa'] },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'notas', 'calfin', 'agenda', 'credito', 'vendacasa'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
@@ -13233,7 +13264,7 @@ ${transacoesOrdenadas.map(t => `<tr>
         </div>
       )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
-      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' || tab === 'notas' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && (
           <div className="sm:hidden no-print">
             <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
@@ -13268,9 +13299,17 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
+ {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas indice={notasIndice} mudarIndice={mudarNotas} modo={notasModo} theme={theme}
+   lerPagina={lerNotaApp} guardarPagina={guardarNotaApp} apagarPagina={apagarNotaApp}
+   enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
+   entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
+{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
+   recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!ficheiro, k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
+   onAbrirRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (!r || !r.ficheiro) return; try { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([u8], { type: tipo })), '_blank'); } catch (e) { showToast('Não consegui abrir o ficheiro do recibo.', 'error'); } }}
+   onIrMes={(a, m) => { setAno(a); setMes(meses[m - 1]); setTab('receitas'); window.scrollTo({ top: 0 }); }}
+   notasDe={notasDe} onAbrirNota={id => { setNotaAbrir({ id }); setTab('notas'); }} onNovaNota={(tipo, id, nome) => { setNotaAbrir({ nova: { tipo, id: String(id), nome } }); setTab('notas'); }}
    onEnviarAnexo={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, ficheiro, prog) => enviarAnexo(user.uid, caminho, ficheiro, prog) : null}
    onApagarAnexo={typeof apagarAnexo === 'function' ? apagarAnexo : null} calendario={<AbaEstavel render={Calendario} />}
    onImportarClientes={lista => {
