@@ -8,9 +8,9 @@ import {
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
-  isoDia, planearMes, trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
-  Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, isoDia,
+  planearMes, trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button,
+  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1969,17 +1969,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const mk = patKey(idx), md = M[mk] || {};
    const temRec = ((md.regCom || []).length + (md.regSem || []).length) > 0;
    L.push({ id: 'r-inicio', dia: Math.min(3, nDias), cat: 'Rotina', titulo: 'Recibos, Alocação e transferências (quando os clientes pagarem)', curto: 'Recibos e alocação', estado: temRec ? 'ok' : est(false, 3), ir: () => { setAno(y); setMes(meses[m - 1]); setTab('resumo'); } });
-   // Entregas com prazo no Trabalho (tarefas ainda por entregar)
-   {
-     const pref = `${y}-${String(m).padStart(2, '0')}-`;
-     const nomeCli = cid => ((G.clientes || []).find(c => String(c.id) === String(cid)) || {}).nome || '';
-     ((trabalho && trabalho.tarefas) || []).filter(t => String(t.prazo || '').startsWith(pref)).forEach(t => {
-       const d = Number(String(t.prazo).slice(8, 10));
-       const entregue = t.estado === 'feito' || t.estado === 'review';
-       L.push({ id: 'tb-' + t.id, dia: d, cat: 'Trabalho', titulo: `Entrega: ${t.nome}`, curto: t.nome, nota: [nomeCli(t.cid), (TRAB_ESTADOS.find(e => e.id === t.estado) || {}).nome].filter(Boolean).join(' · '), estado: entregue ? 'ok' : est(false, d),
-         ir: () => { try { localStorage.setItem('trab-sel', JSON.stringify(t.pastaId ? { tipo: 'pasta', id: t.pastaId } : { tipo: 'cliente', id: t.cid })); localStorage.setItem('trab-abrir-tarefa', t.id); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } });
-     });
-   }
+   // (As entregas do Trabalho ficam só no Calendário de projetos, dentro do Trabalho)
    // Venda da casa: prazos do CPCV (separador Venda da Casa)
    vcPrazosCPCV({ ...VC_DEFAULT, ...(G.vendaCasa || {}) }, conc)
      .filter(p => p.data.getFullYear() === y && p.data.getMonth() + 1 === m)
@@ -8309,6 +8299,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Filtros de visualização
    const [showProjetos, setShowProjetos] = useState(true);
    const [projFeitosAbertos, setProjFeitosAbertos] = useState(false);
+   const [sugProj, setSugProj] = useState(false);
    // Plano do resto do mês (distribuir o trabalho que falta pelos dias úteis)
    const [planoAberto, setPlanoAberto] = useState(false);
    const [horasDia, setHorasDia] = useState(() => { try { return Number(localStorage.getItem('plano-horas')) || 6; } catch (e) { return 6; } });
@@ -8317,7 +8308,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const planoPrevia = useMemo(() => (planoAberto ? planearMes({ trab: trabalho, horasDia, folgas: folgasEu, incluirHoje: new Date().getHours() < 17 }) : null), [planoAberto, trabalho, horasDia, folgasEu]);
    const planoGuardado = (trabalho && trabalho.plano) || null;
    const planoVer = planoPrevia || (showPlano ? planoGuardado : null);
-   const planoDoDia = iso => { if (!planoVer) return []; const d = planoVer.dias.find(x => x.d === iso); return d ? d.itens : []; };
+   // O plano mostra-se por projeto (lista do Trabalho), não tarefa a tarefa
+   const porProjeto = itens => { const m = new Map(); (itens || []).forEach(it => { const k = it.pastaId || it.pasta || it.nome; const x = m.get(k) || { pastaId: it.pastaId, nome: it.pasta || it.nome, cor: it.cor, h: 0, tarefas: [] }; x.h += it.h; if (!x.tarefas.includes(it.nome)) x.tarefas.push(it.nome); m.set(k, x); }); return [...m.values()].map(x => ({ ...x, h: Math.round(x.h * 4) / 4 })).sort((a, b) => b.h - a.h); };
+   const planoDoDia = iso => { if (!planoVer) return []; const d = planoVer.dias.find(x => x.d === iso); return d ? porProjeto(d.itens) : []; };
    const abrirTarefaTrab = (tid, pastaId) => {
      if (tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel: pastaId ? { tipo: 'pasta', id: pastaId } : null, tarefa: tid } })); return; }
      try { if (pastaId) localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'pasta', id: pastaId })); localStorage.setItem('trab-abrir-tarefa', tid); } catch (e) { /* sem armazenamento */ }
@@ -8682,7 +8675,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const dataCheck = new Date(dataStr);
      const diaSemana = dataCheck.getDay();
      
-     const doTrab = showTrab ? projetosTrab.filter(p => p.dias.has(dataStr) || p.marcos[dataStr]).map(p => ({ ...p, marco: p.marcos[dataStr] || null })) : [];
+     const ligadas = new Set((G.projetos || []).map(p => p.pastaId).filter(Boolean));
+     const doTrab = showTrab ? projetosTrab.filter(p => !ligadas.has(p.pastaId) && (p.dias.has(dataStr) || p.marcos[dataStr])).map(p => ({ ...p, marco: p.marcos[dataStr] || null })) : [];
      return [...(showProjetos ? (G.projetos || []) : []).filter(p => {
        const inicio = new Date(p.dataInicio);
        const fim = new Date(p.dataFim);
@@ -8893,7 +8887,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          const P = planoPrevia;
          const fimTxt = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' });
          const aperta = P.precisaDia > horasDia + 0.05;
-         const riscos = P.tarefas.filter(t => t.risco);
+         const riscos = (() => { const m = new Map(); P.tarefas.filter(t => t.risco).forEach(t => { const k = t.pastaId || t.pasta; const x = m.get(k) || { pastaId: t.pastaId, nome: t.pasta || t.nome, n: 0, naoCabe: 0, atrasadas: 0, fim: null, prazo: null }; x.n++; x.naoCabe += t.naoCabe || 0; if (t.atrasada) x.atrasadas++; if (t.fim && (!x.fim || t.fim > x.fim)) x.fim = t.fim; if (t.prazo && (!x.prazo || t.prazo < x.prazo)) x.prazo = t.prazo; m.set(k, x); }); return [...m.values()]; })();
          const SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']; const diaTxt = iso => { const d = new Date(iso + 'T12:00'); return `${SEM[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`; };
          const claroP = theme === 'light';
          return (
@@ -8918,20 +8912,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                  {(P.sobra > 0 || riscos.length > 0) && (
                    <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-sm space-y-1">
-                     <p className="font-medium text-amber-500">⚠ {P.sobra > 0 ? `Com ${horasDia} h/dia não chegas a tudo: faltam ${P.sobra} h.` : 'Algumas tarefas acabam depois do prazo.'} Podes subir as horas por dia, pedir mais prazo ou passar alguma a um freelancer.</p>
-                     {riscos.slice(0, 8).map(t => <p key={t.tid} className="text-xs text-slate-400">• <button onClick={() => abrirTarefaTrab(t.tid, null)} className="hover:underline hover:text-blue-400">{t.nome}</button>{t.atrasada ? ` — já passou do prazo (${new Date(t.prazo + 'T12:00').toLocaleDateString('pt-PT')})` : t.prazo ? ` — prazo ${diaTxt(t.prazo)}` : ''}{t.naoCabe ? `, faltam ${t.naoCabe} h` : t.fim ? `, fica pronta ${diaTxt(t.fim)}` : ''}</p>)}
+                     <p className="font-medium text-amber-500">⚠ {P.sobra > 0 ? `Com ${horasDia} h/dia não chegas a tudo: faltam ${P.sobra} h.` : 'Alguns projetos acabam depois do prazo.'} Podes subir as horas por dia, pedir mais prazo ou passar alguma a um freelancer.</p>
+                     {riscos.slice(0, 8).map(r => <p key={r.pastaId || r.nome} className="text-xs text-slate-400">• <button onClick={() => r.pastaId && abrirPastaTrab(r.pastaId)} className="hover:underline hover:text-blue-400">{r.nome}</button> — {r.n} tarefa{r.n === 1 ? '' : 's'} em risco{r.atrasadas ? ` (${r.atrasadas} já passou do prazo)` : ''}{r.naoCabe ? `, faltam ${Math.round(r.naoCabe * 4) / 4} h` : r.fim && r.prazo ? `, fica pronto ${diaTxt(r.fim)} com prazo ${diaTxt(r.prazo)}` : ''}</p>)}
                    </div>
                  )}
                  <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
                    {P.dias.map(d => {
                      const tot = d.itens.reduce((a, x) => a + x.h, 0);
+                     const projs = porProjeto(d.itens);
                      return (
                        <div key={d.d} className="flex items-start gap-3 text-sm">
                          <span className="w-24 shrink-0 text-xs text-slate-400 pt-1 capitalize">{diaTxt(d.d)} <span className="tabular-nums">· {Math.round(tot * 4) / 4}h</span></span>
                          <div className="flex-1 min-w-0 flex flex-wrap gap-1">
-                           {d.itens.map((it, k) => (
-                             <button key={k} onClick={() => abrirTarefaTrab(it.tid, it.pastaId)} className="text-xs px-2 py-1 rounded-md border border-dashed text-left max-w-full truncate hover:bg-white/5" style={{ borderColor: `${it.cor}aa` }} title={it.pasta}>
-                               <span className="text-slate-400 tabular-nums">{it.h}h</span> {it.nome}
+                           {projs.map((it, k) => (
+                             <button key={k} onClick={() => it.pastaId && abrirPastaTrab(it.pastaId)} className="text-xs px-2 py-1 rounded-md border border-dashed text-left max-w-full truncate hover:bg-white/5" style={{ borderColor: `${it.cor}aa` }} title={it.tarefas.join(' · ')}>
+                               <span className="text-slate-400 tabular-nums">{it.h}h</span> {it.nome} <span className="text-slate-500">· {it.tarefas.length} tarefa{it.tarefas.length === 1 ? '' : 's'}</span>
                              </button>
                            ))}
                          </div>
@@ -9007,20 +9002,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      return (
                        <div 
                          key={p.id} 
-                         onClick={(e) => { e.stopPropagation(); if (p.trab) { abrirPastaTrab(p.pastaId); return; } setEditProjeto(p); setNovoProjeto({...p, excluirSab: p.excluirSab || false, excluirDom: p.excluirDom || false, diasExcluidos: p.diasExcluidos || []}); setShowAddProjeto(true); }}
+                         onClick={(e) => { e.stopPropagation(); if (p.trab || p.pastaId) { abrirPastaTrab(p.pastaId); return; } setEditProjeto(p); setNovoProjeto({...p, excluirSab: p.excluirSab || false, excluirDom: p.excluirDom || false, diasExcluidos: p.diasExcluidos || []}); setShowAddProjeto(true); }}
                          className={`text-xs px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 ${p.concluido ? (p.trab ? 'opacity-60' : 'opacity-50 line-through') : ''}`}
                          style={{ background: `${p.cor}30`, borderLeft: `2px solid ${p.cor}` }}
                          title={p.trab ? `${p.nome}${cliente ? ` · ${cliente.nome}` : ''} — ${p.n} tarefa${p.n === 1 ? '' : 's'}${p.abertas ? `, ${p.abertas} por acabar` : ', tudo entregue'} · abrir no Trabalho` : `${p.nome}${cliente ? ` - ${cliente.nome}` : ''}`}
                        >
-                         {p.marco === 'prazo' ? '⏰ ' : p.marco === 'entrega' ? '✓ ' : ''}{cliente && !p.trab ? `${cliente.nome}: ` : ''}{p.nome}
+                         {p.marco === 'prazo' ? '⏰ ' : p.marco === 'entrega' ? '✓ ' : p.pastaId && !p.trab ? '🔗 ' : ''}{cliente && !p.trab ? `${cliente.nome}: ` : ''}{p.nome}
                        </div>
                      );
                    })}
                    {/* Plano do mês: o que fazer neste dia */}
                    {planoHoje.slice(0, vista === 'mes' ? 3 : 10).map((it, k) => (
-                     <div key={`pl-${it.tid}-${k}`} onClick={e => { e.stopPropagation(); abrirTarefaTrab(it.tid, it.pastaId); }}
+                     <div key={`pl-${it.pastaId || it.nome}-${k}`} onClick={e => { e.stopPropagation(); if (it.pastaId) abrirPastaTrab(it.pastaId); }}
                        className="text-[11px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 border border-dashed"
-                       style={{ borderColor: `${it.cor}99`, color: 'inherit' }} title={`${it.h}h · ${it.nome}${it.pasta ? ` (${it.pasta})` : ''} — abrir a tarefa`}>
+                       style={{ borderColor: `${it.cor}99`, color: 'inherit' }} title={`${it.h}h em ${it.nome}: ${it.tarefas.join(' · ')} — abrir a lista`}>
                        <span className="tabular-nums text-slate-400">{it.h}h</span> {it.nome}
                      </div>
                    ))}
@@ -9060,7 +9055,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <button type="button" onClick={() => toggleConcluido(p.id)} aria-pressed={!!p.concluido} title={p.concluido ? 'Voltar a abrir' : 'Marcar como concluído'}
                  className={`w-5 h-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center text-[11px] ${p.concluido ? 'bg-emerald-500 border-emerald-500 text-white' : claroP ? 'border-slate-300 hover:border-emerald-500' : 'border-slate-600 hover:border-emerald-400'}`}>{p.concluido ? '✓' : ''}</button>
                <span className="w-1 h-6 rounded-full shrink-0" style={{ background: p.cor }} />
-               <span className={`min-w-0 truncate text-sm font-medium ${p.concluido ? 'text-slate-500 line-through' : ''}`}>{p.nome}</span>
+               {p.pastaId ? (
+                 <button type="button" onClick={() => abrirPastaTrab(p.pastaId)} title="Abrir a lista no Trabalho" className={`min-w-0 truncate text-sm font-medium text-left hover:underline hover:text-blue-400 ${p.concluido ? 'text-slate-500 line-through' : ''}`}>🔗 {p.nome}</button>
+               ) : <span className={`min-w-0 truncate text-sm font-medium ${p.concluido ? 'text-slate-500 line-through' : ''}`}>{p.nome}</span>}
+               {(() => { const l = p.pastaId ? projetosTrab.find(x => x.pastaId === p.pastaId) : null; return l ? <span className="hidden sm:inline text-[11px] text-slate-500 shrink-0">{l.n - l.abertas}/{l.n} entregues</span> : null; })()}
                {cliente && <span className="hidden sm:inline text-[11px] px-1.5 py-0.5 rounded-md shrink-0" style={{ background: `${cliente.cor}22`, color: cliente.cor }}>{cliente.nome}</span>}
                {p.gcalEventId && <span className="text-[11px] text-blue-400 shrink-0" title="No Google Calendar">G</span>}
                <span className="flex-1" />
@@ -9258,8 +9256,39 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
              <div className="p-4 space-y-4" onKeyDown={e => e.stopPropagation()}>
                <div>
-                 <label className="text-xs text-slate-400 mb-1 block">Nome do Projeto</label>
-                 <input type="text" value={novoProjeto.nome} onChange={e => setNovoProjeto({ ...novoProjeto, nome: e.target.value })} className={inputClass + ' w-full'} placeholder="Ex: Website redesign" />
+                 <label className="text-xs text-slate-400 mb-1 block">Nome do Projeto <span className="text-slate-500">— escreve para ligar a uma lista do Trabalho</span></label>
+                 {(() => {
+                   const ligada = novoProjeto.pastaId ? projetosTrab.find(x => x.pastaId === novoProjeto.pastaId) : null;
+                   const q = String(novoProjeto.nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                   const sug = !ligada && sugProj ? projetosTrab.filter(x => !q || x.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(q) || ((clientes.find(c => c.id === x.clienteId) || {}).nome || '').toLowerCase().includes(q)).sort((a, b) => String(b.dataFim).localeCompare(String(a.dataFim))).slice(0, 8) : [];
+                   const ligar = x => setNovoProjeto(p0 => ({ ...p0, nome: x.nome, pastaId: x.pastaId, clienteId: x.clienteId || p0.clienteId || 0, cor: x.cor || p0.cor, dataInicio: p0.dataInicio || x.dataInicio, dataFim: p0.dataFim && p0.dataFim >= (p0.dataInicio || x.dataInicio) ? p0.dataFim : x.dataFim }));
+                   return (
+                     <div className="relative">
+                       <input type="text" value={novoProjeto.nome} onFocus={() => setSugProj(true)} onBlur={() => setTimeout(() => setSugProj(false), 150)}
+                         onChange={e => setNovoProjeto({ ...novoProjeto, nome: e.target.value, ...(ligada ? { pastaId: null } : {}) })} className={inputClass + ' w-full'} placeholder="Ex.: Mahjong Oct — ou um nome livre" autoComplete="off" />
+                       {sug.length > 0 && (
+                         <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg border border-slate-600 bg-slate-800 shadow-xl overflow-hidden">
+                           {sug.map(x => { const c = clientes.find(cc => cc.id === x.clienteId); return (
+                             <button key={x.pastaId} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { ligar(x); setSugProj(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-white/5">
+                               <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: x.cor }} />
+                               <span className="flex-1 min-w-0 truncate">{x.nome}</span>
+                               <span className="text-[11px] text-slate-500 shrink-0">{c ? c.nome + ' · ' : ''}{x.n} tarefa{x.n === 1 ? '' : 's'}{x.abertas ? `, ${x.abertas} por acabar` : ''}</span>
+                             </button>
+                           ); })}
+                         </div>
+                       )}
+                       {ligada && (
+                         <div className="mt-1.5 flex items-center gap-2 text-xs">
+                           <span className="text-emerald-400">🔗 Ligado à lista do Trabalho</span>
+                           <span className="text-slate-500">{ligada.n} tarefa{ligada.n === 1 ? '' : 's'}{ligada.abertas ? ` · ${ligada.abertas} por acabar` : ' · tudo entregue'}</span>
+                           <span className="flex-1" />
+                           <button type="button" onClick={() => { setShowAddProjeto(false); abrirPastaTrab(ligada.pastaId); }} className="text-blue-400 hover:underline">Abrir a lista</button>
+                           <button type="button" onClick={() => setNovoProjeto({ ...novoProjeto, pastaId: null })} className="text-slate-500 hover:text-red-400">desligar</button>
+                         </div>
+                       )}
+                     </div>
+                   );
+                 })()}
                </div>
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Cliente</label>
