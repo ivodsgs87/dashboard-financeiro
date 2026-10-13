@@ -13666,6 +13666,21 @@ ${transacoesOrdenadas.map(t => `<tr>
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
    recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
+   onCriarReciboFatura={({ cid, mesK, numero, valor, pdf, faturaId, mesFatura }) => {
+     // Regista a fatura em Receitas (com as regras do recibo do cliente). O recibo verde continua a ser feito pela contabilidade.
+     const c = (G.clientes || []).find(x => String(x.id) === String(cid)) || {};
+     const rc = c.recibo || {};
+     const pais = rc.pais || 'PT';
+     const lista = (rc.regime || (pais === 'Fora UE' ? 'sem' : 'com')) === 'sem' ? 'regSem' : 'regCom';
+     const taxaIva = pais === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : 23) : 0;
+     const taxaRet = pais === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.35)) : 0;
+     const ili = Math.round((Number(valor) || 0) * 100) / 100;
+     const id = Date.now();
+     const novo = { id, cid: c.id ?? cid, desc: `Invoice #${numero} — ${meses[(mesFatura || 1) - 1]}`, val: ili, valIliq: ili, iva: Math.round(ili * taxaIva) / 100, taxaIva, retIRS: Math.round(ili * taxaRet) / 100, taxaRetIRS: taxaRet, pais, faturaId, ...(pdf ? { ficheiroUrl: pdf.url, ficheiroCaminho: pdf.caminho, ficheiroNome: pdf.nome, ficheiroTipo: 'application/pdf' } : {}), data: new Date().toISOString().slice(0, 10) };
+     saveUndo();
+     setM(p => { const md = p[mesK] || defM; return { ...p, [mesK]: { ...md, [lista]: [...(md[lista] || []), novo] } }; });
+     return { k: mesK, id, lista };
+   }}
    onJuntarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? async (k, id, f) => {
      const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
      saveUndo();
