@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -250,3 +250,24 @@ export const guardarNotas = async (userId, dados) => { await setDoc(docNotas(use
 export const lerPaginaNota = async (userId, id) => { const s = await getDoc(docPaginaNota(userId, id)); return s.exists() ? s.data() : null; };
 export const guardarPaginaNota = async (userId, id, dados) => { await setDoc(docPaginaNota(userId, id), dados); };
 export const apagarPaginaNota = async (userId, id) => { await deleteDoc(docPaginaNota(userId, id)); };
+
+// ── Cadernos de notas partilhados (ex.: lista de compras com a Sara) ──
+// partilhas/<id> guarda o índice (nome, secções, páginas) e "membros" (emails com acesso);
+// partilhas/<id>/paginas/<pág> guarda o conteúdo de cada página.
+const docPartilha = (id) => doc(db, 'partilhas', id);
+const docPaginaPartilha = (cid, id) => doc(db, 'partilhas', cid, 'paginas', id);
+export const ouvirPartilhas = (email, cb, erro) => onSnapshot(
+  query(collection(db, 'partilhas'), where('membros', 'array-contains', email)),
+  (snap) => { const out = {}; snap.forEach(d => { out[d.id] = { ...d.data(), id: d.id }; }); cb(out, snap.metadata.hasPendingWrites); },
+  (e) => { console.error('Partilhas:', e); if (erro) erro(e); }
+);
+export const guardarPartilha = async (id, dados) => { await setDoc(docPartilha(id), dados, { merge: true }); };
+export const apagarPartilha = async (id) => { await deleteDoc(docPartilha(id)); };
+export const lerPaginaPartilha = async (cid, id) => { const s = await getDoc(docPaginaPartilha(cid, id)); return s.exists() ? s.data() : null; };
+export const guardarPaginaPartilha = async (cid, id, dados) => { await setDoc(docPaginaPartilha(cid, id), dados); };
+export const apagarPaginaPartilha = async (cid, id) => { await deleteDoc(docPaginaPartilha(cid, id)); };
+export const ouvirPaginaPartilha = (cid, id, cb) => onSnapshot(
+  docPaginaPartilha(cid, id),
+  (s) => { if (!s.metadata.hasPendingWrites) cb(s.exists() ? s.data() : null); },
+  (e) => console.error('Página partilhada:', e)
+);
