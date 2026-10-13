@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  GraficoBarras, meses, Ico, anos, _fmtEUR, TemaCtx, VC_DEFAULT
+  GraficoBarras, meses, Ico, anos, _fmtEUR, CU_TIPOS, trabDia, trabMsTempo,
+  trabEntrega, trabPecas, trabValor, TemaCtx, VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -963,7 +964,7 @@ const AnoNum = ({ rot, val, cor, nota, barra, ir, onIr }) => {
 };
 // ── "O meu ano": o essencial do ano num só ecrã ──
 // Componente ao nível do módulo (não remonta quando a app redesenha). Só lê dados; para mexer, os links levam aos separadores.
-const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr }) => {
+const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab = null }) => {
   const claro = theme === 'light';
   const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
@@ -991,10 +992,27 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr }) => {
   const pFim = [...serie].reverse().find(s => s.idx <= ano * 12 + 11 && Math.floor(s.idx / 12) === ano) || null;
   const dPat = pIni && pFim && pFim !== pIni ? pFim.capital - pIni.capital : null;
   // Clientes (sem reembolsos)
-  const clis = Object.values(totais.receitasPorCliente || {}).filter(c => c.total > 0 && !/reembolso/i.test(c.nome || '')).sort((a, b) => b.total - a.total);
+  const clis = Object.entries(totais.receitasPorCliente || {}).map(([id, c]) => ({ ...c, id })).filter(c => c.total > 0 && !/reembolso/i.test(c.nome || '')).sort((a, b) => b.total - a.total);
   const totCli = clis.reduce((a, c) => a + c.total, 0);
-  // Horas
-  let horas = 0; for (let m = 1; m <= 12; m++) horas += Number((M[`${ano}-${m}`] || {}).horasTrabalhadas) || 0;
+  // Horas: as do Trabalho (cronómetro/registos) quando existem; senão as escritas à mão
+  let horasMao = 0; for (let m = 1; m <= 12; m++) horasMao += Number((M[`${ano}-${m}`] || {}).horasTrabalhadas) || 0;
+  // Trabalho do ano: entregas, peças por tipo, jogos e subcontratação
+  const tw = { horas: 0, horasCli: {}, valor: 0, n: 0, pecas: {}, jogos: {}, custoSub: 0, valorSub: 0 };
+  const clientesG = G.clientes || [];
+  const jogoDe = {}; ((trab && trab.pastas) || []).forEach(p => { if (p.jogoId) jogoDe[p.id] = p.jogoId; });
+  ((trab && trab.tarefas) || []).forEach(t => {
+    (t.tempos || []).forEach(x => { if (trabDia(x.ini).startsWith(`${ano}-`)) { const h = trabMsTempo(x) / 3600000; tw.horas += h; tw.horasCli[t.cid] = (tw.horasCli[t.cid] || 0) + h; } });
+    if (!trabEntrega(t).startsWith(`${ano}-`)) return;
+    const v = trabValor(t, G.clickup, clientesG);
+    tw.valor += v; tw.n += 1;
+    trabPecas(t).forEach(pc => { if (pc.tipo !== 'extra' && pc.tipo !== 'outro') tw.pecas[pc.tipo] = (tw.pecas[pc.tipo] || 0) + pc.n; });
+    const j = jogoDe[t.pastaId]; if (j) tw.jogos[j] = (tw.jogos[j] || 0) + v;
+    const c = Number(t.custoOutsourcing) || 0; if (c > 0) { tw.custoSub += c; tw.valorSub += v; }
+  });
+  const horas = tw.horas > 0 ? tw.horas : horasMao;
+  const nomeTipo = id => { const x = CU_TIPOS.find(y => y.id === id); return x ? x : { nome: id, plural: id }; };
+  const pecasTxt = Object.entries(tw.pecas).sort((a, b) => b[1] - a[1]).map(([id, n]) => `${n} ${n === 1 ? (nomeTipo(id).curto || nomeTipo(id).nome).toLowerCase() : nomeTipo(id).plural}`);
+  const jogosTop = Object.entries(tw.jogos).map(([id, v]) => ({ j: ((trab && trab.jogos) || []).find(x => x.id === id), v })).filter(x => x.j && x.v > 0).sort((a, b) => b.v - a.v);
   // Dívida
   const dIni = Number(totais.dividaInicio) || 0, dAtual = Number(totais.dividaAtual) || 0;
 
@@ -1032,7 +1050,10 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr }) => {
   }
   if (dIni > 0 && dAtual > 0 && dIni > dAtual) bom(`A dívida da casa desceu ${f(dIni - dAtual)} este ano (agora ${f(dAtual)}).`, 'credito');
   if (dPat != null) (dPat >= 0 ? bom : aviso)(`Investimentos + dinheiro: ${dPat >= 0 ? '+' : '−'}${f(Math.abs(dPat))} desde ${patRotulo(pIni.idx)} (${f(pFim.capital)} em ${patRotulo(pFim.idx)}).`, 'patrimonio');
-  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas · ${_fmtEUR.format(rec / horas)} por hora.`, 'performance');
+  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas${tw.horas > 0 ? ' (registadas no Trabalho)' : ''} · ${_fmtEUR.format(rec / horas)} por hora.`, tw.horas > 0 ? 'trabalho' : 'performance');
+  if (pecasTxt.length) info(`Entregaste ${pecasTxt.slice(0, 3).join(', ')}${pecasTxt.length > 3 ? ' e mais' : ''}.`, 'trabalho');
+  if (jogosTop.length) info(`O jogo que mais rendeu foi ${jogosTop[0].j.nome} (${f(jogosTop[0].v)}).`, 'trabalho');
+  if (tw.custoSub > 0) info(`Subcontrataste ${f(tw.custoSub)}: margem de ${f(tw.valorSub - tw.custoSub)} nesse trabalho.`, 'trabalho');
 
   const ritmoOk = metaRec > 0 && proj >= metaRec;
   const metasL = [
@@ -1144,10 +1165,46 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr }) => {
               ))}
               {clis.length > 4 && <p className={`text-xs ${sub}`}>+{clis.length - 4} outros</p>}
               {horas > 0 && <p className={`text-xs pt-1 ${sub}`}>{Math.round(horas)} h trabalhadas · {_fmtEUR.format(rec / horas)}/h</p>}
+              {tw.horas > 0 && clis.some(c => tw.horasCli[c.id] > 0) && <p className={`text-xs ${sub}`}>€/h por cliente: {clis.filter(c => tw.horasCli[c.id] > 0).slice(0, 4).map(c => `${c.nome} ${_fmtEUR.format(c.total / tw.horasCli[c.id])}`).join(' · ')}</p>}
             </div>
           ) : <p className={`text-sm ${sub}`}>Sem recibos neste ano.</p>}
         </AnoCaixa>
       </div>
+
+      {tw.n > 0 && (
+        <AnoCaixa>
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🗂"/>Trabalho de {ano}</h3><AnoVer onIr={onIr} tab="trabalho" /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div>
+              <p className={`text-xs ${sub}`}>Entregue (pelos preços)</p>
+              <p className={`text-xl font-bold tabular-nums ${forte}`}>{f(tw.valor)}</p>
+              <p className={`text-xs ${sub}`}>{tw.n} tarefa{tw.n === 1 ? '' : 's'}{tw.horas > 0 ? ` · ${Math.round(tw.horas)} h registadas` : ''}</p>
+            </div>
+            <div>
+              <p className={`text-xs mb-1 ${sub}`}>Peças entregues</p>
+              {pecasTxt.length ? <ul className={`text-sm space-y-0.5 ${forte}`}>{pecasTxt.slice(0, 5).map(x => <li key={x}>{x}</li>)}</ul> : <p className={`text-sm ${sub}`}>—</p>}
+            </div>
+            <div>
+              <p className={`text-xs mb-1 ${sub}`}>Jogos que mais renderam</p>
+              {jogosTop.length ? (
+                <div className="space-y-1.5">
+                  {jogosTop.slice(0, 4).map(({ j, v }) => (
+                    <div key={j.id}>
+                      <div className="flex justify-between text-sm"><span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: j.cor || '#64748b' }} /><span className={`truncate ${forte}`}>{j.nome}</span></span><span className={`tabular-nums ${forte}`}>{f(v)}</span></div>
+                      <AnoBarra v={v / jogosTop[0].v * 100} cor={j.cor || '#64748b'} />
+                    </div>
+                  ))}
+                </div>
+              ) : <p className={`text-sm ${sub}`}>Liga as listas aos jogos no Trabalho para veres aqui.</p>}
+            </div>
+            <div>
+              <p className={`text-xs ${sub}`}>Subcontratado</p>
+              <p className={`text-xl font-bold tabular-nums ${tw.custoSub > 0 ? 'text-red-400' : forte}`}>{tw.custoSub > 0 ? `−${f(tw.custoSub)}` : f(0)}</p>
+              <p className={`text-xs ${sub}`}>{tw.custoSub > 0 ? `Margem nesse trabalho: ${f(tw.valorSub - tw.custoSub)} (${pct((tw.valorSub - tw.custoSub) / Math.max(1, tw.valorSub) * 100)})` : 'Nada subcontratado este ano'}</p>
+            </div>
+          </div>
+        </AnoCaixa>
+      )}
     </div>
   );
 };
@@ -1215,6 +1272,19 @@ const CSS_MOBILE = `
 @media (hover: none) { .group .group-hover\\:opacity-100, .group .group-hover\\:opacity-70 { opacity: 1 !important; } }
 `;
 
+// Botão "Manter sempre ligado" para a conta do Drive dos recibos (usa as funções do Trabalho, carregadas só quando é preciso)
+const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
+  const [mod, setMod] = useState(null);
+  const [ligado, setLigado] = useState(false);
+  const [aLigar, setALigar] = useState(false);
+  useEffect(() => { let vivo = true; carregar().then(async m => { if (!vivo) return; setMod(m); m.carregarGis().catch(() => {}); await m.sincronizarSempre(); if (vivo) setLigado(m.ligadoSempre(conta || '_')); }).catch(() => {}); return () => { vivo = false; }; }, [conta]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!mod) return null;
+  return ligado
+    ? <p className="text-xs text-emerald-500">🔒 Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>desligar</button></p>
+    : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
+        className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">🔒 Manter sempre ligado</button>;
+};
+
 export {
   PedirDados, txNumero, txR2, txParseCSV, txEhDegiro, txLerDegiro, TX_MESES, txEhTradeRepublic,
   txLerTradeRepublic, txDias, txParecida, txMaisProxima, txMarcarDuplicados, txDuplicadosProvaveis, txTextoPDF, txLerFicheiro,
@@ -1224,5 +1294,6 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE
+  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
+  LigacaoDriveRecibos
 };
