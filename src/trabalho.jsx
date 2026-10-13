@@ -1051,8 +1051,14 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
     const colar = e => {
       const fs = Array.from((e.clipboardData && e.clipboardData.files) || []);
       const alvo = e.target && e.target.tagName;
-      if (!fs.length || alvo === 'INPUT' || alvo === 'TEXTAREA') return;
-      e.preventDefault(); enviar(fs);
+      if (alvo === 'INPUT' || alvo === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+      if (fs.length) { e.preventDefault(); enviar(fs); return; }
+      // Colar um link (ou vários) do brief: fica logo junto à tarefa
+      const txt = (e.clipboardData && e.clipboardData.getData('text')) || '';
+      const urls = [...new Set(txt.match(/https?:\/\/[^\s<>"']+/g) || [])];
+      if (!urls.length) return;
+      e.preventDefault();
+      urls.forEach((u, i) => juntar({ id: trabId() + 'l' + i, tipo: 'link', nome: nomeDoLink(u), url: u, criado: agoraIso() }));
     };
     document.addEventListener('paste', colar);
     return () => document.removeEventListener('paste', colar);
@@ -1062,12 +1068,12 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
     <div className={`${caixa} space-y-2.5 transition-colors ${arrastar ? (claro ? 'ring-2 ring-blue-400 bg-blue-50' : 'ring-2 ring-blue-500 bg-blue-500/10') : ''}`}
       onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) { e.preventDefault(); setArrastar(true); } }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastar(false); }}
-      onDrop={e => { e.preventDefault(); setArrastar(false); enviar(e.dataTransfer.files); }}>
+      onDrop={e => { e.preventDefault(); setArrastar(false); if (e.dataTransfer.files && e.dataTransfer.files.length) { enviar(e.dataTransfer.files); return; } const u = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text') || '').split(/\s+/).find(x => /^https?:\/\//.test(x)); if (u) juntar({ id: trabId() + 'l', tipo: 'link', nome: nomeDoLink(u), url: u, criado: agoraIso() }); }}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium flex items-center gap-1.5"><IcoA n="clip" className="w-4 h-4" /> Brief e anexos {anexos.length > 0 && <span className={`text-xs font-normal ${sub}`}>{anexos.length}</span>}</p>
         <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => setLink({ url: '', nome: '' })} className="px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Link</button>
           <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Carregar ficheiro</button>
-          <button type="button" onClick={() => setLink({ url: '', nome: '' })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Link</button>
           <input ref={inRef} type="file" multiple className="hidden" onChange={e => { enviar(e.target.files); e.target.value = ''; }} />
         </div>
       </div>
@@ -1133,7 +1139,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         </div>
       ) : (
         <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`w-full rounded-lg border-2 border-dashed py-5 text-xs ${claro ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-slate-700 text-slate-400 hover:bg-white/[0.03]'}`}>
-          Arrasta para aqui o brief (PDF, imagens, vídeos…), cola uma imagem com Ctrl+V, ou carrega para escolher
+          Cola aqui o link do brief com Ctrl+V (ou arrasta um PDF, imagens, vídeos…)
         </button>
       )}
       {previa && (
@@ -1385,7 +1391,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             )}
           </div>
 
-          <NomesFicheiros t={t} trab={trab} set={set} claro={claro} inputClass={inputClass} lab={lab} sub={sub} caixa={caixa} />
+          <NomesFicheiros t={t} trab={trab} set={set} mudar={mudar} claro={claro} inputClass={inputClass} lab={lab} sub={sub} caixa={caixa} />
 
           {/* Outsourcing */}
           <div className={`${caixa} space-y-2`}>
@@ -1634,7 +1640,7 @@ const nomesFicheiros = (trab, t) => {
   const base = [conceito, versao, variacao].filter(Boolean).join('_');
   const formatos = (t.formatos && t.formatos.length ? t.formatos : []);
   return {
-    jogo, cod, tipo, conceito, dia,
+    jogo, cod, tipo, conceito, dia, base, ddmmyy, dur,
     pasta: conceito ? `${conceito} / ${base}` : '',
     ficheiros: formatos.map(f => ({ formato: f, nome: [cod, tipo, base, f.replace(':', 'X'), dur, ddmmyy].filter(Boolean).join('_') })),
   };
@@ -1643,7 +1649,220 @@ const copiar = txt => {
   try { if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(txt); return; } } catch (e) { /* tenta o método antigo */ }
   try { const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } catch (e) { /* sem acesso à área de transferência */ }
 };
-const NomesFicheiros = ({ t, trab, set, claro, inputClass, lab, sub, caixa }) => {
+// ── Enviar os exports para o Google Drive do cliente (com a conta Google desse cliente) ──
+// Login pela Google (só pede autorização para o Drive); os ficheiros vão direto do computador para o Drive,
+// para a pasta CONCEITO / CONCEITO_V2_VARIAÇÃO dentro da pasta do jogo, já com o nome certo.
+const GOOGLE_CLIENT_ID_T = '1001287643592-cjgh7ng34pql5asln7qca0n52rvhp90t.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+const DRV = 'https://www.googleapis.com/drive/v3/files';
+const tokensDrive = {};
+const carregarGis = () => new Promise((ok, falha) => {
+  if (window.google && window.google.accounts && window.google.accounts.oauth2) { ok(); return; }
+  if (!document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true; document.head.appendChild(s); }
+  const t0 = Date.now();
+  const i = setInterval(() => { if (window.google && window.google.accounts && window.google.accounts.oauth2) { clearInterval(i); ok(); } else if (Date.now() - t0 > 12000) { clearInterval(i); falha(new Error('Não consegui carregar o login da Google.')); } }, 150);
+});
+const tokenDrive = (email, forcar = false) => new Promise((ok, falha) => {
+  const k = email || '_'; const c = tokensDrive[k];
+  if (!forcar && c && c.exp > Date.now() + 60000) { ok(c.t); return; }
+  if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) { falha(new Error('O login da Google ainda não carregou. Tenta outra vez.')); return; }
+  const cl = window.google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID_T, scope: DRIVE_SCOPE, hint: email || undefined,
+    callback: r => { if (r && r.access_token) { tokensDrive[k] = { t: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; ok(r.access_token); } else falha(new Error((r && (r.error_description || r.error)) || 'A Google não deu autorização.')); },
+    error_callback: e => falha(new Error(e && e.type === 'popup_closed' ? 'Fechaste a janela do login da Google.' : e && e.type === 'popup_failed_to_open' ? 'O browser bloqueou a janela do login (permite pop-ups para a app).' : 'O login da Google falhou.')),
+  });
+  cl.requestAccessToken({ prompt: c ? '' : 'select_account' });
+});
+const driveApi = async (token, url, opts = {}) => {
+  const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
+  if (!r.ok) { let m = `Erro ${r.status} do Drive`; try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ } const er = new Error(m); er.status = r.status; throw er; }
+  return r.status === 204 ? null : r.json();
+};
+const idPastaDrive = url => { const m = /folders\/([A-Za-z0-9_-]{10,})/.exec(String(url || '')) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(String(url || '')); return m ? m[1] : null; };
+const filhosDrive = async (token, pai, pastas) => {
+  const q = encodeURIComponent(`'${pai}' in parents and trashed=false${pastas ? " and mimeType='application/vnd.google-apps.folder'" : " and mimeType!='application/vnd.google-apps.folder'"}`);
+  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+  return j.files || [];
+};
+// Acha a pasta pelo nome (sem ligar a maiúsculas; a da versão aceita nomes mais compridos, ex.: _MIDDLE_EAST) ou cria-a
+const pastaDrive = async (token, pai, nome, aceitarMaisLongo) => {
+  const fs = await filhosDrive(token, pai, true);
+  const alvo = slugF(nome);
+  const f = fs.find(x => slugF(x.name) === alvo) || (aceitarMaisLongo ? fs.find(x => slugF(x.name).startsWith(alvo + '_')) : null);
+  if (f) return { ...f, nova: false };
+  const c = await driveApi(token, `${DRV}?supportsAllDrives=true&fields=id,name,webViewLink`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nome, mimeType: 'application/vnd.google-apps.folder', parents: [pai] }) });
+  return { ...c, nova: true };
+};
+const enviarParaDrive = async (token, { file, nome, pasta, idExistente }, onProg) => {
+  const url = idExistente ? `https://www.googleapis.com/upload/drive/v3/files/${idExistente}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink';
+  const tipo = file.type || 'application/octet-stream';
+  const r = await fetch(url, { method: idExistente ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': tipo, 'X-Upload-Content-Length': String(file.size) }, body: JSON.stringify(idExistente ? { name: nome } : { name: nome, parents: [pasta] }) });
+  if (!r.ok) { let m = `Erro ${r.status} ao começar o envio`; try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ } throw new Error(m); }
+  const loc = r.headers.get('Location') || r.headers.get('location');
+  if (!loc) throw new Error('O Drive não respondeu com o endereço de envio.');
+  return new Promise((ok, falha) => {
+    const x = new XMLHttpRequest();
+    x.open('PUT', loc);
+    x.setRequestHeader('Content-Type', tipo);
+    x.upload.onprogress = e => { if (e.lengthComputable && onProg) onProg(e.loaded / e.total); };
+    x.onload = () => { if (x.status >= 200 && x.status < 300) { try { ok(JSON.parse(x.responseText || '{}')); } catch (e) { ok({}); } } else falha(new Error(`Erro ${x.status} no envio`)); };
+    x.onerror = () => falha(new Error('A ligação falhou a meio do envio.'));
+    x.send(file);
+  });
+};
+const lerVideo = file => new Promise(ok => {
+  if (!/^video\//.test(file.type || '') && !/\.(mp4|mov|webm|m4v)$/i.test(file.name)) { if (/^image\//.test(file.type || '')) { const im = new Image(); const u = URL.createObjectURL(file); im.onload = () => { ok({ w: im.naturalWidth, h: im.naturalHeight, dur: 0 }); URL.revokeObjectURL(u); }; im.onerror = () => { ok(null); URL.revokeObjectURL(u); }; im.src = u; return; } ok(null); return; }
+  const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+  const u = URL.createObjectURL(file); let feito = false;
+  const fim = x => { if (feito) return; feito = true; URL.revokeObjectURL(u); ok(x); };
+  v.onloadedmetadata = () => fim({ w: v.videoWidth, h: v.videoHeight, dur: v.duration });
+  v.onerror = () => fim(null);
+  setTimeout(() => fim(null), 6000);
+  v.src = u;
+});
+const formatoDoFicheiro = (nome, meta) => {
+  const m = /(?:^|[^0-9])(9|1|4|16)\s*[x:×_]\s*(16|1|5|9)(?:[^0-9]|$)/i.exec(String(nome || ''));
+  if (m) { const f = `${m[1]}:${m[2]}`; if (FORMATOS.includes(f)) return f; }
+  if (meta && meta.w && meta.h) { const r = meta.w / meta.h; return FORMATOS.slice().sort((a, b) => { const [a1, a2] = a.split(':').map(Number), [b1, b2] = b.split(':').map(Number); return Math.abs(a1 / a2 - r) - Math.abs(b1 / b2 - r); })[0]; }
+  return null;
+};
+const copiarComLink = async (texto, url) => {
+  try {
+    if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+      const html = `<a href="${String(url).replace(/"/g, '&quot;')}">${String(texto).replace(/</g, '&lt;')}</a>`;
+      await navigator.clipboard.write([new window.ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([texto], { type: 'text/plain' }) })]);
+      return true;
+    }
+  } catch (e) { /* tenta só o texto */ }
+  copiar(texto); return false;
+};
+const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
+  const [lista, setLista] = useState([]); // { id, file, meta, formato, estado, prog, erro }
+  const [aEnviar, setAEnviar] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [resultado, setResultado] = useState(t.drive || null);
+  const [review, setReview] = useState(true);
+  const [copiadoS, setCopiadoS] = useState(false);
+  const inRef = useRef(null);
+  useEffect(() => { carregarGis().catch(() => {}); }, []);
+  const jogo = r.jogo && !r.jogo.semJogo ? r.jogo : null;
+  const statics = ['BAN', 'ICO', 'FG', 'SS'].includes(r.tipo);
+  const raizUrl = jogo ? (statics ? jogo.driveStatics : jogo.drive) : null;
+  const raiz = idPastaDrive(raizUrl);
+  const conta = contaDe(t.cid);
+  const fx = t.ficheiros || {};
+  const nomeBase = [r.cod, r.tipo, r.base].filter(Boolean).join('_');
+  const durDe = item => fx.duracao || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
+  const nomeFinal = item => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(item.file.name) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, r.base, item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
+  const juntar = async fs => {
+    setMsg('');
+    const novos = [];
+    for (const f of Array.from(fs || [])) { const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
+    setLista(l => [...l, ...novos]);
+  };
+  const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
+  const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
+  const pronto = lista.length > 0 && lista.every(x => x.formato) && !repetidos.length && raiz && r.conceito;
+  const enviar = async () => {
+    if (!pronto || aEnviar) return;
+    setAEnviar(true); setMsg('A entrar na Google…');
+    try {
+      let token;
+      try { token = await tokenDrive(conta); } catch (e) { throw e; }
+      setMsg('A preparar as pastas…');
+      let pConceito, pVersao;
+      try {
+        pConceito = await pastaDrive(token, raiz, r.conceito, false);
+      } catch (e) {
+        if (e.status === 401) { token = await tokenDrive(conta, true); pConceito = await pastaDrive(token, raiz, r.conceito, false); }
+        else if (e.status === 404) throw new Error(`A conta ${conta || 'Google'} não vê a pasta do jogo. Confirma o link no separador Jogos e que a pasta está partilhada com essa conta.`);
+        else throw e;
+      }
+      const nomeVersao = r.base || r.conceito;
+      pVersao = nomeVersao === r.conceito ? pConceito : await pastaDrive(token, pConceito.id, nomeVersao, true);
+      const existentes = await filhosDrive(token, pVersao.id, false);
+      const enviados = [];
+      for (const item of lista) {
+        const nome = nomeFinal(item);
+        const ex = existentes.find(f => f.name === nome);
+        mudarItem(item.id, { estado: 'a enviar', prog: 0 });
+        setMsg(`A enviar ${nome}…`);
+        try {
+          const res = await enviarParaDrive(token, { file: item.file, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
+          mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex });
+          enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
+        } catch (e) { mudarItem(item.id, { estado: 'erro', erro: String(e.message || e) }); }
+      }
+      const url = pVersao.webViewLink || `https://drive.google.com/drive/folders/${pVersao.id}`;
+      const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, conceito: pConceito.name, nomeBase, enviados, em: new Date().toISOString() };
+      setResultado(reg);
+      const durs = lista.map(durDe).filter(Boolean);
+      const formatos = [...new Set([...(t.formatos || []), ...lista.map(x => x.formato)])];
+      set({ drive: reg, link: url, formatos, ...(!fx.duracao && durs.length ? { ficheiros: { ...fx, duracao: durs[0] } } : {}) });
+      if (review && enviados.length === lista.length && (t.estado === 'todo' || t.estado === 'curso') && mudar) mudar(tr => opEstado(tr, t.id, 'review'));
+      setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
+      if (enviados.length === lista.length) setLista([]);
+    } catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setAEnviar(false);
+  };
+  const btn = `px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`;
+  if (!jogo) return null;
+  return (
+    <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm font-medium flex-1">Enviar para o Drive</p>
+        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.base && r.base !== r.conceito ? ` › ${r.base}` : ''}</span>}
+      </div>
+      {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
+        <>
+          <div
+            onDragOver={e => { e.preventDefault(); }} onDrop={e => { e.preventDefault(); juntar(e.dataTransfer.files); }}
+            onClick={() => inRef.current && inRef.current.click()}
+            className={`rounded-lg border-2 border-dashed px-3 py-3 text-center text-xs cursor-pointer ${claro ? 'border-slate-300 hover:bg-slate-50' : 'border-slate-600 hover:bg-white/[0.03]'} ${sub}`}>
+            Arrasta para aqui os exports (ou carrega para escolher). A app reconhece o formato e a duração de cada vídeo e dá-lhe o nome certo.
+            <input ref={inRef} type="file" multiple accept="video/*,image/*" className="hidden" onChange={e => { juntar(e.target.files); e.target.value = ''; }} />
+          </div>
+          {lista.length > 0 && (
+            <div className="space-y-1.5">
+              {lista.map(item => (
+                <div key={item.id} className="text-xs space-y-1">
+                  <div className="flex items-center gap-2">
+                    <select value={item.formato || ''} onChange={e => mudarItem(item.id, { formato: e.target.value || null })} disabled={aEnviar} className={`${inputClass} !w-20 text-xs py-1`} aria-label="Formato">
+                      <option value="">?</option>{FORMATOS.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                    <code className="flex-1 min-w-0 truncate" title={`${item.file.name} → ${nomeFinal(item)}`}>{nomeFinal(item)}</code>
+                    <span className={`shrink-0 tabular-nums ${sub}`}>{(item.file.size / 1048576).toFixed(0)} MB</span>
+                    {!aEnviar && item.estado !== 'feito' && <button type="button" onClick={() => setLista(l => l.filter(x => x.id !== item.id))} className={`shrink-0 ${sub} hover:text-red-400`} aria-label="Tirar">✕</button>}
+                  </div>
+                  {(item.estado === 'a enviar' || item.estado === 'feito') && <div className={`h-1 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className={`h-full ${item.estado === 'feito' ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.round(item.prog * 100)}%` }} /></div>}
+                  {item.estado === 'erro' && <p className="text-red-400">{item.erro}</p>}
+                  <p className={`truncate text-[10px] opacity-70 ${sub}`}>de {item.file.name}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${Math.round(item.meta.dur)}s` : ''}</p>
+                </div>
+              ))}
+              {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
+              {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <label className={`flex items-center gap-1.5 text-xs ${sub}`}><input type="checkbox" checked={review} onChange={e => setReview(e.target.checked)} className="accent-blue-500" /> Passar a tarefa a Review</label>
+                <span className="flex-1" />
+                <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
+              </div>
+            </div>
+          )}
+          {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+          {resultado && resultado.url && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive</a>
+              <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
+              {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
+            </div>
+          )}
+          <p className={`text-[10px] ${sub}`}>Entra com {conta ? <b>{conta}</b> : 'a tua conta Google'} (a conta deste cliente). Os ficheiros vão direto do computador para o Drive — nada fica guardado na app nem no disco.</p>
+        </>
+      )}
+    </div>
+  );
+};
+const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caixa }) => {
   const fx = t.ficheiros || {};
   const r = nomesFicheiros(trab, t);
   const [copiado, setCopiado] = useState('');
@@ -1674,6 +1893,7 @@ const NomesFicheiros = ({ t, trab, set, claro, inputClass, lab, sub, caixa }) =>
           {r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
         </div>
       )}
+      <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} />
     </div>
   );
 };
@@ -1726,7 +1946,8 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
                 <Campo rot="Nome na fatura"><TxtIn valor={j.nomeFatura} onGravar={v => set({ nomeFatura: v })} placeholder={j.nome} className={ic} /></Campo>
                 <Campo rot="Código"><TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="ex.: MJ" className={ic} /></Campo>
               </div>
-              <Campo rot="Pasta do Google Drive"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
+              <Campo rot="Pasta do Drive — vídeos"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
+              <Campo rot="Pasta do Drive — banners / statics"><div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="https://drive.google.com/… (opcional)" className={ic} />{link(j.driveStatics)}</div></Campo>
               <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
               {onAbrirNota && <div className={`pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}><p className={`text-xs mb-0.5 ${sub}`}>Notas</p><NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} /></div>}
             </div>
