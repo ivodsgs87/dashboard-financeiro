@@ -391,7 +391,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
-            {(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} />}
+            {(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}
             {t.notas && <span className={sub} title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
           </>
         )}
@@ -815,7 +815,7 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 };
 
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
-const ClipAnexos = ({ anexos, claro, sub }) => {
+const ClipAnexos = ({ anexos, claro, sub, cid }) => {
   const [aberto, setAberto] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -824,7 +824,7 @@ const ClipAnexos = ({ anexos, claro, sub }) => {
     document.addEventListener('mousedown', fora);
     return () => document.removeEventListener('mousedown', fora);
   }, [aberto]);
-  const abrir = a => { try { window.open(a.url, '_blank', 'noopener,noreferrer'); } catch (e) { /* bloqueado */ } };
+  const abrir = a => abrirLink(a.url, cid);
   return (
     <span ref={ref} className="relative inline-flex">
       <button type="button" onClick={e => { e.stopPropagation(); if (anexos.length === 1) abrir(anexos[0]); else setAberto(!aberto); }}
@@ -879,33 +879,48 @@ const MAX_ANEXO = 100 * 1048576;
 // Pré-visualização: Google Slides/Docs/Sheets/Drive, Figma, YouTube, Vimeo, PDF e vídeos
 const googleId = url => { const m = /\/d\/([a-zA-Z0-9_-]{15,})/.exec(url) || /[?&]id=([a-zA-Z0-9_-]{15,})/.exec(url); return m ? m[1] : null; };
 const ehGoogle = url => /(docs|drive)\.google\.com/.test(url || '');
-const urlPrevia = a => {
+// Conta Google com que os links do Google abrem (?authuser=…). O browser tem de ter essa conta com sessão iniciada.
+// Preenchido pelo Trabalho em cada render: conta geral + conta própria de cada cliente.
+const CONTA_LINKS = { padrao: '', porCliente: {} };
+const contaDe = cid => String((cid != null && CONTA_LINKS.porCliente[String(cid)]) || CONTA_LINKS.padrao || '').trim();
+const comConta = (url, cid) => {
+  const conta = contaDe(cid);
+  if (!conta || !/^https?:\/\/(docs|drive|sheets|slides|forms)\.google\.com\//i.test(url || '')) return url;
+  try {
+    const u = new URL(url);
+    u.pathname = u.pathname.replace(/\/u\/\d+(?=\/)/, '');
+    u.searchParams.set('authuser', conta);
+    return u.toString();
+  } catch (e) { return url; }
+};
+const abrirLink = (url, cid) => { try { window.open(comConta(url, cid), '_blank', 'noopener,noreferrer'); } catch (e) { /* bloqueado */ } };
+const urlPrevia = (a, cid) => {
   const u = a.url || '';
   const tp = tipoAnexo(a);
   if (tp === 'pdf' || tp === 'video') return u;
   if (tp !== 'link') return null;
   if (ehGoogle(u)) {
     const id = googleId(u); if (!id) return null;
-    if (/presentation/.test(u)) return `https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false`;
-    if (/document/.test(u)) return `https://docs.google.com/document/d/${id}/preview`;
-    if (/spreadsheets/.test(u)) return `https://docs.google.com/spreadsheets/d/${id}/preview`;
-    return `https://drive.google.com/file/d/${id}/preview`;
+    if (/presentation/.test(u)) return comConta(`https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false`, cid);
+    if (/document/.test(u)) return comConta(`https://docs.google.com/document/d/${id}/preview`, cid);
+    if (/spreadsheets/.test(u)) return comConta(`https://docs.google.com/spreadsheets/d/${id}/preview`, cid);
+    return comConta(`https://drive.google.com/file/d/${id}/preview`, cid);
   }
   if (/figma\.com\/(file|design|proto|board)/.test(u)) return `https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(u)}`;
   let m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return `https://www.youtube.com/embed/${m[1]}`;
   m = /vimeo\.com\/(\d+)/.exec(u); if (m) return `https://player.vimeo.com/video/${m[1]}`;
   return null;
 };
-const miniatura = a => {
+const miniatura = (a, cid) => {
   const u = a.url || '';
   if (tipoAnexo(a) !== 'link') return null;
-  if (ehGoogle(u)) { const id = googleId(u); return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w640` : null; }
+  if (ehGoogle(u)) { const id = googleId(u); return id ? comConta(`https://drive.google.com/thumbnail?id=${id}&sz=w640`, cid) : null; }
   const m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
   return null;
 };
-const MiniLink = ({ a, sub }) => {
+const MiniLink = ({ a, sub, cid }) => {
   const [falhou, setFalhou] = useState(false);
-  const src = miniatura(a);
+  const src = miniatura(a, cid);
   let dominio = ''; try { dominio = new URL(a.url).hostname; } catch (e) { /* url estranho */ }
   if (src && !falhou) return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhou(true)} className="w-full h-full object-cover object-top bg-white" />;
   return (
@@ -922,6 +937,10 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
   const [link, setLink] = useState(null);
   const [verImagem, setVerImagem] = useState(null);
   const [previa, setPrevia] = useState(null);
+  const [editConta, setEditConta] = useState(false);
+  const temGoogle = anexos.some(a => tipoAnexo(a) === 'link' && ehGoogle(a.url));
+  const contaUsada = contaDe(t.cid);
+  const contaDoCliente = t.cid != null && !!CONTA_LINKS.porCliente[String(t.cid)];
   useEffect(() => {
     if (!previa && !verImagem) return undefined;
     const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setPrevia(null); setVerImagem(null); } };
@@ -995,6 +1014,22 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
           <button type="button" onClick={gravarLink} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Juntar</button>
         </div>
       )}
+      {temGoogle && (
+        editConta ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-xs ${sub}`}>Abrir os links do Google com a conta</span>
+            <input autoFocus type="email" defaultValue={trab.contaGoogle || ''} placeholder="ex.: ivo@estudio.com"
+              onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.stopPropagation(); setEditConta(false); } }}
+              onBlur={e => { const v = e.target.value.trim(); mudar(tr => ({ ...tr, contaGoogle: v })); setEditConta(false); }}
+              className={`${inputClass} !w-60 text-xs py-1`} />
+            <span className={`text-[11px] ${sub}`}>Vazio = a conta principal deste browser</span>
+          </div>
+        ) : (
+          <p className={`text-[11px] ${sub}`}>
+            Links do Google abrem com {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'a conta principal do browser'}{contaDoCliente ? ' (definida na ficha do cliente)' : ''} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">mudar</button>
+          </p>
+        )
+      )}
       {(anexos.length > 0 || envios.length > 0) ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {anexos.map(a => {
@@ -1006,21 +1041,21 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                 ) : tp === 'video' ? (
                   <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover pointer-events-none" /></button>
                 ) : tp === 'link' ? (
-                  urlPrevia(a)
-                    ? <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] overflow-hidden" title={`Pré-visualizar ${a.nome}`}><MiniLink a={a} sub={sub} /></button>
-                    : <a href={a.url} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} /></a>
+                  urlPrevia(a, t.cid)
+                    ? <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] overflow-hidden" title={`Pré-visualizar ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} /></button>
+                    : <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
                 ) : (
-                  <button type="button" onClick={() => (urlPrevia(a) ? setPrevia(a) : window.open(a.url, '_blank', 'noopener,noreferrer'))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
+                  <button type="button" onClick={() => (urlPrevia(a, t.cid) ? setPrevia(a) : abrirLink(a.url, t.cid))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
                     <IcoA n={tp} className="w-8 h-8" />
                     <span className="text-[10px] uppercase tracking-wide opacity-80">{tp === 'pdf' ? 'PDF' : (String(a.nome).split('.').pop() || '').slice(0, 5)}</span>
                   </button>
                 )}
                 <div className="px-2 py-1.5">
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
+                  <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
                   <p className={`text-[10px] ${sub}`}>{a.tamanho ? tamanhoTxt(a.tamanho) : 'link'} · {dataCurta(a.criado)}</p>
                 </div>
                 <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 text-white text-xs" title="Abrir noutro separador" aria-label={`Abrir ${a.nome} noutro separador`}>↗</a>
+                  <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 text-white text-xs" title="Abrir noutro separador" aria-label={`Abrir ${a.nome} noutro separador`}>↗</a>
                   <button type="button" onClick={() => apagar(a)} className="w-6 h-6 rounded-md bg-black/60 text-white text-xs" aria-label={`Tirar ${a.nome}`}>✕</button>
                 </div>
               </div>
@@ -1043,15 +1078,15 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
           <div className="flex items-center gap-2 mb-2 text-white">
             <p className="flex-1 min-w-0 text-sm font-medium truncate">{previa.nome}</p>
-            <a href={previa.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir ↗</a>
+            <a href={comConta(previa.url, t.cid)} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir ↗</a>
             <button type="button" onClick={() => setPrevia(null)} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
           </div>
           <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-black">
             {tipoAnexo(previa) === 'video'
               ? <video src={previa.url} controls autoPlay className="w-full h-full object-contain" />
-              : <iframe src={urlPrevia(previa)} title={previa.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-write" allowFullScreen />}
+              : <iframe src={urlPrevia(previa, t.cid)} title={previa.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-write" allowFullScreen />}
           </div>
-          {ehGoogle(previa.url) && <p className="mt-2 text-[11px] text-white/60">Se não aparecer, o ficheiro não está partilhado com a conta Google com que tens sessão aberta neste browser.</p>}
+          {ehGoogle(previa.url) && <p className="mt-2 text-[11px] text-white/60">{`Se não aparecer, o ficheiro não está partilhado com ${contaUsada || 'a conta Google principal deste browser'} — ou essa conta não tem sessão iniciada neste browser.`}</p>}
         </div>
       )}
       {verImagem && (
@@ -1244,7 +1279,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             <label className="flex flex-col gap-1"><span className={lab}>Link da entrega (Frame.io, Drive…)</span>
               <div className="flex gap-2">
                 <input key={t.id + 'l' + (t.link || '')} defaultValue={t.link || ''} placeholder="https://" onBlur={e => { if (e.target.value !== (t.link || '')) set({ link: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
-                {t.link && <a href={t.link} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
+                {t.link && <a href={comConta(t.link, t.cid)} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
               </div>
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -1562,7 +1597,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
     return { listas: ls.length, tarefas: ts.length, valor };
   };
   const ic = `${inputClass} text-sm py-1.5`;
-  const link = url => (url && /^https?:\/\//.test(url) ? <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 text-blue-400 hover:text-blue-300" title="Abrir">↗</a> : null);
+  const link = url => (url && /^https?:\/\//.test(url) ? <a href={comConta(url, cid)} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 text-blue-400 hover:text-blue-300" title="Abrir">↗</a> : null);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -1844,6 +1879,9 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             </Campo>
             <Campo rot="Outros nomes (separados por vírgulas — o OCR reconhece o cliente por eles)" largo>
               <TxtIn valor={(c.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Anorak Games, Anorak" className={ic} />
+            </Campo>
+            <Campo rot="Conta Google dos briefs (os links do Google deste cliente abrem com ela)" largo>
+              <TxtIn type="email" valor={c.contaGoogle} onGravar={v => set({ contaGoogle: v.trim() })} placeholder={trab.contaGoogle ? `Vazio = ${trab.contaGoogle}` : 'ex.: ivo@estudio.com — vazio = a conta principal do browser'} className={ic} />
             </Campo>
             <Campo rot="Tags" largo>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -2304,6 +2342,10 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
+  // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
+  CONTA_LINKS.padrao = trab.contaGoogle || '';
+  CONTA_LINKS.porCliente = {};
+  (clientesIn || []).forEach(c => { if (c && c.contaGoogle) CONTA_LINKS.porCliente[String(c.id)] = c.contaGoogle; });
   const clientes = useMemo(() => {
     const app = (clientesIn || []).filter(c => !/reembolso/i.test(c.nome || ''));
     const extra = {};
