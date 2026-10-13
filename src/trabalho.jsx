@@ -2217,7 +2217,9 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
               <div key={l.id} className={`grid grid-cols-[minmax(0,1fr)_110px_28px] gap-2 px-3 py-2 items-start border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
                 <div className="flex flex-col sm:flex-row gap-1.5 min-w-0">
                   <input value={l.titulo} onChange={e => ed({ titulo: e.target.value })} placeholder="Projeto" className={`${ic} sm:!w-40 font-semibold`} />
-                  <input value={l.resto} onChange={e => ed({ resto: e.target.value })} placeholder=" - 3x New Videos" className={`${ic} flex-1`} />
+                  <textarea rows={1} value={l.resto} onChange={e => ed({ resto: e.target.value.replace(/\n/g, ' ') })} placeholder=" - 3x New Videos" aria-label="Descrição"
+                    ref={el => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } }}
+                    className={`${ic} flex-1 min-w-0 resize-none overflow-hidden leading-snug`} />
                 </div>
                 <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
                 <button type="button" onClick={() => (String(l.id).startsWith('m:') ? setManuais(ms => ms.filter(x => x.id !== l.id)) : ed({ fora: true }))} className={`h-8 text-xs ${sub} hover:text-red-400`} title="Tirar esta linha" aria-label="Tirar esta linha">✕</button>
@@ -2861,6 +2863,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const historico = useRef([]);
   const irPara = v => { setSelEstado(v); setArvoreMob(false); try { localStorage.setItem('trab-sel', JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } };
   const setSel = v => { if (JSON.stringify(v) !== JSON.stringify(sel)) { historico.current = [...historico.current.slice(-30), { sel, aba }]; } irPara(v); };
+  // Pedidos de outros sítios da app (ex.: o calendário de projetos abre uma lista)
+  const setSelRef = useRef(null); setSelRef.current = v => { setSel(v); setAba('tarefas'); };
+  useEffect(() => { const f = e => { const d = e.detail; if (!d) return; if (d.tipo && setSelRef.current) setSelRef.current(d); if (d.sel && setSelRef.current) setSelRef.current(d.sel); if (d.tarefa) setTarefaAbertaRef.current(d.tarefa); window.scrollTo({ top: 0 }); }; window.addEventListener('trab-ir', f); return () => window.removeEventListener('trab-ir', f); }, []);
   const [abertas, setAbertas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-abertas')) || []); } catch (e) { return new Set(); } });
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
   const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || 'tarefas'; } catch (e) { return 'tarefas'; } });
@@ -2886,6 +2891,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     irPara(s2); setAba(a2);
   }, [navSub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tarefaAberta, setTarefaAberta] = useState(() => { try { const t = localStorage.getItem('trab-abrir-tarefa'); localStorage.removeItem('trab-abrir-tarefa'); return t || null; } catch (e) { return null; } });
+  const setTarefaAbertaRef = useRef(null); setTarefaAbertaRef.current = setTarefaAberta;
   const [procura, setProcura] = useState('');
   const [arvoreMob, setArvoreMob] = useState(false);
   const [semArvore, setSemArvore] = useState(() => { try { return localStorage.getItem('trab-sem-arvore') === '1'; } catch (e) { return false; } });
@@ -3046,20 +3052,34 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="lg:hidden flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setArvoreMob(!arvoreMob)} className={`lg:hidden px-3 py-2 text-sm rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'} inline-flex items-center gap-1.5`}><IcoT n="pasta" /> Pastas</button>
-        <button type="button" onClick={alternarArvore} title={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas (mais espaço para as tarefas)'} aria-label={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas'}
-          className={`hidden lg:inline-flex w-9 h-9 items-center justify-center rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-500' : 'border-slate-700 hover:bg-white/5 text-slate-400'}`}>
+
+        <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} flex-1 min-w-[160px] max-w-sm text-sm py-2`} />
+      </div>
+      <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
+      {modo === 'g' && <p className="text-[11px] text-amber-400" title="As regras do Firestore ainda não deixam gravar à parte. Os dados ficam no documento principal.">a gravar no documento principal</p>}
+      <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[330px_minmax(0,1fr)]'}`}>
+        <div className={`${arvoreMob ? 'block' : 'hidden'} ${semArvore ? 'lg:hidden' : 'lg:block'} lg:sticky lg:top-[150px] space-y-2`}>
+          <div className="hidden lg:flex items-center gap-2">
+                    <button type="button" onClick={alternarArvore} title={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas (mais espaço para as tarefas)'} aria-label={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas'}
+          className={`inline-flex shrink-0 w-9 h-9 items-center justify-center rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-500' : 'border-slate-700 hover:bg-white/5 text-slate-400'}`}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />{semArvore ? <path d="m13 10 2 2-2 2" /> : <path d="m16 10-2 2 2 2" />}</svg>
         </button>
-        <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} flex-1 min-w-[160px] max-w-sm text-sm py-2`} />
-        <span className="flex-1" />
-        {modo === 'g' && <span className="text-[11px] text-amber-400" title="As regras do Firestore ainda não deixam gravar à parte. Os dados ficam no documento principal.">a gravar no documento principal</span>}
-        <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
-      </div>
-      <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[330px_minmax(0,1fr)]'}`}>
-        <aside className={`${arvoreMob ? 'block' : 'hidden'} ${semArvore ? 'lg:hidden' : 'lg:block'} lg:sticky lg:top-[150px] rounded-2xl border p-2 lg:max-h-[calc(100vh-170px)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
+            <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" aria-label="Procurar tarefas" className={`${inputClass} flex-1 min-w-0 text-sm py-2`} />
+          </div>
+          <aside className={`rounded-2xl border p-2 lg:max-h-[calc(100vh-220px)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
+        </div>
         <section className="min-w-0 space-y-3">
+          {semArvore && (
+            <div className="hidden lg:flex items-center gap-2 max-w-md">
+                      <button type="button" onClick={alternarArvore} title={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas (mais espaço para as tarefas)'} aria-label={semArvore ? 'Mostrar as pastas' : 'Esconder as pastas'}
+          className={`inline-flex shrink-0 w-9 h-9 items-center justify-center rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-500' : 'border-slate-700 hover:bg-white/5 text-slate-400'}`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />{semArvore ? <path d="m13 10 2 2-2 2" /> : <path d="m16 10-2 2 2 2" />}</svg>
+        </button>
+              <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" aria-label="Procurar tarefas" className={`${inputClass} flex-1 min-w-0 text-sm py-2`} />
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
             <div className="min-w-0 w-full sm:w-auto sm:flex-1">
               {migalhas.length > 0 && <p className={`text-xs truncate ${sub} ${podeVoltar ? 'pl-9' : ''}`}>{migalhas.join(' / ')}</p>}
