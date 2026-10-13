@@ -84,6 +84,26 @@ const derivarChave = async (senha, salt) => {
 const cifrar = async (chave, texto) => { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, chave, new TextEncoder().encode(texto)); return { iv: b64(iv), ct: b64(ct) }; };
 const decifrar = async (chave, c) => new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deB64(c.iv) }, chave, deB64(c.ct)));
 const TEM_CRIPTO = typeof crypto !== 'undefined' && !!crypto.subtle;
+// ── Biometria (Face ID / impressão digital) para abrir o cofre: uma passkey do dispositivo com a extensão PRF
+//    dá um segredo que só sai com a biometria; esse segredo cifra a chave do cofre. Nada disto sai sem estar cifrado.
+const BIO_LS = 'cofre-bio-id';
+const bitsDaSenha = async (senha, salt) => {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(senha), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' }, base, 256));
+};
+const chaveDosBits = bits => crypto.subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+const chaveDoPrf = async bytes => {
+  const base = await crypto.subtle.importKey('raw', bytes, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('cofre-bio-v1'), info: new Uint8Array(0) }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+};
+const prfDaPasskey = async (idB64, salt) => {
+  const r = await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: deB64(idB64) }], userVerification: 'required', timeout: 60000, extensions: { prf: { eval: { first: salt } } } } });
+  const x = r && r.getClientExtensionResults ? r.getClientExtensionResults() : {};
+  const out = x && x.prf && x.prf.results && x.prf.results.first;
+  if (!out) throw new Error('sem-prf');
+  return new Uint8Array(out);
+};
+const nomeDispositivo = () => { const u = typeof navigator !== 'undefined' ? navigator.userAgent : ''; return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : 'Este dispositivo'; };
 
 // ── Modelos de página ──
 const MODELOS = [
@@ -149,7 +169,7 @@ const IC = {
 const Ic = ({ n, className = 'w-4 h-4' }) => <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: IC[n] || '' }} />;
 
 // ── Caixa de diálogo simples (pedir texto / palavra-passe) ──
-const Pedir = ({ titulo, texto, campos, ok, onFechar, claro, perigo }) => {
+const Pedir = ({ titulo, texto, campos, ok, onFechar, claro, perigo, extra }) => {
   const [vals, setVals] = useState(() => Object.fromEntries(campos.map(c => [c.k, c.valor || ''])));
   const [erro, setErro] = useState('');
   const [aguarde, setAguarde] = useState(false);
@@ -171,6 +191,7 @@ const Pedir = ({ titulo, texto, campos, ok, onFechar, claro, perigo }) => {
         ))}
         {erro && <p className="text-sm text-red-400">{erro}</p>}
         <div className="flex justify-end gap-2 pt-1">
+          {extra && <button type="button" onClick={extra.fn} disabled={aguarde} className="mr-auto inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10">{extra.txt}</button>}
           <button type="button" onClick={onFechar} disabled={aguarde} className={`px-3 py-2 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
           <button type="submit" disabled={aguarde} className={`px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-60 ${perigo ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{aguarde ? 'Um momento…' : 'OK'}</button>
         </div>
@@ -1329,6 +1350,13 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   }, [cofreModal]);
   const [importar, setImportar] = useState(null); // secção de destino // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
+  const [bioPode, setBioPode] = useState(false);
+  const [bioId, setBioId] = useState(() => { try { return localStorage.getItem(BIO_LS) || null; } catch (e) { return null; } });
+  useEffect(() => {
+    let vivo = true;
+    try { if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(v => { if (vivo) setBioPode(!!v); }).catch(() => {}); } catch (e) { /* sem suporte */ }
+    return () => { vivo = false; };
+  }, []);
   const chaveAtual = chave;
   const [titulosC, setTitulosC] = useState({});
   const [larguraTelemovel, setLarguraTelemovel] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
@@ -1560,11 +1588,25 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       setPedir(null); if (showToast) showToast('Verificação em 2 passos desligada.'); return '';
     },
   });
-  const pedirDesbloquear = (depois = null) => {
+  const bioReg = ix.cofre && ix.cofre.bio && bioId ? ix.cofre.bio[bioId] : null;
+  const abrirComBio = async () => {
+    const out = await prfDaPasskey(bioId, deB64(bioReg.salt));
+    const bits = deB64(await decifrar(await chaveDoPrf(out), bioReg.emb));
+    const k = await chaveDosBits(bits);
+    if ((await decifrar(k, ix.cofre.verif)) !== 'cofre-ok') throw new Error('chave-antiga');
+    return k;
+  };
+  const pedirDesbloquear = (depois = null, semBio = false) => {
     if (!TEM_CRIPTO) { if (showToast) showToast('Este browser não tem cifra disponível.', 'error'); return; }
     if (!ix.cofre) { criarCofre(depois); return; }
+    if (bioReg && !semBio) {
+      abrirComBio().then(k => { ultimaAtividade.current = Date.now(); setChave(k); setPedir(null); if (depois) setTimeout(() => depois(k), 0); })
+        .catch(e => { if (e && e.message === 'chave-antiga' && showToast) showToast('A biometria deste dispositivo já não serve (a palavra-passe mudou?). Usa a palavra-passe e volta a ligá-la.', 'error'); pedirDesbloquear(depois, true); });
+      return;
+    }
     setPedir({
       titulo: 'Desbloquear notas protegidas', texto: 'Escreve a palavra-passe das notas protegidas.', campos: [{ k: 'p', tipo: 'password', ph: 'Palavra-passe' }],
+      extra: bioReg ? { txt: 'Usar biometria', fn: () => { setPedir(null); pedirDesbloquear(depois); } } : null,
       ok: async v => {
         try {
           const k = await derivarChave(v.p, deB64(ix.cofre.salt));
@@ -1585,6 +1627,46 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         } catch (e) { return 'Palavra-passe errada.'; }
       },
     });
+  };
+  const ligarBio = async () => {
+    if (!ix.cofre || !navigator.credentials) return;
+    const salt = crypto.getRandomValues(new Uint8Array(32));
+    let cred;
+    try {
+      cred = await navigator.credentials.create({ publicKey: {
+        rp: { name: 'Dashboard — cofre das notas' },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'cofre', displayName: 'Cofre das notas' },
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+        timeout: 60000,
+        extensions: { prf: { eval: { first: salt } } },
+      } });
+    } catch (e) { if (showToast) showToast('A biometria foi cancelada ou não está disponível.', 'error'); return; }
+    const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+    if (ext.prf && ext.prf.enabled === false) { if (showToast) showToast('Este dispositivo não deixa usar a biometria para isto (precisa de iOS 18 / Android recente).', 'error'); return; }
+    const id = b64(cred.rawId);
+    let out = ext.prf && ext.prf.results && ext.prf.results.first ? new Uint8Array(ext.prf.results.first) : null;
+    setPedir({
+      titulo: 'Ligar a biometria', texto: 'Confirma a palavra-passe do cofre (só desta vez). Depois, neste dispositivo, abres o cofre com o Face ID / impressão digital.', campos: [{ k: 'p', tipo: 'password', ph: 'Palavra-passe' }],
+      ok: async v => {
+        try { if (!out) out = await prfDaPasskey(id, salt); } catch (e) { return 'A biometria não respondeu (ou este dispositivo não a deixa usar para isto). Tenta outra vez.'; }
+        const bits = await bitsDaSenha(v.p, deB64(ix.cofre.salt));
+        try { if ((await decifrar(await chaveDosBits(bits), ix.cofre.verif)) !== 'cofre-ok') return 'Palavra-passe errada.'; } catch (e) { return 'Palavra-passe errada.'; }
+        const emb = await cifrar(await chaveDoPrf(out), b64(bits));
+        mudarIndice(i => ({ ...i, cofre: { ...(i.cofre || {}), bio: { ...((i.cofre || {}).bio || {}), [id]: { salt: b64(salt), emb, nome: nomeDispositivo(), criado: agora() } } } }));
+        try { localStorage.setItem(BIO_LS, id); } catch (e) { /* sem armazenamento */ }
+        setBioId(id); setPedir(null);
+        if (showToast) showToast('Pronto: neste dispositivo o cofre abre com a biometria.');
+        return '';
+      },
+    });
+  };
+  const desligarBio = () => {
+    if (!window.confirm('Deixar de abrir o cofre com a biometria neste dispositivo?')) return;
+    mudarIndice(i => { const bio = { ...((i.cofre || {}).bio || {}) }; delete bio[bioId]; return { ...i, cofre: { ...(i.cofre || {}), bio } }; });
+    try { localStorage.removeItem(BIO_LS); } catch (e) { /* sem armazenamento */ }
+    setBioId(null);
   };
   const criarCofre = (depois = null) => setPedir({
     titulo: 'Criar a palavra-passe das notas protegidas',
@@ -1751,6 +1833,9 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         })}
       </div>
       {chave && <button type="button" onClick={trancar} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-lg border border-amber-400/40 text-amber-400 hover:bg-amber-400/10"><Ic n="cadeado" className="w-3.5 h-3.5" /> Trancar as notas protegidas</button>}
+      {chave && ix.cofre && (bioReg
+        ? <button type="button" onClick={desligarBio} className={`w-full text-[11px] ${sub} hover:text-red-400`}>✓ Abre com biometria neste dispositivo · desligar</button>
+        : bioPode && <button type="button" onClick={ligarBio} className={`w-full text-[11px] ${sub} hover:text-blue-400`}>+ Abrir com Face ID / impressão digital neste dispositivo</button>)}
       {chave && ix.cofre && (ix.cofre.otpC
         ? <button type="button" onClick={desligar2FA} className={`w-full text-[11px] ${sub} hover:text-red-400`}>✓ Verificação em 2 passos ligada · desligar</button>
         : <button type="button" onClick={() => setAtivar2fa(true)} className={`w-full text-[11px] ${sub} hover:text-blue-400`}>+ Pedir também um código do telemóvel para abrir</button>)}
@@ -1873,9 +1958,9 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const modalCofre = emGrelha && cofreModal && pagina && pagina.seccaoId === secao.id && !larguraTelemovel ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 lg:p-8 animate-backdropIn backdrop-blur-md" style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}
       onMouseDown={e => { if (e.target === e.currentTarget) fecharModal(); }}>
-      <div className="relative w-full max-w-3xl max-h-full overflow-y-auto rounded-2xl shadow-2xl animate-modalIn">
-        <button type="button" onClick={fecharModal} className={`absolute right-3 top-3 z-10 w-8 h-8 rounded-lg ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button>
-        <div className={claro ? 'bg-white rounded-2xl' : 'bg-slate-900 rounded-2xl'}>{editor}</div>
+      <div className="relative w-full max-w-3xl max-h-full flex animate-modalIn">
+        <button type="button" onClick={fecharModal} className={`absolute top-1 -right-12 w-9 h-9 inline-flex items-center justify-center rounded-full shadow-lg ${claro ? 'bg-white text-slate-600 hover:bg-slate-100' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`} aria-label="Fechar" title="Fechar (Esc)">✕</button>
+        <div className={`flex-1 min-w-0 overflow-y-auto rounded-2xl shadow-2xl ${claro ? 'bg-white' : 'bg-slate-900'}`}>{editor}</div>
       </div>
     </div>
   ) : null;
