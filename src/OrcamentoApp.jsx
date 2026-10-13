@@ -541,11 +541,46 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Notas que falam de um cliente / jogo / tarefa (para mostrar no Trabalho)
   const notasDe = useCallback((tipo, id) => ((notasIndice && notasIndice.paginas) || []).filter(p => (p.tags || []).some(t => t.t === tipo && String(t.id) === String(id))).sort((a, b) => String(b.editada || b.criada).localeCompare(String(a.editada || a.criada))), [notasIndice]);
 
+  // Trabalho e Notas vivem em documentos à parte: juntam-se às cópias de segurança
+  const extrasRef = useRef(null);
+  const juntarExtras = async () => {
+    const out = {};
+    try { const T = trabDocRef.current || gTrabRef.current; if (T) out.trab = JSON.parse(JSON.stringify(T)); } catch (e) { /* sem trabalho */ }
+    try {
+      const ix = notasDocRef.current || (gNotasRef.current && gNotasRef.current.idx);
+      if (ix) {
+        const paginas = {};
+        const ids = (ix.paginas || []).map(p => p.id);
+        for (let i = 0; i < ids.length; i += 10) {
+          const lote = await Promise.all(ids.slice(i, i + 10).map(id => lerNotaApp(id).catch(() => null)));
+          lote.forEach((d, k) => { if (d) paginas[ids[i + k]] = d; });
+        }
+        out.notas = { indice: JSON.parse(JSON.stringify(ix)), paginas };
+      }
+    } catch (e) { console.error('Backup das notas:', e); }
+    return out;
+  };
+  extrasRef.current = juntarExtras;
+  const abrirBackupJson = async () => {
+    const extra = await juntarExtras();
+    setBackupData(JSON.stringify({ g: G, m: M, ...extra, version: 2, exportDate: new Date().toISOString() }, null, 2));
+    setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true);
+  };
+  const restaurarExtras = async data => {
+    if (data.trab && typeof data.trab === 'object') mudarTrab(() => ({ ...TRAB_VAZIO, ...data.trab }));
+    if (data.notas && data.notas.indice) {
+      mudarNotas(() => data.notas.indice);
+      const pags = Object.entries(data.notas.paginas || {});
+      for (const [id, d] of pags) { try { await guardarNotaApp(id, d); } catch (e) { console.error('Restaurar nota:', e); } }
+    }
+  };
+
   // Cópia de segurança num clique: descarrega tudo num ficheiro e regista a data
-  const fazerBackup = useCallback(() => {
+  const fazerBackup = useCallback(async () => {
     try {
       const hoje = patIso(new Date());
-      const conteudo = JSON.stringify({ g: { ...G, ultimoBackup: hoje }, m: M, version: 1, exportDate: new Date().toISOString() });
+      const extra = await (extrasRef.current ? extrasRef.current() : {});
+      const conteudo = JSON.stringify({ g: { ...G, ultimoBackup: hoje }, m: M, ...extra, version: 2, exportDate: new Date().toISOString() });
       const url = URL.createObjectURL(new Blob([conteudo], { type: 'application/json' }));
       const a = document.createElement('a');
       a.href = url; a.download = `backup-orcamento-${hoje}.json`;
@@ -571,7 +606,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         if (lista[0] && Date.now() - Date.parse(lista[0].id) < 7 * 864e5) { setUltimaCopiaAuto(lista[0].id); return; }
         const { G: g, M: m } = gmCopiaRef.current || {};
         if (!g || !m || !Object.keys(m).length) return;
-        await copiasLocais.guardar(JSON.stringify({ g, m, version: 1, exportDate: new Date().toISOString(), automatica: true }));
+        const extra = await (extrasRef.current ? extrasRef.current() : {});
+        await copiasLocais.guardar(JSON.stringify({ g, m, ...extra, version: 2, exportDate: new Date().toISOString(), automatica: true }));
         setUltimaCopiaAuto(new Date().toISOString());
       } catch (e) { /* browser sem IndexedDB: fica só a cópia manual */ }
     }, 15000);
@@ -12672,7 +12708,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  saveUndo();
  setG(data.g);
  setM(data.m);
- setBackupStatus('✅ Dados importados com sucesso!');
+ restaurarExtras(data);
+ setBackupStatus(`✅ Dados importados com sucesso!${data.trab ? ' (com o Trabalho' + (data.notas ? ' e as Notas)' : ')') : data.notas ? ' (com as Notas)' : ''}`);
  setTimeout(() => setShowBackupModal(false), 1500);
  } else {
  setBackupStatus('❌ Formato de backup inválido!');
@@ -12955,7 +12992,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <button onClick={() => { fazerBackup(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Cópia de segurança (descarregar){diasSemBackup != null ? ` · há ${diasSemBackup} ${diasSemBackup === 1 ? 'dia' : 'dias'}` : ''}</button>
        <button onClick={() => { abrirCopias(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>🕘 Cópias automáticas{ultimaCopiaAuto ? ` · última ${new Date(ultimaCopiaAuto).toLocaleDateString('pt-PT')}` : ''}</button>
        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
-       <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
+       <button onClick={() => { setShowExportMenu(false); abrirBackupJson(); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
      </div>
    </>
  )}
@@ -13516,7 +13553,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            <div>
              <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Dados</h4>
              <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-               <button onClick={() => { const data = { g: G, m: M, version: 1, exportDate: new Date().toISOString() }; setBackupData(JSON.stringify(data, null, 2)); setBackupMode('export'); setBackupStatus(''); setShowBackupModal(true); setShowSidebar(false); }}
+               <button onClick={() => { setShowSidebar(false); abrirBackupJson(); }}
                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
                  <span>💾</span> Exportar backup JSON
                </button>
