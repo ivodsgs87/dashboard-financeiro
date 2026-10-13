@@ -1648,7 +1648,7 @@ const nomesFicheiros = (trab, t) => {
   const tipoP = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro');
   const tipo = slugF(fx.tipo) || (tipoP ? (TIPO_FICHEIRO[tipoP.tipo] || slugF(tipoP.tipo).slice(0, 3)) : 'VID');
   const conceito = slugF(fx.conceito || conceitoDoNome(t.nome));
-  const versao = fx.versao ? `V${String(fx.versao).replace(/^v/i, '')}` : '';
+  const versao = `V${String(fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || '1').replace(/^v/i, '')}`; // sem versão: V1
   const variacao = slugF(fx.variacao);
   const dia = fx.data || trabDia(new Date().toISOString()); // a data do nome é a do dia do export, a não ser que escolhas outra
   const ddmmyy = dia ? `${dia.slice(8, 10)}${dia.slice(5, 7)}${dia.slice(2, 4)}` : '';
@@ -1793,7 +1793,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const fx = t.ficheiros || {};
   // Versão: a que escreveste; senão a da última vez que esta tarefa foi enviada; senão a adivinhada pelo Drive
   const versaoAnterior = (() => { const m = t.drive && /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
-  const versaoDe = v => String(fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
+  const versaoConfirmada = v => String(fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
+  const versaoDe = v => versaoConfirmada(v) || '1'; // sem versão em lado nenhum: V1 (o Drive confirma ao enviar)
   const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
   const durDe = item => fx.duracao || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
@@ -1820,9 +1821,17 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     const tk = tokenGuardado();
     if (tk && raiz && r.conceito && !fx.versao && !versaoAnterior && !verSug) { try { setVerSug(await adivinharVersao(tk)); } catch (e) { /* adivinha ao enviar */ } }
   };
-  const temVersao = !!versaoDe(verSug);
+  const temVersao = !!versaoConfirmada(verSug);
   const comHandle = lista.filter(x => x.handle && x.formato && x.estado !== 'feito');
   const renomearAgora = async () => {
+    if (!temVersao && raiz && r.conceito) {
+      try {
+        const tk = tokenGuardado() || await tokenDrive(conta);
+        const v = await adivinharVersao(tk); setVerSug(v);
+        setMsg(`Versão confirmada no Drive: V${v}. Carrega outra vez em "Renomear no PC".`);
+        return; // o browser pede um clique novo para deixar mexer nos ficheiros
+      } catch (e) { setMsg(`⚠ ${e.message || e}`); return; }
+    }
     let ok = 0, falhou = 0;
     for (const it of comHandle) {
       const h = it.handle; const novo = nomeFinal(it);
@@ -1921,7 +1930,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-sm font-medium flex-1">Enviar para o Drive</p>
-        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.conceito ? ` › ${versaoDe(verSug) ? baseDe(verSug) : [r.conceito, 'V?', slugF(fx.variacao)].filter(Boolean).join('_')}` : ''}</span>}
+        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.conceito ? ` › ${baseDe(verSug)}` : ''}</span>}
       </div>
       {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
         <>
@@ -1960,7 +1969,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="flex-1" />
                 {comHandle.length > 0 ? (
-                  <button type="button" disabled={aEnviar || !temVersao || comHandle.every(x => x.renomeado)} onClick={renomearAgora} title={!temVersao ? 'Escreve a versão (ou envia primeiro, que a app vê a versão no Drive)' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
+                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado)} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏️ Renomear no PC'}</button>
                 ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
@@ -1968,7 +1977,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             </div>
           )}
           {lista.length > 0 && !fx.versao && (
-            <p className={`text-[11px] ${sub}`}>Versão: {versaoAnterior || verSug ? <b>V{versaoAnterior || verSug}</b> : 'vê-se no Drive ao enviar'} {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : ''} · para outra, escreve-a em "Versão" acima.</p>
+            <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
           {renomeados && renomeados.length > 0 && (
