@@ -8300,6 +8300,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [showProjetos, setShowProjetos] = useState(true);
    const [projFeitosAbertos, setProjFeitosAbertos] = useState(false);
    const [sugProj, setSugProj] = useState(false);
+   const [feriasPassadasAbertas, setFeriasPassadasAbertas] = useState(false);
    // Plano do resto do mês (distribuir o trabalho que falta pelos dias úteis)
    const [planoAberto, setPlanoAberto] = useState(false);
    const [horasDia, setHorasDia] = useState(() => { try { return Number(localStorage.getItem('plano-horas')) || 6; } catch (e) { return 6; } });
@@ -9034,7 +9035,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {(() => {
          const hojeD = new Date(); hojeD.setHours(0, 0, 0, 0);
          const dt = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d; };
-         const curto = d => d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' }).replace('.', '');
+         const MES_CP = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+         const curto = d => `${d.getDate()} ${MES_CP[d.getMonth()]}`;
          const intervalo = (a, b) => { const ia = dt(a), ib = dt(b); const ano = ib.getFullYear() !== hojeD.getFullYear() ? ` ${ib.getFullYear()}` : ''; return +ia === +ib ? `${curto(ia)}${ano}` : `${curto(ia)} – ${curto(ib)}${ano}`; };
          const lista = [...projetos].sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio));
          const grupos = [
@@ -9100,53 +9102,66 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        })()}
        
        {/* Lista de Férias */}
-       <Card>
-         <div className="flex justify-between items-center mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="🏖️"/>Férias</h3>
-           <span className="text-sm text-slate-400">{feriasLista.length} período(s)</span>
-         </div>
-         
-         {feriasLista.length === 0 ? (
-           <p className="text-slate-500 text-center py-6">Nenhum período de férias registado.</p>
-         ) : (
-           <div className="space-y-2">
-             {[...feriasLista].sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)).map(f => {
-               const isMinhas = f.quem === 'eu';
-               const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
-               const inicio = new Date(f.dataInicio);
-               const fim = new Date(f.dataFim);
-               const diasTotal = Math.ceil((fim - inicio) / (1000 * 60 * 60 * 24)) + 1;
-               const cor = isMinhas ? '#06b6d4' : '#f59e0b';
-               const hojeDate = new Date();
-               const status = hojeDate > fim ? 'passado' : hojeDate >= inicio ? 'ativo' : 'futuro';
-               
+       {(() => {
+         const hojeD = new Date(); hojeD.setHours(0, 0, 0, 0);
+         const dt = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d; };
+         const MES_C = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+         const dm = d => `${d.getDate()} ${MES_C[d.getMonth()]}`;
+         const intervalo = (a, b) => { const ia = dt(a), ib = dt(b); const ano = ib.getFullYear() !== hojeD.getFullYear() ? ` ${ib.getFullYear()}` : ''; return +ia === +ib ? `${dm(ia)}${ano}` : `${dm(ia)} – ${dm(ib)}${ano}`; };
+         const uteis = (a, b) => { let n = 0; for (let d = dt(a); d <= dt(b); d.setDate(d.getDate() + 1)) { const w = d.getDay(); if (w !== 0 && w !== 6) n++; } return n; };
+         const ord = [...feriasLista].sort((a, b) => new Date(a.dataInicio) - new Date(b.dataInicio));
+         const grupos = [
+           ['agora', 'A decorrer e próximas', ord.filter(f => dt(f.dataFim) >= hojeD)],
+           ['passadas', 'Passadas', ord.filter(f => dt(f.dataFim) < hojeD).reverse()],
+         ];
+         const claroF = theme === 'light';
+         const linha = f => {
+           const minhas = f.quem === 'eu';
+           const cliente = !minhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
+           const cor = minhas ? '#06b6d4' : (cliente && cliente.cor) || '#f59e0b';
+           const ini = dt(f.dataInicio), fim = dt(f.dataFim);
+           const dias = Math.round((fim - ini) / 86400000) + 1;
+           const agora = ini <= hojeD && fim >= hojeD;
+           const passada = fim < hojeD;
+           return (
+             <div key={f.id} className={`group flex items-center gap-3 pl-2 pr-1 h-11 rounded-lg ${claroF ? 'hover:bg-slate-100' : 'hover:bg-white/[0.04]'} ${passada ? 'opacity-60' : ''}`}>
+               <span className="w-1 h-6 rounded-full shrink-0" style={{ background: cor }} />
+               <span className="min-w-0 truncate text-sm font-medium">{minhas ? 'As minhas férias' : `${cliente?.nome || 'Cliente'} de férias`}</span>
+               {agora && <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 shrink-0">a decorrer</span>}
+               {f.gcalEventId && <span className="text-[11px] text-blue-400 shrink-0" title="No Google Calendar">G</span>}
+               {f.notas && <span className="hidden sm:inline min-w-0 truncate text-xs text-slate-500">{f.notas}</span>}
+               <span className="flex-1" />
+               <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap shrink-0">{intervalo(f.dataInicio, f.dataFim)}<span className="hidden sm:inline"> · {dias} dia{dias === 1 ? '' : 's'}{minhas ? ` (${uteis(f.dataInicio, f.dataFim)} úteis)` : ''}</span></span>
+               <span className="flex items-center shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
+                 <button type="button" onClick={() => { setEditFerias(f); setNovasFerias(f); setShowAddFerias(true); }} className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-blue-400" title="Editar" aria-label="Editar férias">
+                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.5 4.5l5 5L9 20H4v-5z"/></svg></button>
+                 <button type="button" onClick={() => deleteFerias(f.id)} className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-red-400" title="Apagar" aria-label="Apagar férias">
+                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+               </span>
+             </div>
+           );
+         };
+         return (
+           <Card>
+             <div className="flex justify-between items-center mb-2">
+               <h3 className="text-lg font-semibold"><Ico e="🏖️"/>Férias</h3>
+               <button type="button" onClick={() => { setShowAddFerias(true); setEditFerias(null); setNovasFerias({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' }); }} className="text-xs text-cyan-400 hover:text-cyan-300">+ Férias</button>
+             </div>
+             {feriasLista.length === 0 ? <p className="text-slate-500 text-center py-6 text-sm">Nenhum período de férias registado. As tuas férias contam no plano do mês (não se trabalha nesses dias).</p> : grupos.map(([id, nome, l]) => {
+               if (!l.length) return null;
+               const fechado = id === 'passadas' && !feriasPassadasAbertas;
                return (
-                 <div key={f.id} className={`flex items-center gap-3 p-3 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 ${status === 'passado' ? 'opacity-60' : ''}`}>
-                   <div className="text-2xl">{isMinhas ? '🏖️' : '✈️'}</div>
-                   <div className="w-1 h-10 rounded-full" style={{ background: cor }} />
-                   <div className="flex-1 min-w-0">
-                     <div className="flex items-center gap-2">
-                       <span className="font-medium">{isMinhas ? 'Minhas Férias' : `Férias ${cliente?.nome || 'Cliente'}`}</span>
-                       {f.gcalEventId && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full" title="Sincronizado com Google Calendar">📅</span>}
-                       {status === 'ativo' && <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">A decorrer</span>}
-                       {status === 'futuro' && <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">Agendado</span>}
-                     </div>
-                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                       <span>{inicio.toLocaleDateString('pt-PT')} → {fim.toLocaleDateString('pt-PT')}</span>
-                       <span>({diasTotal} dias)</span>
-                       {f.notas && <span className="text-slate-500 truncate max-w-[150px]">• {f.notas}</span>}
-                     </div>
-                   </div>
-                   <div className="flex gap-1">
-                     <button onClick={() => { setEditFerias(f); setNovasFerias(f); setShowAddFerias(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg" title="Editar">✏️</button>
-                     <button onClick={() => deleteFerias(f.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg" title="Apagar">🗑️</button>
-                   </div>
+                 <div key={id} className="mt-3 first:mt-0">
+                   <button type="button" onClick={() => id === 'passadas' && setFeriasPassadasAbertas(v => !v)} className={`px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 ${id === 'passadas' ? 'hover:opacity-80' : 'cursor-default'}`}>
+                     {id === 'passadas' ? (fechado ? '▸ ' : '▾ ') : ''}{nome} <span className="font-normal">{l.length}</span>
+                   </button>
+                   {!fechado && <div>{l.map(linha)}</div>}
                  </div>
                );
              })}
-           </div>
-         )}
-       </Card>
+           </Card>
+         );
+       })()}
        
        {/* Modal Adicionar/Editar Férias */}
        {showAddFerias && (
