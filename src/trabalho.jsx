@@ -2044,7 +2044,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
   const ic = `${inputClass} text-sm py-1.5`;
-  const [mes, setMes] = useState(() => ({ a: ano, m: mesNum }));
+  const [mes, setMes] = useState(() => { try { const x = localStorage.getItem('trab-fat-mes'); localStorage.removeItem('trab-fat-mes'); if (x) { const [a, m] = x.split('-').map(Number); if (a && m) return { a, m }; } } catch (e) { /* sem armazenamento */ } return { a: ano, m: mesNum }; });
   const pref = `${mes.a}-${String(mes.m).padStart(2, '0')}-`;
   const mesK = pref.slice(0, 7);
   const cid = c.id;
@@ -2216,7 +2216,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             return (
               <div key={l.id} className={`grid grid-cols-[minmax(0,1fr)_110px_28px] gap-2 px-3 py-2 items-start border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
                 <div className="flex flex-col sm:flex-row gap-1.5 min-w-0">
-                  <input value={l.titulo} onChange={e => ed({ titulo: e.target.value })} placeholder="Jogo" className={`${ic} sm:!w-40 font-semibold`} />
+                  <input value={l.titulo} onChange={e => ed({ titulo: e.target.value })} placeholder="Projeto" className={`${ic} sm:!w-40 font-semibold`} />
                   <input value={l.resto} onChange={e => ed({ resto: e.target.value })} placeholder=" - 3x New Videos" className={`${ic} flex-1`} />
                 </div>
                 <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
@@ -2403,6 +2403,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             </Campo>
             <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
             <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
+            <Campo rot="Lembretes" largo><label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente (não lembrar nos Passos do mês)</label></Campo>
             <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
             <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
             <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder="0" onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
