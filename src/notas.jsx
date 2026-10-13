@@ -110,6 +110,7 @@ const MODELOS = [
   { id: 'branco', nome: 'Página em branco', titulo: '', html: '' },
   { id: 'reuniao', nome: 'Reunião', titulo: () => `Reunião ${dataLonga(agora())}`, html: () => `<p><b>Data:</b> ${dataLonga(agora())}, ${horaTxt(agora())}</p><p><b>Com:</b> </p><h2>Notas</h2><ul><li><br></li></ul><h2>Próximos passos</h2><ul data-chk="1"><li data-ok="0"><br></li></ul>` },
   { id: 'brief', nome: 'Brief de criativo', titulo: 'Brief', html: '<h2>Objetivo</h2><p><br></p><h2>Público</h2><p><br></p><h2>Formatos</h2><ul data-chk="1"><li data-ok="0">9:16</li><li data-ok="0">4:5</li><li data-ok="0">16:9</li></ul><h2>Referências</h2><p><br></p><h2>Prazo</h2><p><br></p>' },
+  { id: 'compras', nome: 'Lista de compras', tipo: 'compras', titulo: () => `Compras ${dataLonga(agora())}`, html: '<ul data-chk="1"><li data-ok="0"><br></li></ul>' },
   { id: 'todo', nome: 'Lista de tarefas', titulo: () => { const d = new Date(); return `${MESES[d.getMonth()].replace(/^./, x => x.toUpperCase())} ${String(d.getFullYear()).slice(2)}`; }, html: '<ul data-chk="1"><li data-ok="0"><br></li></ul>' },
 ];
 const valorDe = (x, ...a) => (typeof x === 'function' ? x(...a) : x);
@@ -501,7 +502,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
 };
 
 // ── Uma página aberta: título, data, editor; grava sozinha ──
-const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade, ouvirPagina, partilhada }) => {
+const PaginaAberta = ({ onPlanearCompras, historicoCompras, meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade, ouvirPagina, partilhada }) => {
   const [conteudo, setConteudo] = useState(undefined); // undefined = a carregar; null = erro
   const [estado, setEstado] = useState('');
   const protegida = !!(seccao && seccao.protegida);
@@ -548,7 +549,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
       } else {
         ultimoGravado.current = html;
         await guardarPagina(meta.id, { html, editada: agora() });
-        mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: tituloRef.current, txt: txt.slice(0, 600), tags: tagsDe(html), editada: agora() } : p)) }));
+        mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: tituloRef.current, txt: txt.slice(0, 600), tags: tagsDe(html), editada: agora(), ...(ehCompras(p, tituloRef.current) ? { itens: todosItens(html).slice(0, 80) } : {}) } : p)) }));
       }
       setEstado('Gravado');
     } catch (e) { console.error('Nota:', e); sujo.current = true; setEstado('Não consegui gravar — tento outra vez'); clearTimeout(timer.current); timer.current = setTimeout(gravar, 4000); }
@@ -579,6 +580,10 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
         {onVoltar && <button type="button" onClick={onVoltar} className={`lg:hidden -ml-2 w-9 h-9 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} aria-label="Voltar"><Ic n="voltar" className="w-5 h-5" /></button>}
         <span className={`text-xs truncate ${sub}`}>{seccao ? seccao.nome : ''}{partilhada && <span className="inline-flex items-center gap-1 ml-2 text-emerald-500"><Ic n="pessoas" className="w-3.5 h-3.5" /> partilhada</span>}{protegida && <span className="inline-flex items-center gap-1 ml-2 text-amber-400"><Ic n="cadeado" className="w-3.5 h-3.5" /> protegida</span>}</span>
         <span className="flex-1" />
+        {onPlanearCompras && !senha && typeof conteudo === 'string' && conteudo !== '__trancada' && /data-chk/.test(htmlRef.current || conteudo) && (
+          <button type="button" onClick={() => { const l = itensDaLista(htmlRef.current || conteudo); if (!l.length) { if (showToast) showToast('Não há nada por comprar (tudo riscado).', 'error'); return; } onPlanearCompras(l, tituloRef.current || 'Lista'); }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/10'}`} title="Organizar por loja, com preços estimados e trocas mais saudáveis">✨ Planear compras</button>
+        )}
         <span className={`text-xs ${sub}`} aria-live="polite">{estado}</span>
         <button type="button" onClick={() => mudarIndice(i => ({ ...i, paginas: i.paginas.map(x => (x.id === meta.id ? { ...x, fav: !x.fav } : x)) }))} aria-pressed={!!meta.fav}
           className={`w-8 h-8 inline-flex items-center justify-center rounded-lg ${meta.fav ? 'text-amber-400' : claro ? 'text-slate-400 hover:text-amber-500 hover:bg-slate-200/70' : 'text-slate-500 hover:text-amber-400 hover:bg-white/10'}`}
@@ -615,6 +620,28 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
               </div>
             )}
             <div className="px-4 sm:px-6 -mx-4 sm:-mx-6 mt-2">
+              {historicoCompras && ehCompras(meta, tituloRef.current) && !protegida && (() => {
+                const ja = new Set(todosItens(htmlRef.current || conteudo).map(normProduto));
+                const sug = historicoCompras.filter(h => !ja.has(h.k)).slice(0, 16);
+                if (!sug.length) return null;
+                const juntar = nome => {
+                  const d = new DOMParser().parseFromString(`<div>${htmlRef.current || ''}</div>`, 'text/html');
+                  const raiz = d.body.firstChild;
+                  let ul = raiz.querySelector('ul[data-chk]');
+                  if (!ul) { ul = d.createElement('ul'); ul.setAttribute('data-chk', '1'); raiz.appendChild(ul); }
+                  const vazio = Array.from(ul.children).find(li => !li.textContent.trim() && li.getAttribute('data-ok') !== '1');
+                  const li = vazio || d.createElement('li');
+                  li.textContent = nome; li.setAttribute('data-ok', '0');
+                  if (!vazio) ul.appendChild(li);
+                  htmlRef.current = raiz.innerHTML; setConteudo(htmlRef.current); setVersao(v => v + 1); agendar();
+                };
+                return (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`text-xs ${sub}`}>Costumas comprar:</span>
+                    {sug.map(h => <button key={h.k} type="button" onClick={() => juntar(h.nome)} title={`Em ${h.n} lista${h.n === 1 ? '' : 's'}`} className={`px-2 py-0.5 rounded-full text-xs border ${claro ? 'border-slate-200 hover:bg-emerald-50 hover:border-emerald-300' : 'border-slate-600 hover:bg-emerald-500/10 hover:border-emerald-500/50'}`}>+ {h.nome}</button>)}
+                  </div>
+                );
+              })()}
               <Editor key={`${meta.id}:${versao}`} html={conteudo} claro={claro} entidades={protegida ? [] : entidades} onIrEntidade={onIrEntidade} protegida={protegida}
                 onEnviarImagem={enviarImagem ? (nome, f) => enviarImagem(`notas/${meta.id}/${nome}`, f) : null} showToast={showToast}
                 onMudar={h => { htmlRef.current = h; agendar(); }} />
@@ -1253,6 +1280,110 @@ const CofreGrelha = ({ paginas, tituloDe, chave, lerPagina, claro, sub, avisar, 
   );
 };
 
+// Listas de compras: as páginas criadas com o modelo (ou com "compra" no título) guardam os produtos no índice,
+// para a app sugerir o que costumas comprar
+const ehCompras = (p, titulo) => { const t = String(titulo != null ? titulo : (p && p.titulo) || ''); return !!(p && !/^plano de compras/i.test(t) && (p.tipo === 'compras' || /compra|mercearia|supermercado/i.test(t))); };
+const todosItens = html => {
+  const d = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
+  return Array.from(d.querySelectorAll('ul[data-chk] > li')).map(li => li.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+};
+const normProduto = x => norm(x).replace(/^\d+([.,]\d+)?\s*(x|kg|g|l|un|uni|pacotes?|latas?|garrafas?)?\s+/, '').replace(/\s*[-—(].*$/, '').trim();
+// ── Planear compras: a IA da app (Gemini) organiza a lista por loja, com preços estimados e trocas mais saudáveis ──
+const itensDaLista = html => {
+  const d = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
+  return Array.from(d.querySelectorAll('ul[data-chk] > li')).filter(li => li.getAttribute('data-ok') !== '1').map(li => li.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+};
+const REGRAS_COMPRAS = `PEDIDO ESPECIAL — planear compras de supermercado (ignora a parte das finanças e o resumo).
+Responde APENAS com JSON válido, sem texto antes nem depois, neste formato:
+{"lojas":[{"loja":"Lidl","porque":"frase curta","itens":[{"p":"Bananas","q":"1 kg","eur":1.2,"nota":"da época"}]}],"trocas":[{"de":"Bolachas","para":"Flocos de aveia","porque":"menos açúcar"}],"dicas":["frase curta"],"total":12.5}
+Regras:
+- Cada produto da lista aparece uma vez, numa só loja. Usa o menor número de lojas que compense (normalmente 1 a 3) e diz em "porque" a razão (ex.: fruta mais barata no mercado).
+- Usa só lojas da lista de lojas indicada. Ordena os itens de cada loja pela ordem habitual dos corredores.
+- "q" é a quantidade sugerida (ou a que vem na lista). "eur" é o preço típico estimado em euros em Portugal (número). "total" é a soma.
+- "nota": no máximo 6 palavras e só quando ajuda (marca branca, a granel, da época, congelado mais barato).
+- "trocas": no máximo 5, só quando há alternativa claramente mais saudável ou mais barata, respeitando as preferências.
+- "dicas": no máximo 3. Tudo em português de Portugal, curto.`;
+const PlanearCompras = ({ itens, titulo, claro, sub, perguntarIA, onGuardar, onFechar }) => {
+  const ler = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+  const [lojas, setLojas] = useState(() => ler('compras-lojas', 'Lidl, Continente, Pingo Doce, Mercadona, mercado / frutaria do bairro'));
+  const [pref, setPref] = useState(() => ler('compras-pref', ''));
+  const [zona, setZona] = useState(() => ler('compras-zona', 'Grande Lisboa'));
+  const [plano, setPlano] = useState(null);
+  const [bruto, setBruto] = useState('');
+  const [erro, setErro] = useState('');
+  const [aguarde, setAguarde] = useState(false);
+  useEffect(() => { const esc = e => { if (e.key === 'Escape' && !aguarde) { e.stopPropagation(); onFechar(); } }; window.addEventListener('keydown', esc, true); return () => window.removeEventListener('keydown', esc, true); }, [onFechar, aguarde]);
+  const planear = async () => {
+    setErro(''); setAguarde(true); setPlano(null); setBruto('');
+    try { localStorage.setItem('compras-lojas', lojas); localStorage.setItem('compras-pref', pref); localStorage.setItem('compras-zona', zona); } catch (e) { /* sem armazenamento */ }
+    const pergunta = `Zona: ${zona || 'Portugal'}\nLojas possíveis: ${lojas}\nPreferências: ${pref || 'comer de forma saudável e gastar pouco'}\n\nLista de compras:\n${itens.slice(0, 80).map(x => `- ${x.slice(0, 60)}`).join('\n')}`.slice(0, 3900);
+    try {
+      const r = await perguntarIA(pergunta, REGRAS_COMPRAS);
+      const i = r.indexOf('{'), j = r.lastIndexOf('}');
+      let obj = null; try { obj = JSON.parse(r.slice(i, j + 1)); } catch (e) { /* não veio em JSON */ }
+      if (obj && Array.isArray(obj.lojas) && obj.lojas.length) setPlano(obj); else setBruto(r);
+    } catch (e) { setErro(String((e && e.message) || e)); }
+    setAguarde(false);
+  };
+  const eu = v => (Number(v) > 0 ? `~${Number(v).toFixed(2).replace('.', ',')} €` : '');
+  const somaLoja = l => (l.itens || []).reduce((a, x) => a + (Number(x.eur) || 0), 0);
+  const total = plano ? (Number(plano.total) > 0 ? Number(plano.total) : plano.lojas.reduce((a, l) => a + somaLoja(l), 0)) : 0;
+  const htmlPlano = () => {
+    const d = new Date();
+    if (!plano) return `<p><i>Plano de ${dataLonga(d.toISOString())} — preços estimados.</i></p>${String(bruto).split(/\n+/).map(l => `<p>${escHtml(l)}</p>`).join('')}`;
+    let h = `<p><i>Feito a ${dataLonga(d.toISOString())} a partir de “${escHtml(titulo)}”. Preços estimados — podem variar.</i></p>`;
+    plano.lojas.forEach(l => {
+      h += `<h2>🛒 ${escHtml(l.loja)}${somaLoja(l) > 0 ? ` · ${eu(somaLoja(l))}` : ''}</h2>`;
+      if (l.porque) h += `<p>${escHtml(l.porque)}</p>`;
+      h += `<ul data-chk="1">${(l.itens || []).map(x => `<li data-ok="0">${escHtml(x.p)}${x.q ? ` — ${escHtml(x.q)}` : ''}${x.eur ? ` · ${eu(x.eur)}` : ''}${x.nota ? ` (${escHtml(x.nota)})` : ''}</li>`).join('')}</ul>`;
+    });
+    if ((plano.trocas || []).length) h += `<h2>Trocas sugeridas</h2><ul>${plano.trocas.map(t => `<li><b>${escHtml(t.de)}</b> → ${escHtml(t.para)}${t.porque ? ` — ${escHtml(t.porque)}` : ''}</li>`).join('')}</ul>`;
+    if ((plano.dicas || []).length) h += `<h2>Dicas</h2><ul>${plano.dicas.map(t => `<li>${escHtml(t)}</li>`).join('')}</ul>`;
+    if (total > 0) h += `<p><b>Total estimado: ${eu(total)}</b></p>`;
+    return h;
+  };
+  const caixa = `w-full rounded-lg border px-3 py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 pt-[5vh] sm:pt-4 bg-black/55 backdrop-blur-sm animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget && !aguarde) onFechar(); }}>
+      <div className={`w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <div className="p-4 space-y-3 border-b border-inherit">
+          <div className="flex items-center gap-2"><p className="font-semibold flex-1">✨ Planear compras</p><button type="button" onClick={onFechar} className={`w-8 h-8 rounded-lg ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button></div>
+          <p className={`text-sm ${sub}`}>{itens.length} produto{itens.length === 1 ? '' : 's'} por comprar em “{titulo}”. A IA organiza por loja, estima preços e sugere trocas mais saudáveis ou mais baratas. O plano fica numa página nova ao lado desta (se o caderno for partilhado, a Sara vê-a).</p>
+          <label className="block space-y-1"><span className={`text-xs ${sub}`}>Lojas onde costumam ir</span><input value={lojas} onChange={e => setLojas(e.target.value)} className={caixa} /></label>
+          <div className="grid sm:grid-cols-[1fr_160px] gap-3">
+            <label className="block space-y-1"><span className={`text-xs ${sub}`}>Preferências (opcional)</span><input value={pref} onChange={e => setPref(e.target.value)} placeholder="ex.: mais saudável, pouco açúcar, sem lactose, para 4 pessoas" className={caixa} /></label>
+            <label className="block space-y-1"><span className={`text-xs ${sub}`}>Zona</span><input value={zona} onChange={e => setZona(e.target.value)} className={caixa} /></label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={planear} disabled={aguarde || !itens.length} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{aguarde ? 'A planear…' : plano || bruto ? 'Planear outra vez' : 'Planear'}</button>
+            {erro && <span className="text-sm text-red-400">{erro}</span>}
+          </div>
+        </div>
+        {(plano || bruto) && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
+            {plano ? plano.lojas.map((l, i) => (
+              <div key={i}>
+                <p className="font-semibold">🛒 {l.loja}<span className={`font-normal ${sub}`}>{somaLoja(l) > 0 ? ` · ${eu(somaLoja(l))}` : ''}</span></p>
+                {l.porque && <p className={`text-xs ${sub}`}>{l.porque}</p>}
+                <ul className="mt-1 space-y-0.5">{(l.itens || []).map((x, k) => <li key={k} className="flex gap-2"><span className="flex-1 min-w-0">{x.p}{x.q ? <span className={sub}> — {x.q}</span> : null}{x.nota ? <span className="text-emerald-500 text-xs"> · {x.nota}</span> : null}</span><span className={`tabular-nums ${sub}`}>{eu(x.eur)}</span></li>)}</ul>
+              </div>
+            )) : <p className="whitespace-pre-wrap">{bruto}</p>}
+            {plano && (plano.trocas || []).length > 0 && <div><p className="font-semibold">Trocas sugeridas</p><ul className="mt-1 space-y-0.5">{plano.trocas.map((t, k) => <li key={k}><b>{t.de}</b> → {t.para}{t.porque ? <span className={sub}> — {t.porque}</span> : null}</li>)}</ul></div>}
+            {plano && (plano.dicas || []).length > 0 && <div><p className="font-semibold">Dicas</p><ul className="mt-1 list-disc pl-5 space-y-0.5">{plano.dicas.map((t, k) => <li key={k}>{t}</li>)}</ul></div>}
+            {plano && total > 0 && <p className="font-semibold">Total estimado: {eu(total)} <span className={`font-normal text-xs ${sub}`}>(preços típicos, não os do dia)</span></p>}
+          </div>
+        )}
+        {(plano || bruto) && (
+          <div className="p-4 flex justify-end gap-2 border-t border-inherit">
+            <button type="button" onClick={onFechar} className={`px-3 py-2 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Fechar</button>
+            <button type="button" onClick={() => onGuardar(`Plano de compras — ${dataLonga(new Date().toISOString())}`, htmlPlano())} className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Guardar como página</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => {
   const [email, setEmail] = useState('');
   const [erro, setErro] = useState('');
@@ -1304,7 +1435,7 @@ const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => 
 };
 
 // ── Ecrã das Notas ──
-const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
+const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const ix = indice || NOTAS_VAZIO;
@@ -1348,6 +1479,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     const f = e => { if (e.key === 'Escape' && !pedirAberto.current && !e.defaultPrevented) setCofreModal(false); };
     window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f);
   }, [cofreModal]);
+  const [planear, setPlanear] = useState(null); // { itens, titulo, sid }
   const [importar, setImportar] = useState(null); // secção de destino // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
   const [bioPode, setBioPode] = useState(false);
@@ -1413,6 +1545,20 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const secDe = id => seccoes.find(s => s.id === id);
   const tituloDe = p => (p.tituloC ? (titulosC[p.id] != null ? (titulosC[p.id] || 'Sem título') : 'Página protegida') : (p.titulo || 'Sem título'));
   const pagina = (ix.paginas || []).find(p => p.id === pagId) || null;
+  // O que costumas comprar: produtos das listas de compras, pelos que aparecem em mais listas (e mais recentes)
+  const historicoCompras = useMemo(() => {
+    const m = new Map();
+    (ix.paginas || []).filter(p => !p.tituloC && Array.isArray(p.itens) && ehCompras(p)).forEach(p => {
+      const vistos = new Set();
+      p.itens.forEach(nome => {
+        const k = normProduto(nome); if (!k || k.length < 2 || vistos.has(k)) return; vistos.add(k);
+        const x = m.get(k) || { k, nome: nome.replace(/\s*[-—(].*$/, '').trim(), n: 0, ult: '' };
+        x.n += 1; const d = p.editada || p.criada || ''; if (d > x.ult) { x.ult = d; x.nome = nome.replace(/\s*[-—(].*$/, '').trim() || x.nome; }
+        m.set(k, x);
+      });
+    });
+    return [...m.values()].sort((a, b) => b.n - a.n || String(b.ult).localeCompare(String(a.ult))).slice(0, 60);
+  }, [ix.paginas]);
   const secPagina = pagina ? secDe(pagina.seccaoId) : null;
   const cadPagina = secPagina ? (ix.cadernos || []).find(c => c.id === secPagina.cadernoId) : null;
 
@@ -1439,18 +1585,20 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const mudarVistaCofre = grelha => setListaPref(prev => { const n = new Set(prev); if (grelha) n.delete(secao.id); else n.add(secao.id); try { localStorage.setItem('notas-cofre-lista', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
 
   // ── Operações ──
-  const novaPagina = async (modeloId = 'branco', sobre = null, kDesbloq = null) => {
+  const novaPagina = async (modeloId = 'branco', sobre = null, kDesbloq = null, pronto = null) => {
     const chave = kDesbloq || chaveAtual;
     let sid = secao ? secao.id : (seccoes[0] && seccoes[0].id);
     if (sobre || !sid || (secDe(sid) && secDe(sid).protegida && !chave)) sid = (seccoes.find(s => !s.protegida) || {}).id;
+    if (pronto && pronto.sid) sid = pronto.sid;
     if (!sid) { if (showToast) showToast('Cria primeiro uma secção.', 'error'); return; }
     const m = MODELOS.find(x => x.id === modeloId) || MODELOS[0];
     const id = nId();
     let html = valorDe(m.html) || '';
     let titulo = valorDe(m.titulo) || '';
     if (sobre) { html = `<p>${tagHtml(sobre.tipo, sobre.id, sobre.nome)}&nbsp;</p><p><br></p>`; titulo = `${sobre.nome} — ${dataLonga(agora())}`; }
+    if (pronto) { html = limparHtml(pronto.html || ''); titulo = pronto.titulo || ''; }
     const protegida = !!(secDe(sid) && secDe(sid).protegida);
-    const meta = { id, seccaoId: sid, titulo: protegida ? '' : titulo, criada: agora(), editada: agora(), txt: protegida ? '' : textoDe(html).slice(0, 600), tags: protegida ? [] : tagsDe(html) };
+    const meta = { id, seccaoId: sid, ...(m.tipo && !pronto && !sobre ? { tipo: m.tipo } : {}), titulo: protegida ? '' : titulo, criada: agora(), editada: agora(), txt: protegida ? '' : textoDe(html).slice(0, 600), tags: protegida ? [] : tagsDe(html) };
     try {
       if (protegida) { meta.tituloC = await cifrar(chave, titulo); await guardarPagina(id, { cifrado: await cifrar(chave, JSON.stringify({ html })), editada: agora() }); }
       else await guardarPagina(id, { html, editada: agora() }, sid);
@@ -1910,6 +2058,8 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         onVoltar={() => setVista('paginas')} lerPagina={lerPagina} guardarPagina={guardarPagina} mudarIndice={mudarIndice}
         entidades={entidades} onIrEntidade={onIrEntidade} enviarImagem={enviarImagem} chave={secPagina && secPagina.protegida ? chave : null}
         pedirDesbloquear={() => pedirDesbloquear()} showToast={showToast} menuItens={menuPagina}
+        historicoCompras={historicoCompras}
+        onPlanearCompras={perguntarIA && !(secPagina && secPagina.protegida) ? (itens, tit) => setPlanear({ itens, titulo: tit, sid: pagina.seccaoId }) : null}
         ouvirPagina={partilha && cadPagina && cadPagina.partilhado ? partilha.ouvirPagina : null} partilhada={!!(cadPagina && cadPagina.partilhado)} onAtividade={() => { ultimaAtividade.current = Date.now(); }} />
     </div>
   ) : (
@@ -1990,6 +2140,8 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       )}
       {modalCofre}
       {pedir && <Pedir key={pedir.titulo} {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
+      {planear && <PlanearCompras itens={planear.itens} titulo={planear.titulo} claro={claro} sub={sub} perguntarIA={perguntarIA} onFechar={() => setPlanear(null)}
+        onGuardar={async (tit, html) => { const sid = planear.sid; setPlanear(null); await novaPagina('branco', null, null, { titulo: tit, html, sid }); if (showToast) showToast('Plano guardado numa página nova.'); }} />}
       {importar && <ImportarSenhas claro={claro} sub={sub} destino={`${(((ix.cadernos || []).find(c => c.id === importar.s.cadernoId)) || {}).nome || ''} › ${importar.s.nome}`} onImportar={fazerImportar} onFechar={() => setImportar(null)} />}
       {ativar2fa && chave && <Ativar2FA claro={claro} onFechar={() => setAtivar2fa(false)} onConfirmar={async seg => { const otpC = await cifrar(chave, seg); mudarIndice(i => ({ ...i, cofre: { ...(i.cofre || {}), otpC, otpEm: agora() } })); setAtivar2fa(false); if (showToast) showToast('Pronto: o cofre passa a pedir também o código do telemóvel.'); }} />}
       {pessoas && partilha && (() => { const c = (ix.cadernos || []).find(x => x.id === pessoas); if (!c) return null; return <PessoasCaderno c={c} claro={claro} meuEmail={partilha.meuEmail} onJuntar={e => partilha.partilhar(c.id, e)} onTirar={e => partilha.tirarPessoa(c.id, e)} onFechar={() => setPessoas(null)} />; })()}
