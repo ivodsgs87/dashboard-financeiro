@@ -691,6 +691,23 @@ const NumIn = ({ valor, onGravar, className, placeholder, title, decimal = true 
     onBlur={e => { const x = e.target.value.trim(); const atual = valor == null ? '' : String(valor); if (x !== atual) onGravar(x === '' ? null : (Number(x.replace(',', '.')) || 0)); }}
     className={className} />
 );
+// Quantidade com setas ▲▼ (para não teres de escrever)
+const QtdIn = ({ valor, onGravar, className, claro, rotulo }) => {
+  const v = Number(valor) || 0;
+  const seta = `flex-1 flex items-center justify-center text-[9px] leading-none rounded ${claro ? 'text-slate-500 hover:bg-slate-200 hover:text-slate-900' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`;
+  return (
+    <div className="flex items-stretch gap-1 min-w-0">
+      <input key={String(valor ?? '')} defaultValue={v || ''} placeholder="0" inputMode="numeric" aria-label={rotulo ? `Quantidade de ${rotulo}` : 'Quantidade'}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        onBlur={e => { const x = Math.max(0, parseInt(e.target.value, 10) || 0); if (x !== v) onGravar(x); }}
+        className={`${className} flex-1 min-w-0`} />
+      <div className="flex flex-col w-5 shrink-0 gap-px">
+        <button type="button" tabIndex={-1} onClick={() => onGravar(v + 1)} className={seta} aria-label={rotulo ? `Mais ${rotulo}` : 'Mais um'}>▲</button>
+        <button type="button" tabIndex={-1} disabled={v <= 0} onClick={() => onGravar(Math.max(0, v - 1))} className={`${seta} disabled:opacity-30`} aria-label={rotulo ? `Menos ${rotulo}` : 'Menos um'}>▼</button>
+      </div>
+    </div>
+  );
+};
 const nomeTipo = id => { const t = CU_TIPOS.find(x => x.id === id); return t ? (t.curto || t.nome) : id; };
 const TIPOS_PECA = CU_TIPOS.filter(t => !t.porHora);
 
@@ -1361,7 +1378,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               const verQtd = varias || multi;
               const chip = on => `px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
               const linhaHoras = porHora && (
-                <div className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
+                <div className="grid grid-cols-[minmax(0,1fr)_92px_72px_80px] items-center gap-2 text-sm">
                   <span>Horas (à hora)</span><span className="text-right tabular-nums">{tempoTxt(horasTarefa)}</span>
                   <span className={`text-right text-xs ${sub}`}>× {eur(preco('hora'))}/h</span>
                   <span className="text-right tabular-nums">{preco('dia') > 0 ? 'nos dias' : eur(horasTarefa * preco('hora'))}</span>
@@ -1386,12 +1403,18 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                     </div>
                   ) : (
                     <div className="space-y-1">
+                      <div className="flex items-center justify-between -mt-1 mb-1">
+                        <span className={lab}>Várias peças nesta tarefa</span>
+                        <button type="button" onClick={() => { if (multi) { const k = Object.keys(pecasAtuais).sort((a, b) => preco(b) * pecasAtuais[b] - preco(a) * pecasAtuais[a])[0]; if (k) aplicarTipo({ [k]: 1 }); } setVarias(false); }}
+                          title={multi ? 'Volta a uma só peça (fica a de maior valor)' : 'Fechar'} aria-label="Fechar várias peças"
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`}>✕</button>
+                      </div>
                       {tiposVis.map(x => {
                         const n = pecasAtuais[x.id] || 0;
                         return (
-                          <div key={x.id} className="grid grid-cols-[minmax(0,1fr)_64px_72px_80px] items-center gap-2 text-sm">
+                          <div key={x.id} className="grid grid-cols-[minmax(0,1fr)_92px_72px_80px] items-center gap-2 text-sm">
                             <span className={n ? '' : sub}>{x.curto || x.nome}</span>
-                            <NumIn valor={n || null} placeholder="0" decimal={false} onGravar={q => setPeca(x.id, q || 0)} className={`${inputClass} !w-full text-sm py-1 text-right`} />
+                            <QtdIn valor={n || null} rotulo={x.curto || x.nome} claro={claro} onGravar={q => setPeca(x.id, q || 0)} className={`${inputClass} !w-full text-sm py-1 text-right`} />
                             <span className={`text-right text-xs ${sub}`}>× {eur(preco(x.id))}</span>
                             <span className="text-right tabular-nums">{n ? eur(n * preco(x.id)) : '—'}</span>
                           </div>
@@ -1401,7 +1424,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    {!multi && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(!varias)}>{varias ? 'só uma peça' : 'várias peças nesta tarefa'}</button>}
+                    {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>várias peças nesta tarefa</button>}
                     <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
                     {temMao ? <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button> : <span className={sub}>lido do nome da tarefa</span>}
                   </div>
@@ -1881,16 +1904,55 @@ const renomearEm = async ({ dir, nome }, novo) => {
   await dir.removeEntry(nome);
   return nh;
 };
+// Ficheiros arrastados para uma tarefa: ficam guardados ao fechar a janela (memória) e ao recarregar a página
+// (o browser guarda o "acesso" a cada ficheiro, não o vídeo). Também se guarda o histórico de nomes, para desfazer.
+const cacheEnvio = new Map();
+const cacheHist = new Map();
+const assinaturaLista = l => JSON.stringify(l.map(x => [x.id, x.formato, x.renomeado, x.nomeAntigo, x.handle ? x.handle.name : x.file && x.file.name]));
 const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
-  const [lista, setLista] = useState([]); // { id, file, meta, formato, estado, prog, erro }
+  const [lista, setLista] = useState(() => cacheEnvio.get(t.id) || []); // { id, file, meta, formato, estado, prog, erro }
   const [aEnviar, setAEnviar] = useState(false);
   const [msg, setMsg] = useState('');
   const [resultado, setResultado] = useState(t.drive || null);
   const [copiadoS, setCopiadoS] = useState(false);
   const [verSug, setVerSug] = useState(null);
   const [renomeados, setRenomeados] = useState(null); // itens enviados que ainda podem mudar de nome no PC
+  const [noDrive, setNoDrive] = useState(null); // ficheiros na pasta do Drive desta tarefa
+  const [aApagar, setAApagar] = useState(null);
+  const [ocupadoDrive, setOcupadoDrive] = useState(false);
   const inRef = useRef(null);
   useEffect(() => { carregarGis().catch(() => {}); }, []);
+  const [historico, setHistorico] = useState(() => cacheHist.get(t.id) || []); // [{ itemId, handle, antes, depois }] — nomes que a app mudou no PC
+  const carregado = useRef(false);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const h = await idbLer(`renomes-${t.id}`);
+      if (vivo && Array.isArray(h) && !cacheHist.has(t.id)) setHistorico(h);
+      if (!cacheEnvio.has(t.id)) {
+        const g = await idbLer(`envio-${t.id}`);
+        if (vivo && Array.isArray(g) && g.length) {
+          const itens = [];
+          for (const x of g) { let file = null; try { if ((await x.handle.queryPermission({ mode: 'read' })) === 'granted') file = await x.handle.getFile(); } catch (e) { /* sem acesso até carregares */ } itens.push({ ...x, file, estado: 'pronto', prog: 0 }); }
+          if (vivo) setLista(l => (l.length ? l : itens));
+        }
+      }
+      carregado.current = true;
+    })();
+    return () => { vivo = false; };
+  }, [t.id]);
+  const assin = assinaturaLista(lista);
+  useEffect(() => {
+    cacheEnvio.set(t.id, lista);
+    if (!carregado.current) return;
+    const guardar = lista.filter(x => x.handle && x.estado !== 'feito').map(x => ({ id: x.id, handle: x.handle, formato: x.formato, meta: x.meta || null, renomeado: !!x.renomeado, nomeAntigo: x.nomeAntigo || null }));
+    idbGravar(`envio-${t.id}`, guardar.length ? guardar : null);
+  }, [assin]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gravarHistorico = h => { setHistorico(h); cacheHist.set(t.id, h); idbGravar(`renomes-${t.id}`, h.length ? h : null); };
+  const semAcesso = lista.filter(x => !x.file);
+  const darAcesso = async () => {
+    for (const x of semAcesso) { try { let p = await x.handle.queryPermission({ mode: 'read' }); if (p !== 'granted') p = await x.handle.requestPermission({ mode: 'read' }); if (p === 'granted') { const f = await x.handle.getFile(); mudarItem(x.id, { file: f }); } } catch (e) { mudarItem(x.id, { erro: 'Não encontrei este ficheiro no PC (mudou de sítio ou foi apagado?)', estado: 'erro' }); } }
+  };
   const jogo = r.jogo && !r.jogo.semJogo ? r.jogo : null;
   const statics = ['BAN', 'ICO', 'FG', 'SS'].includes(r.tipo);
   const raizUrl = jogo ? (statics ? jogo.driveStatics : jogo.drive) : null;
@@ -1904,7 +1966,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
   const durDe = item => fx.duracao || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
-  const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(item.file.name) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
+  const nomeDe = item => (item.handle ? item.handle.name : item.file ? item.file.name : '');
+  const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(nomeDe(item)) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
   // Adivinhar a versão pelas pastas que já estão no Drive (CONCEITO_V1, _V2…): vídeo novo → a seguinte; variação/iteração → a última
   const novoVideo = trabPecas(t).some(p => ['video', 'video3d', 'ai_clip', 'aso'].includes(p.tipo));
   const adivinharVersao = async token => {
@@ -1921,7 +1984,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     setMsg('');
     const novos = [];
     const arr = Array.from(fs || []);
-    for (let i = 0; i < arr.length; i++) { const f = arr[i]; if (!f) continue; const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, handle: handles[i] || null, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
+    for (let i = 0; i < arr.length; i++) { const f = arr[i]; if (!f) continue; const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, handle: handles[i] || null, nomeAntigo: f.name, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
     setLista(l => [...l, ...novos]);
     // Se já tens sessão na Google, a versão aparece logo
     const tk = tokenGuardado();
@@ -1932,13 +1995,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   // Mudar o nome no PC: 1.º tenta o "move" do Chrome; se não der, procura o ficheiro nas pastas de exports
   // que a app já conhece (primeiro a deste projeto) e cria lá o ficheiro com o nome novo, apagando o antigo.
   const chaves = { pastaId: t.pastaId || null, jogoId: jogo ? jogo.id : null };
-  const renomearFicheiros = async (alvos, escolhida = null) => {
-    let ok = 0; const erros = []; const faltam = [];
+  const renomearFicheiros = async (alvos, escolhida = null, desfazer = false) => {
+    let ok = 0; const erros = []; const faltam = []; const feitos = [];
     let conhecidas = null;
     for (const a of alvos) {
       const h = a.handle;
       if (!h) { erros.push('sem acesso ao ficheiro'); continue; }
-      if (h.name === a.novo) { ok++; continue; }
+      if (h.name === a.novo) { ok++; a.feito = true; continue; }
+      const antes = h.name;
       let feito = false;
       if (typeof h.move === 'function' && !usarPastaExports) {
         try {
@@ -1970,11 +2034,32 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         } catch (e) { erros.push(e && e.name === 'SecurityError' ? 'clica outra vez (o browser pediu um clique novo)' : String((e && e.message) || e)); }
       }
       if (feito) {
-        ok++;
-        if (a.id) { const nh = a.handleNovo || h; try { const f = await nh.getFile(); mudarItem(a.id, { file: f, handle: nh, renomeado: true }); } catch (e) { mudarItem(a.id, { renomeado: true }); } }
+        ok++; a.feito = true;
+        const nh = a.handleNovo || h;
+        feitos.push({ itemId: a.id || null, handle: nh, antes, depois: a.novo });
+        if (a.id) { try { const f = await nh.getFile(); mudarItem(a.id, { file: f, handle: nh, renomeado: !desfazer }); } catch (e) { mudarItem(a.id, { renomeado: !desfazer }); } }
+      }
+    }
+    if (feitos.length && !desfazer) {
+      // Histórico para desfazer: guarda sempre o nome ORIGINAL (se mudaste duas vezes, volta ao primeiro)
+      let h = [...historico];
+      const novos = feitos.map(f => { const i = h.findIndex(x => x.depois === f.antes); if (i < 0) return f; const orig = h[i]; h.splice(i, 1); return { ...f, antes: orig.antes }; });
+      gravarHistorico([...novos, ...h].slice(0, 30));
+      // A tarefa fica com os formatos, a versão e a duração destes ficheiros (para os nomes aparecerem lá em cima)
+      const its = lista.filter(x => alvos.some(a => a.feito && a.id === x.id));
+      if (its.length) {
+        const durs = its.map(durDe).filter(Boolean);
+        set({ formatos: [...new Set([...(t.formatos || []), ...its.map(x => x.formato).filter(Boolean)])], ficheiros: { ...fx, ...(!fx.versao ? { versao: versaoDe(verSug) } : {}), ...(!fx.duracao && durs.length ? { duracao: durs[0] } : {}) } });
       }
     }
     return { ok, erros, faltam };
+  };
+  const desfazerNomes = async () => {
+    const alvos = historico.map(x => ({ id: x.itemId && lista.some(y => y.id === x.itemId) ? x.itemId : null, handle: x.handle, novo: x.antes }));
+    const { ok, erros, faltam } = await renomearFicheiros(alvos, null, true);
+    gravarHistorico(historico.filter((x, i) => !alvos[i].feito));
+    setPedirPasta(null);
+    setMsg(ok ? `↩ ${ok} ficheiro${ok === 1 ? '' : 's'} com o nome anterior outra vez${faltam.length ? ` · ${faltam.length} não encontrei` : ''}` : `⚠ Não consegui voltar ao nome anterior: ${erros[0] || (faltam.length ? 'não encontrei os ficheiros nas pastas que conheço' : 'sem autorização')}.`);
   };
   const [pedirPasta, setPedirPasta] = useState(null); // { alvos, depois } quando não encontrou os ficheiros
   const fimRenomear = ({ ok, erros, faltam }, alvos, depois) => {
@@ -2012,9 +2097,29 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     const alvos = itens.map(it => ({ handle: it.handle, novo: it.nomeNovo }));
     fimRenomear(await renomearFicheiros(alvos), alvos, true);
   };
+  const verDrive = async () => {
+    if (!resultado || !resultado.pastaId) return;
+    setOcupadoDrive(true);
+    try { const tk = tokenGuardado() || await tokenDrive(conta); const fs = await filhosDrive(tk, resultado.pastaId, false); setNoDrive(fs.sort((a, b) => a.name.localeCompare(b.name))); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setOcupadoDrive(false);
+  };
+  const apagarNoDrive = async f => {
+    if (aApagar !== f.id) { setAApagar(f.id); return; }
+    setOcupadoDrive(true);
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      await driveApi(tk, `${DRV}/${f.id}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+      setNoDrive(l => (l || []).filter(x => x.id !== f.id));
+      const reg = { ...resultado, enviados: (resultado.enviados || []).filter(x => x.id !== f.id && x.nome !== f.name) };
+      setResultado(reg); set({ drive: reg });
+      setMsg(`🗑 ${f.name} foi para o lixo do Drive (dá para recuperar lá durante 30 dias).`);
+    } catch (e) { setMsg(`⚠ Não consegui apagar: ${e.message || e}`); }
+    setAApagar(null); setOcupadoDrive(false);
+  };
   const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
-  const pronto = lista.length > 0 && lista.every(x => x.formato) && !repetidos.length && raiz && r.conceito;
+  const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito;
   const enviar = async () => {
     if (!pronto || aEnviar) return;
     setAEnviar(true); setMsg('A entrar na Google…');
@@ -2102,13 +2207,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
                     <select value={item.formato || ''} onChange={e => mudarItem(item.id, { formato: e.target.value || null })} disabled={aEnviar} className={`${inputClass} !w-20 text-xs py-1`} aria-label="Formato">
                       <option value="">?</option>{FORMATOS.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
-                    <code className="flex-1 min-w-0 break-all leading-snug" title={`${item.file.name} → ${nomeFinal(item)}`}>{nomeFinal(item)}</code>
-                    <span className={`shrink-0 tabular-nums ${sub}`}>{(item.file.size / 1048576).toFixed(0)} MB</span>
+                    <code className="flex-1 min-w-0 break-all leading-snug" title={`${nomeDe(item)} → ${nomeFinal(item)}`}>{nomeFinal(item)}</code>
+                    <span className={`shrink-0 tabular-nums ${sub}`}>{item.file ? `${(item.file.size / 1048576).toFixed(0)} MB` : 'sem acesso'}</span>
                     {!aEnviar && item.estado !== 'feito' && <button type="button" onClick={() => setLista(l => l.filter(x => x.id !== item.id))} className={`shrink-0 ${sub} hover:text-red-400`} aria-label="Tirar">✕</button>}
                   </div>
                   {(item.estado === 'a enviar' || item.estado === 'feito') && <div className={`h-1 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className={`h-full ${item.estado === 'feito' ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.round(item.prog * 100)}%` }} /></div>}
                   {item.estado === 'erro' && <p className="text-red-400">{item.erro}</p>}
-                  <p className={`truncate text-[10px] opacity-70 ${sub}`}>de {item.file.name}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${Math.round(item.meta.dur)}s` : ''}</p>
+                  <p className={`truncate text-[10px] opacity-70 ${sub}`}>{item.renomeado && item.nomeAntigo && item.nomeAntigo !== nomeDe(item) ? <>✓ renomeado no PC · era {item.nomeAntigo}</> : <>de {nomeDe(item)}</>}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${Math.round(item.meta.dur)}s` : ''}</p>
                 </div>
               ))}
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
@@ -2127,6 +2232,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+          {semAcesso.length > 0 && (
+            <button type="button" onClick={darAcesso} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/15 border border-blue-500/50 text-blue-400 hover:bg-blue-500/25">🔓 Voltar a abrir os {semAcesso.length} ficheiro{semAcesso.length === 1 ? '' : 's'} (o browser pede autorização depois de recarregar)</button>
+          )}
+          {historico.length > 0 && !aEnviar && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <button type="button" onClick={desfazerNomes} className={btn} title={historico.map(x => `${x.depois} → ${x.antes}`).join('\n')}>↩ Voltar ao nome anterior ({historico.length} ficheiro{historico.length === 1 ? '' : 's'})</button>
+              <span className={`${sub} truncate max-w-full`}>ex.: {historico[0].antes}</span>
+            </div>
+          )}
           {pedirPasta && (
             <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
           )}
@@ -2145,6 +2259,32 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive</a>
               <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
+              {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂️ Ver / apagar ficheiros no Drive'}</button>}
+            </div>
+          )}
+          {noDrive && (
+            <div className={`rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+              <div className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+                <span className="font-medium flex-1 min-w-0 truncate">No Drive · {resultado && resultado.pasta}</span>
+                <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${sub} hover:text-blue-400`} title="Atualizar">↻</button>
+                <button type="button" onClick={() => { setNoDrive(null); setAApagar(null); }} className={`w-6 h-6 rounded-md ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`} aria-label="Fechar a lista do Drive">✕</button>
+              </div>
+              {!noDrive.length ? <p className={`px-3 py-2 text-xs ${sub}`}>A pasta está vazia.</p> : (
+                <div className="divide-y divide-slate-500/10">
+                  {noDrive.map(f => (
+                    <div key={f.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                      <a href={f.webViewLink ? urlAbrir(f.webViewLink, t.cid) : undefined} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 break-all hover:text-blue-400">{f.name}</a>
+                      {aApagar === f.id ? (
+                        <>
+                          <button type="button" disabled={ocupadoDrive} onClick={() => apagarNoDrive(f)} className="shrink-0 px-2 py-0.5 rounded-md bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">Apagar</button>
+                          <button type="button" onClick={() => setAApagar(null)} className={`shrink-0 ${sub} hover:text-blue-400`}>não</button>
+                        </>
+                      ) : <button type="button" onClick={() => apagarNoDrive(f)} className={`shrink-0 ${sub} hover:text-red-400`} aria-label={`Apagar ${f.name} do Drive`} title="Apagar do Drive (vai para o lixo)">🗑</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className={`px-3 py-1.5 text-[10px] ${sub}`}>Para substituir um vídeo, arrasta a versão nova para cima: fica com o mesmo nome e troca a antiga.</p>
             </div>
           )}
           <p className={`text-[10px] ${sub}`}>Entra com {conta ? <b>{conta}</b> : 'a tua conta Google'} (a conta deste cliente). Os ficheiros vão direto do computador para o Drive — nada fica guardado na app nem no disco.</p>
