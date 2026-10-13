@@ -8,9 +8,9 @@ import {
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabParar, CronoTopo,
-  MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador,
-  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabParar,
+  CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, AbaEstavel,
+  lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -148,6 +148,41 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [backupStatus, setBackupStatus] = useState('');
   
   // Tema (dark/light) - agora com toggle
+  // ── Esconder valores (olho): os montantes em € passam a "•••• €" em todo o ecrã (só à vista — os dados não mudam) ──
+  const [privado, setPrivado] = useState(() => { try { return localStorage.getItem('modo-privado') === '1'; } catch (e) { return false; } });
+  useEffect(() => {
+    try { localStorage.setItem('modo-privado', privado ? '1' : '0'); } catch (e) { /* sem armazenamento */ }
+    document.documentElement.classList.toggle('modo-privado', privado);
+    if (!privado || typeof MutationObserver === 'undefined') return undefined;
+    const estilo = document.createElement('style');
+    estilo.textContent = `.modo-privado input[type=number]:not(:focus),.modo-privado input[inputmode=decimal]:not(:focus),.modo-privado .recharts-cartesian-axis-tick,.modo-privado .recharts-tooltip-wrapper,.modo-privado .recharts-label,.modo-privado .recharts-label-list{filter:blur(6px)}`;
+    document.head.appendChild(estilo);
+    const RE = /[-−+]?\d[\d\s\u00a0.,]*(?:[kKM](?:\s|\u00a0)?)?€(?:\/h|\/dia|\/mês)?|[-−+]?€(?:\s|\u00a0)?\d[\d.,]*[kKM]?/g;
+    const orig = new WeakMap(); const tocados = new Set();
+    const ignorar = n => { const p = n.parentElement; return !p || !!p.closest('input,textarea,script,style,[contenteditable="true"],.nota-ed'); };
+    const mascarar = n => {
+      if (!n || n.nodeType !== 3 || ignorar(n)) return;
+      const v = n.nodeValue; if (!v || v.indexOf('€') < 0) return;
+      const m = v.replace(RE, '•••• €'); if (m === v) return;
+      orig.set(n, { o: v, m }); tocados.add(n); n.nodeValue = m;
+    };
+    const varrer = raiz => {
+      if (!raiz) return;
+      if (raiz.nodeType === 3) { mascarar(raiz); return; }
+      if (raiz.nodeType !== 1) return;
+      const w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT); let x; while ((x = w.nextNode())) mascarar(x);
+    };
+    varrer(document.body);
+    const obs = new MutationObserver(lista => lista.forEach(mu => {
+      if (mu.type === 'characterData') { const r = orig.get(mu.target); if (r && mu.target.nodeValue === r.m) return; mascarar(mu.target); }
+      else mu.addedNodes.forEach(varrer);
+    }));
+    obs.observe(document.body, { subtree: true, childList: true, characterData: true });
+    return () => {
+      obs.disconnect(); estilo.remove();
+      tocados.forEach(n => { const r = orig.get(n); if (r && n.nodeValue === r.m) n.nodeValue = r.o; });
+    };
+  }, [privado]);
   const [theme, setTheme] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('dashboard-theme') || 'dark';
@@ -306,6 +341,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         e.preventDefault();
         setTab('agenda');
       }
+      // Ctrl+. = Esconder/mostrar os valores
+      if (e.ctrlKey && e.key === '.') { e.preventDefault(); setPrivado(v => !v); return; }
       // Ctrl+← Ctrl+→ = Menu principal anterior/seguinte
       if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); if (menuNavRef.current) menuNavRef.current(e.key === 'ArrowLeft' ? -1 : 1); return; }
       // ← → = Recuar / avançar (para onde estavas)
@@ -510,6 +547,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     return () => { vivo = false; if (parar) parar(); };
   }, [user && user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
   const trabalho = trabModo === 'doc' ? (trabDoc || G.trabalho || TRAB_VAZIO) : (G.trabalho || TRAB_VAZIO);
+  // ⏺ A gravar horas: o separador/janela mostra "⏺ REC 0:16 · tarefa" e o ícone da app (instalada) ganha um ponto
+  const crono = trabACorrer(trabalho);
+  const cronoIni = crono ? crono.tempo.ini : null;
+  const cronoNome = crono ? (crono.tarefa.nome || 'Tarefa') : '';
+  const tituloBaseRef = useRef(null);
+  useEffect(() => {
+    if (tituloBaseRef.current == null) tituloBaseRef.current = document.title.replace(/^⏺ .*? · /, '');
+    const base = tituloBaseRef.current;
+    if (!cronoIni) {
+      document.title = base;
+      try { if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {}); } catch (e) { /* sem suporte */ }
+      return undefined;
+    }
+    try { if (navigator.setAppBadge) navigator.setAppBadge().catch(() => {}); } catch (e) { /* sem suporte */ }
+    const t0 = Date.parse(cronoIni);
+    const pintar = () => {
+      const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+      document.title = `⏺ REC ${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')} · ${cronoNome}`;
+    };
+    pintar();
+    const i = setInterval(pintar, 1000);
+    return () => clearInterval(i);
+  }, [cronoIni, cronoNome]);
   gTrabRef.current = G.trabalho || null;
   const mudarTrab = useCallback(fn => {
     if (trabModoRef.current !== 'doc') { setG(p => ({ ...p, trabalho: fn(p.trabalho || TRAB_VAZIO) })); return; }
@@ -11208,6 +11269,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '→', desc: 'Avançar outra vez' },
      { key: 'Shift + ← →', desc: 'Mês anterior/seguinte' },
      { key: 'Ctrl + ← →', desc: 'Menu principal anterior/seguinte' },
+     { key: 'Ctrl + .', desc: 'Esconder/mostrar os valores' },
      { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
      { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
      { key: 'Ctrl+F', desc: 'Pesquisar' },
@@ -13420,8 +13482,8 @@ ${transacoesOrdenadas.map(t => `<tr>
                 </button>
                 {(() => {
                   const claro = theme === 'light';
-                  const seta =`w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
-                  const sel = `h-8 bg-transparent border-0 rounded-lg px-1.5 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
+                  const seta =`w-7 sm:w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
+                  const sel = `h-8 bg-transparent border-0 rounded-lg px-1 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
                     <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
@@ -13444,16 +13506,22 @@ ${transacoesOrdenadas.map(t => `<tr>
             {(() => {
               const claro = theme === 'light';
               const ic = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
-              const btn = (ativo, extra = '') => `relative w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent ${ativo ? (claro ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : claro ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/10'} ${extra}`;
+              const btn = (ativo, extra = '') => `relative w-7 sm:w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent ${ativo ? (claro ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : claro ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/10'} ${extra}`;
               const sep = <span className={`hidden sm:block w-px h-5 mx-0.5 ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} />;
               const nAlertas = getActiveAlerts().length;
               return (
-            <div className="flex items-center justify-end gap-2 sm:gap-3">
+            <div className="flex items-center justify-end gap-1.5 sm:gap-3">
               <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
                 {/* Desfazer / Refazer */}
                 <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg {...ic}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
                 <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Refazer (Ctrl+Y)" aria-label="Refazer"><svg {...ic}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
                 {sep}
+                {/* Esconder valores (olho) */}
+                <button onClick={() => setPrivado(v => !v)} className={btn(privado)} aria-pressed={privado} title={privado ? 'Mostrar os valores (Ctrl+.)' : 'Esconder os valores (Ctrl+.)'} aria-label={privado ? 'Mostrar os valores' : 'Esconder os valores'}>
+                  {privado
+                    ? <svg {...ic}><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.2"/><path d="M6.6 6.6C3.7 8.4 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.6 5-1.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m2 2 20 20"/></svg>
+                    : <svg {...ic}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>}
+                </button>
                 {/* Pesquisa */}
                 <button onClick={() => setShowSearch(true)} className={btn(false)} title="Pesquisar (Ctrl+F)" aria-label="Pesquisar"><svg {...ic}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
                 {/* Alertas */}
