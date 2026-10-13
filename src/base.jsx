@@ -1786,6 +1786,73 @@ const trabValor = (t, cu, clientes) => {
   if (t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual))) return Number(t.valorManual);
   return trabValorAuto(t, cu, clientes);
 };
+// ══ Plano do mês: distribuir o trabalho que falta pelos dias úteis até ao fim do mês ══
+const pascoaDe = y => { const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, mm = Math.floor((a + 11 * h + 22 * l) / 451), mes = Math.floor((h + l - 7 * mm + 114) / 31), dia = ((h + l - 7 * mm + 114) % 31) + 1; return new Date(y, mes - 1, dia); };
+const feriadosPT = y => { const p = pascoaDe(y); const desl = n => { const x = new Date(p); x.setDate(x.getDate() + n); return `${x.getMonth() + 1}-${x.getDate()}`; }; return new Set(['1-1', '4-25', '5-1', '6-10', '8-15', '10-5', '11-1', '12-1', '12-8', '12-25', desl(-2), desl(60)]); };
+const isoDia = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const MES_ABREV = { jan: 1, feb: 2, fev: 2, mar: 3, apr: 4, abr: 4, may: 5, mai: 5, jun: 6, jul: 7, aug: 8, ago: 8, sep: 9, set: 9, oct: 10, out: 10, nov: 11, dec: 12, dez: 12 };
+const mesDoNomePasta = nome => { const ms = [...String(nome || '').toLowerCase().matchAll(/(?:^|[^a-zà-ú])(jan|feb|fev|mar|apr|abr|may|mai|jun|jul|aug|ago|sep|set|oct|out|nov|dec|dez)[a-zà-ú]*(?![a-zà-ú])/g)]; return ms.length ? MES_ABREV[ms[ms.length - 1][1]] : null; };
+const HORAS_TIPO_PADRAO = { video: 6, video3d: 8, ai_clip: 2, variacao: 2, iteracao: 1.5, hook: 1.5, aso: 4, banner: 1.5, banner_var: 1, icone: 6, feature: 3, screenshots: 6, extra: 2, outro: 3 };
+// Horas típicas por tipo de peça: a mediana das tuas tarefas já feitas (com tempo registado) ou um valor padrão
+const horasTipicas = trab => {
+  const por = {};
+  ((trab && trab.tarefas) || []).forEach(t => {
+    if (t.estado !== 'feito' && t.estado !== 'review') return;
+    const h = trabHoras(t); if (!(h > 0.2)) return;
+    const ps = trabPecas(t); const n = ps.reduce((a, p) => a + (p.n || 1), 0) || 1;
+    if (ps.length !== 1) return; // só as tarefas de um tipo, para a média não se baralhar
+    (por[ps[0].tipo] = por[ps[0].tipo] || []).push(h / n);
+  });
+  const out = { ...HORAS_TIPO_PADRAO };
+  Object.entries(por).forEach(([k, l]) => { if (l.length >= 3) { const s = l.sort((a, b) => a - b); out[k] = Math.round(s[Math.floor(s.length / 2)] * 4) / 4; } });
+  return out;
+};
+const estimarHorasTarefa = (t, tipicas) => {
+  const est = Number(t.estimativa);
+  const base = est > 0 ? est : trabPecas(t).reduce((a, p) => a + (tipicas[p.tipo] ?? tipicas.outro) * (p.n || 1), 0);
+  return Math.max(0.5, Math.round((base - trabHoras(t)) * 4) / 4);
+};
+const ORDEM_PRIO = { urgente: 0, alta: 1, normal: 2, baixa: 3 };
+const planearMes = ({ trab, hoje = new Date(), horasDia = 6, folgas = new Set(), incluirHoje = true }) => {
+  const y = hoje.getFullYear(), m = hoje.getMonth() + 1;
+  const fimIso = isoDia(new Date(y, m, 0)), hojeIso = isoDia(hoje);
+  const fer = feriadosPT(y);
+  const dias = [];
+  for (let d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + (incluirHoje ? 0 : 1)); isoDia(d) <= fimIso; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay(), iso = isoDia(d);
+    if (wd === 0 || wd === 6 || fer.has(`${d.getMonth() + 1}-${d.getDate()}`) || folgas.has(iso)) continue;
+    dias.push({ d: iso, livre: horasDia, itens: [] });
+  }
+  const pastas = {}; ((trab && trab.pastas) || []).forEach(p => { pastas[p.id] = p; });
+  const tipicas = horasTipicas(trab);
+  const limiteAntigas = isoDia(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 45));
+  let antigas = 0;
+  const tarefas = ((trab && trab.tarefas) || []).filter(t => {
+    if (t.estado !== 'todo' && t.estado !== 'curso') return false;
+    if (t.prazo && t.prazo < limiteAntigas) { antigas++; return false; } // prazos de há mais de mês e meio: provavelmente esquecidas
+    if (t.prazo) return t.prazo <= fimIso;
+    const pa = pastas[t.pastaId]; const mp = pa ? (pa.mesNum || mesDoNomePasta(pa.nome)) : null;
+    return mp === m;
+  }).map(t => {
+    const pa = pastas[t.pastaId] || {};
+    return { tid: t.id, nome: t.nome, pasta: pa.nome || '', pastaId: t.pastaId, cor: pa.cor || '#64748b', prazo: t.prazo || fimIso, temPrazo: !!t.prazo, prio: ORDEM_PRIO[t.prioridade] ?? 2, h: estimarHorasTarefa(t, tipicas), curso: t.estado === 'curso' };
+  }).sort((a, b) => a.prazo.localeCompare(b.prazo) || a.prio - b.prio || Number(b.curso) - Number(a.curso));
+  let sobra = 0;
+  tarefas.forEach(t => {
+    let falta = t.h; t.fim = null;
+    for (const d of dias) {
+      if (falta <= 0) break;
+      if (d.livre <= 0.01) continue;
+      const h = Math.min(d.livre, falta);
+      d.itens.push({ tid: t.tid, nome: t.nome, pasta: t.pasta, pastaId: t.pastaId, cor: t.cor, h: Math.round(h * 4) / 4 });
+      d.livre -= h; falta -= h; t.fim = d.d;
+    }
+    if (falta > 0.01) { sobra += falta; t.naoCabe = Math.round(falta * 4) / 4; }
+    t.risco = !!(t.naoCabe || (t.fim && t.fim > t.prazo) || t.prazo < hojeIso);
+  });
+  const totalH = tarefas.reduce((a, t) => a + t.h, 0);
+  return { criado: new Date().toISOString(), horasDia, dias: dias.filter(d => d.itens.length).map(d => ({ d: d.d, itens: d.itens })), nDias: dias.length, totalH: Math.round(totalH * 4) / 4, sobra: Math.round(sobra * 4) / 4, precisaDia: dias.length ? Math.round(totalH / dias.length * 10) / 10 : totalH, tarefas: tarefas.map(t => ({ tid: t.tid, nome: t.nome, pasta: t.pasta, h: t.h, prazo: t.temPrazo ? t.prazo : null, atrasada: t.prazo < hojeIso, fim: t.fim, risco: t.risco, naoCabe: t.naoCabe || 0 })), antigas };
+};
 // Tarefas da app entregues num mês (para a estimativa).
 // Entram também as linhas à parte dos orçamentos (AI Credits, acertos...) no mês da data delas.
 const trabEntreguesMes = (trab, ano, mesNum, cu = null, clientes = []) => {
@@ -2072,7 +2139,8 @@ export {
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
   cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
   trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
-  trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, horasTipicas, estimarHorasTarefa,
+  ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo,
+  MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel,
+  lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
