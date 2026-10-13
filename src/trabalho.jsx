@@ -225,10 +225,9 @@ const EstadoPill = ({ estado, onMudar, theme, compacto = false }) => {
   return (
     <div ref={ref} className="relative flex-shrink-0">
       <button type="button" onClick={() => setAberto(!aberto)} title="Mudar o estado"
-        className={compacto ? 'inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/10' : 'inline-flex items-center gap-1.5 rounded-md text-[10.5px] font-bold uppercase tracking-wide px-2 py-1 text-white whitespace-nowrap'}
+        className={compacto ? 'inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/10' : 'inline-flex items-center justify-center min-w-[96px] rounded-md text-[10.5px] font-bold uppercase tracking-wide px-2 py-1 text-white whitespace-nowrap'}
         style={compacto ? undefined : { background: e.cor }}>
-        {compacto ? <IcoEstado id={e.id} cor={e.cor} size={13} /> : <span className="w-2 h-2 rounded-full" style={{ background: e.cor }} />}
-        {!compacto && e.nome}
+        {compacto ? <IcoEstado id={e.id} cor={e.cor} size={13} /> : e.nome}
       </button>
       {aberto && (
         <div className={`absolute z-40 left-0 top-full mt-1 w-44 rounded-xl border p-1 shadow-xl animate-fadeInScale ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
@@ -1838,7 +1837,9 @@ const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Not
   );
 };
 // Recibos de um cliente (os que juntas em Receitas), por ano
-const RecibosCliente = ({ lista, onAbrirFicheiro, onIrMes, claro, sub }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub }) => {
+  const [aEnviar, setAEnviar] = useState(null);
+  const inRef = useRef(null); const alvo = useRef(null);
   const [anoAberto, setAnoAberto] = useState(null);
   const anos = [...new Set((lista || []).map(r => r.ano))].sort((a, b) => b - a);
   if (!anos.length) return <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente. Junta-os em Receitas.</p>;
@@ -1846,8 +1847,16 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onIrMes, claro, sub }) => {
   const ili = r => (r.valIliq != null && r.valIliq !== '' ? num(r.valIliq) : num(r.val));
   const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
+  const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
   return (
     <div className="space-y-4">
+      <input ref={inRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={async e => {
+        const f = e.target.files && e.target.files[0]; e.target.value = ''; const r = alvo.current; if (!f || !r) return;
+        setAEnviar(`${r.k}:${r.id}`);
+        try { await onJuntarFicheiro(r.k, r.id, f); } catch (er) { console.error('Recibo:', er); window.alert('Não consegui enviar o PDF.'); }
+        setAEnviar(null);
+      }} />
+      {semPdf > 0 && <p className={`text-xs ${sub}`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app — só os que juntaste com o ficheiro (ex.: lidos pela IA) abrem aqui. Usa "+ PDF" para juntar os que faltam.</p>}
       {anos.map((a, i) => {
         const rs = lista.filter(r => r.ano === a);
         const aberto = anoAberto == null ? i === 0 : anoAberto === a;
@@ -1885,6 +1894,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onIrMes, claro, sub }) => {
                     <span className="hidden md:block text-right tabular-nums">{eur(r.val)}</span>
                     <span className="col-span-2 md:col-span-1 flex justify-end gap-1">
                       {r.temFicheiro && onAbrirFicheiro && <button type="button" onClick={() => onAbrirFicheiro(r.k, r.id)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400`} title="Abrir o recibo">📎 PDF</button>}
+                      {!r.temFicheiro && onJuntarFicheiro && <button type="button" disabled={aEnviar === `${r.k}:${r.id}`} onClick={() => { alvo.current = r; if (inRef.current) inRef.current.click(); }} className={`px-2 py-1 rounded-md text-xs ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} hover:text-blue-400`} title="Este recibo ainda não tem o PDF — junta-o aqui">{aEnviar === `${r.k}:${r.id}` ? 'A enviar…' : '+ PDF'}</button>}
                       {onIrMes && <button type="button" onClick={() => onIrMes(r.ano, r.mes)} className={`px-2 py-1 rounded-md text-xs text-blue-400 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} title="Ver em Receitas">Receitas →</button>}
                     </span>
                   </div>
@@ -2425,7 +2435,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onIrMes }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onIrMes }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -2748,7 +2758,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
+          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
