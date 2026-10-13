@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -236,3 +236,17 @@ export const enviarAnexo = async (userId, caminho, ficheiro, onProgresso) => {
 export const apagarAnexo = async (caminho) => {
   try { const { m, s } = await storageMod(); await m.deleteObject(m.ref(s, caminho)); } catch (e) { console.warn('Anexo:', e); }
 };
+
+// ── Notas (estilo OneNote): um índice (cadernos, secções, títulos) e um documento por página ──
+const docNotas = (userId) => doc(db, 'users', userId, 'notas', 'indice');
+const docPaginaNota = (userId, id) => doc(db, 'users', userId, 'notasPaginas', id);
+export const ouvirNotas = (userId, cb, erro) => onSnapshot(
+  docNotas(userId),
+  { includeMetadataChanges: false },
+  (snap) => cb(snap.exists() ? snap.data() : null, snap.metadata.hasPendingWrites),
+  (e) => { console.error('Notas:', e); if (erro) erro(e); }
+);
+export const guardarNotas = async (userId, dados) => { await setDoc(docNotas(userId), dados); };
+export const lerPaginaNota = async (userId, id) => { const s = await getDoc(docPaginaNota(userId, id)); return s.exists() ? s.data() : null; };
+export const guardarPaginaNota = async (userId, id, dados) => { await setDoc(docPaginaNota(userId, id), dados); };
+export const apagarPaginaNota = async (userId, id) => { await deleteDoc(docPaginaNota(userId, id)); };
