@@ -374,7 +374,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
   const [editar, setEditar] = useState(false);
   const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
-    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 h-11 border-b text-[13px] transition-colors ${corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
         {editar ? (
