@@ -857,6 +857,173 @@ const Ativar2FA = ({ claro, onConfirmar, onFechar }) => {
   );
 };
 
+// ── Importar palavras-passe (Notion .md / .csv / .zip): tudo lido e cifrado no próprio browser ──
+const lerZip = async (buf, prefixo = '') => {
+  const u8 = new Uint8Array(buf); const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let fimCd = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) { if (dv.getUint32(i, true) === 0x06054b50) { fimCd = i; break; } }
+  if (fimCd < 0) throw new Error('zip inválido');
+  const n = dv.getUint16(fimCd + 10, true); let p = dv.getUint32(fimCd + 16, true);
+  const dec = new TextDecoder(); const out = [];
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const metodo = dv.getUint16(p + 10, true), tamC = dv.getUint32(p + 20, true);
+    const ln = dv.getUint16(p + 28, true), le = dv.getUint16(p + 30, true), lc = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const nome = dec.decode(u8.subarray(p + 46, p + 46 + ln)); p += 46 + ln + le + lc;
+    if (nome.endsWith('/')) continue;
+    const ini = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+    const dados = u8.subarray(ini, ini + tamC);
+    let bytes;
+    if (metodo === 0) bytes = dados;
+    else if (metodo === 8 && typeof DecompressionStream !== 'undefined') bytes = new Uint8Array(await new Response(new Blob([dados]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else continue;
+    if (/\.zip$/i.test(nome)) out.push(...await lerZip(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), prefixo + nome + '/'));
+    else if (/\.(md|txt|csv)$/i.test(nome)) out.push({ nome: prefixo + nome, texto: dec.decode(bytes) });
+  }
+  return out;
+};
+const lerCsv = texto => {
+  const linhas = []; let campo = '', linha = [], aspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (aspas) { if (ch === '"') { if (texto[i + 1] === '"') { campo += '"'; i++; } else aspas = false; } else campo += ch; }
+    else if (ch === '"') aspas = true;
+    else if (ch === ',' || ch === ';') { linha.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && texto[i + 1] === '\n') i++; linha.push(campo); campo = ''; if (linha.some(x => x.trim())) linhas.push(linha); linha = []; }
+    else campo += ch;
+  }
+  linha.push(campo); if (linha.some(x => x.trim())) linhas.push(linha);
+  return linhas;
+};
+const CHAVES_SENHA = [
+  [/^(user ?name|user|utilizador|login|e-?mail|conta|account|n[ºo]?\.? ?(de )?ades[aã]o|ades[aã]o|cliente|id|username\/email)$/i, 'utilizador'],
+  [/^(pass ?word|pass|senha|palavra[- ]?passe|pwd|c[oó]digo( de acesso)?|access code)$/i, 'senha'],
+  [/^(url|site|website|link|endere[cç]o|web|p[aá]gina)$/i, 'url'],
+  [/^(pin|c[oó]digo pin)$/i, 'pin'],
+  [/^(2fa|otp|totp|mfa|secret|segredo|authenticator|chave 2fa|2fa secret|2fa key)$/i, 'otp'],
+  [/^(recovery( codes)?|backup codes|c[oó]digos de recupera[cç][aã]o|recupera[cç][aã]o)$/i, 'recuperacao'],
+  [/^(notes?|notas?|obs|observa[cç][oõ]es|descri[cç][aã]o|description|coment[aá]rios?)$/i, 'notas'],
+  [/^(tipo|type|categor(y|ia)|tags?)$/i, 'tipo'],
+  [/^(name|nome|t[ií]tulo|title|servi[cç]o|service)$/i, 'titulo'],
+  [/^(rede|ssid|network|wi-?fi)$/i, 'rede'],
+  [/^(n[uú]mero|card number|n[uú]mero do cart[aã]o)$/i, 'numero'],
+  [/^(cvv|cvc)$/i, 'cvv'],
+  [/^(validade|expiry|expira|expiration)$/i, 'validade'],
+  [/^(titular|cardholder)$/i, 'titular'],
+  [/^(servidor|server|imap|smtp)$/i, 'servidor'],
+  [/^(chave|license|licen[cç]a|serial|license key)$/i, 'chave'],
+];
+const limparMd = v => String(v || '').replace(/\[([^\]]*)\]\(([^)]+)\)/g, (m, txt, url) => (/^https?:/.test(url) ? url : txt)).replace(/[*_`]+/g, '').replace(/<\/?[^>]+>/g, '').trim();
+const montarEntrada = (titulo, pares, soltas) => {
+  const d = { tipo: 'login' }; const extras = []; let otp = null; const notas = [...soltas];
+  let tipoTxt = '';
+  pares.forEach(([k0, v0]) => {
+    const k = limparMd(k0).replace(/:$/, '').trim(); const v = limparMd(v0);
+    if (!v) return;
+    const alvo = (CHAVES_SENHA.find(([re]) => re.test(k)) || [])[1];
+    if (alvo === 'titulo') { if (!titulo) titulo = v; return; }
+    if (alvo === 'tipo') { tipoTxt += ` ${v}`; return; }
+    if (alvo === 'otp') { otp = lerOtp(v) || otp; if (!lerOtp(v)) extras.push({ nome: k, valor: v, secreto: true }); return; }
+    if (alvo === 'notas') { notas.push(v); return; }
+    if (alvo === 'recuperacao') { d.recuperacao = (d.recuperacao ? `${d.recuperacao}\n` : '') + v; return; }
+    if (alvo && !d[alvo]) { d[alvo] = v; return; }
+    extras.push({ nome: k, valor: v, secreto: /pass|senha|pin|c[oó]digo|code|secret|segredo|chave|key|cvv|token|seed|recupera|recovery/i.test(k) });
+  });
+  const t = `${tipoTxt} ${titulo}`.toLowerCase();
+  if (d.numero || d.cvv || /cart[aã]o|card|visa|mastercard/.test(t)) d.tipo = 'cartao';
+  else if (d.rede || /wi-?fi|router|internet/.test(t)) { d.tipo = 'wifi'; if (!d.rede && d.utilizador) { d.rede = d.utilizador; delete d.utilizador; } }
+  else if (/banco|bank|millennium|cgd|caixa|santander|bpi|novo banco|activo|abanca|revolut|n26|montepio|crédito agr/.test(t)) d.tipo = 'banco';
+  else if (d.chave || /licen[cç]a|license|serial/.test(t)) d.tipo = 'licenca';
+  else if (d.servidor || /^(e-?mail|gmail|outlook|hotmail|webmail)/.test(String(titulo).toLowerCase())) d.tipo = 'email';
+  if (otp) d.otp = otp;
+  if (extras.length) d.extras = extras.map((x, i) => ({ id: `i${i}${Math.random().toString(36).slice(2, 6)}`, ...x }));
+  if (notas.length) d.notas = notas.join('\n');
+  return { titulo: titulo || 'Sem título', dados: d };
+};
+const entradasDoMd = (nome, texto) => {
+  let titulo = '';
+  const base = String(nome).split('/').pop().replace(/\.(md|txt)$/i, '').replace(/\s+[0-9a-f]{32}$/i, '').trim();
+  const pares = [], soltas = [];
+  let emCodigo = false;
+  String(texto).split(/\r?\n/).forEach(l0 => {
+    const l = l0.trim();
+    if (l.startsWith('```')) { emCodigo = !emCodigo; return; }
+    if (!l) return;
+    if (!titulo && /^#\s+/.test(l)) { titulo = limparMd(l.replace(/^#\s+/, '')); return; }
+    if (/^\|?\s*-{3,}/.test(l)) return;
+    const tab = /^\|(.+)\|$/.exec(l);
+    if (tab) { const c = tab[1].split('|').map(x => x.trim()); if (c.length === 2 && !(/^(campo|field|key|chave|propriedade|property|nome|name)$/i.test(c[0]) && /^(valor|value|conte[uú]do)$/i.test(c[1]))) pares.push([c[0], c[1]]); else if (c.length !== 2) soltas.push(limparMd(l)); return; }
+    const m = /^(?:[-*]\s+)?(\*\*)?([^:]{1,40}?)(\*\*)?\s*:\s*(.+)$/.exec(l);
+    if (m && !/^https?$/i.test(m[2].trim())) pares.push([m[2], m[4]]);
+    else soltas.push(limparMd(l.replace(/^[-*]\s+/, '')));
+  });
+  return [montarEntrada(titulo || base, pares, soltas.filter(Boolean))];
+};
+const entradasDoCsv = texto => {
+  const ls = lerCsv(String(texto).replace(/^﻿/, ''));
+  if (ls.length < 2) return [];
+  const cab = ls[0].map(x => x.trim());
+  const iTitulo = cab.findIndex(k => /^(name|nome|t[ií]tulo|title|servi[cç]o|service)$/i.test(k));
+  return ls.slice(1).map(r => montarEntrada(iTitulo >= 0 ? r[iTitulo] : r[0], cab.map((k, i) => [k, r[i] || '']).filter((x, i) => i !== (iTitulo >= 0 ? iTitulo : 0)), []));
+};
+const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
+  const [entradas, setEntradas] = useState(null);
+  const [marcadas, setMarcadas] = useState(new Set());
+  const [erro, setErro] = useState('');
+  const [aguarde, setAguarde] = useState(false);
+  const inRef = useRef(null);
+  useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; window.addEventListener('keydown', esc, true); return () => window.removeEventListener('keydown', esc, true); }, [onFechar]);
+  const ler = async fs => {
+    setErro(''); setAguarde(true);
+    try {
+      const fich = [];
+      for (const f of Array.from(fs || [])) {
+        if (/\.zip$/i.test(f.name)) fich.push(...await lerZip(await f.arrayBuffer()));
+        else fich.push({ nome: f.name, texto: await f.text() });
+      }
+      const out = [];
+      fich.forEach(f => { if (/\.csv$/i.test(f.nome)) out.push(...entradasDoCsv(f.texto)); else out.push(...entradasDoMd(f.nome, f.texto)); });
+      const uteis = out.filter(e => e.dados.senha || e.dados.utilizador || e.dados.pin || e.dados.numero || e.dados.otp || (e.dados.extras || []).length);
+      setEntradas(uteis); setMarcadas(new Set(uteis.map((_, i) => i)));
+      if (!uteis.length) setErro('Não encontrei palavras-passe nesses ficheiros. Espera-se algo como "Password: …" ou "Username: …" em cada página.');
+    } catch (e) { console.error('Importar:', e); setErro('Não consegui ler os ficheiros.'); }
+    setAguarde(false);
+  };
+  const tipoNome = id => (TIPOS_SENHA.find(t => t.id === id) || {}).nome || id;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 pt-[6vh] sm:pt-4 bg-black/55 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
+      <div className={`w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border shadow-2xl animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <div className="p-4 space-y-2 border-b border-inherit">
+          <p className="font-semibold">Importar palavras-passe</p>
+          <p className={`text-sm ${sub}`}>Escolhe os ficheiros <b>.md</b> que exportaste do Notion (podes escolher vários de uma vez), o <b>.zip</b> da exportação ou um <b>.csv</b>. São lidos e cifrados aqui no teu computador — não vão para lado nenhum sem estarem cifrados. Vão para <b>{destino}</b>.</p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => inRef.current && inRef.current.click()} className="px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{aguarde ? 'A ler…' : 'Escolher ficheiros'}</button>
+            <input ref={inRef} type="file" multiple accept=".md,.txt,.csv,.zip,text/markdown,text/csv,application/zip" className="hidden" onChange={e => { ler(e.target.files); e.target.value = ''; }} />
+            {entradas && entradas.length > 0 && <span className={`text-xs ${sub}`}>{entradas.length} encontrada{entradas.length === 1 ? '' : 's'}</span>}
+          </div>
+          {erro && <p className="text-sm text-red-400">{erro}</p>}
+        </div>
+        {entradas && entradas.length > 0 && (
+          <div className="flex-1 overflow-y-auto px-2 py-2">
+            {entradas.map((e, i) => (
+              <label key={i} className={`flex items-start gap-3 px-2 py-2 rounded-lg cursor-pointer ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/5'}`}>
+                <input type="checkbox" checked={marcadas.has(i)} onChange={() => setMarcadas(s => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} className="mt-1 accent-blue-500" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium truncate">{e.titulo} <span className={`text-[11px] font-normal ${sub}`}>· {tipoNome(e.dados.tipo)}</span></span>
+                  <span className={`block text-xs truncate ${sub}`}>{[e.dados.utilizador || e.dados.rede || e.dados.titular, e.dados.url, e.dados.senha ? 'palavra-passe ✓' : 'sem palavra-passe', e.dados.otp ? '2FA ✓' : '', (e.dados.extras || []).length ? `+${e.dados.extras.length} campo${e.dados.extras.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="p-4 flex items-center justify-end gap-2 border-t border-inherit">
+          <button type="button" onClick={onFechar} className={`px-3 py-2 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
+          <button type="button" disabled={!entradas || !marcadas.size || aguarde} onClick={async () => { setAguarde(true); await onImportar(entradas.filter((_, i) => marcadas.has(i))); setAguarde(false); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Importar {marcadas.size || ''}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Quem tem acesso a um caderno partilhado ──
 const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => {
   const [email, setEmail] = useState('');
@@ -943,7 +1110,8 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const [fechados, setFechados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('notas-fechados')) || []); } catch (e) { return new Set(); } });
   const [pedir, setPedir] = useState(null);
   const [pessoas, setPessoas] = useState(null);
-  const [ativar2fa, setAtivar2fa] = useState(false); // id do caderno partilhado aberto em "Pessoas com acesso"
+  const [ativar2fa, setAtivar2fa] = useState(false);
+  const [importar, setImportar] = useState(null); // secção de destino // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
   const chaveAtual = chave;
   const [titulosC, setTitulosC] = useState({});
@@ -1065,6 +1233,35 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     } catch (e) { console.error('Cofre:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
     setTitulosC(t2 => ({ ...t2, [id]: '' }));
     setSecId(s.id); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
+  };
+  // Importar várias palavras-passe de uma vez (ficheiros do Notion, CSV) para uma secção protegida
+  const abrirImportar = (k = chave) => {
+    if (!TEM_CRIPTO) { if (showToast) showToast('Este browser não tem cifra disponível.', 'error'); return; }
+    if (!k) { pedirDesbloquear(kk => abrirImportar(kk)); return; }
+    const cadDe = s => (ix.cadernos || []).find(c => c.id === s.cadernoId) || {};
+    let s = secao && secao.protegida && !cadDe(secao).partilhado ? secao : seccoes.find(x => x.protegida && !cadDe(x).partilhado);
+    if (!s) {
+      const cad = secao && !cadDe(secao).partilhado ? secao.cadernoId : ((ix.cadernos || []).find(c => !c.partilhado) || {}).id;
+      if (!cad) { if (showToast) showToast('Cria primeiro um caderno.', 'error'); return; }
+      s = { id: nId(), cadernoId: cad, nome: 'Cofre', cor: '#f59e0b', ordem: 99, protegida: true };
+      const nova = s; mudarIndice(i => ({ ...i, seccoes: [...(i.seccoes || []), nova] }));
+    }
+    setImportar({ s, k });
+  };
+  const fazerImportar = async lista => {
+    const { s, k } = importar || {}; if (!s || !k) return;
+    const metas = [], nomes = {};
+    try {
+      for (const e of lista) {
+        const id = nId();
+        await guardarPagina(id, { cifrado: await cifrar(k, JSON.stringify({ html: '', senha: e.dados })), editada: agora() }, s.id);
+        metas.push({ id, seccaoId: s.id, titulo: '', tituloC: await cifrar(k, e.titulo), tipo: 'senha', criada: agora(), editada: agora(), txt: '', tags: [] });
+        nomes[id] = e.titulo;
+      }
+    } catch (er) { console.error('Importar:', er); if (showToast) showToast(`Só consegui importar ${metas.length} de ${lista.length}.`, 'error'); }
+    if (metas.length) { mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), ...metas] })); setTitulosC(t2 => ({ ...t2, ...nomes })); setSecId(s.id); setFiltro(null); setProcura(''); setPagId(metas[0].id); setVista('paginas'); }
+    setImportar(null);
+    if (showToast && metas.length) showToast(`${metas.length} palavra${metas.length === 1 ? '' : 's'}-passe importada${metas.length === 1 ? '' : 's'} e cifrada${metas.length === 1 ? '' : 's'}. Apaga agora os ficheiros .md do computador.`, 'success', 8000);
   };
   const apagarPaginaOp = p => {
     if (!window.confirm(`Apagar a página "${tituloDe(p)}"?`)) return;
@@ -1343,7 +1540,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         <div className="flex gap-1.5 mb-2">
           <button type="button" onClick={() => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco'))} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" /> Página</button>
           {secao.protegida && <button type="button" onClick={() => novaSenha()} className="inline-flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-medium whitespace-nowrap rounded-lg border border-amber-400/50 text-amber-500 hover:bg-amber-400/10" title="Nova palavra-passe"><Ic n="cadeado" className="w-3.5 h-3.5" /> Palavra-passe</button>}
-          <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }]} />
+          <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }, { txt: 'Importar palavras-passe (Notion, CSV)…', ic: 'cadeado', fn: () => abrirImportar() }]} />
         </div>
       )}
       <div className="space-y-0.5">
@@ -1406,6 +1603,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         </div>
       )}
       {pedir && <Pedir key={pedir.titulo} {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
+      {importar && <ImportarSenhas claro={claro} sub={sub} destino={`${(((ix.cadernos || []).find(c => c.id === importar.s.cadernoId)) || {}).nome || ''} › ${importar.s.nome}`} onImportar={fazerImportar} onFechar={() => setImportar(null)} />}
       {ativar2fa && chave && <Ativar2FA claro={claro} onFechar={() => setAtivar2fa(false)} onConfirmar={async seg => { const otpC = await cifrar(chave, seg); mudarIndice(i => ({ ...i, cofre: { ...(i.cofre || {}), otpC, otpEm: agora() } })); setAtivar2fa(false); if (showToast) showToast('Pronto: o cofre passa a pedir também o código do telemóvel.'); }} />}
       {pessoas && partilha && (() => { const c = (ix.cadernos || []).find(x => x.id === pessoas); if (!c) return null; return <PessoasCaderno c={c} claro={claro} meuEmail={partilha.meuEmail} onJuntar={e => partilha.partilhar(c.id, e)} onTirar={e => partilha.tirarPessoa(c.id, e)} onFechar={() => setPessoas(null)} />; })()}
     </div>
