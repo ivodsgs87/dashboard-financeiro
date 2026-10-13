@@ -1880,7 +1880,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const hTxt = `${hM < 10 ? hM.toFixed(1).replace('.', ',') : Math.round(hM)} h`;
      const cedoH = atual && new Date().getDate() < fimM;
      const resumoH = hM <= 0 ? 'Sem horas registadas' : `${hTxt}${semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis'}`;
-     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar as horas do mês (Timesheet)',
+     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar as horas do mês',
        estado: idx > hojeIdx || cedoH ? 'na' : hM <= 0 ? 'falta' : semH > 0 ? 'parcial' : 'ok',
        detalhe: cedoH ? `No último dia do mês · ${resumoH}` : resumoH,
        ir: () => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'timesheet' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); window.scrollTo({ top: 0 }); } };
@@ -2324,19 +2324,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
            return (
            <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
-             <button onClick={x.ir} className="w-full text-left p-2.5 pb-1 hover:brightness-110">
-               <div className="flex items-center gap-2">
-                 <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
-                 <span className="text-sm font-medium flex-1"><Ico e={x.icon}/>{x.titulo}</span>
-                 <span className="text-sm">{sinal[x.estado]}</span>
+             <button onClick={x.ir} className="w-full text-left px-2.5 pt-2 hover:brightness-110">
+               <div className="flex items-center gap-2 min-w-0">
+                 <span className="text-[11px] text-slate-500 w-4 shrink-0">{k + 1}</span>
+                 <span className="text-sm font-medium flex-1 min-w-0 truncate" title={x.titulo}><Ico e={x.icon}/>{x.titulo}</span>
+                 <span className="text-sm shrink-0">{sinal[x.estado]}</span>
                </div>
-               <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</p>
              </button>
-             <div className="flex justify-end px-2.5 pb-1.5 min-h-[18px]">
+             <div className="flex items-center gap-2 pl-8 pr-2.5 pb-2 min-w-0">
+               <button onClick={x.ir} className="flex-1 min-w-0 text-left text-xs text-slate-500 truncate" title={x.detalhe}>{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</button>
                {x.manual
-                 ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
+                 ? <button onClick={alternar} className="shrink-0 text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
                  : x.estado !== 'ok' && x.estado !== 'na'
-                   ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Marcar feito</button>
+                   ? <button onClick={alternar} className="shrink-0 text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Feito</button>
                    : null}
              </div>
            </div>
