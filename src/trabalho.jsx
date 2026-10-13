@@ -2133,6 +2133,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupadoDrive(false);
   };
+  const juntarFolhaAgora = async () => {
+    if (!resultado || !jogo || !jogo.sheet) return;
+    setOcupadoDrive(true); setMsg('A juntar à spreadsheet…');
+    let folha;
+    try { const tk = tokenGuardado() || await tokenDrive(conta); folha = await juntarNaSpreadsheet(tk, jogo.sheet, resultado.nomeBase, resultado.url, [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); }
+    catch (e) { folha = { erro: String(e.message || e) }; }
+    const reg = { ...resultado, folha }; setResultado(reg); set({ drive: reg }); setMsg('');
+    setOcupadoDrive(false);
+  };
   const apagarNoDrive = async f => {
     if (aApagar !== f.id) { setAApagar(f.id); return; }
     setOcupadoDrive(true);
@@ -2274,12 +2283,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
           )}
           {renomeados && renomeados.length > 0 && (
-            <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏️ Dar o mesmo nome aos {renomeados.length} ficheiros no PC</button>
+            <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏️ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`} no PC</button>
           )}
           {resultado && resultado.folha && (
             <p className={`text-xs ${resultado.folha.ok ? 'text-emerald-500' : resultado.folha.xlsx ? 'text-amber-500' : 'text-red-400'}`}>
               {resultado.folha.ok ? `✓ ${resultado.folha.jaExistia ? 'Já estava' : 'Juntei'} na spreadsheet (${resultado.folha.tab}, linha ${resultado.folha.linha})`
-                : resultado.folha.xlsx ? 'A spreadsheet é um ficheiro Excel (.xlsx) aberto no Google — a Google não deixa as apps escreverem nele. Usa "Copiar para a spreadsheet" e cola na coluna Creative (ou pede para a converterem para Google Sheets e passa a ser automático).'
+                : resultado.folha.xlsx ? `O link de spreadsheet deste jogo ainda aponta para o ficheiro Excel${resultado.folha.nomeFicheiro ? ` "${resultado.folha.nomeFicheiro}"` : ''} — a Google não deixa as apps escreverem nele. Se já tens a versão Google Sheets, cola o link novo em cliente → Jogos → ${jogo.nome} → Spreadsheet e carrega em "Juntar à spreadsheet agora" (não precisas de enviar outra vez).`
                 : `Não consegui escrever na spreadsheet: ${resultado.folha.erro}`}
             </p>
           )}
@@ -2288,6 +2297,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive</a>
               <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
+              {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
               {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂️ Ver / apagar ficheiros no Drive'}</button>}
             </div>
           )}
