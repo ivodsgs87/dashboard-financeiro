@@ -8,9 +8,9 @@ import {
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabParar,
-  CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, AbaEstavel,
-  lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  ProtecaoErro, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
+  trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar,
+  AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -2108,6 +2108,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }, [notifOn, dataLoaded]);
 
  // ══ Passos do mês (checklist no topo do Resumo) — cada um lê o estado real dos dados ══
+ // Faturas aos clientes de um mês: quem tem tarefas entregues ainda por faturar e quem já tem fatura
+ // (só a partir de outubro de 2026, quando as faturas passaram a ser feitas na app)
+ const FAT_DESDE = '2026-10';
+ const faturasDoMes = (y, m) => {
+   const mk = `${y}-${String(m).padStart(2, '0')}`;
+   if (mk < FAT_DESDE) return { falta: [], feitas: [] };
+   const tr = trabalho || {}; const porCli = {};
+   const cliDe = cid => (G.clientes || []).find(c => String(c.id) === String(cid));
+   (tr.tarefas || []).forEach(t => {
+     if (t.cid == null || t.cid === '' || t.cid === 'x' || t.faturaId || t.faturada) return;
+     if (!trabEntrega(t).startsWith(mk + '-')) return;
+     const c = cliDe(t.cid); if (!c || (c.fat && c.fat.semFatura)) return; // sem cliente na app não há a quem faturar
+     (porCli[t.cid] = porCli[t.cid] || []).push(t);
+   });
+   const nome = cid => (cliDe(cid) || {}).nome || 'Sem cliente';
+   return {
+     falta: Object.entries(porCli).map(([cid, ts]) => ({ cid: (cliDe(cid) || {}).id ?? cid, nome: nome(cid), n: ts.length })).sort((a, b) => b.n - a.n),
+     feitas: (tr.faturas || []).filter(f => f.mes === mk).map(f => ({ cid: f.cid, nome: nome(f.cid), numero: f.numero })),
+   };
+ };
+ const irFaturas = (cid, y, m) => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'cliente', id: cid })); localStorage.setItem('trab-aba-inicial', 'faturas'); localStorage.setItem('trab-fat-mes', `${y}-${m}`); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); window.scrollTo({ top: 0 }); };
+ const txtFalta = l => l.map(x => `${x.nome} (${x.n} tarefa${x.n === 1 ? '' : 's'})`).join(', ');
  const getPassosMes = () => {
    const idx = patIdx(mesKey), hojeIdx = patIdxHoje();
    const atual = idx === hojeIdx, passado = idx < hojeIdx;
@@ -2177,6 +2199,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      } });
    // Fechar as horas do mês é o último passo (no último dia do mês)
    if (passoHoras) L.push(passoHoras);
+   // Faturas aos clientes (no fim do mês): cada cliente com tarefas entregues tem de ter a sua fatura
+   {
+     const fm = faturasDoMes(yM, nM);
+     const cedoF = atual && new Date().getDate() < fimM - 1;
+     if (fm.falta.length || fm.feitas.length) L.push({ id: 'fat', icon: '🧾', titulo: 'Faturas aos clientes',
+       estado: idx > hojeIdx ? 'na' : !fm.falta.length ? 'ok' : cedoF ? 'na' : 'falta',
+       detalhe: !fm.falta.length ? fm.feitas.map(f => `${f.nome} nº ${f.numero} ✓`).join(' · ') : `${cedoF ? 'No fim do mês · ' : ''}Por faturar: ${txtFalta(fm.falta)}${fm.feitas.length ? ` · já feitas: ${fm.feitas.map(f => f.nome).join(', ')}` : ''}`,
+       ir: () => irFaturas(fm.falta.length ? fm.falta[0].cid : fm.feitas[0].cid, yM, nM) });
+   }
    // Confirmações à mão: um passo pode ser dado como feito mesmo que os dados não o mostrem
    // (ex.: este mês não houve compras) — e essa marcação pode ser anulada.
    const manual = (M[mesKey] || {}).passosManual || {};
@@ -2243,8 +2274,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
    });
    // Passos do mês que não têm tarefa recorrente correspondente
-   const diaPasso = { rec: Math.min(3, nDias), aloc: Math.min(5, nDias), transf: Math.min(5, nDias), imp: Math.min(20, nDias), prep: Math.min(20, nDias), port: nDias, tx: nDias, horas: nDias };
-   const catPasso = { rec: 'Receitas', aloc: 'Invest', transf: 'Transf', imp: 'SS', prep: 'Rotina', port: 'Invest', tx: 'Invest', horas: 'Trabalho' };
+   const diaPasso = { fat: nDias, rec: Math.min(3, nDias), aloc: Math.min(5, nDias), transf: Math.min(5, nDias), imp: Math.min(20, nDias), prep: Math.min(20, nDias), port: nDias, tx: nDias, horas: nDias };
+   const catPasso = { fat: 'Trabalho', rec: 'Receitas', aloc: 'Invest', transf: 'Transf', imp: 'SS', prep: 'Rotina', port: 'Invest', tx: 'Invest', horas: 'Trabalho' };
    const temPagarSS = itens.some(x => x.cat === 'SS' && /pagar|pagamento/i.test(x.titulo || ''));
    passos.forEach(p => {
      if (usados.has(p.id) || (p.id === 'imp' && temPagarSS)) return;
@@ -2265,6 +2296,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          if (t && ((t.cat === 'Transf' && transfOk) || (t.cat === 'Invest' && invOk))) return;
          antes.push({ key: e.chave, tid: t ? t.id : null, titulo: e.titulo, dia: e.dia, y: py, m: pm, cat: e.cat, feito: false, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista, ...destino(e, t), definir: v => agConc({ [e.chave]: v }), anterior: true });
        });
+     }
+   }
+   // Faturas de meses anteriores que ficaram por emitir
+   if (atual) {
+     for (let k = 3; k >= 1; k--) {
+       const pi = idx - k, py = Math.floor(pi / 12), pm = pi % 12 + 1;
+       const fm = faturasDoMes(py, pm);
+       if (fm.falta.length) antes.push({ key: `fat-${py}-${pm}`, titulo: `Faturas de ${meses[pm - 1]} por emitir`, dia: new Date(py, pm, 0).getDate(), y: py, m: pm, cat: 'Trabalho', feito: false, detalhe: txtFalta(fm.falta), link: null, ir: () => irFaturas(fm.falta[0].cid, py, pm), definir: null });
      }
    }
    const G2 = { atrasadas: [], anteriores: antes, semana: [], depois: [], feitas: [] };
