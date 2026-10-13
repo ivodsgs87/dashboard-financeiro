@@ -391,6 +391,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
+            {(t.anexos || []).length > 0 && <span className={`inline-flex items-center gap-0.5 text-[11px] ${sub}`} title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" />{t.anexos.length}</span>}
             {t.notas && <span className={sub} title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
           </>
         )}
@@ -813,10 +814,185 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
   );
 };
 
+// ── Anexos de uma tarefa (brief, referências): ficheiros no Firebase Storage + links ──
+const tamanhoTxt = b => (b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const tipoAnexo = a => {
+  if (a.tipo === 'link') return 'link';
+  const m = String(a.mime || ''), n = String(a.nome || '').toLowerCase();
+  if (m.startsWith('image/') || /\.(png|jpe?g|gif|webp|avif|svg)$/.test(n)) return 'imagem';
+  if (m.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/.test(n)) return 'video';
+  if (m === 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
+  return 'ficheiro';
+};
+const nomeDoLink = url => {
+  try {
+    const u = new URL(url);
+    if (/docs\.google\.com\/presentation/.test(url)) return 'Google Slides';
+    if (/docs\.google\.com\/document/.test(url)) return 'Google Docs';
+    if (/docs\.google\.com\/spreadsheets/.test(url)) return 'Google Sheets';
+    if (/drive\.google\.com/.test(url)) return 'Google Drive';
+    if (/figma\.com/.test(url)) return 'Figma';
+    if (/frame\.io/.test(url)) return 'Frame.io';
+    return u.hostname.replace(/^www\./, '');
+  } catch (e) { return url; }
+};
+const ICONE_ANEXO = {
+  pdf: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h1.5a1.5 1.5 0 0 1 0 3H9v-3zm0 3v2"/>',
+  ficheiro: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
+  clip: '<path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7L14 4.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6"/>',
+};
+const IcoA = ({ n, className = 'w-5 h-5' }) => <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONE_ANEXO[n] || ICONE_ANEXO.ficheiro }} />;
+const MAX_ANEXO = 100 * 1048576;
+const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, caixa, inputClass, showToast }) => {
+  const anexos = t.anexos || [];
+  const [envios, setEnvios] = useState([]); // { id, nome, p }
+  const [arrastar, setArrastar] = useState(false);
+  const [link, setLink] = useState(null);
+  const [verImagem, setVerImagem] = useState(null);
+  const inRef = useRef(null);
+  const juntar = a => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, anexos: [...(x.anexos || []), a] })));
+  const enviar = lista => {
+    const fs = Array.from(lista || []);
+    if (!fs.length) return;
+    if (!onEnviar) { if (showToast) showToast('Os anexos ainda não estão disponíveis aqui.', 'error'); return; }
+    fs.forEach(f => {
+      if (f.size > MAX_ANEXO) { if (showToast) showToast(`"${f.name}" tem mais de 100 MB. Põe-no no Drive e junta o link.`, 'error'); return; }
+      const id = trabId() + 'a';
+      const nome = f.name || `colado-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+      setEnvios(v => [...v, { id, nome, p: 0 }]);
+      onEnviar(`trabalho/${t.id}/${id}-${nome.replace(/[^\w.\-]+/g, '_')}`, f, p => setEnvios(v => v.map(x => (x.id === id ? { ...x, p } : x))))
+        .then(r => { juntar({ id, tipo: 'ficheiro', nome, mime: f.type || '', tamanho: f.size, url: r.url, caminho: r.caminho, criado: agoraIso() }); })
+        .catch(e => {
+          console.error('Anexo:', e);
+          const semPermissao = /unauthorized|permission|storage\/unknown|retry-limit|bucket/i.test(String(e && (e.code || e.message)));
+          if (showToast) showToast(semPermissao ? 'Não consegui guardar o anexo: falta ligar o Storage na Firebase (vê as instruções que te dei).' : `Não consegui enviar "${nome}".`, 'error');
+        })
+        .finally(() => setEnvios(v => v.filter(x => x.id !== id)));
+    });
+  };
+  const apagar = a => {
+    if (!window.confirm(`Tirar "${a.nome}" desta tarefa?`)) return;
+    mudar(tr => opTarefa(tr, t.id, x => ({ ...x, anexos: (x.anexos || []).filter(y => y.id !== a.id) })));
+    // Só apaga o ficheiro se nenhuma outra tarefa (ex.: uma cópia) o usar
+    const usado = (trab.tarefas || []).some(o => o.id !== t.id && (o.anexos || []).some(y => y.caminho && y.caminho === a.caminho));
+    if (a.caminho && !usado && onApagarFicheiro) onApagarFicheiro(a.caminho);
+  };
+  const gravarLink = () => {
+    const url = (link && link.url || '').trim();
+    if (!url) { setLink(null); return; }
+    const u = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    juntar({ id: trabId() + 'l', tipo: 'link', nome: (link.nome || '').trim() || nomeDoLink(u), url: u, criado: agoraIso() });
+    setLink(null);
+  };
+  useEffect(() => {
+    // Colar uma imagem (Ctrl+V) enquanto a tarefa está aberta
+    const colar = e => {
+      const fs = Array.from((e.clipboardData && e.clipboardData.files) || []);
+      const alvo = e.target && e.target.tagName;
+      if (!fs.length || alvo === 'INPUT' || alvo === 'TEXTAREA') return;
+      e.preventDefault(); enviar(fs);
+    };
+    document.addEventListener('paste', colar);
+    return () => document.removeEventListener('paste', colar);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const cartao = `group relative rounded-lg border overflow-hidden ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/50'}`;
+  return (
+    <div className={`${caixa} space-y-2.5 transition-colors ${arrastar ? (claro ? 'ring-2 ring-blue-400 bg-blue-50' : 'ring-2 ring-blue-500 bg-blue-500/10') : ''}`}
+      onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) { e.preventDefault(); setArrastar(true); } }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastar(false); }}
+      onDrop={e => { e.preventDefault(); setArrastar(false); enviar(e.dataTransfer.files); }}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium flex items-center gap-1.5"><IcoA n="clip" className="w-4 h-4" /> Brief e anexos {anexos.length > 0 && <span className={`text-xs font-normal ${sub}`}>{anexos.length}</span>}</p>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Carregar ficheiro</button>
+          <button type="button" onClick={() => setLink({ url: '', nome: '' })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Link</button>
+          <input ref={inRef} type="file" multiple className="hidden" onChange={e => { enviar(e.target.files); e.target.value = ''; }} />
+        </div>
+      </div>
+      {link && (
+        <div className="grid grid-cols-[minmax(0,1fr)_140px_auto] gap-2">
+          <input autoFocus value={link.url} onChange={e => setLink({ ...link, url: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); if (e.key === 'Escape') { e.stopPropagation(); setLink(null); } }} placeholder="https://docs.google.com/… (brief, Figma, Drive…)" className={`${inputClass} text-sm py-1.5`} />
+          <input value={link.nome} onChange={e => setLink({ ...link, nome: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') gravarLink(); }} placeholder="Nome (opcional)" className={`${inputClass} text-sm py-1.5`} />
+          <button type="button" onClick={gravarLink} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Juntar</button>
+        </div>
+      )}
+      {(anexos.length > 0 || envios.length > 0) ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {anexos.map(a => {
+            const tp = tipoAnexo(a);
+            return (
+              <div key={a.id} className={cartao}>
+                {tp === 'imagem' ? (
+                  <button type="button" onClick={() => setVerImagem(a)} className="block w-full aspect-[4/3] bg-black/20" title={a.nome}><img src={a.url} alt={a.nome} loading="lazy" className="w-full h-full object-cover" /></button>
+                ) : tp === 'video' ? (
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover" /></a>
+                ) : (
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : tp === 'link' ? 'text-blue-400' : sub}`} title={a.url}>
+                    <IcoA n={tp} className="w-8 h-8" />
+                    <span className="text-[10px] uppercase tracking-wide opacity-80">{tp === 'link' ? nomeDoLink(a.url) : tp === 'pdf' ? 'PDF' : (String(a.nome).split('.').pop() || '').slice(0, 5)}</span>
+                  </a>
+                )}
+                <div className="px-2 py-1.5">
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
+                  <p className={`text-[10px] ${sub}`}>{a.tamanho ? tamanhoTxt(a.tamanho) : 'link'} · {dataCurta(a.criado)}</p>
+                </div>
+                <button type="button" onClick={() => apagar(a)} className="absolute top-1 right-1 w-6 h-6 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Tirar ${a.nome}`}>✕</button>
+              </div>
+            );
+          })}
+          {envios.map(x => (
+            <div key={x.id} className={`${cartao} p-2 flex flex-col justify-center gap-1.5 aspect-[4/3]`}>
+              <p className="text-xs truncate">{x.nome}</p>
+              <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(x.p * 100)}%` }} /></div>
+              <p className={`text-[10px] ${sub}`}>A enviar… {Math.round(x.p * 100)}%</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`w-full rounded-lg border-2 border-dashed py-5 text-xs ${claro ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-slate-700 text-slate-400 hover:bg-white/[0.03]'}`}>
+          Arrasta para aqui o brief (PDF, imagens, vídeos…), cola uma imagem com Ctrl+V, ou carrega para escolher
+        </button>
+      )}
+      {verImagem && (
+        <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4 animate-backdropIn" onMouseDown={() => setVerImagem(null)}>
+          <img src={verImagem.url} alt={verImagem.nome} className="max-w-full max-h-full rounded-lg shadow-2xl" />
+        </div>
+      )}
+    </div>
+  );
+};
+// Lista de verificação simples dentro da tarefa
+const ChecklistTarefa = ({ t, mudar, claro, sub, caixa, inputClass }) => {
+  const itens = t.checklist || [];
+  const [novo, setNovo] = useState('');
+  const set = lista => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, checklist: lista })));
+  const feitos = itens.filter(i => i.ok).length;
+  return (
+    <div className={`${caixa} space-y-1.5`}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">Checklist</p>
+        {itens.length > 0 && <span className={`text-xs tabular-nums ${sub}`}>{feitos}/{itens.length}</span>}
+      </div>
+      {itens.length > 0 && <div className={`h-1 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className="h-full bg-emerald-500 transition-all" style={{ width: `${(feitos / itens.length) * 100}%` }} /></div>}
+      {itens.map(i => (
+        <div key={i.id} className="group flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={!!i.ok} onChange={e => set(itens.map(x => (x.id === i.id ? { ...x, ok: e.target.checked } : x)))} className="accent-emerald-500" />
+          <span className={`flex-1 min-w-0 ${i.ok ? `line-through ${sub}` : ''}`}>{i.txt}</span>
+          <button type="button" onClick={() => set(itens.filter(x => x.id !== i.id))} className={`text-xs opacity-0 group-hover:opacity-100 ${sub} hover:text-red-400`} aria-label="Tirar">✕</button>
+        </div>
+      ))}
+      <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && novo.trim()) { set([...itens, { id: trabId() + 'c', txt: novo.trim(), ok: false }]); setNovo(''); } }}
+        placeholder="+ Juntar item (Enter)" className={`${inputClass} text-sm py-1.5`} />
+    </div>
+  );
+};
+
 // ── Detalhe de uma tarefa (painel lateral) ──
 const PRIORIDADES = [['urgente', 'Urgente', '#ef4444'], ['alta', 'Alta', '#f59e0b'], ['normal', 'Normal', '#3b82f6'], ['baixa', 'Baixa', '#94a3b8']];
 const FORMATOS = ['9:16', '1:1', '4:5', '16:9'];
-const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar }) => {
+const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
@@ -847,7 +1023,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const custo = Number(t.custoOutsourcing) || 0;
   return (
     <div className="fixed inset-0 z-50 flex justify-end animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: 'rgba(0,0,0,.45)' }}>
-      <div className={`w-full max-w-xl h-full overflow-y-auto shadow-2xl animate-slideInRight ${claro ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}`}>
+      <div className={`w-full max-w-2xl h-full overflow-y-auto shadow-2xl animate-slideInRight ${claro ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
@@ -881,6 +1057,14 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               <p className={`text-sm py-1.5 tabular-nums ${est && horasTarefa > est ? 'text-red-400' : ''}`}>{tempoTxt(horasTarefa)}{est ? ` de ${tempoTxt(est)} (${Math.round(horasTarefa / est * 100)}%)` : ''}</p>
             </div>
           </div>
+
+          <AnexosTarefa t={t} trab={trab} mudar={mudar} onEnviar={onEnviarAnexo} onApagarFicheiro={onApagarAnexo} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} showToast={showToast} />
+
+          <label className="flex flex-col gap-1"><span className={lab}>Notas da tarefa</span>
+            <textarea key={t.id + 'x'} defaultValue={t.notas || ''} rows={4} onBlur={e => { if (e.target.value !== (t.notas || '')) set({ notas: e.target.value }); }} className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
+          </label>
+
+          <ChecklistTarefa t={t} mudar={mudar} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} />
 
           {/* Valor da tarefa: peças por tipo, com preço do cliente */}
           <div className={caixa}>
@@ -1035,12 +1219,13 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             ))}
           </div>
 
-          <label className="flex flex-col gap-1"><span className={lab}>Notas da tarefa</span>
-            <textarea key={t.id + 'x'} defaultValue={t.notas || ''} rows={4} onBlur={e => { if (e.target.value !== (t.notas || '')) set({ notas: e.target.value }); }} className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
-          </label>
           <div className="flex justify-between">
             <button type="button" className="text-xs text-slate-400 hover:text-blue-400" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
-            <button type="button" className="text-xs text-red-400 hover:text-red-300" onClick={() => { if (window.confirm('Apagar esta tarefa?')) { mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar(); } }}>Apagar tarefa</button>
+            <button type="button" className="text-xs text-red-400 hover:text-red-300" onClick={() => { if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
+              const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
+              (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
+              mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
+            } }}>Apagar tarefa</button>
           </div>
         </div>
       </div>
@@ -1931,7 +2116,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente }) => {
+const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -2262,7 +2447,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           </form>
         </div>
       )}
-      {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} />}
+      {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} />}
     </div>
   );
 };
