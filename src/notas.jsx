@@ -486,6 +486,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
   const protegida = !!(seccao && seccao.protegida);
   const htmlRef = useRef(''); const timer = useRef(null); const sujo = useRef(false);
   const tituloRef = useRef(meta.titulo || '');
+  const tituloMexido = useRef(false);
   const [versao, setVersao] = useState(0);
   const [senha, setSenha] = useState(null); // página de palavra-passe (cofre)
   const senhaRef = useRef(null);
@@ -501,6 +502,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
         if (d && d.cifrado) {
           if (!chave) { if (vivo) setConteudo('__trancada'); return; }
           const obj = JSON.parse(await decifrar(chave, d.cifrado)) || {};
+          if (meta.tituloC) { try { const t = await decifrar(chave, meta.tituloC); if (vivo && !sujo.current) tituloRef.current = t; } catch (e) { /* fica o que havia */ } }
           html = obj.html || '';
           if (obj.senha && vivo) { senhaRef.current = obj.senha; setSenha(obj.senha); }
         } else html = (d && d.html) || '';
@@ -519,6 +521,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
       if (protegida) {
         if (!chave) { setEstado('Trancada — não gravei'); return; }
         await guardarPagina(meta.id, { cifrado: await cifrar(chave, JSON.stringify(senhaRef.current ? { html: '', senha: senhaRef.current } : { html })), editada: agora() });
+        if (!tituloRef.current && meta.tituloC && !tituloMexido.current) { try { tituloRef.current = await decifrar(chave, meta.tituloC); } catch (e) { /* segue */ } }
         const tituloC = await cifrar(chave, tituloRef.current || '');
         mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: '', tituloC, txt: '', tags: [], editada: agora() } : p)) }));
       } else {
@@ -572,8 +575,8 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
       ) : conteudo === undefined ? <p className={`py-10 text-center text-sm ${sub}`}>A abrir…</p>
         : conteudo === null ? <p className="py-10 text-center text-sm text-red-400">Não consegui abrir esta página.</p> : (
           <>
-            <input key={meta.id + 't'} defaultValue={meta.titulo || ''} placeholder={senha ? 'Nome (ex.: Gmail, Millennium, Wi-Fi de casa)' : 'Título'}
-              onChange={e => { tituloRef.current = e.target.value; agendar(); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const ed = e.currentTarget.parentElement.querySelector('.nota-ed'); if (ed) ed.focus(); } }}
+            <input key={meta.id + 't'} defaultValue={tituloRef.current || ''} placeholder={senha ? 'Nome (ex.: Gmail, Millennium, Wi-Fi de casa)' : 'Título'}
+              onChange={e => { tituloRef.current = e.target.value; tituloMexido.current = true; agendar(); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const ed = e.currentTarget.parentElement.querySelector('.nota-ed'); if (ed) ed.focus(); } }}
               className={`w-full bg-transparent text-2xl sm:text-3xl font-semibold outline-none border-b pb-1 ${claro ? 'border-slate-200 placeholder-slate-300' : 'border-slate-700 placeholder-slate-600'}`} />
             <p className={`mt-1.5 text-xs ${sub}`}>{dataLonga(meta.criada)} · {horaTxt(meta.criada)}{meta.editada && meta.editada !== meta.criada ? ` · editada ${haQuanto(meta.editada)}` : ''}</p>
             {!senha && protegida && !textoDe(conteudo || '').trim() && (
@@ -895,7 +898,7 @@ const lerCsv = texto => {
   return linhas;
 };
 const CHAVES_SENHA = [
-  [/^(user ?name|user|utilizador|login|e-?mail|conta|account|n[ºo]?\.? ?(de )?ades[aã]o|ades[aã]o|cliente|id|username\/email)$/i, 'utilizador'],
+  [/^(user ?name|user|utilizador|login|e-?mail|conta|account|nif|n[ºo]?\.? ?contribuinte|n[ºo]?\.? ?(de )?ades[aã]o|ades[aã]o|cliente|id|username\/email)$/i, 'utilizador'],
   [/^(pass ?word|pass|senha|palavra[- ]?passe|pwd|c[oó]digo( de acesso)?|access code)$/i, 'senha'],
   [/^(url|site|website|link|endere[cç]o|web|p[aá]gina)$/i, 'url'],
   [/^(pin|c[oó]digo pin)$/i, 'pin'],
@@ -939,31 +942,123 @@ const montarEntrada = (titulo, pares, soltas) => {
   if (notas.length) d.notas = notas.join('\n');
   return { titulo: titulo || 'Sem título', dados: d };
 };
-const entradasDoMd = (nome, texto) => {
-  let titulo = '';
-  const base = String(nome).split('/').pop().replace(/\.(md|txt)$/i, '').replace(/\s+[0-9a-f]{32}$/i, '').trim();
-  const pares = [], soltas = [];
-  let emCodigo = false;
+// Uma página do Notion pode ter uma conta (campos soltos) ou várias (cada uma debaixo de um título,
+// de uma linha a negrito, de um item de lista ou numa tabela com várias colunas). Cada conta vira uma entrada.
+const alvoDe = k => (CHAVES_SENHA.find(([re]) => re.test(limparMd(k).replace(/:$/, '').trim())) || [])[1];
+const ALVOS_CONTA = new Set(['utilizador', 'senha', 'pin', 'numero', 'chave', 'otp', 'rede']);
+const PAGINA_GENERICA = /^(passwords?|senhas?|palavras?[- ]passe|logins?|contas?|acessos?|credenciais|untitled|sem t[ií]tulo|cofre|vault)$/i;
+const tokensMd = texto => {
+  const out = []; let emCodigo = false;
   String(texto).split(/\r?\n/).forEach(l0 => {
     const l = l0.trim();
     if (l.startsWith('```')) { emCodigo = !emCodigo; return; }
     if (!l) return;
-    if (!titulo && /^#\s+/.test(l)) { titulo = limparMd(l.replace(/^#\s+/, '')); return; }
-    if (/^\|?\s*-{3,}/.test(l)) return;
+    if (emCodigo) { out.push({ tipo: 'txt', t: l }); return; }
+    if (/^\|?\s*:?-{3,}/.test(l)) return;
+    const h = /^(#{1,6})\s+(.+)$/.exec(l);
+    if (h) { out.push({ tipo: 'h', nivel: h[1].length, t: limparMd(h[2]).replace(/:$/, '') }); return; }
     const tab = /^\|(.+)\|$/.exec(l);
-    if (tab) { const c = tab[1].split('|').map(x => x.trim()); if (c.length === 2 && !(/^(campo|field|key|chave|propriedade|property|nome|name)$/i.test(c[0]) && /^(valor|value|conte[uú]do)$/i.test(c[1]))) pares.push([c[0], c[1]]); else if (c.length !== 2) soltas.push(limparMd(l)); return; }
-    const m = /^(?:[-*]\s+)?(\*\*)?([^:]{1,40}?)(\*\*)?\s*:\s*(.+)$/.exec(l);
-    if (m && !/^https?$/i.test(m[2].trim())) pares.push([m[2], m[4]]);
-    else soltas.push(limparMd(l.replace(/^[-*]\s+/, '')));
+    if (tab) { out.push({ tipo: 'tab', c: tab[1].split('|').map(x => x.trim()) }); return; }
+    const semLista = l.replace(/^(?:[-*+]|\d+\.)\s+(\[[ x]\]\s+)?/, '');
+    const neg = /^\*\*([^*]{1,60})\*\*:?$/.exec(semLista);
+    if (neg) { out.push({ tipo: 'h', nivel: 9, t: limparMd(neg[1]).replace(/:$/, '') }); return; }
+    const m = /^(\*\*)?([^:]{1,40}?)(\*\*)?\s*:\s*(.*)$/.exec(semLista);
+    if (m && !/^https?$/i.test(m[2].trim()) && !/^\s*\/\//.test(m[4])) {
+      const v = limparMd(m[4]);
+      out.push(v ? { tipo: 'par', k: m[2], v: m[4] } : { tipo: 'kvazio', k: limparMd(m[2]) });
+      return;
+    }
+    const d = /^(.{1,30}?)\s+[-–=]\s+(.+)$/.exec(semLista);
+    if (d && alvoDe(d[1])) { out.push({ tipo: 'par', k: d[1], v: d[2] }); return; }
+    out.push({ tipo: 'txt', t: limparMd(semLista), lista: semLista !== l });
   });
-  return [montarEntrada(titulo || base, pares, soltas.filter(Boolean))];
+  return out;
 };
-const entradasDoCsv = texto => {
+const entradasDaTabela = (linhas, origem) => {
+  if (linhas.length < 2) return null;
+  const cab = linhas[0];
+  const conhecidas = cab.filter(k => alvoDe(k)).length;
+  if (cab.length < 3 && conhecidas < 2) return null; // tabela de 2 colunas "campo | valor"
+  const iT = cab.findIndex(k => alvoDe(k) === 'titulo');
+  const iTit = iT >= 0 ? iT : 0;
+  return linhas.slice(1).map(r => ({ ...montarEntrada(limparMd(r[iTit]), cab.map((k, i) => [k, r[i] || '']).filter((x, i) => i !== iTit), []), origem }));
+};
+const entradasDoMd = (nome, texto) => {
+  const origem = String(nome).split('/').pop();
+  const base = origem.replace(/\.(md|txt)$/i, '').replace(/\s+[0-9a-f]{32}$/i, '').replace(/\s+[0-9a-f]{20,}$/i, '').trim();
+  const tk = tokensMd(texto);
+  let pagina = '';
+  const blocos = [{ titulo: '', pares: [], soltas: [] }];
+  let atual = blocos[0];
+  const novo = t => { atual = { titulo: t, pares: [], soltas: [] }; blocos.push(atual); };
+  const deTabelas = [];
+  for (let i = 0; i < tk.length; i++) {
+    const x = tk[i], prox = tk[i + 1];
+    if (x.tipo === 'tab') {
+      const ls = []; while (i < tk.length && tk[i].tipo === 'tab') { ls.push(tk[i].c); i++; } i--;
+      const multi = entradasDaTabela(ls, origem);
+      if (multi) deTabelas.push(...multi);
+      else ls.forEach((c, j) => { if (c.length === 2 && !(j === 0 && /^(campo|field|key|chave|propriedade|property|nome|name)$/i.test(c[0]) && /^(valor|value|conte[uú]do)$/i.test(c[1]))) atual.pares.push([c[0], c[1]]); else atual.soltas.push(limparMd(c.join(' · '))); });
+      continue;
+    }
+    if (x.tipo === 'h') { if (x.nivel === 1 && !pagina && blocos.length === 1 && !atual.pares.length) pagina = x.t; else novo(x.t); continue; }
+    if (x.tipo === 'kvazio') {
+      if (prox && prox.tipo === 'txt') { atual.pares.push([x.k, prox.t]); i++; } else novo(x.k);
+      continue;
+    }
+    if (x.tipo === 'txt') {
+      if (prox && (prox.tipo === 'par' || prox.tipo === 'kvazio') && x.t.length <= 50 && !/^https?:/i.test(x.t)) novo(x.t);
+      else if (x.t) atual.soltas.push(x.t);
+      continue;
+    }
+    atual.pares.push([x.k, x.v]);
+  }
+  // Blocos sem nada de conta (ex.: "Pergunta de segurança" → "Resposta: …") voltam para a conta de cima
+  const contas = [];
+  blocos.forEach(b => {
+    const temConta = b.pares.some(([k]) => ALVOS_CONTA.has(alvoDe(k)));
+    const ant = contas[contas.length - 1];
+    if (!b.pares.length) { (ant || blocos[0]).soltas.push(...[b.titulo, ...b.soltas].filter(Boolean)); if (!ant && b !== blocos[0]) { /* já ficou nas notas da página */ } return; }
+    if (!temConta && ant) { b.pares.forEach(([k, v]) => ant.pares.push([b.titulo ? `${b.titulo} — ${limparMd(k)}` : k, v])); ant.soltas.push(...b.soltas); return; }
+    contas.push(b);
+  });
+  const soltasPagina = blocos[0].pares.length ? [] : blocos[0].soltas;
+  const generica = !pagina || PAGINA_GENERICA.test(pagina.trim()) || PAGINA_GENERICA.test(base);
+  const nomePag = pagina || base;
+  const out = contas.map((b, i) => {
+    let titulo;
+    if (contas.length === 1) titulo = nomePag || b.titulo;
+    else if (!b.titulo) titulo = nomePag;
+    else titulo = generica || norm(b.titulo).includes(norm(nomePag)) ? b.titulo : `${nomePag} — ${b.titulo}`;
+    return { ...montarEntrada(titulo, b.pares, [...(i === 0 ? soltasPagina.filter(s => s !== b.titulo) : []), ...b.soltas].filter(Boolean)), origem };
+  });
+  return [...out, ...deTabelas];
+};
+const entradasDoCsv = (texto, origem = '') => {
   const ls = lerCsv(String(texto).replace(/^﻿/, ''));
   if (ls.length < 2) return [];
   const cab = ls[0].map(x => x.trim());
   const iTitulo = cab.findIndex(k => /^(name|nome|t[ií]tulo|title|servi[cç]o|service)$/i.test(k));
-  return ls.slice(1).map(r => montarEntrada(iTitulo >= 0 ? r[iTitulo] : r[0], cab.map((k, i) => [k, r[i] || '']).filter((x, i) => i !== (iTitulo >= 0 ? iTitulo : 0)), []));
+  return ls.slice(1).filter(r => r.some(c => String(c || '').trim())).map(r => ({ ...montarEntrada(iTitulo >= 0 ? r[iTitulo] : r[0], cab.map((k, i) => [k, r[i] || '']).filter((x, i) => i !== (iTitulo >= 0 ? iTitulo : 0)), []), origem }));
+};
+// A exportação do Notion traz a mesma conta duas vezes (o .csv da base de dados e o .md de cada linha): junta-as
+const juntarRepetidas = lista => {
+  const out = [];
+  lista.forEach(e => {
+    const k = norm(e.titulo);
+    const igual = out.find(o => norm(o.titulo) === k && ['utilizador', 'senha', 'pin', 'numero', 'rede'].every(c => !o.dados[c] || !e.dados[c] || o.dados[c] === e.dados[c]));
+    if (!igual) { out.push({ ...e, dados: { ...e.dados } }); return; }
+    const a = igual.dados, b = e.dados;
+    Object.keys(b).forEach(c => {
+      if (c === 'extras') { const nomes = new Set((a.extras || []).map(x => norm(x.nome) + '|' + x.valor)); a.extras = [...(a.extras || []), ...(b.extras || []).filter(x => !nomes.has(norm(x.nome) + '|' + x.valor))]; }
+      else if (c === 'notas') { if (b.notas && !String(a.notas || '').includes(b.notas)) a.notas = [a.notas, b.notas].filter(Boolean).join('\n'); }
+      else if (c === 'tipo') { if (a.tipo === 'login' && b.tipo !== 'login') a.tipo = b.tipo; }
+      else if (!a[c]) a[c] = b[c];
+    });
+    if (a.extras && !a.extras.length) delete a.extras;
+    igual.juntas = (igual.juntas || 1) + 1;
+  });
+  return out;
 };
 const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
   const [entradas, setEntradas] = useState(null);
@@ -981,8 +1076,8 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
         else fich.push({ nome: f.name, texto: await f.text() });
       }
       const out = [];
-      fich.forEach(f => { if (/\.csv$/i.test(f.nome)) out.push(...entradasDoCsv(f.texto)); else out.push(...entradasDoMd(f.nome, f.texto)); });
-      const uteis = out.filter(e => e.dados.senha || e.dados.utilizador || e.dados.pin || e.dados.numero || e.dados.otp || (e.dados.extras || []).length);
+      fich.forEach(f => { if (/\.csv$/i.test(f.nome)) out.push(...entradasDoCsv(f.texto, String(f.nome).split('/').pop())); else if (/\.(md|txt)$/i.test(f.nome)) out.push(...entradasDoMd(f.nome, f.texto)); });
+      const uteis = juntarRepetidas(out).filter(e => e.dados.senha || e.dados.utilizador || e.dados.pin || e.dados.numero || e.dados.otp || (e.dados.extras || []).length);
       setEntradas(uteis); setMarcadas(new Set(uteis.map((_, i) => i)));
       if (!uteis.length) setErro('Não encontrei palavras-passe nesses ficheiros. Espera-se algo como "Password: …" ou "Username: …" em cada página.');
     } catch (e) { console.error('Importar:', e); setErro('Não consegui ler os ficheiros.'); }
@@ -998,7 +1093,7 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => inRef.current && inRef.current.click()} className="px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{aguarde ? 'A ler…' : 'Escolher ficheiros'}</button>
             <input ref={inRef} type="file" multiple accept=".md,.txt,.csv,.zip,text/markdown,text/csv,application/zip" className="hidden" onChange={e => { ler(e.target.files); e.target.value = ''; }} />
-            {entradas && entradas.length > 0 && <span className={`text-xs ${sub}`}>{entradas.length} encontrada{entradas.length === 1 ? '' : 's'}</span>}
+            {entradas && entradas.length > 0 && <span className={`text-xs ${sub}`}>{entradas.length} encontrada{entradas.length === 1 ? '' : 's'} — confirma os nomes (podes mudá-los aqui)</span>}
           </div>
           {erro && <p className="text-sm text-red-400">{erro}</p>}
         </div>
@@ -1008,8 +1103,13 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
               <label key={i} className={`flex items-start gap-3 px-2 py-2 rounded-lg cursor-pointer ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/5'}`}>
                 <input type="checkbox" checked={marcadas.has(i)} onChange={() => setMarcadas(s => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} className="mt-1 accent-blue-500" />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium truncate">{e.titulo} <span className={`text-[11px] font-normal ${sub}`}>· {tipoNome(e.dados.tipo)}</span></span>
-                  <span className={`block text-xs truncate ${sub}`}>{[e.dados.utilizador || e.dados.rede || e.dados.titular, e.dados.url, e.dados.senha ? 'palavra-passe ✓' : 'sem palavra-passe', e.dados.otp ? '2FA ✓' : '', (e.dados.extras || []).length ? `+${e.dados.extras.length} campo${e.dados.extras.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <input value={e.titulo} onChange={ev => { const v = ev.target.value; setEntradas(l => l.map((x, j) => (j === i ? { ...x, titulo: v } : x))); }} onClick={ev => ev.preventDefault()} aria-label="Nome"
+                      className={`flex-1 min-w-0 rounded-md border px-2 py-1 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${/^sem t[ií]tulo$/i.test(e.titulo.trim()) || !e.titulo.trim() ? 'border-amber-400/70' : claro ? 'border-slate-200 bg-white' : 'border-slate-600 bg-slate-900/50'}`} />
+                    <span className={`text-[11px] shrink-0 ${sub}`}>{tipoNome(e.dados.tipo)}</span>
+                  </span>
+                  <span className={`block text-xs truncate ${sub}`}>{[e.dados.utilizador || e.dados.rede || e.dados.titular, e.dados.url, e.dados.senha ? 'palavra-passe ✓' : 'sem palavra-passe', e.dados.otp ? '2FA ✓' : '', (e.dados.extras || []).length ? `+${e.dados.extras.length} campo${e.dados.extras.length === 1 ? '' : 's'}` : '', e.juntas > 1 ? `juntei ${e.juntas} repetidas` : ''].filter(Boolean).join(' · ')}</span>
+                  {e.origem && <span className={`block text-[10px] truncate opacity-70 ${sub}`}>de {e.origem}</span>}
                 </span>
               </label>
             ))}
@@ -1017,7 +1117,7 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
         )}
         <div className="p-4 flex items-center justify-end gap-2 border-t border-inherit">
           <button type="button" onClick={onFechar} className={`px-3 py-2 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
-          <button type="button" disabled={!entradas || !marcadas.size || aguarde} onClick={async () => { setAguarde(true); await onImportar(entradas.filter((_, i) => marcadas.has(i))); setAguarde(false); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Importar {marcadas.size || ''}</button>
+          <button type="button" disabled={!entradas || !marcadas.size || aguarde} onClick={async () => { setAguarde(true); await onImportar(entradas.filter((_, i) => marcadas.has(i)).map(e => ({ ...e, titulo: e.titulo.trim() || (e.origem || '').replace(/\.\w+$/, '') || 'Sem título' }))); setAguarde(false); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Importar {marcadas.size || ''}</button>
         </div>
       </div>
     </div>
@@ -1025,6 +1125,113 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
 };
 
 // ── Quem tem acesso a um caderno partilhado ──
+// ── Cofre em grelha: as palavras-passe de uma secção em colunas, agrupadas por tipo, com copiar à mão ──
+const GRUPOS_COFRE = [['banco', 'Bancos'], ['login', 'Sites e apps'], ['email', 'Email'], ['cartao', 'Cartões'], ['wifi', 'Wi-Fi'], ['licenca', 'Licenças'], ['outro', 'Outros'], ['nota', 'Notas']];
+const COR_INICIAL = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#14b8a6', '#f97316', '#6366f1'];
+const corDe = txt => { let h = 0; for (const ch of String(txt || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return COR_INICIAL[h % COR_INICIAL.length]; };
+const urlCompleta = u => { const s = String(u || '').trim(); if (!s) return ''; return /^https?:\/\//i.test(s) ? s : `https://${s}`; };
+const dominioDe = u => { try { return new URL(urlCompleta(u)).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
+const nomeDoDominio = d => { const ps = String(d || '').split('.').filter(Boolean); if (!ps.length) return ''; let i = ps.length - 2; if (i > 0 && /^(com|co|org|net|gov|edu)$/.test(ps[i]) && ps[ps.length - 1].length === 2) i--; const n = ps[Math.max(0, i)]; return n.charAt(0).toUpperCase() + n.slice(1); };
+const CofreGrelha = ({ paginas, tituloDe, chave, lerPagina, claro, sub, avisar, onAbrir, cabecalho, pedirDesbloquear, marcadas, onMarcar, onNomear }) => {
+  const [dados, setDados] = useState({});
+  const [filtro, setFiltro] = useState('');
+  const cache = useRef({});
+  const assinatura = paginas.filter(p => p.tipo === 'senha').map(p => `${p.id}:${p.editada || ''}`).join('|');
+  useEffect(() => {
+    if (!chave) { cache.current = {}; setDados({}); return undefined; }
+    let vivo = true;
+    (async () => {
+      const faltam = paginas.filter(p => p.tipo === 'senha' && (!cache.current[p.id] || cache.current[p.id].ed !== (p.editada || '')));
+      await Promise.all(faltam.map(async p => {
+        try {
+          const d = await lerPagina(p.id);
+          const o = d && d.cifrado ? (JSON.parse(await decifrar(chave, d.cifrado)) || {}) : {};
+          cache.current[p.id] = { ed: p.editada || '', s: o.senha || {} };
+        } catch (e) { cache.current[p.id] = { ed: p.editada || '', s: {} }; }
+      }));
+      if (vivo) { const out = {}; paginas.forEach(p => { if (cache.current[p.id]) out[p.id] = cache.current[p.id].s; }); setDados(out); }
+    })();
+    return () => { vivo = false; };
+  }, [chave, assinatura]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = norm(filtro.trim());
+  const repetidos = {};
+  paginas.forEach(p => { const k = norm(tituloDe(p)); repetidos[k] = (repetidos[k] || 0) + 1; });
+  const itens = paginas.map(p => {
+    const s = dados[p.id] || {};
+    const titulo = tituloDe(p);
+    const quem = s.utilizador || s.rede || s.titular || '';
+    const dom = dominioDe(s.url);
+    return { p, s, titulo, quem, dom, tipo: p.tipo === 'senha' ? (s.tipo || 'login') : 'nota', segredo: s.senha || s.chave || s.numero || s.pin || '' };
+  }).filter(x => !f || [x.titulo, x.quem, x.dom].some(v => norm(v).includes(f)))
+    .sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt', { numeric: true }));
+  const botao = `inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] ${claro ? 'bg-slate-100 hover:bg-slate-200 text-slate-600' : 'bg-white/5 hover:bg-white/10 text-slate-300'}`;
+  const parar = fn => e => { e.stopPropagation(); fn(); };
+  return (
+    <div className={`rounded-2xl border p-3 lg:p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`}>
+      {cabecalho}
+      {!chave ? (
+        <div className={`py-12 text-center text-sm ${sub}`}>
+          <Ic n="cadeado" className="w-8 h-8 mx-auto mb-3 text-amber-400" />
+          <p className="mb-3">O cofre está trancado.</p>
+          <button type="button" onClick={() => pedirDesbloquear()} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm">Desbloquear</button>
+        </div>
+      ) : (
+        <>
+          <div className="relative mb-3">
+            <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${sub}`}><Ic n="procurar" /></span>
+            <input value={filtro} onChange={e => setFiltro(e.target.value)} onKeyDown={e => { if (e.key === 'Escape' && filtro) { e.stopPropagation(); setFiltro(''); } }} placeholder="Procurar no cofre (nome, utilizador, site)…" aria-label="Procurar no cofre"
+              className={`w-full rounded-lg border pl-8 pr-3 py-2 text-base lg:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-700'}`} />
+          </div>
+          {(() => {
+            const semNome = itens.filter(x => /^sem t[ií]tulo$/i.test(x.titulo.trim()));
+            if (!semNome.length || marcadas) return null;
+            const comSite = semNome.filter(x => x.dom);
+            return (
+              <div className="mb-3 rounded-lg px-3 py-2 text-xs bg-amber-500/10 text-amber-500 flex flex-wrap items-center gap-2">
+                <span className="flex-1 min-w-[200px]">{semNome.length} sem nome. Abre-as e escreve o nome{comSite.length ? ', ou dá-lhes o nome do site de uma vez' : ''}.</span>
+                {comSite.length > 0 && onNomear && <button type="button" onClick={() => onNomear(comSite.map(x => [x.p.id, nomeDoDominio(x.dom)]))} className="px-2.5 py-1 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Dar o nome do site a {comSite.length}</button>}
+              </div>
+            );
+          })()}
+          {GRUPOS_COFRE.map(([g, nome]) => {
+            const doGrupo = itens.filter(x => (GRUPOS_COFRE.some(y => y[0] === x.tipo) ? x.tipo : 'outro') === g);
+            if (!doGrupo.length) return null;
+            return (
+              <section key={g} className="mb-4 last:mb-0">
+                <p className={`px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>{nome} <span className="font-normal">· {doGrupo.length}</span></p>
+                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
+                  {doGrupo.map(x => (
+                    <div key={x.p.id} role="button" tabIndex={0} aria-pressed={marcadas ? marcadas.has(x.p.id) : undefined} onClick={() => (marcadas ? onMarcar(x.p.id) : onAbrir(x.p))} onKeyDown={e => { if (e.key === 'Enter' || (marcadas && e.key === ' ')) { e.preventDefault(); if (marcadas) onMarcar(x.p.id); else onAbrir(x.p); } }}
+                      className={`text-left rounded-xl border px-3 py-2.5 cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${marcadas && marcadas.has(x.p.id) ? 'border-red-400/70 bg-red-500/10' : claro ? 'border-slate-200 bg-white hover:border-blue-300' : 'border-slate-700/70 bg-slate-900/40 hover:border-blue-500/50'}`}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {marcadas && <input type="checkbox" readOnly tabIndex={-1} checked={marcadas.has(x.p.id)} className="accent-red-500 shrink-0 pointer-events-none" aria-hidden="true" />}
+                        <span className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: corDe(x.titulo) }}>{(x.titulo.trim()[0] || '?').toUpperCase()}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold truncate flex items-center gap-1">{x.p.fav && <span className="text-amber-400 text-xs">★</span>}<span className="truncate">{x.titulo}</span></p>
+                          <p className={`text-xs truncate ${sub}`}>{x.quem || x.dom || (x.tipo === 'nota' ? 'Nota' : '—')}</p>
+                        </div>
+                      </div>
+                      {(repetidos[norm(x.titulo)] > 1 || /^sem t[ií]tulo$/i.test(x.titulo)) && <p className="mt-1.5 text-[10px] text-amber-400">{repetidos[norm(x.titulo)] > 1 ? 'Repetida? Há outra com o mesmo nome' : 'Sem nome — abre para ver o que é'}</p>}
+                      {!marcadas && x.tipo !== 'nota' && (x.quem || x.segredo || x.s.url) && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {x.quem && <button type="button" onClick={parar(() => copiarSeguro(x.quem, avisar))} className={botao} title={`Copiar ${x.quem}`}><Ic n="copiar" className="w-3 h-3" /> Utilizador</button>}
+                          {x.segredo && <button type="button" onClick={parar(() => copiarSeguro(x.segredo, avisar))} className={botao} title="Copiar a palavra-passe"><Ic n="copiar" className="w-3 h-3" /> {x.s.senha ? 'Palavra-passe' : x.s.chave ? 'Chave' : x.s.numero ? 'Número' : 'PIN'}</button>}
+                          {x.s.url && <button type="button" onClick={parar(() => window.open(urlCompleta(x.s.url), '_blank', 'noopener'))} className={botao} title={urlCompleta(x.s.url)}><Ic n="link" className="w-3 h-3" /> Abrir</button>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+          {!itens.length && <p className={`py-8 text-center text-sm ${sub}`}>{f ? 'Nada encontrado.' : 'Ainda não há palavras-passe aqui.'}</p>}
+        </>
+      )}
+    </div>
+  );
+};
+
 const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => {
   const [email, setEmail] = useState('');
   const [erro, setErro] = useState('');
@@ -1111,6 +1318,15 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const [pedir, setPedir] = useState(null);
   const [pessoas, setPessoas] = useState(null);
   const [ativar2fa, setAtivar2fa] = useState(false);
+  const [listaPref, setListaPref] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('notas-cofre-lista')) || []); } catch (e) { return new Set(); } });
+  const [cofreModal, setCofreModal] = useState(false);
+  const [selCofre, setSelCofre] = useState(null);
+  const pedirAberto = useRef(false);
+  useEffect(() => {
+    if (!cofreModal) return undefined;
+    const f = e => { if (e.key === 'Escape' && !pedirAberto.current && !e.defaultPrevented) setCofreModal(false); };
+    window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f);
+  }, [cofreModal]);
   const [importar, setImportar] = useState(null); // secção de destino // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
   const chaveAtual = chave;
@@ -1175,7 +1391,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   // Abrir uma página vinda de outro sítio da app (ex.: ficha do cliente)
   useEffect(() => {
     if (!abrir || modo === 'carregar') return;
-    if (abrir.id) { const p = (ix.paginas || []).find(x => x.id === abrir.id); if (p) { setSecId(p.seccaoId); setPagId(p.id); setFiltro(null); setVista('pagina'); } }
+    if (abrir.id) { const p = (ix.paginas || []).find(x => x.id === abrir.id); if (p) { setSecId(p.seccaoId); setPagId(p.id); setFiltro(null); setVista('pagina'); setCofreModal(true); } }
     else if (abrir.nova) novaPagina('branco', abrir.nova);
     if (onAberto) onAberto();
   }, [abrir, modo]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1190,6 +1406,9 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   else if (filtro && filtro.tag) { lista = ordenar((ix.paginas || []).filter(p => (p.tags || []).some(t => t.t === filtro.tag.t && String(t.id) === String(filtro.tag.id)))); tituloLista = `@${filtro.tag.n}`; }
   else if (secao) { lista = ordenar((ix.paginas || []).filter(p => p.seccaoId === secao.id)); tituloLista = secao.nome; }
   const mostrarSeccao = !!(q || filtro);
+  // Secções-cofre (protegidas e com palavras-passe) mostram-se em grelha, a não ser que escolhas a lista
+  const emGrelha = !!(!mostrarSeccao && secao && secao.protegida && (ix.paginas || []).some(p => p.seccaoId === secao.id && p.tipo === 'senha') && !listaPref.has(secao.id));
+  const mudarVistaCofre = grelha => setListaPref(prev => { const n = new Set(prev); if (grelha) n.delete(secao.id); else n.add(secao.id); try { localStorage.setItem('notas-cofre-lista', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
 
   // ── Operações ──
   const novaPagina = async (modeloId = 'branco', sobre = null, kDesbloq = null) => {
@@ -1209,7 +1428,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       else await guardarPagina(id, { html, editada: agora() }, sid);
     } catch (e) { console.error('Nota:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
     mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
-    setSecId(sid); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
+    setSecId(sid); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina'); setCofreModal(true);
     if (protegida) setTitulosC(t => ({ ...t, [id]: titulo }));
   };
   // Nova palavra-passe: vai sempre para uma secção protegida (cria a secção "Cofre" se ainda não houver)
@@ -1232,7 +1451,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
     } catch (e) { console.error('Cofre:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
     setTitulosC(t2 => ({ ...t2, [id]: '' }));
-    setSecId(s.id); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
+    setSecId(s.id); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina'); setCofreModal(true);
   };
   // Importar várias palavras-passe de uma vez (ficheiros do Notion, CSV) para uma secção protegida
   const abrirImportar = (k = chave) => {
@@ -1251,11 +1470,12 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const fazerImportar = async lista => {
     const { s, k } = importar || {}; if (!s || !k) return;
     const metas = [], nomes = {};
+    const lote = agora();
     try {
       for (const e of lista) {
         const id = nId();
         await guardarPagina(id, { cifrado: await cifrar(k, JSON.stringify({ html: '', senha: e.dados })), editada: agora() }, s.id);
-        metas.push({ id, seccaoId: s.id, titulo: '', tituloC: await cifrar(k, e.titulo), tipo: 'senha', criada: agora(), editada: agora(), txt: '', tags: [] });
+        metas.push({ id, seccaoId: s.id, titulo: '', tituloC: await cifrar(k, e.titulo), tipo: 'senha', criada: agora(), editada: agora(), txt: '', tags: [], imp: lote });
         nomes[id] = e.titulo;
       }
     } catch (er) { console.error('Importar:', er); if (showToast) showToast(`Só consegui importar ${metas.length} de ${lista.length}.`, 'error'); }
@@ -1417,13 +1637,26 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   };
 
   const abrirSeccao = s => {
-    setSecId(s.id); setFiltro(null); setProcura('');
+    setSecId(s.id); setFiltro(null); setProcura(''); setCofreModal(false); setSelCofre(null);
     const ps = ordenar((ix.paginas || []).filter(p => p.seccaoId === s.id));
     if (!larguraTelemovel && ps.length && !ps.some(p => p.id === pagId)) setPagId(ps[0].id);
     setVista('paginas');
     if (s.protegida && !chave) pedirDesbloquear();
   };
   const abrirPagina = p => { setPagId(p.id); if (!mostrarSeccao) setSecId(p.seccaoId); setVista('pagina'); };
+
+  const apagarVarias = ids => {
+    const lista = (ix.paginas || []).filter(p => ids.has(p.id));
+    if (!lista.length) return;
+    if (!window.confirm(`Apagar ${lista.length} página${lista.length === 1 ? '' : 's'}?\n\n${lista.slice(0, 12).map(p => `• ${tituloDe(p)}`).join('\n')}${lista.length > 12 ? `\n… e mais ${lista.length - 12}` : ''}`)) return;
+    mudarIndice(i => ({ ...i, paginas: i.paginas.filter(x => !ids.has(x.id)) }));
+    if (apagarPagina) lista.forEach(p => apagarPagina(p.id).catch(() => {}));
+    if (ids.has(pagId)) setPagId(null);
+    setSelCofre(null);
+    if (showToast) showToast(`${lista.length} apagada${lista.length === 1 ? '' : 's'}.`);
+  };
+  // A última importação (marcada com a hora em que foi feita) — para poder voltar a importar com outros nomes
+  const ultimaImportacao = secao ? (() => { const ls = (ix.paginas || []).filter(p => p.seccaoId === secao.id && p.imp); if (!ls.length) return null; const lote = ls.map(p => p.imp).sort().pop(); return ls.filter(p => p.imp === lote); })() : null;
 
   if (modo === 'carregar') return <div className="py-16 text-center text-slate-400 text-sm">A carregar as notas…</div>;
 
@@ -1451,7 +1684,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
                 const s = secDe(p.seccaoId);
                 const ativa = pagId === p.id && !filtro && !q;
                 return (
-                  <button key={p.id} type="button" onClick={() => { setFiltro(null); setProcura(''); setSecId(p.seccaoId); setPagId(p.id); setVista('pagina'); }}
+                  <button key={p.id} type="button" onClick={() => { setFiltro(null); setProcura(''); setSecId(p.seccaoId); setPagId(p.id); setVista('pagina'); setCofreModal(true); }}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 lg:py-1 rounded-lg text-sm text-left ${ativa ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} title={s ? `${s.nome} › ${tituloDe(p)}` : tituloDe(p)}>
                     <span className="w-1 h-3.5 rounded-full shrink-0" style={{ background: s ? s.cor : '#94a3b8' }} />
                     <span className="truncate min-w-0">{tituloDe(p)}</span>
@@ -1526,12 +1759,27 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     </div>
   );
 
+  const temSenhasSec = !!(secao && secao.protegida && (ix.paginas || []).some(p => p.seccaoId === secao.id && p.tipo === 'senha'));
+  const menuCofre = temSenhasSec ? ['-',
+    emGrelha ? { txt: 'Ver em lista', ic: 'lista', fn: () => mudarVistaCofre(false) } : { txt: 'Ver em grelha (colunas)', ic: 'lista', fn: () => mudarVistaCofre(true) },
+    emGrelha && chave && { txt: 'Selecionar para apagar…', ic: 'lixo', fn: () => setSelCofre(new Set()) },
+    ultimaImportacao && { txt: `Desfazer a última importação (${ultimaImportacao.length})`, ic: 'lixo', perigo: true, fn: () => apagarVarias(new Set(ultimaImportacao.map(p => p.id))) },
+  ] : [];
+  const botaoVista = temSenhasSec && (
+    <div className={`inline-flex rounded-lg p-0.5 ${claro ? 'bg-slate-100' : 'bg-white/5'}`} role="group" aria-label="Vista">
+      {[[true, 'Grelha', <svg key="g" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>], [false, 'Lista', <Ic key="l" n="lista" className="w-3.5 h-3.5" />]].map(([g, nm, ic]) => (
+        <button key={nm} type="button" onClick={() => mudarVistaCofre(g)} aria-pressed={emGrelha === g} title={nm} className={`w-7 h-7 inline-flex items-center justify-center rounded-md ${emGrelha === g ? (claro ? 'bg-white shadow-sm text-slate-900' : 'bg-white/15 text-white') : sub}`}>{ic}</button>
+      ))}
+    </div>
+  );
+
   // Coluna 2: páginas
   const paginas = (
     <div className={`${painel} p-2 lg:p-3`}>
       <div className="flex items-center gap-1 mb-2">
         <button type="button" onClick={() => setVista('arvore')} className={`lg:hidden w-9 h-9 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} aria-label="Voltar"><Ic n="voltar" className="w-5 h-5" /></button>
         <p className="flex-1 min-w-0 px-1 font-semibold truncate flex items-center gap-1.5">{secao && !mostrarSeccao && <span className="w-1 h-4 rounded-full" style={{ background: secao.cor }} />}{tituloLista || 'Páginas'}{secao && !mostrarSeccao && secao.protegida && <Ic n={chave ? 'aberto' : 'cadeado'} className="w-3.5 h-3.5 text-amber-400" />}</p>
+        {!mostrarSeccao && botaoVista}
         <select value={ordem} onChange={e => { setOrdem(e.target.value); try { localStorage.setItem('notas-ordem', e.target.value); } catch (er) { /* sem armazenamento */ } }} aria-label="Ordenar" className={`text-xs rounded-md bg-transparent px-1 py-1 ${sub}`}>
           <option value="editada" className={claro ? '' : 'bg-slate-800'}>Recentes</option><option value="criada" className={claro ? '' : 'bg-slate-800'}>Criação</option><option value="titulo" className={claro ? '' : 'bg-slate-800'}>A–Z</option>
         </select>
@@ -1540,7 +1788,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
         <div className="flex gap-1.5 mb-2">
           <button type="button" onClick={() => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco'))} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" /> Página</button>
           {secao.protegida && <button type="button" onClick={() => novaSenha()} className="inline-flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-medium whitespace-nowrap rounded-lg border border-amber-400/50 text-amber-500 hover:bg-amber-400/10" title="Nova palavra-passe"><Ic n="cadeado" className="w-3.5 h-3.5" /> Palavra-passe</button>}
-          <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }, { txt: 'Importar palavras-passe (Notion, CSV)…', ic: 'cadeado', fn: () => abrirImportar() }]} />
+          <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }, { txt: 'Importar palavras-passe (Notion, CSV)…', ic: 'cadeado', fn: () => abrirImportar() }, ...menuCofre]} />
         </div>
       )}
       <div className="space-y-0.5">
@@ -1553,7 +1801,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
                 {p.tipo === 'senha' ? <Ic n="cadeado" className="w-3.5 h-3.5 text-amber-400" /> : p.tituloC && !chave && <Ic n="cadeado" className="w-3.5 h-3.5 text-amber-400" />}
                 <span className="text-sm font-medium truncate">{tituloDe(p)}</span>
               </span>
-              <span className={`block text-xs truncate ${sub}`}>{mostrarSeccao && s ? `${s.nome} · ` : ''}{haQuanto(p.editada || p.criada)}{p.txt ? ` · ${p.txt.slice(0, 80)}` : ''}</span>
+              {(p.tipo !== 'senha' || mostrarSeccao) && <span className={`block text-xs truncate ${sub}`}>{mostrarSeccao && s ? `${s.nome} · ` : ''}{haQuanto(p.editada || p.criada)}{p.txt ? ` · ${p.txt.slice(0, 80)}` : ''}</span>}
             </button>
           );
         })}
@@ -1586,22 +1834,76 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     </div>
   );
 
+  // Cofre em grelha (colunas) — a página abre por cima, numa janela
+  const grelha = emGrelha ? (
+    <CofreGrelha paginas={lista} tituloDe={tituloDe} chave={chave} lerPagina={lerPagina} claro={claro} sub={sub} avisar={showToast} pedirDesbloquear={() => pedirDesbloquear()}
+      marcadas={selCofre} onMarcar={id => setSelCofre(prev => { const n = new Set(prev || []); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
+      onAbrir={p => { setPagId(p.id); setVista('pagina'); setCofreModal(true); }}
+      onNomear={async pares => {
+        if (!chave) return;
+        const novos = {};
+        for (const [id, nome] of pares) novos[id] = { nome, c: await cifrar(chave, nome) };
+        mudarIndice(i => ({ ...i, paginas: i.paginas.map(x => (novos[x.id] ? { ...x, tituloC: novos[x.id].c } : x)) }));
+        setTitulosC(t => ({ ...t, ...Object.fromEntries(Object.entries(novos).map(([id, v]) => [id, v.nome])) }));
+        if (showToast) showToast(`${pares.length} com nome. Confirma se estão certos.`);
+      }}
+      cabecalho={
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button type="button" onClick={() => setVista('arvore')} className={`lg:hidden w-9 h-9 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} aria-label="Voltar"><Ic n="voltar" className="w-5 h-5" /></button>
+          <p className="flex-1 min-w-0 font-semibold truncate flex items-center gap-1.5"><span className="w-1 h-4 rounded-full" style={{ background: secao.cor }} />{secao.nome}<Ic n={chave ? 'aberto' : 'cadeado'} className="w-3.5 h-3.5 text-amber-400" /><span className={`text-xs font-normal ${sub}`}>{lista.length}</span></p>
+          {selCofre ? (
+            <>
+              <span className={`text-xs ${sub}`}>{selCofre.size} escolhida{selCofre.size === 1 ? '' : 's'}</span>
+              <button type="button" onClick={() => setSelCofre(new Set(lista.map(p => p.id)))} className={`px-2.5 py-1.5 text-xs rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Todas</button>
+              <button type="button" disabled={!selCofre.size} onClick={() => apagarVarias(selCofre)} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-40">Apagar {selCofre.size || ''}</button>
+              <button type="button" onClick={() => setSelCofre(null)} className={`px-2.5 py-1.5 text-xs rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
+            </>
+          ) : (
+            <>
+              {botaoVista}
+              <button type="button" onClick={() => novaSenha()} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" className="w-3.5 h-3.5" /> Palavra-passe</button>
+              <Menu claro={claro} itens={[{ txt: 'Nova página de texto', ic: 'mais', fn: () => (chave ? novaPagina('branco') : pedirDesbloquear(k => novaPagina('branco', null, k))) }, { txt: 'Importar palavras-passe (Notion, CSV)…', ic: 'cadeado', fn: () => abrirImportar() }, ...menuCofre]} />
+            </>
+          )}
+        </div>
+      } />
+  ) : null;
+  const fecharModal = () => setCofreModal(false);
+  pedirAberto.current = !!(pedir || importar || pessoas);
+  const modalCofre = emGrelha && cofreModal && pagina && pagina.seccaoId === secao.id && !larguraTelemovel ? (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 lg:p-8 animate-backdropIn backdrop-blur-md" style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}
+      onMouseDown={e => { if (e.target === e.currentTarget) fecharModal(); }}>
+      <div className="relative w-full max-w-3xl max-h-full overflow-y-auto rounded-2xl shadow-2xl animate-modalIn">
+        <button type="button" onClick={fecharModal} className={`absolute right-3 top-3 z-10 w-8 h-8 rounded-lg ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button>
+        <div className={claro ? 'bg-white rounded-2xl' : 'bg-slate-900 rounded-2xl'}>{editor}</div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className={`${claro ? '' : 'dark-notas'}`}>
       <style>{CSS_NOTAS}</style>
       {larguraTelemovel ? (
         <div className="pb-24">
           {vista === 'arvore' && arvore}
-          {vista === 'paginas' && paginas}
-          {vista === 'pagina' && (pagina ? editor : paginas)}
+          {vista === 'paginas' && (grelha || paginas)}
+          {vista === 'pagina' && (pagina ? editor : (grelha || paginas))}
         </div>
       ) : (
+        grelha ? (
+          <div className="grid grid-cols-[260px_minmax(0,1fr)] gap-4 items-start">
+            <div className="sticky overflow-y-auto" style={{ top: topo, maxHeight: `calc(100vh - ${topo + 16}px)` }}>{arvore}</div>
+            {grelha}
+          </div>
+        ) : (
         <div className="grid grid-cols-[260px_280px_minmax(0,1fr)] gap-4 items-start">
           <div className="sticky overflow-y-auto" style={{ top: topo, maxHeight: `calc(100vh - ${topo + 16}px)` }}>{arvore}</div>
           <div className="sticky overflow-y-auto" style={{ top: topo, maxHeight: `calc(100vh - ${topo + 16}px)` }}>{paginas}</div>
           {editor}
         </div>
+        )
       )}
+      {modalCofre}
       {pedir && <Pedir key={pedir.titulo} {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
       {importar && <ImportarSenhas claro={claro} sub={sub} destino={`${(((ix.cadernos || []).find(c => c.id === importar.s.cadernoId)) || {}).nome || ''} › ${importar.s.nome}`} onImportar={fazerImportar} onFechar={() => setImportar(null)} />}
       {ativar2fa && chave && <Ativar2FA claro={claro} onFechar={() => setAtivar2fa(false)} onConfirmar={async seg => { const otpC = await cifrar(chave, seg); mudarIndice(i => ({ ...i, cofre: { ...(i.cofre || {}), otpC, otpEm: agora() } })); setAtivar2fa(false); if (showToast) showToast('Pronto: o cofre passa a pedir também o código do telemóvel.'); }} />}
