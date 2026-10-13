@@ -72,6 +72,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, Alt+←, botão de recuar do rato e gesto de voltar do telemóvel).
   // Só muda de ecrã (separador, mês e posição na página) — nunca mexe nos dados.
   const [navPos, setNavPos] = useState(0);
+  const [navSub, setNavSub] = useState(null); // ecrã interno pedido pelo recuar/avançar ({ tab, sub, k })
   const navRef = useRef({ tab: 'resumo', mes: mesAtualSistema, ano: anoAtualSistema, y: 0, pos: 0, voltando: false, iniciado: false });
   useEffect(() => {
     const n = navRef.current;
@@ -84,6 +85,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       n.tab = st.tab; n.mes = st.mes; n.ano = st.ano; n.y = st.y || 0;
       if (st.ano) setAno(st.ano);
       if (st.mes) setMes(st.mes);
+      // Ecrã dentro do separador (ex.: Trabalho → Sophie → Jogos): fica pronto para quando o separador abrir
+      if (st.sub) {
+        try {
+          if (st.tab === 'trabalho') { localStorage.setItem('trab-sel', JSON.stringify(st.sub.sel || { tipo: 'geral' })); if (st.sub.aba) localStorage.setItem('trab-aba-inicial', st.sub.aba); }
+          if (st.tab === 'notas') { if (st.sub.secId) localStorage.setItem('notas-sec', st.sub.secId); if (st.sub.pagId) localStorage.setItem('notas-pag', st.sub.pagId); }
+        } catch (er) { /* sem armazenamento */ }
+      }
+      setNavSub({ tab: st.tab, sub: st.sub || null, k: Date.now() });
       setTab(st.tab);
       setTimeout(() => { window.scrollTo({ top: st.y || 0 }); n.voltando = false; }, 60);
     };
@@ -105,7 +114,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   // O mês da entrada atual acompanha o seletor (para voltar ao mês onde estavas)
   useEffect(() => { const n = navRef.current; if (n.voltando) return; n.mes = mes; n.ano = ano; try { if (history.state && history.state.app === 'orc') history.replaceState({ ...history.state, mes, ano }, ''); } catch (e) { /* histórico indisponível */ } }, [mes, ano]);
-  const recuar = () => { try { history.back(); } catch (e) { /* sem histórico */ } };
+  const recuar = () => { try { if (navRef.current.pos > 0) history.back(); } catch (e) { /* sem histórico */ } };
+  const avancar = () => { try { history.forward(); } catch (e) { /* sem histórico */ } };
+  // Os separadores com ecrãs dentro (Trabalho, Notas) registam cada mudança de ecrã
+  const navEmpurrar = useCallback((tabDe, sub) => {
+    const n = navRef.current;
+    if (n.voltando || n.tab !== tabDe) return;
+    try {
+      history.replaceState({ ...(history.state || {}), app: 'orc', tab: n.tab, mes: n.mes, ano: n.ano, y: n.y, pos: n.pos }, '');
+      n.pos += 1; setNavPos(n.pos); n.y = 0;
+      history.pushState({ app: 'orc', tab: n.tab, mes: n.mes, ano: n.ano, y: 0, pos: n.pos, sub }, '');
+    } catch (e) { /* histórico indisponível */ }
+  }, []);
+  const navSubstituir = useCallback((tabDe, sub) => {
+    try { if (history.state && history.state.app === 'orc' && history.state.tab === tabDe) history.replaceState({ ...history.state, sub }, ''); } catch (e) { /* histórico indisponível */ }
+  }, []);
   const [txSoMes, setTxSoMes] = useState(true); // Transações: mostrar só o mês selecionado no topo
   const [txImport, setTxImport] = useState(null); // pré-visualização de um ficheiro de transações a importar
   const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
@@ -282,14 +305,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         e.preventDefault();
         setTab('agenda');
       }
-      // ← → = Mês anterior/seguinte
-      if (e.key === 'ArrowLeft' && !e.ctrlKey) {
+      // ← → = Recuar / avançar (para onde estavas)
+      if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); recuar(); return; }
+      if (e.key === 'ArrowRight' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); avancar(); return; }
+      // Shift+← Shift+→ = Mês anterior/seguinte
+      if (e.key === 'ArrowLeft' && e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
         const idx = meses.indexOf(mes);
         if (idx > 0) setMes(meses[idx - 1]);
         else { setMes(meses[11]); setAno(a => a - 1); }
       }
-      if (e.key === 'ArrowRight' && !e.ctrlKey) {
+      if (e.key === 'ArrowRight' && e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
         const idx = meses.indexOf(mes);
         if (idx < 11) setMes(meses[idx + 1]);
@@ -11006,7 +11032,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '8', desc: '📅 Histórico' },
      { key: '9', desc: '📈 Alocação' },
      { key: '0', desc: '💎 Portfolio' },
-     { key: '← →', desc: 'Mês anterior/seguinte' },
+     { key: '←', desc: 'Recuar para onde estavas' },
+     { key: '→', desc: 'Avançar outra vez' },
+     { key: 'Shift + ← →', desc: 'Mês anterior/seguinte' },
      { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
      { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
      { key: 'Ctrl+F', desc: 'Pesquisar' },
@@ -13189,7 +13217,7 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div className="flex items-center justify-start gap-3">
               <h1 className="hidden sm:block text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
               <div className="flex items-center gap-2">
-                <button onClick={recuar} disabled={navPos <= 0} aria-label="Recuar" title={navPos > 0 ? 'Recuar para onde estavas (Alt+←)' : 'Nada para recuar'}
+                <button onClick={recuar} disabled={navPos <= 0} aria-label="Recuar" title={navPos > 0 ? 'Recuar para onde estavas (seta ←)' : 'Nada para recuar'}
                   className={`w-8 h-8 sm:w-9 sm:h-9 shrink-0 inline-flex items-center justify-center rounded-xl border transition-colors ${navPos <= 0 ? 'max-sm:hidden' : ''} ${theme === 'light' ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900' : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-white/10 hover:text-white'} disabled:opacity-35 disabled:pointer-events-none`}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
                 </button>
@@ -13200,14 +13228,14 @@ ${transacoesOrdenadas.map(t => `<tr>
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
                     <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
-                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (Shift+←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <select value={mes} onChange={e=>setMes(e.target.value)} aria-label="Mês" className={sel}>
                         {meses.map(m=><option key={m} value={m} className={opt}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                       </select>
                       <select value={ano} onChange={e=>setAno(+e.target.value)} aria-label="Ano" className={sel}>
                         {anos.map(a=><option key={a} value={a} className={opt}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                       </select>
-                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (Shift+→)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
                     </div>
                   );
                 })()}
@@ -13356,11 +13384,11 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas indice={notasIndice} mudarIndice={mudarNotas} modo={notasModo} theme={theme}
+ {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasIndice} mudarIndice={mudarNotas} modo={notasModo} theme={theme}
    lerPagina={lerNotaApp} guardarPagina={guardarNotaApp} apagarPagina={apagarNotaApp}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
-{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
+{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
    recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!ficheiro, k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
