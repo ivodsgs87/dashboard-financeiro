@@ -552,7 +552,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
 };
 
 // ── Ecrã das Notas ──
-const Notas = ({ indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
+const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const ix = indice || NOTAS_VAZIO;
@@ -561,6 +561,27 @@ const Notas = ({ indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apa
   const [vista, setVista] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 1024 ? 'arvore' : 'pagina')); // telemóvel: 'arvore' | 'paginas' | 'pagina'
   const [filtro, setFiltro] = useState(null); // null | 'recentes' | 'favoritos' | { tag }
   const [procura, setProcura] = useState('');
+  // Recuar/avançar da app: cada secção, página ou lista aberta fica no histórico
+  const navN = useRef({ primeiro: true, deFora: false, ult: null, desde: Date.now() });
+  useEffect(() => {
+    const r = navN.current; const sub = { secId, pagId, filtro, vista }; const k = JSON.stringify(sub);
+    if (r.primeiro) { r.primeiro = false; r.ult = k; const tm = setTimeout(() => { if (onNavSubstituir) onNavSubstituir(sub); }, 0); return () => clearTimeout(tm); }
+    if (k === r.ult) return undefined;
+    r.ult = k;
+    if (r.deFora) { r.deFora = false; return undefined; }
+    // Escolhas automáticas logo ao abrir não contam como um ecrã novo
+    if (Date.now() - r.desde < 1200) { if (onNavSubstituir) onNavSubstituir(sub); return undefined; }
+    if (onNavEmpurrar) onNavEmpurrar(sub);
+    return undefined;
+  }, [secId, pagId, filtro, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!navSub || !navSub.sub) return;
+    const s = navSub.sub;
+    const alvo = { secId: s.secId ?? null, pagId: s.pagId ?? null, filtro: s.filtro ?? null, vista: s.vista || vista };
+    if (JSON.stringify(alvo) === navN.current.ult) return;
+    navN.current.deFora = true;
+    setSecId(alvo.secId); setPagId(alvo.pagId); setFiltro(alvo.filtro); setVista(alvo.vista); setProcura('');
+  }, [navSub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ordem, setOrdem] = useState(() => { try { return localStorage.getItem('notas-ordem') || 'editada'; } catch (e) { return 'editada'; } });
   const [fechados, setFechados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('notas-fechados')) || []); } catch (e) { return new Set(); } });
   const [pedir, setPedir] = useState(null);
