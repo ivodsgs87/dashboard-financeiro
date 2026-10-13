@@ -16,7 +16,7 @@ import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE
+  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -599,6 +599,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       });
     }, 700);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pergunta única ao Gemini (pela mesma função do chat). Usado nas Notas para planear as compras.
+  const perguntarIA = async (pergunta, contexto) => {
+    const token = user && user.getIdToken ? await user.getIdToken() : '';
+    let erro = null;
+    for (const url of CHAT_URLS) {
+      try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ mensagens: [{ papel: 'user', texto: pergunta }], contexto }) });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.resposta) return j.resposta;
+        erro = r.status === 404 ? 'A função do chat ainda não está publicada no servidor.' : (j.error && j.error.message) || `Erro ${r.status}`;
+      } catch (e) { erro = 'Não consegui ligar ao servidor.'; }
+    }
+    throw new Error(erro || 'Sem resposta.');
+  };
   // ── Notas (estilo OneNote): índice num documento à parte (users/<uid>/notas/indice) e uma página por documento.
   //    Sem autorização para esses documentos, grava tudo no documento principal (G.notas / G.notasPaginas).
   const [notasDoc, setNotasDoc] = useState(null);
@@ -3872,6 +3886,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [importedData, setImportedData] = useState(null);
    const [importCid, setImportCid] = useState(null);       // cliente escolhido à mão no import
    const [importLembrar, setImportLembrar] = useState(true); // guardar o nome da empresa nesse cliente
+   const importFileRef = useRef(null); // o PDF/imagem lido — fica guardado no recibo
+   const [importJuntar, setImportJuntar] = useState(null); // 'novo' ou "k|id" de um recibo que já existe (ex.: criado pela fatura)
+   // Recibos que já existem do mesmo cliente e valor (no mês da data e nos vizinhos) — o recibo verde junta-se a esse
+   const candidatosRecibo = (cid, ili, kDest) => {
+     const [y0, m0] = String(kDest).split('-').map(Number); const out = [];
+     [-1, 0, 1, 2].forEach(d => {
+       const t = y0 * 12 + (m0 - 1) + d, k = `${Math.floor(t / 12)}-${t % 12 + 1}`, md = M[k] || {};
+       [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
+         if (String(x.cid) !== String(cid)) return;
+         const v = Number(x.valIliq ?? x.val) || 0;
+         if (Math.abs(v - ili) <= 1) out.push({ k, lista, r: x, comFicheiro: !!(x.ficheiro || x.ficheiroUrl) });
+       }));
+     });
+     return out.sort((a, b) => Number(a.comFicheiro) - Number(b.comFicheiro));
+   };
+   const guardarFicheiroRecibo = async (k, id, f) => {
+     if (!f || !(user && user.uid) || typeof enviarAnexo !== 'function') return;
+     try {
+       const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
+       setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ...(x.faturaId && x.ficheiroUrl && !x.faturaPdfUrl ? { faturaPdfUrl: x.ficheiroUrl, faturaPdfNome: x.ficheiroNome } : {}), ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: f.name || 'recibo.pdf', ficheiroTipo: f.type || 'application/pdf' } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+       showToast('📎 PDF do recibo guardado');
+     } catch (e) { console.error('Recibo PDF:', e); showToast('O recibo ficou registado, mas não consegui guardar o PDF. Junta-o com "+ PDF".', 'error'); }
+   };
    // Registo rápido (+) no telemóvel: "Ler fatura" abre logo o importador
    useEffect(() => { if (acaoRapida === 'importar') { setShowImportModal(true); setAcaoRapida(null); } }, [acaoRapida]);
    
@@ -3884,6 +3921,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    
    // Função para processar fatura com Gemini via Firebase Function
    const processarFatura = async (file) => {
+     importFileRef.current = file; setImportJuntar(null);
      setImportLoading(true);
      setImportError('');
      setImportedData(null);
@@ -3979,6 +4017,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        pais: importedData.pais || 'PT'
      };
      
+     // Já existe um recibo deste cliente com este valor (ex.: o que a fatura criou)? Junta-lhe o recibo verde.
+     const kDest0 = mesDoRecibo(importedData.data) || mesKey;
+     const cands = candidatosRecibo(clienteId, Number(importedData.valorIliquido) || 0, kDest0);
+     const alvo = importJuntar === 'novo' ? null : (importJuntar ? cands.find(c => `${c.k}|${c.r.id}` === importJuntar) : cands[0]) || null;
+     if (alvo) {
+       saveUndo();
+       const patch = { val: novoRecibo.val, valIliq: novoRecibo.valIliq, iva: novoRecibo.iva, taxaIva: novoRecibo.taxaIva, retIRS: novoRecibo.retIRS, pais: novoRecibo.pais, reciboVerde: true };
+       setM(p => { const md = p[alvo.k] || defM; return { ...p, [alvo.k]: { ...md, [alvo.lista]: (md[alvo.lista] || []).map(x => (x.id === alvo.r.id ? { ...x, ...patch } : x)) } }; });
+       const [ya, ma] = alvo.k.split('-').map(Number);
+       showToast(`Recibo verde junto a «${alvo.r.desc || 'recibo'}» (${meses[ma - 1]} ${ya})`);
+       guardarFicheiroRecibo(alvo.k, alvo.r.id, importFileRef.current);
+       importFileRef.current = null;
+       setShowImportModal(false); setImportedData(null);
+       return;
+     }
+     novoRecibo.reciboVerde = true;
      // Um documento importado é um recibo verde: vai sempre para "COM Taxas",
      // tenha ou não retenção (clientes estrangeiros não retêm IRS nem levam IVA).
      // Vai para o mês da DATA do recibo (é esse que conta para SS, IVA e IRS), seja qual for o mês aberto.
@@ -3990,7 +4044,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const [yy, mm] = kDest.split('-').map(Number);
        showToast(`Recibo adicionado a ${meses[mm - 1]} ${yy} (mês da data do recibo)`);
      }
-     
+     guardarFicheiroRecibo(kDest, novoRecibo.id, importFileRef.current);
+     importFileRef.current = null;
      setShowImportModal(false);
      setImportedData(null);
    };
@@ -4167,12 +4222,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const outro = kDest !== mesKey;
                      return <p className="text-xs text-slate-400 mb-3">💼 Vai para «COM Taxas» de <strong className={outro ? 'text-amber-400' : ''}>{meses[mm - 1]} {yy}</strong>{outro ? ' (o mês da data do recibo, não o que tens aberto)' : ''}{importedData.retencaoIRS > 0 ? '' : ' — sem retenção, como é normal em clientes estrangeiros'}</p>;
                    })()}
-                   <button
-                     onClick={aplicarDadosImportados}
-                     className="w-full py-3 px-4 bg-blue-600 rounded-xl font-medium hover:opacity-90 transition-opacity"
-                   >
-                     ✓ Adicionar Receita
-                   </button>
+                   {(() => {
+                     const detetado = clienteDoNome(clientes, importedData.nomeCliente);
+                     const cid = importCid != null ? importCid : (detetado ? detetado.id : (clientes[0]?.id || 0));
+                     const cands = candidatosRecibo(cid, Number(importedData.valorIliquido) || 0, mesDoRecibo(importedData.data) || mesKey);
+                     const escolha = importJuntar || (cands[0] ? `${cands[0].k}|${cands[0].r.id}` : 'novo');
+                     return (
+                       <>
+                         {cands.length > 0 && (
+                           <div className="mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-1.5 text-xs">
+                             <p className="text-emerald-400 font-medium">Já tens um recibo deste cliente com este valor — junto-lhe o recibo verde (e o PDF)?</p>
+                             {cands.map(c => { const [ya, ma] = c.k.split('-').map(Number); const v = `${c.k}|${c.r.id}`; return (
+                               <label key={v} className="flex items-center gap-2 cursor-pointer"><input type="radio" name="imp-juntar" className="accent-emerald-500" checked={escolha === v} onChange={() => setImportJuntar(v)} />
+                                 <span>{c.r.desc || 'Recibo'} · {meses[ma - 1]} {ya} · {fmt(Number(c.r.valIliq ?? c.r.val) || 0)}{c.r.faturaId && !c.r.reciboVerde ? ' · criado pela fatura' : c.comFicheiro ? ' · já tem PDF (fica o novo)' : ''}</span></label>
+                             ); })}
+                             <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="imp-juntar" className="accent-emerald-500" checked={escolha === 'novo'} onChange={() => setImportJuntar('novo')} /><span>Não, criar um recibo novo</span></label>
+                           </div>
+                         )}
+                         <button onClick={aplicarDadosImportados} className="w-full py-3 px-4 bg-blue-600 rounded-xl font-medium hover:opacity-90 transition-opacity">
+                           {escolha !== 'novo' ? '✓ Juntar ao recibo e guardar o PDF' : '✓ Adicionar Receita e guardar o PDF'}
+                         </button>
+                       </>
+                     );
+                   })()}
                  </div>
                </>
              )}
@@ -13303,7 +13375,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      <button onClick={onLogout} className={`px-3 py-1.5 text-xs rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Sair</button>
    </header>
    <main className="px-3 sm:px-6 py-4 sm:py-6 mx-auto max-w-[1920px]">
-     <Suspense fallback={<SeparadorCarregar/>}><Notas indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
+     <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
        lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
        enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
        entidades={[]} onIrEntidade={null} showToast={showToast} /></Suspense>
@@ -13697,7 +13769,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
+ {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
