@@ -2258,27 +2258,45 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
- {/* Tarefas do mês (resumo): o que está em atraso e o que vem a seguir — a lista toda está em Tarefas */}
+ {/* Passos do mês: o que falta fazer, por ordem, ligado aos dados reais */}
  {(() => {
-   const D = tarefasDoMes();
-   const g = D.grupos;
-   let lista = D.atual ? [...g.atrasadas, ...g.semana] : D.passado ? g.atrasadas : g.depois;
-   const nAnt = g.anteriores.length;
-   if (!lista.length && D.atual) lista = g.depois.slice(0, 3);
-   const mostrar = lista.slice(0, 5);
-   const resto = lista.length - mostrar.length;
+   const passos = getPassosMes();
+   const conta = passos.filter(x => x.estado !== 'na');
+   const feitos = conta.filter(x => x.estado === 'ok').length;
+   const claro = theme === 'light';
+   const cor = { ok: 'border-emerald-500/40 bg-emerald-500/10', parcial: 'border-amber-500/40 bg-amber-500/10', falta: 'border-red-500/40 bg-red-500/10', na: claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/30' };
+   const sinal = { ok: <span className="text-emerald-400">✓</span>, parcial: <span className="text-amber-400">◐</span>, falta: <span className="text-red-400">✕</span>, na: <span className="text-slate-500">•</span> };
    return (
      <Card>
-       <div className="flex items-center gap-3 mb-2">
-         <h3 className="font-semibold flex-1 min-w-0 truncate"><Ico e="🧭"/>Tarefas de {mes}</h3>
-         <span className={`text-xs ${D.total && D.feitas === D.total ? 'text-emerald-400' : 'text-slate-500'}`}>{D.feitas}/{D.total} feitas</span>
-         <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300">Ver todas →</button>
+       <div className="flex items-center justify-between mb-3">
+         <h3 className="font-semibold"><Ico e="🧭"/>Passos de {mes}</h3>
+         <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
        </div>
-       <ProgressBar value={D.feitas} max={D.total || 1} color="#10b981" height="h-1"/>
-       <div className="mt-2">
-         {mostrar.length ? mostrar.map(it => linhaAg(it, D)) : <p className="text-sm text-emerald-400 py-2">✓ Tudo feito por agora</p>}
+       <div className={`grid grid-cols-2 ${passos.length > 8 || passos.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2`}>
+         {passos.map((x, k) => {
+           const manual = (M[mesKey] || {}).passosManual || {};
+           const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
+           return (
+           <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
+             <button onClick={x.ir} className="w-full text-left p-2.5 pb-1 hover:brightness-110">
+               <div className="flex items-center gap-2">
+                 <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
+                 <span className="text-sm font-medium flex-1"><Ico e={x.icon}/>{x.titulo}</span>
+                 <span className="text-sm">{sinal[x.estado]}</span>
+               </div>
+               <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</p>
+             </button>
+             <div className="flex justify-end px-2.5 pb-1.5 min-h-[18px]">
+               {x.manual
+                 ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
+                 : x.estado !== 'ok' && x.estado !== 'na'
+                   ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Marcar feito</button>
+                   : null}
+             </div>
+           </div>
+           );
+         })}
        </div>
-       {(resto > 0 || nAnt > 0) && <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="mt-1 text-xs text-slate-500 hover:text-blue-400">{[resto > 0 ? `+ mais ${resto}` : '', nAnt > 0 ? `${nAnt} por marcar de meses anteriores` : ''].filter(Boolean).join(' · ')} →</button>}
      </Card>
    );
  })()}
@@ -2314,6 +2332,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    </Card>
 
+ {renderWidget('tarefas')}
  </div>
    <div id="guia-transf" className="scroll-mt-24"><Card>
      {(() => {
