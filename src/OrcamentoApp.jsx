@@ -2,7 +2,7 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
@@ -95,6 +95,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Guardar tema no localStorage
   useEffect(() => {
     localStorage.setItem('dashboard-theme', theme);
+    // Barra da janela (app instalada no Windows/telemóvel) com a cor do fundo da app
+    try { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', theme === 'light' ? '#f1f5f9' : '#0f172a'); } catch (e) { /* sem meta */ }
   }, [theme]);
   
   // Layouts por tab (widgets arrastáveis) - ordenados por prioridade de uso
@@ -13268,7 +13270,9 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
-   onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))} calendario={<AbaEstavel render={Calendario} />}
+   onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
+   onEnviarAnexo={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, ficheiro, prog) => enviarAnexo(user.uid, caminho, ficheiro, prog) : null}
+   onApagarAnexo={typeof apagarAnexo === 'function' ? apagarAnexo : null} calendario={<AbaEstavel render={Calendario} />}
    onImportarClientes={lista => {
      // Ficheiro de fichas: junta aos clientes que já existem (pelo nome ou outros nomes) ou cria-os; grava também os preços
      saveUndo();
