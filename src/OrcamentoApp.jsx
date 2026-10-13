@@ -16,7 +16,7 @@ import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE
+  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -3891,7 +3891,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      });
      return out.sort((a, b) => Number(a.comFicheiro) - Number(b.comFicheiro));
    };
-   const guardarFicheiroRecibo = async (k, id, f) => {
+   // Recibo verde → pasta pessoal do Google Drive (Definições → Recibos no Google Drive), por ano e trimestre
+   const enviarReciboDrive = async (k, id, f, rec) => {
+     const cfg = G.recibosDrive || {};
+     if (!cfg.pasta || !f) return;
+     const md = M[k] || {};
+     const r = rec || [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id) || {};
+     if (r.driveUrl) return;
+     const cli = (G.clientes || []).find(c => String(c.id) === String(r.cid));
+     const empresa = (cli && cli.fat && cli.fat.nomeLegal) || (cli && cli.nome) || r.desc || 'Recibo';
+     const [ky, km] = String(k).split('-').map(Number);
+     const data = /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? String(r.data).slice(0, 10) : `${ky}-${String(km).padStart(2, '0')}-01`;
+     try {
+       const mod = await carregarTrabalho();
+       const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
+       setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
+       showToast(`☁️ Recibo no Drive: ${out.pasta}/${out.nome}`);
+     } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); }
+   };
+   const guardarFicheiroRecibo = async (k, id, f, rec) => {
+     if (f) enviarReciboDrive(k, id, f, rec);
      if (!f || !(user && user.uid) || typeof enviarAnexo !== 'function') return;
      try {
        const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
@@ -4017,7 +4036,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        setM(p => { const md = p[alvo.k] || defM; return { ...p, [alvo.k]: { ...md, [alvo.lista]: (md[alvo.lista] || []).map(x => (x.id === alvo.r.id ? { ...x, ...patch } : x)) } }; });
        const [ya, ma] = alvo.k.split('-').map(Number);
        showToast(`Recibo verde junto a «${alvo.r.desc || 'recibo'}» (${meses[ma - 1]} ${ya})`);
-       guardarFicheiroRecibo(alvo.k, alvo.r.id, importFileRef.current);
+       guardarFicheiroRecibo(alvo.k, alvo.r.id, importFileRef.current, { ...alvo.r, data: importedData.data || alvo.r.data });
        importFileRef.current = null;
        setShowImportModal(false); setImportedData(null);
        return;
@@ -4034,7 +4053,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const [yy, mm] = kDest.split('-').map(Number);
        showToast(`Recibo adicionado a ${meses[mm - 1]} ${yy} (mês da data do recibo)`);
      }
-     guardarFicheiroRecibo(kDest, novoRecibo.id, importFileRef.current);
+     guardarFicheiroRecibo(kDest, novoRecibo.id, importFileRef.current, { ...novoRecibo, data: importedData.data || novoRecibo.data });
      importFileRef.current = null;
      setShowImportModal(false);
      setImportedData(null);
@@ -4959,7 +4978,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
  <div className="lg:col-span-2 space-y-6">
  <Card>
- <h3 className="text-base sm:text-lg font-semibold mb-4 text-center"><Ico e="💰"/>Disponível: {fmt(disp)}</h3>
+ <h3 className="text-base sm:text-lg font-semibold mb-1 text-center"><Ico e="💰"/>Disponível: {fmt(disp)}</h3>
+ {/* De onde vem o disponível (para perceber quando dá 0) */}
+ <p className={`text-[11px] text-center mb-4 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
+   Recibos {fmt(orcEntra.length || orcSai.length ? totRecOrc : totRec)}{orcEntra.length > 0 ? ` (inclui ${fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de ${meses[(patIdx(mesKey) + 11) % 12]})` : ''} − impostos {fmt(valTax)} − casal {fmt(minhaAB)} − pessoais {fmt(totPess)} − férias {fmt(ferias)} = <span className={restante < 0 ? 'text-red-400 font-medium' : 'font-medium'}>{fmt(restante)}</span>
+ </p>
  
  {/* Slider Amortização vs Investimentos */}
  <div className="mb-4">
@@ -14004,6 +14027,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    onJuntarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? async (k, id, f) => {
      const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
      saveUndo();
+     enviarReciboDrive(k, id, f);
      setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: f.name || 'recibo.pdf', ficheiroTipo: f.type || 'application/pdf' } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
      showToast('PDF junto ao recibo');
    } : null}
@@ -14201,6 +14225,21 @@ ${transacoesOrdenadas.map(t => `<tr>
              </div>
            </div>
            
+           {/* Recibos verdes no Google Drive pessoal */}
+           <div>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Recibos no Google Drive</h4>
+             <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <p className="text-[11px] text-slate-500">Cada recibo verde com PDF vai sozinho para esta pasta, em Ano / Nº_Trimestre, com o nome legal da empresa e a data (ex.: Anorak_Games_GmbH_2026-10-13.pdf).</p>
+               <input key={'rd' + ((G.recibosDrive || {}).pasta || '')} defaultValue={(G.recibosDrive || {}).pasta || ''} placeholder="Link da pasta RECIBOS VERDES no Drive"
+                 className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
+                 onBlur={e => { const v = e.target.value.trim(); if (v !== ((G.recibosDrive || {}).pasta || '')) uG('recibosDrive', { ...(G.recibosDrive || {}), pasta: v }); }} />
+               <input key={'rc' + ((G.recibosDrive || {}).conta || '')} defaultValue={(G.recibosDrive || {}).conta || ''} placeholder="Conta Google dessa pasta (ex.: o teu gmail)"
+                 className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
+                 onBlur={e => { const v = e.target.value.trim(); if (v !== ((G.recibosDrive || {}).conta || '')) uG('recibosDrive', { ...(G.recibosDrive || {}), conta: v }); }} />
+               {(G.recibosDrive || {}).pasta && <LigacaoDriveRecibos conta={(G.recibosDrive || {}).conta} carregar={carregarTrabalho} showToast={showToast} />}
+             </div>
+           </div>
+
            {/* Aparência */}
            <div>
              <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Aparência</h4>
