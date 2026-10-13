@@ -7,6 +7,7 @@ import {
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
   meses, Card, trabParar,
 } from './base';
+import { auth } from './firebase';
 
 // Ícones de linha (mesmo estilo do resto da app), em vez de emojis
 const ICONES_T = {
@@ -1752,24 +1753,101 @@ const copiar = txt => {
 const GOOGLE_CLIENT_ID_T = '1001287643592-cjgh7ng34pql5asln7qca0n52rvhp90t.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 const DRV = 'https://www.googleapis.com/drive/v3/files';
-const tokensDrive = {};
+// O acesso da Google dura 1 hora: fica guardado no browser (sobrevive a recarregar a página e a outras tabs)
+// e, depois da 1.ª autorização, renovar já não pede para escolher a conta.
+const LS_TOK = 'drive-tokens';
+const LS_OK = 'drive-autorizado';
+const tokensDrive = (() => { try { const o = JSON.parse(localStorage.getItem(LS_TOK) || '{}'); Object.keys(o).forEach(k => { if (!(o[k] && o[k].exp > Date.now() + 60000)) delete o[k]; }); return o; } catch (e) { return {}; } })();
+const guardarTokens = () => { try { localStorage.setItem(LS_TOK, JSON.stringify(tokensDrive)); } catch (e) { /* sem localStorage */ } };
+const jaAutorizou = k => { try { return (JSON.parse(localStorage.getItem(LS_OK) || '[]')).includes(k); } catch (e) { return false; } };
+const marcarAutorizou = k => { try { const l = JSON.parse(localStorage.getItem(LS_OK) || '[]'); if (!l.includes(k)) localStorage.setItem(LS_OK, JSON.stringify([...l, k])); } catch (e) { /* */ } };
+const tokenGuardadoDe = email => { const c = tokensDrive[email || '_']; return c && c.exp > Date.now() + 60000 ? c.t : null; };
 const carregarGis = () => new Promise((ok, falha) => {
   if (window.google && window.google.accounts && window.google.accounts.oauth2) { ok(); return; }
   if (!document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true; document.head.appendChild(s); }
   const t0 = Date.now();
   const i = setInterval(() => { if (window.google && window.google.accounts && window.google.accounts.oauth2) { clearInterval(i); ok(); } else if (Date.now() - t0 > 12000) { clearInterval(i); falha(new Error('Não consegui carregar o login da Google.')); } }, 150);
 });
-const tokenDrive = (email, forcar = false) => new Promise((ok, falha) => {
+const tokenPopup = (email, forcar = false) => new Promise((ok, falha) => {
   const k = email || '_'; const c = tokensDrive[k];
   if (!forcar && c && c.exp > Date.now() + 60000) { ok(c.t); return; }
   if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) { falha(new Error('O login da Google ainda não carregou. Tenta outra vez.')); return; }
   const cl = window.google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID_T, scope: DRIVE_SCOPE, hint: email || undefined,
-    callback: r => { if (r && r.access_token) { tokensDrive[k] = { t: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; ok(r.access_token); } else falha(new Error((r && (r.error_description || r.error)) || 'A Google não deu autorização.')); },
+    callback: r => { if (r && r.access_token) { tokensDrive[k] = { t: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; guardarTokens(); marcarAutorizou(k); ok(r.access_token); } else falha(new Error((r && (r.error_description || r.error)) || 'A Google não deu autorização.')); },
     error_callback: e => falha(new Error(e && e.type === 'popup_closed' ? 'Fechaste a janela do login da Google.' : e && e.type === 'popup_failed_to_open' ? 'O browser bloqueou a janela do login (permite pop-ups para a app).' : 'O login da Google falhou.')),
   });
-  cl.requestAccessToken({ prompt: c ? '' : 'select_account' });
+  cl.requestAccessToken({ prompt: c || jaAutorizou(k) ? '' : 'select_account' });
 });
+// Ligação permanente (Firebase Function "driveAcesso"): a app pede um acesso novo ao servidor, sem janela da Google
+const DRIVE_FN = 'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/driveAcesso';
+const LS_SEMPRE = 'drive-sempre';
+const lerSempre = () => { try { return JSON.parse(localStorage.getItem(LS_SEMPRE) || '[]'); } catch (e) { return []; } };
+const ligadoSempre = email => lerSempre().includes(String(email || '_').toLowerCase());
+const marcarSempre = (emails, sim) => { try { const l = new Set(lerSempre()); emails.filter(Boolean).forEach(e => (sim ? l.add(String(e).toLowerCase()) : l.delete(String(e).toLowerCase()))); localStorage.setItem(LS_SEMPRE, JSON.stringify([...l])); } catch (e) { /* */ } };
+const chamarDriveFn = async (acao, dados = {}) => {
+  const u = auth && auth.currentUser;
+  if (!u) { const e = new Error('Entra na app primeiro.'); e.codigo = 'sessao'; throw e; }
+  const idt = await u.getIdToken();
+  let r;
+  try { r = await fetch(DRIVE_FN, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idt}` }, body: JSON.stringify({ acao, ...dados }) }); }
+  catch (e) { const er = new Error('Não consegui falar com o servidor da app.'); er.codigo = 'rede'; throw er; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const er = new Error(r.status === 404 ? 'A função "driveAcesso" ainda não está publicada (falta fazer o deploy das functions).' : (j.error && j.error.message) || `Erro ${r.status}`); er.codigo = r.status === 404 ? 'sem_funcao' : (j.error && j.error.codigo); throw er; }
+  return j;
+};
+let estadoSempre = null;
+const sincronizarSempre = () => {
+  if (!estadoSempre) estadoSempre = chamarDriveFn('estado').then(j => { const es = (j.contas || []).map(c => String(c.email || '').toLowerCase()).filter(Boolean); const l = lerSempre(); try { localStorage.setItem(LS_SEMPRE, JSON.stringify([...es, ...(es.length && l.includes('_') ? ['_'] : [])])); } catch (e) { /* */ } return es; }).catch(() => null);
+  return estadoSempre;
+};
+const guardarAcesso = (chaves, j) => { chaves.filter(Boolean).forEach(k => { tokensDrive[k] = { t: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 }; }); guardarTokens(); };
+const tokenDrive = async (email, forcar = false) => {
+  const k = email || '_'; const c = tokensDrive[k];
+  if (!forcar && c && c.exp > Date.now() + 60000) return c.t;
+  if (ligadoSempre(k)) {
+    try { const j = await chamarDriveFn('token', { conta: email || undefined }); guardarAcesso([k, j.email], j); return j.access_token; }
+    catch (e) { if (e.codigo === 'religar' || e.codigo === 'sem_ligacao') marcarSempre([k], false); /* sem servidor: usa a janela da Google */ }
+  }
+  return tokenPopup(email, forcar);
+};
+const ligarDriveSempre = email => new Promise((ok, falha) => {
+  if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) { falha(new Error('O login da Google ainda não carregou. Tenta outra vez.')); return; }
+  const cl = window.google.accounts.oauth2.initCodeClient({
+    client_id: GOOGLE_CLIENT_ID_T, scope: `openid email ${DRIVE_SCOPE}`, ux_mode: 'popup', login_hint: email || undefined, select_account: !email,
+    callback: async r => {
+      if (!r || !r.code) { falha(new Error((r && (r.error_description || r.error)) || 'A Google não deu autorização.')); return; }
+      try { const j = await chamarDriveFn('ligar', { code: r.code, conta: email || undefined }); guardarAcesso([email || '_', j.email], j); marcarSempre([email || '_', j.email], true); marcarAutorizou(email || '_'); estadoSempre = null; ok(j); }
+      catch (e) { falha(e); }
+    },
+    error_callback: e => falha(new Error(e && e.type === 'popup_closed' ? 'Fechaste a janela da Google.' : e && e.type === 'popup_failed_to_open' ? 'O browser bloqueou a janela da Google (permite pop-ups para a app).' : 'A ligação à Google falhou.')),
+  });
+  cl.requestCode();
+});
+const desligarDriveSempre = async email => {
+  await chamarDriveFn('desligar', { conta: email || '_' });
+  marcarSempre([email || '_'], false); delete tokensDrive[email || '_']; guardarTokens(); estadoSempre = null;
+};
+// Que versões de um conceito já estão no Drive (pastas CONCEITO / CONCEITO_V1, _V2…) e que conceitos há no jogo
+const cacheConceitos = {};
+const distTxt = (a, b) => { const d = Array.from({ length: b.length + 1 }, (_, i) => i); for (let i = 1; i <= a.length; i++) { let prev = d[0]; d[0] = i; for (let j = 1; j <= b.length; j++) { const tmp = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; } } return d[b.length]; };
+const conceitoParecido = (x, y) => { const a = slugF(x), b = slugF(y); if (!a || !b) return false; if (a.includes(b) || b.includes(a)) return true; let k = 0; while (k < a.length && a[k] === b[k]) k++; return k >= 5 || distTxt(a, b) <= Math.max(1, Math.floor(Math.min(a.length, b.length) / 5)); };
+const conceitosNoDrive = async (token, raiz, forcar) => {
+  const c = cacheConceitos[raiz];
+  if (!forcar && c && Date.now() - c.em < 5 * 60000) return c.pastas;
+  const fs = await filhosDrive(token, raiz, true);
+  cacheConceitos[raiz] = { pastas: fs, em: Date.now() };
+  return fs;
+};
+const versoesNoDrive = async (token, raiz, conceito) => {
+  const fs = await conceitosNoDrive(token, raiz, true);
+  const pc = fs.find(x => slugF(x.name) === slugF(conceito));
+  if (!pc) return { existe: false, versoes: [] };
+  const subs = await filhosDrive(token, pc.id, true);
+  const re = new RegExp(`^${slugF(conceito)}_V(\\d+)(?:_|$)`);
+  const versoes = [...new Set(subs.map(x => { const m = re.exec(slugF(x.name)); return m ? Number(m[1]) : null; }).filter(Boolean))].sort((a, b) => a - b);
+  return { existe: true, nome: pc.name, versoes };
+};
 const driveApi = async (token, url, opts = {}) => {
   const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
   if (!r.ok) { let m = `Erro ${r.status} do Drive`; try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ } const er = new Error(m); er.status = r.status; throw er; }
@@ -1946,6 +2024,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const [noDrive, setNoDrive] = useState(null); // ficheiros na pasta do Drive desta tarefa
   const [aApagar, setAApagar] = useState(null);
   const [ocupadoDrive, setOcupadoDrive] = useState(false);
+  const [sempre, setSempre] = useState(() => ligadoSempre(contaDe(t.cid) || '_'));
+  const [aLigar, setALigar] = useState(false);
+  useEffect(() => { let vivo = true; sincronizarSempre().then(() => { if (vivo) setSempre(ligadoSempre(contaDe(t.cid) || '_')); }); return () => { vivo = false; }; }, [t.cid]);
   const inRef = useRef(null);
   useEffect(() => { carregarGis().catch(() => {}); }, []);
   const [historico, setHistorico] = useState(() => cacheHist.get(t.id) || []); // [{ itemId, handle, antes, depois }] — nomes que a app mudou no PC
@@ -1996,16 +2077,20 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(nomeDe(item)) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
   // Adivinhar a versão pelas pastas que já estão no Drive (CONCEITO_V1, _V2…): vídeo novo → a seguinte; variação/iteração → a última
   const novoVideo = trabPecas(t).some(p => ['video', 'video3d', 'ai_clip', 'aso'].includes(p.tipo));
+  const [infoVersao, setInfoVersao] = useState(null); // { conceito, existe, versoes }
   const adivinharVersao = async token => {
-    const fs = await filhosDrive(token, raiz, true);
-    const pc = fs.find(x => slugF(x.name) === slugF(r.conceito));
-    if (!pc) return '1';
-    const subs = await filhosDrive(token, pc.id, true);
-    const re = new RegExp(`^${slugF(r.conceito)}_V(\\d+)(?:_|$)`);
-    const max = subs.reduce((a, x) => { const m = re.exec(slugF(x.name)); return m ? Math.max(a, Number(m[1])) : a; }, 0);
+    const info = await versoesNoDrive(token, raiz, r.conceito);
+    setInfoVersao({ ...info, conceito: r.conceito });
+    const max = info.versoes.length ? info.versoes[info.versoes.length - 1] : 0;
     return String(novoVideo ? max + 1 : Math.max(1, max));
   };
-  const tokenGuardado = () => { const c = tokensDrive[conta || '_']; return c && c.exp > Date.now() + 60000 ? c.t : null; };
+  const verVersoes = async () => {
+    try { const tk = tokenGuardado() || await tokenDrive(conta); const v = await adivinharVersao(tk); if (!fx.versao && !versaoAnterior) setVerSug(v); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+  };
+  // Com sessão da Google aberta, a app vai logo ver as versões quando o conceito muda
+  useEffect(() => { if (raiz && r.conceito && tokenGuardado()) verVersoes(); }, [raiz, r.conceito]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tokenGuardado = () => tokenGuardadoDe(conta);
   const juntar = async (fs, handles = []) => {
     setMsg('');
     const novos = [];
@@ -2266,7 +2351,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               </div>
             </div>
           )}
-          {lista.length > 0 && !fx.versao && (
+          {r.conceito && (infoVersao && infoVersao.conceito === r.conceito ? (
+            <p className={`text-[11px] ${sub}`}>{infoVersao.existe
+              ? <>No Drive já há {infoVersao.versoes.length ? <b>{infoVersao.versoes.map(v => `V${v}`).join(', ')}</b> : 'a pasta'} de {infoVersao.nome}{!fx.versao && !versaoAnterior ? <> → {novoVideo ? 'vídeo novo' : 'variação'}: <b>V{versaoDe(verSug)}</b></> : null}</>
+              : <>{slugF(r.conceito)} ainda não está no Drive → conceito novo: <b>V1</b></>}</p>
+          ) : raiz ? <button type="button" onClick={verVersoes} className="text-[11px] text-blue-400 hover:text-blue-300 text-left">🔎 Ver as versões deste conceito no Drive</button> : null)}
+          {lista.length > 0 && !fx.versao && !(infoVersao && infoVersao.conceito === r.conceito) && (
             <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
@@ -2326,7 +2416,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <p className={`px-3 py-1.5 text-[10px] ${sub}`}>Para substituir um vídeo, arrasta a versão nova para cima: fica com o mesmo nome e troca a antiga.</p>
             </div>
           )}
-          <p className={`text-[10px] ${sub}`}>Entra com {conta ? <b>{conta}</b> : 'a tua conta Google'} (a conta deste cliente). Os ficheiros vão direto do computador para o Drive — nada fica guardado na app nem no disco.</p>
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${sub}`}>
+            <span className="flex-1 min-w-[200px]">Entra com {conta ? <b>{conta}</b> : 'a tua conta Google'} (a conta deste cliente). Os ficheiros vão direto do computador para o Drive — nada fica guardado na app nem no disco.</span>
+            {sempre ? (
+              <span className="text-emerald-500">🔒 Ligado ao Drive para sempre · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>desligar</button></span>
+            ) : (
+              <button type="button" disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await ligarDriveSempre(conta); setSempre(true); setMsg(`✓ Drive ligado para sempre${j.email ? ` (${j.email})` : ''} — já não precisas de entrar na Google.`); } catch (e) { setMsg(`⚠ ${e.message || e}`); } setALigar(false); }}
+                className="px-2 py-0.5 rounded-md border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50" title="A app fica com acesso permanente ao Drive desta conta (guardado cifrado no servidor). Podes desligar quando quiseres.">🔒 Manter o Drive sempre ligado</button>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -2339,6 +2437,25 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
   const setF = patch => set({ ficheiros: { ...fx, ...patch } });
   const ic = `${inputClass} text-sm py-1.5`;
+  // Conceitos que já estão no Drive deste jogo: sugere-os ao escrever e avisa se o nome é novo (evita gralhas → V1 por engano)
+  const jogoD = r.jogo && !r.jogo.semJogo ? r.jogo : null;
+  const raizD = jogoD ? idPastaDrive(['BAN', 'ICO', 'FG', 'SS'].includes(r.tipo) ? jogoD.driveStatics : jogoD.drive) : null;
+  const contaD = contaDe(t.cid);
+  const [conceitosD, setConceitosD] = useState(() => (raizD && cacheConceitos[raizD] ? cacheConceitos[raizD].pastas.map(x => x.name) : null));
+  const [aVerD, setAVerD] = useState(false);
+  const [txtConceito, setTxtConceito] = useState(null);
+  const carregarConceitos = async pedir => {
+    if (!raizD || aVerD) return;
+    const tk = tokenGuardadoDe(contaD) || (pedir ? await tokenDrive(contaD).catch(() => null) : null);
+    if (!tk) return;
+    setAVerD(true);
+    try { setConceitosD((await conceitosNoDrive(tk, raizD)).map(x => x.name).sort((a, b) => a.localeCompare(b))); } catch (e) { /* sem acesso */ }
+    setAVerD(false);
+  };
+  useEffect(() => { if (raizD && !conceitosD) carregarConceitos(false); }, [raizD]); // eslint-disable-line react-hooks/exhaustive-deps
+  const conceitoAtual = txtConceito != null ? txtConceito : (fx.conceito || conceitoDoNome(t.nome));
+  const conceitoNovo = conceitosD && conceitoAtual && !conceitosD.some(n => slugF(n) === slugF(conceitoAtual));
+  const parecidos = conceitoNovo ? conceitosD.filter(n => conceitoParecido(n, conceitoAtual)).slice(0, 4) : [];
   // Clientes sem jogos (ex.: Hendrik) têm outro workflow: a secção não aparece
   if (!(trab.jogos || []).some(j => String(j.cid) === String(t.cid))) return null;
   const botaoCopiar = (txt, k) => <button type="button" onClick={() => { copiar(txt); setCopiado(k); }} className={`shrink-0 px-2 py-1 text-[11px] rounded-md border ${copiado === k ? 'border-emerald-400 text-emerald-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{copiado === k ? '✓ copiado' : 'Copiar'}</button>;
@@ -2349,13 +2466,24 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         <span className={`text-xs ${sub}`}>{r.jogo ? `${r.jogo.nome} (${r.cod})` : 'sem jogo'}{r.jogo && !r.jogo.codigo ? ' · código no separador Jogos' : ''}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-        <label className="flex flex-col gap-1 col-span-2 sm:col-span-3 min-w-0"><span className={lab}>Conceito</span><TxtIn valor={fx.conceito} onGravar={v => setF({ conceito: v })} placeholder={conceitoDoNome(t.nome) || 'ex.: Enemy at the gates'} className={ic} /></label>
+        <label className="flex flex-col gap-1 col-span-2 sm:col-span-3 min-w-0"><span className={lab}>Conceito</span><TxtIn valor={fx.conceito} onGravar={v => { setF({ conceito: v }); setTxtConceito(null); }} onInput={e => setTxtConceito(e.currentTarget.value)} onFocus={() => { if (!conceitosD) carregarConceitos(false); }} list={conceitosD ? `conceitos-${t.id}` : undefined} placeholder={conceitoDoNome(t.nome) || 'ex.: Enemy at the gates'} className={ic} />
+          {conceitosD && <datalist id={`conceitos-${t.id}`}>{conceitosD.map(n => <option key={n} value={n} />)}</datalist>}
+        </label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn valor={fx.versao} onGravar={v => setF({ versao: v.replace(/^v/i, '') })} placeholder="ex.: 4" className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span><TxtIn valor={fx.variacao} onGravar={v => setF({ variacao: v })} placeholder="ex.: Reaction" className={ic} /></label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span><NumIn valor={fx.duracao ?? null} placeholder="59" decimal={false} onGravar={v => setF({ duracao: v })} className={ic} /></label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Tipo</span><TxtIn valor={fx.tipo} onGravar={v => setF({ tipo: v })} placeholder={r.tipo} className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-2 min-w-0"><span className={lab}>Data</span><input key={t.id + 'fd' + (fx.data || '')} type="date" defaultValue={fx.data || r.dia} onBlur={e => { if (e.target.value && e.target.value !== (fx.data || r.dia)) setF({ data: e.target.value }); }} className={ic} /></label>
       </div>
+      {raizD && (
+        <div className="text-[11px] -mt-1">
+          {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver os conceitos que já estão no Drive deste jogo'}</button>
+            : conceitoNovo ? (
+              <span className="text-amber-500">⚠ "{conceitoAtual}" ainda não existe no Drive — vai ser um conceito novo (V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
+            ) : conceitoAtual ? <span className="text-emerald-500">✓ Este conceito já existe no Drive</span>
+            : <span className={sub}>{conceitosD.length} conceitos no Drive deste jogo — começa a escrever e escolhe da lista.</span>}
+        </div>
+      )}
       {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em "Entrega" (ex.: 4:5, 9:16, 16:9) para veres os nomes.</p> : (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2"><span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
@@ -3025,8 +3153,8 @@ const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
 const Campo = ({ rot, children, largo }) => (
   <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-400">{rot}</span>{children}</label>
 );
-const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text' }) => (
-  <input key={String(valor ?? '')} type={type} defaultValue={valor ?? ''} placeholder={placeholder} className={className}
+const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text', list, onFocus, onInput }) => (
+  <input key={String(valor ?? '')} type={type} defaultValue={valor ?? ''} placeholder={placeholder} className={className} list={list} onFocus={onFocus} onInput={onInput}
     onBlur={e => { const v = e.target.value.trim(); if (v !== String(valor ?? '')) onGravar(v); }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
 );
