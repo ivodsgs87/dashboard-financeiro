@@ -893,7 +893,15 @@ const comConta = (url, cid) => {
     return u.toString();
   } catch (e) { return url; }
 };
-const abrirLink = (url, cid) => { try { window.open(comConta(url, cid), '_blank', 'noopener,noreferrer'); } catch (e) { /* bloqueado */ } };
+// Para abrir (não para pré-visualizar): passa pela escolha de conta do Google com o email certo.
+// Se essa conta ainda não tiver sessão neste browser, o Google pede para entrar com ela e depois segue para o ficheiro.
+const urlAbrir = (url, cid) => {
+  const conta = contaDe(cid);
+  const u = comConta(url, cid);
+  if (!conta || u === url) return u;
+  return `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(conta)}&continue=${encodeURIComponent(u)}`;
+};
+const abrirLink = (url, cid) => { try { window.open(urlAbrir(url, cid), '_blank', 'noopener,noreferrer'); } catch (e) { /* bloqueado */ } };
 const urlPrevia = (a, cid) => {
   const u = a.url || '';
   const tp = tipoAnexo(a);
@@ -1043,7 +1051,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                 ) : tp === 'link' ? (
                   urlPrevia(a, t.cid)
                     ? <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] overflow-hidden" title={`Pré-visualizar ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} /></button>
-                    : <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
+                    : <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
                 ) : (
                   <button type="button" onClick={() => (urlPrevia(a, t.cid) ? setPrevia(a) : abrirLink(a.url, t.cid))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
                     <IcoA n={tp} className="w-8 h-8" />
@@ -1051,11 +1059,11 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                   </button>
                 )}
                 <div className="px-2 py-1.5">
-                  <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
+                  <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
                   <p className={`text-[10px] ${sub}`}>{a.tamanho ? tamanhoTxt(a.tamanho) : 'link'} · {dataCurta(a.criado)}</p>
                 </div>
                 <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                  <a href={comConta(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 text-white text-xs" title="Abrir noutro separador" aria-label={`Abrir ${a.nome} noutro separador`}>↗</a>
+                  <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 text-white text-xs" title="Abrir noutro separador" aria-label={`Abrir ${a.nome} noutro separador`}>↗</a>
                   <button type="button" onClick={() => apagar(a)} className="w-6 h-6 rounded-md bg-black/60 text-white text-xs" aria-label={`Tirar ${a.nome}`}>✕</button>
                 </div>
               </div>
@@ -1078,7 +1086,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
           <div className="flex items-center gap-2 mb-2 text-white">
             <p className="flex-1 min-w-0 text-sm font-medium truncate">{previa.nome}</p>
-            <a href={comConta(previa.url, t.cid)} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir ↗</a>
+            <a href={urlAbrir(previa.url, t.cid)} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir ↗</a>
             <button type="button" onClick={() => setPrevia(null)} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
           </div>
           <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-black">
@@ -1279,7 +1287,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             <label className="flex flex-col gap-1"><span className={lab}>Link da entrega (Frame.io, Drive…)</span>
               <div className="flex gap-2">
                 <input key={t.id + 'l' + (t.link || '')} defaultValue={t.link || ''} placeholder="https://" onBlur={e => { if (e.target.value !== (t.link || '')) set({ link: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
-                {t.link && <a href={comConta(t.link, t.cid)} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
+                {t.link && <a href={urlAbrir(t.link, t.cid)} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
               </div>
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -1597,7 +1605,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
     return { listas: ls.length, tarefas: ts.length, valor };
   };
   const ic = `${inputClass} text-sm py-1.5`;
-  const link = url => (url && /^https?:\/\//.test(url) ? <a href={comConta(url, cid)} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 text-blue-400 hover:text-blue-300" title="Abrir">↗</a> : null);
+  const link = url => (url && /^https?:\/\//.test(url) ? <a href={urlAbrir(url, cid)} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 text-blue-400 hover:text-blue-300" title="Abrir">↗</a> : null);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
