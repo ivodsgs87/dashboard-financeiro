@@ -852,6 +852,7 @@ const transfFalta = (t, x) => {
 const transfFeita = (t, x) => transfFalta(t, x) < 0.5;
 
 const ICO_SVG = {
+  '📓': '<path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M5 18a2 2 0 0 1 2-2h11"/><path d="M9 4v12"/>',
   '🗂': '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/>',
   "💬": "<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>",
   "📊": "<path d=\"M3 3v18h18\"/><path d=\"M7 16v-5M12 16V7M17 16v-8\"/>",
@@ -957,7 +958,7 @@ const copiasLocais = {
 // Vista de mês com tudo o que tem data: impostos (com valores previstos), prestação,
 // tarefas da Agenda e a rotina do mês. Componente ao nível do módulo para não perder
 // o mês e o dia escolhidos quando o resto da app muda.
-const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Venda: '#84cc16', ClickUp: '#e879f9', Rotina: '#64748b' };
+const CAL_CORES = { SS: '#3b82f6', IVA: '#f59e0b', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Seguros: '#ec4899', Casa: '#14b8a6', Venda: '#84cc16', Trabalho: '#e879f9', Rotina: '#64748b' };
 const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, mesInicial, notif }) => {
   const claro = theme === 'light';
   const hoje = new Date();
@@ -1026,7 +1027,7 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
         </div>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-        {[['SS', 'Segurança Social'], ['IVA', 'IVA'], ['IRS', 'IRS'], ['Casa', 'Casa'], ...(evs.some(e => e.cat === 'Venda') ? [['Venda', 'Venda da casa']] : []), ...(evs.some(e => e.cat === 'ClickUp') ? [['ClickUp', 'Entregas (ClickUp)']] : []), ['Transf', 'Transferências'], ['Invest', 'Investir'], ['Contab', 'Contabilista'], ['Rotina', 'Rotina do mês']].map(([k, l]) => (
+        {[['SS', 'Segurança Social'], ['IVA', 'IVA'], ['IRS', 'IRS'], ['Casa', 'Casa'], ...(evs.some(e => e.cat === 'Venda') ? [['Venda', 'Venda da casa']] : []), ...(evs.some(e => e.cat === 'Trabalho') ? [['Trabalho', 'Entregas']] : []), ['Transf', 'Transferências'], ['Invest', 'Investir'], ['Contab', 'Contabilista'], ['Rotina', 'Rotina do mês']].map(([k, l]) => (
           <span key={k} className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CAL_CORES[k] }} />{l}</span>
         ))}
       </div>
@@ -1422,7 +1423,7 @@ class ProtecaoErro extends React.Component {
   }
 }
 
-// ── ClickUp: estimativa do que já entregaste (e podes faturar) a partir das tarefas fechadas ──
+// ── Estimativa do que já entregaste (e podes faturar) a partir das tarefas do Trabalho ──
 // Lê nomes como "1x New Video - Título + 2x Variations" e conta cada tipo de peça.
 const CU_TIPOS = [
   { id: 'video', nome: 'Vídeo novo', plural: 'vídeos novos' },
@@ -1440,7 +1441,7 @@ const CU_TIPOS = [
   { id: 'extra', nome: 'Extra / ideação', plural: 'extras', porHora: true },
   { id: 'outro', nome: 'Outra tarefa', plural: 'outras', porHora: true },
 ];
-// Campos de preço (os "extras" e as tarefas sem tipo usam o preço à hora × horas registadas no ClickUp)
+// Campos de preço (os "extras" e as tarefas sem tipo usam o preço à hora × horas registadas no Trabalho)
 const CU_CAMPOS_PRECO = [...CU_TIPOS.filter(t => !t.porHora),
   { id: 'hora', nome: 'Preço à hora (extras e outras tarefas)' },
   { id: 'dia', nome: 'Diária (cada dia com horas = 1 dia)' },
@@ -1490,7 +1491,7 @@ const cuPecas = nome => {
   if (!out.length) out.push({ tipo: cuTipoDe(s), n: 1 });
   return out;
 };
-// A que cliente da app pertence uma tarefa (pelo espaço/pasta do ClickUp, como nas horas)
+// A que cliente da app pertence uma tarefa antiga do ClickUp (já só serve para dados antigos)
 const cuClienteDe = (cu, sid, fid, clientes, nomeEsp) => {
   const mapa = (cu && cu.mapa) || {}, dividir = (cu && cu.dividir) || {};
   let cid = dividir[sid] ? mapa[`${sid}/${fid}`] : undefined;
@@ -1513,9 +1514,8 @@ const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
   };
   const porCli = {};
   let total = 0, totalProduzido = 0, semPreco = 0;
-  // Tarefas importadas do ClickUp para a app não contam duas vezes (fica a versão da app)
-  const naApp = new Set(((trab && trab.tarefas) || []).map(t => t.origem).filter(Boolean));
-  const tarefas = [...(((cu && cu.anos && cu.anos[ano]) || {}).entregues || []).filter(t => String(t.fechada || '').startsWith(pref) && !naApp.has('cu:' + t.id)), ...(trab ? trabEntreguesMes(trab, ano, mesNum, cu, clientes) : [])];
+  // Só as tarefas do Trabalho (o ClickUp deixou de ser usado)
+  const tarefas = trab ? trabEntreguesMes(trab, ano, mesNum, cu, clientes) : [];
   const novoCli = (cid, sid) => ({ cid, nomeEsp: nomes[sid] || 'Sem cliente', total: 0, contagem: {}, tarefas: [], retainer: cid == null ? 0 : preco(cid, 'retainer'), diaria: cid == null ? 0 : preco(cid, 'dia'), dias: new Set(), diario: Array(32).fill(0) });
   tarefas.forEach(t => {
     const cid = t.app ? (t.cid ?? null) : cuClienteDe(cu, t.espaco, t.pasta, clientes, nomes[t.espaco]);
@@ -1543,18 +1543,7 @@ const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
     c.diario[Number(String(t.fechada).slice(8, 10)) || 1] += v;
     c.tarefas.push({ ...t, valor: v, horasExtra, nosDias: c.diaria > 0 && horasExtra > 0 && !v });
   });
-  // Clientes à diária: cada dia do mês com horas registadas no ClickUp conta como 1 dia (mesmo que sejam 4 ou 6 h)
-  const mesH = (((cu && cu.anos && cu.anos[ano]) || {}).meses || {})[mesNum] || {};
-  Object.entries(mesH.esp || {}).forEach(([sid, sd]) => {
-    if (sid === 'sem') return;
-    Object.entries(sd.pastas || {}).forEach(([fid, fd]) => {
-      const cid = cuClienteDe(cu, sid, fid, clientes, nomes[sid]);
-      if (cid == null || cid === 'x' || !(preco(cid, 'dia') > 0)) return;
-      const k = String(cid);
-      const c = (porCli[k] = porCli[k] || novoCli(cid, sid));
-      (fd.dias || sd.dias || []).forEach(d => c.dias.add(d));
-    });
-  });
+  // Clientes à diária: cada dia do mês com horas registadas no Trabalho conta como 1 dia (mesmo que sejam 4 ou 6 h)
   if (trab) Object.entries(trabDiasMes(trab, ano, mesNum)).forEach(([cid, dias]) => {
     if (cid === 'undefined' || cid === 'null' || !(preco(cid, 'dia') > 0)) return;
     const c = (porCli[cid] = porCli[cid] || novoCli(isNaN(Number(cid)) ? cid : Number(cid), ''));
@@ -1577,10 +1566,6 @@ const cuEntregasMes = (cu, ano, mesNum, clientes, trab = null) => {
   return { total, totalProduzido, semPreco, n: tarefas.length, nReview: tarefas.filter(t => t.emReview).length, clientes: lista, nDiasMes, acumulado: acum(false), acumuladoMin: acum(true), comRetainer: lista.filter(c => c.retainer > 0) };
 };
 
-// ── Plano do mês para o ClickUp ──
-// Escreves quantos criativos vais fazer para um cliente e a app dá-te o texto (com os preços
-// desse cliente) para colar no ClickUp. As linhas usam o formato "12x New Videos", o mesmo
-// que a estimativa lê nos nomes das tarefas.
 const CU_NOMES_EN = {
   video: ['New Video', 'New Videos'], variacao: ['Variation', 'Variations'], iteracao: ['Iteration', 'Iterations'],
   ai_clip: ['AI Clip', 'AI Clips'], banner: ['New Banner', 'New Banners'], banner_var: ['Banner Variation', 'Banner Variations'],
@@ -1608,27 +1593,18 @@ const cuLerHoras = t => {
 const cuHorasTxt = h => { const t = Math.round(h * 60); const hh = Math.floor(t / 60), mm = t % 60; return mm ? `${hh}h${String(mm).padStart(2, '0')}` : `${hh}h`; };
 const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, clientes, theme, inputClass, onIrPrecos }) => {
   const temApp = !!(trab && (trab.tarefas || []).length);
-  const cu = cuIn && cuIn.anos && cuIn.anos[ano] ? cuIn : { ...(cuIn || {}), anos: { ...((cuIn && cuIn.anos) || {}), [ano]: { entregues: [] } } };
+  const cu = cuIn || {};
   // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
   const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
   const mudarMin = v => { setComMin(v); try { localStorage.setItem('cu-com-minimo', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
-  if (!(cuIn && cuIn.anos && cuIn.anos[ano]) && !temApp) return null;
-  if (!Array.isArray(cu.anos[ano].entregues)) {
-    // A função na Firebase ainda é a versão antiga (não manda as tarefas fechadas)
-    const claro0 = theme === 'light';
-    return (
-      <div className={`rounded-2xl border p-4 text-sm ${claro0 ? 'bg-white/80 border-slate-200 text-slate-600' : 'bg-slate-800/50 border-slate-700/50 text-slate-400'}`}>
-        <span className="text-amber-400">Entregue este mês (ClickUp): falta atualizar a função na Firebase.</span> Copia o <code>clickupHoras.js</code> novo para a pasta <code>functions</code>, corre <code>firebase deploy --only functions</code> e depois carrega em <strong>Atualizar</strong> no cartão "Horas por cliente" (Performance).
-      </div>
-    );
-  }
+  if (!temApp) return null;
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
   const est = cuEntregasMes(cu, ano, mesNum, clientes, trab);
   const custosMes = trabCustosMes(trab, ano, mesNum);
   const mPrev = mesNum === 1 ? 12 : mesNum - 1, aPrev = mesNum === 1 ? ano - 1 : ano;
-  const estPrev = (cu.anos[aPrev] && cu.anos[aPrev].entregues) || temApp ? cuEntregasMes(cu.anos[aPrev] ? cu : { ...cu, anos: { ...cu.anos, [aPrev]: { entregues: [] } } }, aPrev, mPrev, clientes, trab) : null;
+  const estPrev = temApp ? cuEntregasMes(cu, aPrev, mPrev, clientes, trab) : null;
   const temMin = est.comRetainer.length > 0 || !!(estPrev && estPrev.comRetainer.length);
   const usaMin = comMin || !temMin;
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : String(c.cid).startsWith('cu:') ? String(c.cid).slice(3) : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
@@ -1636,7 +1612,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
   return (
     <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]}{temApp ? '' : ' (ClickUp)'}:</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
+        <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]}:</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {estPrev && estPrev.n > 0 && <p className={`text-xs ${sub}`}>{meses[mPrev - 1]}: ≈ {f(usaMin ? estPrev.total : estPrev.totalProduzido)} (a faturar no início de {meses[mesNum - 1].toLowerCase()})</p>}
         </div>
@@ -1679,7 +1655,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
               {series.some(x => x.nome === 'só produzido') && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: 'repeating-linear-gradient(90deg, #10b981 0 5px, transparent 5px 9px)' }} />só produzido</span>}
               {prevSerie && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: `repeating-linear-gradient(90deg, ${claro ? '#94a3b8' : '#64748b'} 0 5px, transparent 5px 9px)` }} />{meses[mPrev - 1]}</span>}
             </div>
-            <GraficoLinhas height={190} rotulos={rotulos} series={series} aria={`Faturação acumulada por dia em ${meses[mesNum - 1]} (ClickUp)`}
+            <GraficoLinhas height={190} rotulos={rotulos} series={series} aria={`Faturação acumulada por dia em ${meses[mesNum - 1]}`}
               formatarValor={v => f(v)} extraTip={i => (i < ate ? noDia(i) : [])} />
             {(() => {
               // Ganho em cada dia (só o produzido — o mínimo garantido não é ganho num dia concreto)
@@ -1750,9 +1726,8 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
         );
       })()}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        {cu.anos[ano].avisoEntregues && <span className="text-red-400">{cu.anos[ano].avisoEntregues}</span>}
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
-        <span className={sub}>Estimativa pelos nomes das tarefas ("1x New Video - … + 2x Variations"). Tarefas em review contam como entregues.</span>
+        <span className={sub}>Estimativa pelas tarefas do Trabalho (tipo e preço de cada uma). As tarefas em review contam como entregues.</span>
         {onIrPrecos && <button className="text-blue-400 hover:text-blue-300" onClick={onIrPrecos}>preços → Trabalho</button>}
       </div>
     </div>
@@ -1811,7 +1786,7 @@ const trabValor = (t, cu, clientes) => {
   if (t.valorManual != null && t.valorManual !== '' && Number.isFinite(Number(t.valorManual))) return Number(t.valorManual);
   return trabValorAuto(t, cu, clientes);
 };
-// Tarefas da app entregues num mês, no mesmo formato das do ClickUp (para a estimativa).
+// Tarefas da app entregues num mês (para a estimativa).
 // Entram também as linhas à parte dos orçamentos (AI Credits, acertos...) no mês da data delas.
 const trabEntreguesMes = (trab, ano, mesNum, cu = null, clientes = []) => {
   const pref = `${ano}-${String(mesNum).padStart(2, '0')}-`;
@@ -1983,185 +1958,6 @@ const Row = ({children, highlight}) => { const theme = useContext(TemaCtx); retu
 // Os hooks de cada separador ficam guardados nesta instância (uma por separador, pela key).
 const AbaEstavel = ({ render }) => render();
 
-// ── ClickUp: horas por cliente ──
-// Os dados vêm da função clickupHoras (Firebase), que lê o time tracking do ClickUp.
-// Guardados em G.clickup = { ativo, sinc, espacos, anos: { [ano]: { meses } }, tarefas, mapa, dividir, calendario }
-const CLICKUP_URLS = [
-  'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/clickupHoras'
-];
-// Junta as horas do ano em "grupos": um por espaço do ClickUp (ou um por pasta, se o espaço estiver separado)
-const cuGrupos = (cu, ano, mesNum, clientes) => {
-  const meses = ((cu && cu.anos && cu.anos[ano]) || {}).meses || {};
-  const nomes = {};
-  ((cu && cu.espacos) || []).forEach(e => { nomes[e.id] = e.nome; });
-  const mapa = (cu && cu.mapa) || {}, dividir = (cu && cu.dividir) || {};
-  const G = {};
-  const pastasPorEsp = {};
-  Object.entries(meses).forEach(([m, md]) => Object.entries((md && md.esp) || {}).forEach(([sid, s]) => {
-    Object.entries(s.pastas || {}).forEach(([fid, f]) => {
-      (pastasPorEsp[sid] = pastasPorEsp[sid] || new Set()).add(fid);
-      const sep = sid !== 'sem' && dividir[sid];
-      const chave = sep ? `${sid}/${fid}` : sid;
-      const nomeEsp = sid === 'sem' ? 'Horas sem tarefa' : (nomes[sid] || `Espaço ${sid}`);
-      const g = (G[chave] = G[chave] || { chave, sid, nome: sep ? `${nomeEsp} › ${f.nome || '(sem pasta)'}` : nomeEsp, nomeAuto: sep ? (f.nome || nomeEsp) : nomeEsp, hMes: 0, hAno: 0, listasMes: {} });
-      g.hAno += f.h || 0;
-      if (Number(m) === mesNum) {
-        g.hMes += f.h || 0;
-        Object.values(f.listas || {}).forEach(l => { if (l.h > 0) g.listasMes[l.nome || 'Sem nome'] = (g.listasMes[l.nome || 'Sem nome'] || 0) + l.h; });
-      }
-    });
-  }));
-  return Object.values(G).map(g => {
-    let cid = mapa[g.chave];
-    if (cid === undefined && g.chave.includes('/')) cid = mapa[g.sid];
-    let auto = false;
-    if (cid === undefined || cid === '' || cid === null) {
-      const c = g.sid !== 'sem' ? clienteDoNome(clientes, g.nomeAuto) : null;
-      cid = c ? c.id : null; auto = !!c;
-    }
-    return { ...g, cid: cid === 'x' ? 'x' : cid, auto, podeDividir: g.sid !== 'sem' && (dividir[g.sid] || (pastasPorEsp[g.sid] && pastasPorEsp[g.sid].size > 1)) };
-  }).sort((a, b) => b.hAno - a.hAno);
-};
-const cuHoras = h => { const v = Math.round((h || 0) * 10) / 10; return `${String(v).replace('.', ',')} h`; };
-const cuDesde = iso => {
-  const t = Date.parse(iso || ''); if (!t) return '';
-  const min = Math.round((Date.now() - t) / 60000);
-  if (min < 1) return 'agora mesmo';
-  if (min < 60) return `há ${min} min`;
-  const h = Math.round(min / 60); if (h < 24) return `há ${h} h`;
-  const d = Math.round(h / 24); return `há ${d} dia${d === 1 ? '' : 's'}`;
-};
-
-const CuNum = ({ v, cls = '' }) => <span className={`tabular-nums text-right ${cls}`}>{v}</span>;
-const HorasClickUp = ({ cu, estado, ano, mesNum, M, clientes, theme, inputClass, onSinc, onMapa, onDividir, onCalendario }) => {
-  const claro = theme === 'light';
-  const sub = claro ? 'text-slate-500' : 'text-slate-400';
-  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
-  const nomeMes = meses[mesNum - 1] || '';
-  const temDados = !!(cu && cu.anos && cu.anos[ano]);
-  const grupos = temDados ? cuGrupos(cu, ano, mesNum, clientes) : [];
-  // Recebido no ano por cliente (sem IVA)
-  const recCli = {}; let recAno = 0;
-  Object.entries(M || {}).forEach(([k, v]) => {
-    if (!k.startsWith(`${ano}-`)) return;
-    [...((v && v.regCom) || []), ...((v && v.regSem) || [])].forEach(r => {
-      const x = parseFloat(r.valIliq != null && r.valIliq !== '' ? r.valIliq : r.val) || 0;
-      recCli[r.cid] = (recCli[r.cid] || 0) + x; recAno += x;
-    });
-  });
-  const porCli = {};
-  let outrasMes = 0, outrasAno = 0;
-  grupos.forEach(g => {
-    if (g.cid == null || g.cid === 'x') { if (g.cid === 'x' || g.sid === 'sem') { outrasMes += g.hMes; outrasAno += g.hAno; } return; }
-    const c = (porCli[g.cid] = porCli[g.cid] || { cid: g.cid, hMes: 0, hAno: 0, listas: {}, grupos: [] });
-    c.hMes += g.hMes; c.hAno += g.hAno; c.grupos.push(g.nome);
-    Object.entries(g.listasMes).forEach(([n, h]) => { c.listas[n] = (c.listas[n] || 0) + h; });
-  });
-  const semCliente = grupos.filter(g => g.cid == null && g.sid !== 'sem');
-  const linhas = Object.values(porCli).sort((a, b) => b.hAno - a.hAno);
-  const hMes = grupos.reduce((a, g) => a + g.hMes, 0), hAno = grupos.reduce((a, g) => a + g.hAno, 0);
-  const nomeCli = id => ((clientes || []).find(c => String(c.id) === String(id)) || {}).nome || 'Cliente';
-  const corCli = id => ((clientes || []).find(c => String(c.id) === String(id)) || {}).cor || '#64748b';
-  const erro = estado && estado.erro;
-  const btn = `px-3 py-1.5 rounded-lg text-sm font-medium ${claro ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-700 hover:bg-slate-600 text-white'} disabled:opacity-50`;
-  const cabecalho = (
-    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-      <div>
-        <h3 className="font-semibold"><Ico e="⏱️"/>Horas por cliente (ClickUp)</h3>
-        {cu && cu.sinc && <p className={`text-xs ${sub}`}>Atualizado {cuDesde(cu.sinc)}{temDados ? '' : ` · sem dados de ${ano}`}</p>}
-      </div>
-      <button className={btn} disabled={estado && estado.aCarregar} onClick={onSinc}>{estado && estado.aCarregar ? 'A ler o ClickUp…' : temDados ? '↻ Atualizar' : 'Ler horas do ClickUp'}</button>
-    </div>
-  );
-  if (!temDados) {
-    const config = !erro || ['sem_config', 'sem_emails', 'rede', 'nao_encontrada'].includes(estado.codigo);
-    return (
-      <div>
-        {cabecalho}
-        {erro && <p className={`text-sm mb-3 ${config ? 'text-amber-400' : 'text-red-400'}`}>{erro}</p>}
-        {config && (
-          <div className={`text-sm ${sub}`}>
-            <p className="mb-2">Para ligar o ClickUp (uma vez só):</p>
-            <ol className="list-decimal pl-5 space-y-1">
-              <li>No ClickUp: avatar › <strong>Settings</strong> › <strong>Apps</strong> › <strong>API Token</strong> › Generate e copia a chave (começa por <code>pk_</code>).</li>
-              <li>No PC, abre <code>functions\.env</code> e junta duas linhas: <code>CLICKUP_TOKEN=pk_…</code> e <code>CLICKUP_EMAILS=o-teu@email</code>.</li>
-              <li>Na pasta do projeto corre <code>firebase deploy --only functions</code>.</li>
-              <li>Volta aqui e carrega em <strong>Ler horas do ClickUp</strong>.</li>
-            </ol>
-            <p className="mt-2 text-xs">A chave fica só na Firebase, nunca no GitHub nem no browser.</p>
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div>
-      {cabecalho}
-      {erro && <p className="text-sm text-red-400 mb-3">{erro}</p>}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-        <div className="p-3 rounded-xl tile"><p className={`text-xs ${sub}`}>Horas em {nomeMes}</p><p className="text-lg font-bold">{cuHoras(hMes)}</p></div>
-        <div className="p-3 rounded-xl tile"><p className={`text-xs ${sub}`}>Horas em {ano}</p><p className="text-lg font-bold">{cuHoras(hAno)}</p></div>
-        <div className="p-3 rounded-xl tile"><p className={`text-xs ${sub}`}>Valor/hora {ano}</p><p className="text-lg font-bold text-emerald-400">{hAno > 0 && recAno > 0 ? f(recAno / hAno) : '—'}</p></div>
-      </div>
-      <div className={`grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 text-xs ${sub} px-1 pb-1`}>
-        <span>Cliente</span><CuNum v={nomeMes.slice(0, 3)} /><CuNum v={ano} /><span className="hidden sm:block text-right">Recebido</span><CuNum v="€/hora" />
-      </div>
-      <div className="space-y-1.5">
-        {linhas.map(c => {
-          const rec = recCli[c.cid] || 0;
-          const top = Object.entries(c.listas).sort((a, b) => b[1] - a[1]).slice(0, 4);
-          return (
-            <div key={c.cid} className="rounded-xl tile px-3 py-2">
-              <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 items-center text-sm">
-                <span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: corCli(c.cid) }} /><span className="truncate font-medium">{nomeCli(c.cid)}</span></span>
-                <CuNum v={c.hMes > 0 ? cuHoras(c.hMes) : '—'} />
-                <CuNum v={cuHoras(c.hAno)} />
-                <span className="hidden sm:block text-right tabular-nums">{f(rec)}</span>
-                <CuNum v={c.hAno > 0 && rec > 0 ? f(rec / c.hAno) : '—'} cls="font-semibold text-emerald-400" />
-              </div>
-              {top.length > 0 && <p className={`text-xs mt-0.5 truncate ${sub}`}>{nomeMes}: {top.map(([n, h]) => `${n} ${cuHoras(h)}`).join(' · ')}</p>}
-            </div>
-          );
-        })}
-        {semCliente.map(g => (
-          <div key={g.chave} className="rounded-xl tile px-3 py-2 grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 items-center text-sm">
-            <span className="truncate"><span className="italic">{g.nome}</span> <span className="text-xs text-amber-400">· por ligar</span></span>
-            <CuNum v={g.hMes > 0 ? cuHoras(g.hMes) : '—'} /><CuNum v={cuHoras(g.hAno)} /><span className="hidden sm:block" /><CuNum v="—" />
-          </div>
-        ))}
-        {outrasAno > 0 && (
-          <div className={`px-3 py-1 grid grid-cols-[minmax(0,1fr)_3.2rem_3.8rem_4.6rem] sm:grid-cols-[minmax(0,1fr)_4rem_4.5rem_6.5rem_5.5rem] gap-x-3 sm:gap-x-5 text-xs ${sub}`}>
-            <span>Outras horas (sem cliente)</span><CuNum v={outrasMes > 0 ? cuHoras(outrasMes) : '—'} /><CuNum v={cuHoras(outrasAno)} /><span className="hidden sm:block" /><span />
-          </div>
-        )}
-      </div>
-      <p className={`text-xs mt-3 ${sub}`}>Os recibos saem muitas vezes no mês a seguir ao trabalho, por isso o valor/hora do ano é mais fiel do que o de um mês só. As horas de cada mês passam também para "Horas trabalhadas", a não ser que as tenhas escrito à mão.</p>
-      <details className="mt-3" open={semCliente.length > 0}>
-        <summary className={`cursor-pointer text-sm ${sub}`}>Ligar espaços do ClickUp aos clientes{semCliente.length > 0 ? ` (${semCliente.length} por ligar)` : ''}</summary>
-        <p className={`text-xs mt-2 mb-2 ${sub}`}>Se um espaço do ClickUp tiver trabalho de vários clientes (em pastas diferentes), escolhe «Separar por pastas» na lista e liga cada pasta ao seu cliente.</p>
-        <div className="space-y-1.5">
-          {grupos.filter(g => g.sid !== 'sem').map(g => (
-            <div key={g.chave} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-sm">
-              <span className="truncate">{g.nome} <span className={`text-xs ${sub}`}>· {cuHoras(g.hAno)}</span></span>
-              <select aria-label={`Cliente de ${g.nome}`} className={`${inputClass} !w-52 text-sm py-1`} value={g.cid == null ? '' : String(g.cid)}
-                onChange={e => { const v = e.target.value; if (v === '__separar') onDividir(g.sid, true); else if (v === '__juntar') onDividir(g.sid, false); else onMapa(g.chave, v); }}>
-                <option value="">— escolher cliente —</option>
-                {(clientes || []).map(c => <option key={c.id} value={String(c.id)}>{c.nome}{g.auto && String(g.cid) === String(c.id) ? ' (automático)' : ''}</option>)}
-                <option value="x">Não é um cliente</option>
-                {g.podeDividir && !g.chave.includes('/') && <option value="__separar">↳ Separar por pastas…</option>}
-                {g.chave.includes('/') && <option value="__juntar">↳ Juntar as pastas deste espaço</option>}
-              </select>
-            </div>
-          ))}
-        </div>
-      </details>
-      <label className={`mt-3 flex items-center gap-2 text-sm ${sub}`}>
-        <input type="checkbox" className="w-4 h-4 accent-blue-500" checked={(cu && cu.calendario) !== false} onChange={e => onCalendario(e.target.checked)} />
-        Mostrar as entregas do ClickUp no Calendário{cu && cu.tarefas ? ` (${cu.tarefas.length} nos próximos 60 dias)` : ''}
-      </label>
-    </div>
-  );
-};
 
 // Separadores que vêm num ficheiro à parte (só se descarregam quando são precisos).
 // Se o ficheiro falhar (p.ex. a app foi atualizada enquanto estava aberta), recarrega
@@ -2277,7 +2073,6 @@ export {
   cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
   trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
   trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, CLICKUP_URLS, cuGrupos,
-  cuHoras, cuDesde, CuNum, HorasClickUp, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
-  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
