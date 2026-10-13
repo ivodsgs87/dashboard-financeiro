@@ -298,6 +298,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
         <span className={`block truncate text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`}>{t.nome}</span>
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
+      <LinkDrive t={t} claro={claro} />
       {((t.anexos || []).length > 0 || (t.notas && String(t.notas).trim())) && (
         <span className={`shrink-0 inline-flex items-center gap-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
           {(t.anexos || []).length > 0 && <span title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" /></span>}
@@ -397,6 +398,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
               {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
             </button>
             <EtiquetaTipo t={t} cu={cu} claro={claro} />
+            <LinkDrive t={t} claro={claro} />
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
@@ -871,6 +873,20 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 };
 
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
+// Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
+const LinkDrive = ({ t, claro }) => {
+  const d = t.drive;
+  if (!d || !d.url) return null;
+  const n = (d.enviados || []).length;
+  return (
+    <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+      className={`shrink-0 inline-flex items-center gap-1 px-1.5 h-5 rounded-md text-[11px] font-medium text-emerald-500 ${claro ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/10'}`}
+      title={`No Drive${n ? `: ${(d.enviados || []).map(x => x.nome).join(', ')}` : ''} — abrir a pasta ${d.pasta || ''}`}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3h8l6 10-4 7H6l-4-7z" /><path d="M8 3l8 17M16 3L6 20M2 13h20" opacity=".55" /></svg>
+      {n ? n : ''}
+    </a>
+  );
+};
 const ClipAnexos = ({ anexos, claro, sub, cid }) => {
   const [aberto, setAberto] = useState(false);
   const ref = useRef(null);
@@ -1736,12 +1752,34 @@ const copiarComLink = async (texto, url) => {
   } catch (e) { /* tenta só o texto */ }
   copiar(texto); return false;
 };
+// Junta "NOME com link" na primeira linha vazia da coluna A da tab certa (só Google Sheets; um .xlsx não dá para editar assim)
+const juntarNaSpreadsheet = async (token, sheetUrl, nome, link) => {
+  const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
+  if (!id) return { erro: 'O link da spreadsheet não parece certo.' };
+  const gid = Number((/[#&?]gid=(\d+)/.exec(String(sheetUrl)) || [])[1] ?? NaN);
+  const meta = await driveApi(token, `${DRV}/${id}?fields=mimeType,name&supportsAllDrives=true`);
+  if (meta.mimeType !== 'application/vnd.google-apps.spreadsheet') return { xlsx: true, nomeFicheiro: meta.name };
+  const ss = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`);
+  const folhas = (ss.sheets || []).map(x => x.properties);
+  const f = folhas.find(x => x.sheetId === gid) || folhas[0];
+  if (!f) return { erro: 'Não encontrei a tab da spreadsheet.' };
+  const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${f.title}'!A:A`)}`);
+  const linhas = vals.values || [];
+  const ja = linhas.findIndex(l => String((l && l[0]) || '').trim().toUpperCase() === String(nome).toUpperCase());
+  if (ja >= 0) return { ok: true, linha: ja + 1, tab: f.title, jaExistia: true };
+  const linha = linhas.length; // 0-based: a seguir à última preenchida
+  await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ updateCells: {
+    start: { sheetId: f.sheetId, rowIndex: linha, columnIndex: 0 },
+    rows: [{ values: [{ userEnteredValue: { stringValue: nome }, textFormatRuns: [{ startIndex: 0, format: { link: { uri: link } } }] }] }],
+    fields: 'userEnteredValue,textFormatRuns',
+  } }] }) });
+  return { ok: true, linha: linha + 1, tab: f.title };
+};
 const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const [lista, setLista] = useState([]); // { id, file, meta, formato, estado, prog, erro }
   const [aEnviar, setAEnviar] = useState(false);
   const [msg, setMsg] = useState('');
   const [resultado, setResultado] = useState(t.drive || null);
-  const [review, setReview] = useState(true);
   const [copiadoS, setCopiadoS] = useState(false);
   const inRef = useRef(null);
   useEffect(() => { carregarGis().catch(() => {}); }, []);
@@ -1799,7 +1837,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
       const durs = lista.map(durDe).filter(Boolean);
       const formatos = [...new Set([...(t.formatos || []), ...lista.map(x => x.formato)])];
       set({ drive: reg, link: url, formatos, ...(!fx.duracao && durs.length ? { ficheiros: { ...fx, duracao: durs[0] } } : {}) });
-      if (review && enviados.length === lista.length && (t.estado === 'todo' || t.estado === 'curso') && mudar) mudar(tr => opEstado(tr, t.id, 'review'));
+      // Spreadsheet do jogo: se for uma Google Sheet, junta a linha sozinha (nome com o link da pasta)
+      let folha = null;
+      if (jogo.sheet && enviados.length) {
+        setMsg('A juntar à spreadsheet…');
+        try { folha = await juntarNaSpreadsheet(token, jogo.sheet, reg.nomeBase, url); } catch (e) { folha = { erro: String(e.message || e) }; }
+        reg.folha = folha;
+        set({ drive: reg });
+        setResultado({ ...reg });
+      }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
       if (enviados.length === lista.length) setLista([]);
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
@@ -1842,13 +1888,19 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                <label className={`flex items-center gap-1.5 text-xs ${sub}`}><input type="checkbox" checked={review} onChange={e => setReview(e.target.checked)} className="accent-blue-500" /> Passar a tarefa a Review</label>
                 <span className="flex-1" />
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
               </div>
             </div>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+          {resultado && resultado.folha && (
+            <p className={`text-xs ${resultado.folha.ok ? 'text-emerald-500' : resultado.folha.xlsx ? 'text-amber-500' : 'text-red-400'}`}>
+              {resultado.folha.ok ? `✓ ${resultado.folha.jaExistia ? 'Já estava' : 'Juntei'} na spreadsheet (${resultado.folha.tab}, linha ${resultado.folha.linha})`
+                : resultado.folha.xlsx ? 'A spreadsheet é um ficheiro Excel (.xlsx) aberto no Google — a Google não deixa as apps escreverem nele. Usa "Copiar para a spreadsheet" e cola na coluna Creative (ou pede para a converterem para Google Sheets e passa a ser automático).'
+                : `Não consegui escrever na spreadsheet: ${resultado.folha.erro}`}
+            </p>
+          )}
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive</a>
