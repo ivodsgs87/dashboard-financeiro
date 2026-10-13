@@ -1254,8 +1254,14 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
         </div>
         <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-5 items-start">
          <div className="space-y-4 min-w-0">
-          <textarea key={t.id + 'n'} defaultValue={t.nome} rows={2} onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) set({ nome: n }); }}
-            className={`w-full bg-transparent text-lg font-semibold resize-none focus:outline-none rounded-lg px-1 ${claro ? 'focus:bg-slate-50' : 'focus:bg-white/5'}`} />
+          <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Nome da tarefa</span>
+            <textarea key={t.id + 'n' + t.nome} defaultValue={t.nome} rows={1} aria-label="Nome da tarefa"
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+              onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }}
+              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+              onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) { set({ nome: n }); setGravou(true); } else if (!n) e.target.value = t.nome; }}
+              className={`${inputClass} text-base font-semibold resize-none overflow-hidden py-2 leading-snug`} />
+          </label>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 min-w-0 col-span-2"><span className={lab}>Pasta</span>
@@ -2033,7 +2039,7 @@ const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
   });
 };
 const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
-const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, showToast }) => {
+const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, showToast, onAbrirTarefa }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
@@ -2060,6 +2066,10 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   }));
   const tarefasFatura = [...porFaturar, ...(incluirAtras ? atrasadas : [])];
   const semPreco = tarefasFatura.filter(t => !(trabValor(t, cu, clientes) > 0));
+  // Tarefas que estão numa lista de outro mês (ex.: lista de setembro acabada a 1 de outubro) — podem já ter sido faturadas
+  const mesDaLista = t => { const p = (trab.pastas || []).find(x => x.id === t.pastaId); if (!p) return null; return p.mesNum || mesDoNome(p.nome) || null; };
+  const deOutraLista = porFaturar.filter(t => { const m = mesDaLista(t); return m && m !== mes.m; });
+  const marcarFora = lista => { const ids = new Set(lista.map(t => t.id)); mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (ids.has(t.id) ? { ...t, faturaId: 'fora' } : t)) })); };
   const auto = linhasAutoFatura(trab, tarefasFatura, extrasMes, cu, clientes);
   const [edicoes, setEdicoes] = useState({});
   const [manuais, setManuais] = useState([]);
@@ -2157,7 +2167,30 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
               <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={incluirAtras} onChange={e => setIncluirAtras(e.target.checked)} className="accent-amber-500" /> Juntar a esta fatura</label>
             </div>
           )}
-          {semPreco.length > 0 && <div className="rounded-lg px-3 py-2 bg-red-500/10 text-red-400">⚠ Sem preço: {semPreco.map(t => t.nome).join(' · ')} — define o tipo na tarefa ou o valor final.</div>}
+          {deOutraLista.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500">
+              <span className="flex-1 min-w-0">⚠ {deOutraLista.length} tarefa{deOutraLista.length === 1 ? ' está numa lista' : 's estão em listas'} de outro mês mas {deOutraLista.length === 1 ? 'foi entregue' : 'foram entregues'} em {MESES_PT_F[mes.m - 1]}: {deOutraLista.map((t, k) => <React.Fragment key={t.id}>{k > 0 && ' · '}<button type="button" onClick={() => onAbrirTarefa && onAbrirTarefa(t.id)} className="underline hover:no-underline">{t.nome}</button> (lista de {MESES_PT_F[(mesDaLista(t) || 1) - 1]}, entregue a {trabEntrega(t).slice(8, 10)}/{trabEntrega(t).slice(5, 7)})</React.Fragment>)}. Se já {deOutraLista.length === 1 ? 'a' : 'as'} faturaste nesse mês:</span>
+              <button type="button" onClick={() => marcarFora(deOutraLista)} className="px-2 py-1 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Já faturada{deOutraLista.length === 1 ? '' : 's'} — tirar</button>
+            </div>
+          )}
+          {semPreco.length > 0 && (
+            <div className="rounded-lg px-3 py-2 bg-red-500/10 text-red-400 space-y-1">
+              <p>⚠ Sem preço — carrega na tarefa para corrigir:</p>
+              {semPreco.map(t => {
+                const j = jogoDaTarefa(trab, t);
+                const hora = trabPecas(t).some(p => p.tipo === 'extra' || p.tipo === 'outro');
+                const porque = hora && !(trabHoras(t) > 0) ? 'é à hora mas não tem tempo registado — junta o tempo ou põe o valor final'
+                  : hora ? 'é à hora mas este cliente não tem preço à hora — põe o valor final'
+                  : 'o tipo não tem preço para este cliente — escolhe o tipo ou põe o valor final';
+                return (
+                  <p key={t.id} className="pl-3">
+                    {onAbrirTarefa ? <button type="button" onClick={() => onAbrirTarefa(t.id)} className="underline underline-offset-2 hover:text-red-300">{t.nome}</button> : t.nome}
+                    {j ? <span className="opacity-70"> ({j.nome})</span> : null} — {porque}.
+                  </p>
+                );
+              })}
+            </div>
+          )}
           {!inicio && <div className={`rounded-lg px-3 py-2 ${claro ? 'bg-slate-50' : 'bg-white/[0.03]'} ${sub}`}>É a primeira fatura deste cliente na app. A partir daqui, a app avisa se alguma tarefa entregue ficar por faturar.</div>}
           {porEntregar.length > 0 && <div className={sub}>{porEntregar.length} tarefa{porEntregar.length === 1 ? '' : 's'} ainda por entregar (Por começar / Em curso) — entram na fatura do mês em que passarem a Review ou Feito.</div>}
           {porFaturar.length === 0 && !atrasadas.length && !extrasMes.length && <div className={sub}>Nenhuma tarefa entregue neste mês por faturar.</div>}
@@ -2175,7 +2208,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 </div>
                 <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
                 <button type="button" onClick={() => (String(l.id).startsWith('m:') ? setManuais(ms => ms.filter(x => x.id !== l.id)) : ed({ fora: true }))} className={`h-8 text-xs ${sub} hover:text-red-400`} title="Tirar esta linha" aria-label="Tirar esta linha">✕</button>
-                {(l.tarefas || []).length > 0 && <p className={`col-span-3 text-[11px] ${sub}`}>{l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}: {l.tarefas.map(id => (doCliente.find(t => t.id === id) || {}).nome).filter(Boolean).slice(0, 6).join(' · ')}{l.tarefas.length > 6 ? '…' : ''}</p>}
+                {(l.tarefas || []).length > 0 && <p className={`col-span-3 text-[11px] ${sub}`}>{l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}: {l.tarefas.map(id => doCliente.find(t => t.id === id)).filter(Boolean).map((t, k) => <React.Fragment key={t.id}>{k > 0 && ' · '}<button type="button" onClick={() => onAbrirTarefa && onAbrirTarefa(t.id)} className="hover:text-blue-400 hover:underline" title="Abrir a tarefa">{t.nome}</button></React.Fragment>)}</p>}
               </div>
             );
           })}
@@ -3108,7 +3141,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} showToast={showToast} />}
+          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
