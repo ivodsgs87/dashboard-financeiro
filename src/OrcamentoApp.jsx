@@ -69,6 +69,43 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [tab, setTab] = useState('resumo');
   // O calendário de projetos passou para dentro do Trabalho
   useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
+  // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, Alt+←, botão de recuar do rato e gesto de voltar do telemóvel).
+  // Só muda de ecrã (separador, mês e posição na página) — nunca mexe nos dados.
+  const [navPos, setNavPos] = useState(0);
+  const navRef = useRef({ tab: 'resumo', mes: mesAtualSistema, ano: anoAtualSistema, y: 0, pos: 0, voltando: false, iniciado: false });
+  useEffect(() => {
+    const n = navRef.current;
+    const onScroll = () => { if (!n.voltando) n.y = window.scrollY; };
+    const onPop = e => {
+      const st = e.state;
+      if (!st || st.app !== 'orc') return;
+      n.voltando = true;
+      n.pos = st.pos || 0; setNavPos(n.pos);
+      n.tab = st.tab; n.mes = st.mes; n.ano = st.ano; n.y = st.y || 0;
+      if (st.ano) setAno(st.ano);
+      if (st.mes) setMes(st.mes);
+      setTab(st.tab);
+      setTimeout(() => { window.scrollTo({ top: st.y || 0 }); n.voltando = false; }, 60);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('popstate', onPop);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('popstate', onPop); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const n = navRef.current;
+    try {
+      if (!n.iniciado) { n.iniciado = true; n.tab = tab; history.replaceState({ app: 'orc', tab, mes, ano, y: 0, pos: 0 }, ''); return; }
+      if (n.voltando || tab === n.tab || tab === 'calendario') { n.tab = tab; return; }
+      // Guarda onde estavas (separador, mês, posição) e abre a entrada nova
+      history.replaceState({ ...(history.state || {}), app: 'orc', tab: n.tab, mes: n.mes, ano: n.ano, y: n.y, pos: n.pos }, '');
+      n.pos += 1; setNavPos(n.pos);
+      n.tab = tab; n.y = 0;
+      history.pushState({ app: 'orc', tab, mes, ano, y: 0, pos: n.pos }, '');
+    } catch (e) { /* histórico indisponível */ }
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // O mês da entrada atual acompanha o seletor (para voltar ao mês onde estavas)
+  useEffect(() => { const n = navRef.current; if (n.voltando) return; n.mes = mes; n.ano = ano; try { if (history.state && history.state.app === 'orc') history.replaceState({ ...history.state, mes, ano }, ''); } catch (e) { /* histórico indisponível */ } }, [mes, ano]);
+  const recuar = () => { try { history.back(); } catch (e) { /* sem histórico */ } };
   const [txSoMes, setTxSoMes] = useState(true); // Transações: mostrar só o mês selecionado no topo
   const [txImport, setTxImport] = useState(null); // pré-visualização de um ficheiro de transações a importar
   const [textoBilance, setTextoBilance] = useState(null); // texto gerado para exportar
@@ -1895,6 +1932,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    [/declara(ç|c)(ã|a)o trimestral ss/i, 'https://app.seg-social.pt/', 'SS Direta'],
    [/\birs\b/i, 'https://irs.portaldasfinancas.gov.pt/', 'Finanças'],
  ];
+ const agApagarRecorrente = id => {
+   const t = (G.tarefas || []).find(x => x.id === id); if (!t) return;
+   confirmDelete(`Apagar "${t.desc}"? Deixa de aparecer em todos os meses.`, () => { saveUndo(); setG(p => ({ ...p, tarefas: (p.tarefas || []).filter(x => x.id !== id) })); showToast('Tarefa apagada'); });
+ };
  const agConc = patch => { saveUndo(); setG(p => ({ ...p, tarefasConcluidas: { ...(p.tarefasConcluidas || {}), ...patch } })); };
  const agManual = patch => { saveUndo(); setM(p => { const a = p[mesKey] || defM; return { ...p, [mesKey]: { ...a, passosManual: { ...(a.passosManual || {}), ...patch } } }; }); };
  const tarefasDoMes = () => {
@@ -1925,13 +1966,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (pid) {
        usados.add(pid);
        const p = P[pid], feitoMao = conc[e.chave] === true;
-       itens.push(dePasso(p, { key: e.chave, titulo: e.titulo, dia: e.dia, cat: e.cat, feitoMao,
+       itens.push(dePasso(p, { key: e.chave, tid: t.id, titulo: e.titulo, dia: e.dia, cat: e.cat, feitoMao,
          definir: v => { agConc({ [e.chave]: v }); if (v || p.manual) agManual({ [pid]: v }); } }));
        return;
      }
      const feito = e.estado === 'ok';
      const mao = !!(e.chave && conc[e.chave] === true);
-     itens.push({ key: e.chave || id, titulo: e.titulo, dia: e.dia, cat: e.cat, feito, auto: feito && !mao, valor: e.valor, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista,
+     itens.push({ key: e.chave || id, tid: t ? t.id : null, titulo: e.titulo, dia: e.dia, cat: e.cat, feito, auto: feito && !mao, valor: e.valor, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista,
        ...destino(e, t), definir: e.chave && (!feito || mao) ? v => agConc({ [e.chave]: v }) : null });
    });
    // Tarefas semanais (o calendário não as mostra)
@@ -1939,7 +1980,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      for (let d = 1; d <= nDias; d++) {
        if (new Date(y, m - 1, d).getDay() !== (t.diaSemana ?? 1)) continue;
        const k = `${y}-${m}-${t.id}-w${Math.ceil(d / 7)}`;
-       itens.push({ key: k, titulo: t.desc, dia: d, cat: t.cat || 'Outro', feito: conc[k] === true, semanal: true, link: linkDe(t.desc), definir: v => agConc({ [k]: v }) });
+       itens.push({ key: k, tid: t.id, titulo: t.desc, dia: d, cat: t.cat || 'Outro', feito: conc[k] === true, semanal: true, link: linkDe(t.desc), definir: v => agConc({ [k]: v }) });
      }
    });
    // Passos do mês que não têm tarefa recorrente correspondente
@@ -1963,7 +2004,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        eventosCalendario(py, pm).filter(e => e.estado === 'atrasado' && e.chave && String(e.id).startsWith('t')).forEach(e => {
          const t = (G.tarefas || []).find(x => 't' + x.id === String(e.id));
          if (t && ((t.cat === 'Transf' && transfOk) || (t.cat === 'Invest' && invOk))) return;
-         antes.push({ key: e.chave, titulo: e.titulo, dia: e.dia, y: py, m: pm, cat: e.cat, feito: false, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista, ...destino(e, t), definir: v => agConc({ [e.chave]: v }), anterior: true });
+         antes.push({ key: e.chave, tid: t ? t.id : null, titulo: e.titulo, dia: e.dia, y: py, m: pm, cat: e.cat, feito: false, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista, ...destino(e, t), definir: v => agConc({ [e.chave]: v }), anterior: true });
        });
      }
    }
@@ -2004,7 +2045,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const tituloCaixa = it.auto ? 'Feito — a app vê isto nos teus dados' : podeMarcar ? (it.feito ? 'Desmarcar' : 'Marcar como feito') : '';
    return (
      <div key={it.key} className={`border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
-       <div className={`flex items-center gap-2.5 sm:gap-3 ${compacta ? 'px-1 py-1.5' : 'px-2 sm:px-3 py-2'} ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.02]'}`}>
+       <div className={`group flex items-center gap-2.5 sm:gap-3 ${compacta ? 'px-1 py-1.5' : 'px-2 sm:px-3 py-2'} ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.02]'}`}>
          <button type="button" onClick={podeMarcar ? () => it.definir(!it.feito) : undefined} disabled={!podeMarcar && !it.auto} aria-pressed={it.feito} aria-label={tituloCaixa || it.titulo} title={tituloCaixa}
            className={`w-[18px] h-[18px] shrink-0 rounded-[5px] border flex items-center justify-center transition-colors ${it.feito ? (it.auto ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-500' : 'bg-emerald-500 border-emerald-500 text-white') : claro ? 'border-slate-300 hover:border-emerald-500' : 'border-slate-600 hover:border-emerald-400'} ${podeMarcar ? 'cursor-pointer' : 'cursor-default'}`}>
            {it.feito && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>}
@@ -2020,6 +2061,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {it.ir ? <button type="button" onClick={it.ir} className="text-xs text-blue-400 hover:text-blue-300" title="Ir para onde se faz isto"><span className="hidden sm:inline">{compacta ? '' : 'Abrir '}</span>→</button>
              : it.link ? <a href={it.link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300" title={`Abrir ${it.link.nome}`}><span className="hidden sm:inline">{compacta ? '' : it.link.nome + ' '}</span>↗</a> : null}
          </span>
+         {!compacta && it.tid != null && (
+           <span className="shrink-0 w-5 text-right">
+             <button type="button" onClick={() => agApagarRecorrente(it.tid)} className="text-xs text-slate-400 hover:text-red-400 sm:opacity-0 group-hover:opacity-100 focus:opacity-100" title="Apagar esta tarefa (deixa de aparecer em todos os meses)" aria-label={`Apagar a tarefa ${it.titulo}`}>✕</button>
+           </span>
+         )}
        </div>
        {aberta && it.lista && (
          <ul className={`mx-3 mb-2 ml-10 space-y-1 text-xs list-disc pl-4 ${claro ? 'text-slate-600' : 'text-slate-400'}`}>{it.lista.map((l, i) => <li key={i}>{l}</li>)}</ul>
@@ -13143,21 +13189,25 @@ ${transacoesOrdenadas.map(t => `<tr>
             <div className="flex items-center justify-start gap-3">
               <h1 className="hidden sm:block text-lg sm:text-xl font-bold"><button onClick={irInicio} title="Ir para o Resumo" className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:opacity-80">💎 Dashboard</button></h1>
               <div className="flex items-center gap-2">
+                <button onClick={recuar} disabled={navPos <= 0} aria-label="Recuar" title={navPos > 0 ? 'Recuar para onde estavas (Alt+←)' : 'Nada para recuar'}
+                  className={`w-8 h-8 sm:w-9 sm:h-9 shrink-0 inline-flex items-center justify-center rounded-xl border transition-colors ${navPos <= 0 ? 'max-sm:hidden' : ''} ${theme === 'light' ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900' : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-white/10 hover:text-white'} disabled:opacity-35 disabled:pointer-events-none`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                </button>
                 {(() => {
                   const claro = theme === 'light';
-                  const seta = `w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
+                  const seta =`w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
                   const sel = `h-8 bg-transparent border-0 rounded-lg px-1.5 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
                     <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
-                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={seta}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (seta ←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <select value={mes} onChange={e=>setMes(e.target.value)} aria-label="Mês" className={sel}>
                         {meses.map(m=><option key={m} value={m} className={opt}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                       </select>
                       <select value={ano} onChange={e=>setAno(+e.target.value)} aria-label="Ano" className={sel}>
                         {anos.map(a=><option key={a} value={a} className={opt}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                       </select>
-                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={seta}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (seta →)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
                     </div>
                   );
                 })()}
