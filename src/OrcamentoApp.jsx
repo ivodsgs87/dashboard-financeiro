@@ -12109,7 +12109,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    const mesAnteriorKey = `${mesAtualNum === 1 ? ano - 1 : ano}-${mesAtualNum === 1 ? 12 : mesAtualNum - 1}`;
    const receitasMesAnterior = (M[mesAnteriorKey]?.regCom || []).reduce((a, r) => a + r.val, 0) + (M[mesAnteriorKey]?.regSem || []).reduce((a, r) => a + r.val, 0);
    
-   if (receitasMesAnterior > 0) {
+   // Só no fim do mês: a meio do mês os recibos ainda não chegaram e dava sempre "-100%"
+   if (receitasMesAnterior > 0 && totRec > 0 && new Date().getDate() >= 25) {
      const variacao = ((totRec - receitasMesAnterior) / receitasMesAnterior * 100);
      if (variacao < -30) {
        alerts.push({tipo: 'aviso', msg: `📉 Receitas ${variacao.toFixed(0)}% abaixo do mês anterior`, severity: 'warning'});
@@ -12162,13 +12163,18 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    // Alertas de faturacao (clientes sem receita 45+ dias)
    const _hj = new Date();
+   // (clientes antigos ou em pausa não contam; o trabalho entregue e as faturas da app também contam como atividade)
    (G.clientes || []).forEach(cli => {
+     if (cli.estado === 'antigo' || cli.estado === 'pausa' || (cli.fat && cli.fat.semFatura)) return;
      const recCli = Object.entries(M).flatMap(([k,v]) => [...(v.regCom||[]),...(v.regSem||[])].filter(r => r.cid === cli.id).map(r => ({...r, mesKey: k})));
      if (recCli.length === 0) return;
-     const ultData = recCli.map(r => new Date(r.data || '2020-01')).sort((a,b) => b-a)[0];
+     const datas = recCli.map(r => String(r.data || '2020-01-01'));
+     ((trabalho && trabalho.tarefas) || []).forEach(t => { if (String(t.cid) === String(cli.id)) { const e = trabEntrega(t); if (e) datas.push(e); } });
+     ((trabalho && trabalho.faturas) || []).forEach(f => { if (String(f.cid) === String(cli.id) && f.data) datas.push(f.data); });
+     const ultData = new Date(datas.sort().pop());
      const diasSem = Math.floor((_hj - ultData) / (1000*60*60*24));
      if (diasSem >= 45) {
-       alerts.push({tipo:'retainer', severity:'info', msg: cli.nome + ': sem faturacao ha ' + diasSem + ' dias'});
+       alerts.push({tipo:'retainer', severity:'info', cid: cli.id, msg: `${cli.nome}: sem faturação há ${diasSem} dias`});
      }
    });
    // Alertas de orcamento (extrato)
@@ -12187,8 +12193,11 @@ ${transacoesOrdenadas.map(t => `<tr>
    const severityOrder = { error: 0, warning: 1, info: 2, success: 3 };
    alerts.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
    
-   return alerts;
- }, [G, M, mesKey, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias, ano]);
+   // Grupos que desligaste em "Configurar alertas"
+   const off = G.alertasDesligados || {};
+   const grupoDe = a => a.tipo === 'retainer' ? 'faturacao' : a.tipo === 'tarefa' ? 'tarefas' : a.tipo === 'transf' ? 'transf' : a.tipo === 'orcamento' ? 'orcamento' : /mês anterior/.test(a.msg || '') ? 'variacao' : /Portfolio/.test(a.msg || '') ? 'portfolio' : /[Hh]oras/.test(a.msg || '') ? 'horas' : (a.tipo === 'meta' || a.tipo === 'sucesso') ? 'metas' : a.tipo;
+   return alerts.map(a => ({ ...a, grupo: grupoDe(a) })).filter(a => !off[a.grupo]);
+ }, [G, M, mesKey, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias, ano, trabalho]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -13129,8 +13138,9 @@ ${transacoesOrdenadas.map(t => `<tr>
                  <div className="space-y-2">
                    <p className="text-xs text-blue-400 font-medium">💡 Lembretes</p>
                    {alertasInfo.map((a, i) => (
-                     <div key={`info-${i}`} className={`p-3 border rounded-xl ${severityStyles.info}`}>
-                       {a.msg}
+                     <div key={`info-${i}`} className={`p-3 border rounded-xl flex items-center gap-2 ${severityStyles.info}`}>
+                       <span className="flex-1 min-w-0">{a.msg}</span>
+                       {a.cid != null && <button onClick={() => { saveUndo(); uG('clientes', (G.clientes || []).map(c => (c.id === a.cid ? { ...c, estado: 'antigo' } : c))); }} className="shrink-0 text-xs px-2 py-1 rounded-md border border-current/30 opacity-80 hover:opacity-100" title="Marca o cliente como Antigo — deixa de aparecer aqui">Já não trabalho com ele</button>}
                      </div>
                    ))}
                  </div>
@@ -13139,8 +13149,20 @@ ${transacoesOrdenadas.map(t => `<tr>
            )}
            
            <div className="pt-4 border-t border-slate-700">
-             <h4 className="text-sm font-semibold text-slate-400 mb-3"><Ico e="⚙️"/>Configurar Alertas</h4>
+             <h4 className="text-sm font-semibold text-slate-400 mb-3"><Ico e="⚙️"/>Configurar alertas</h4>
              <div className="space-y-3">
+               <div className="p-3 bg-slate-700/30 rounded-lg space-y-2">
+                 <p className="text-xs text-slate-500">Que avisos queres ver (os desligados deixam de contar no sino):</p>
+                 {[['tarefas', '📅 Tarefas do mês atrasadas ou para breve'], ['transf', '💸 Transferências e despesas do mês'], ['faturacao', '🧾 Clientes sem faturação há 45+ dias'], ['variacao', '📉 Receitas vs mês anterior (só no fim do mês)'], ['metas', '🎯 Metas do ano (receitas, investimentos)'], ['horas', '⏱️ Horas do mês'], ['portfolio', '📈 Atualizar o Portfolio no fim do mês'], ['orcamento', '🛒 Orçamentos do extrato']].map(([k, nome]) => {
+                   const ligado = !(G.alertasDesligados || {})[k];
+                   return (
+                     <label key={k} className="flex items-center justify-between gap-3 text-sm text-slate-300 cursor-pointer">
+                       <span>{nome}</span>
+                       <input type="checkbox" checked={ligado} onChange={e => { saveUndo(); uG('alertasDesligados', { ...(G.alertasDesligados || {}), [k]: !e.target.checked }); }} className="w-5 h-5 accent-blue-500" />
+                     </label>
+                   );
+                 })}
+               </div>
                {/* Alerta Despesas Pessoais */}
                {alertas.filter(a => a.tipo === 'despesa').map(a => (
                  <div key={a.id} className="p-3 bg-slate-700/30 rounded-lg">
@@ -14106,14 +14128,17 @@ ${transacoesOrdenadas.map(t => `<tr>
              <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Fiscal</h4>
              <div className={`p-4 rounded-xl space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                <div className="flex items-center justify-between">
-                 <span className="text-sm">Taxa retenção IRS</span>
+                 <span className="text-sm" title="A parte de cada recibo que guardas para pagar o IRS e a Segurança Social. Não é a retenção na fonte.">Reserva para impostos <span className="text-xs text-slate-500">(IRS + SS)</span></span>
                  <div className="flex items-center gap-1">
-                   <input type="number" defaultValue={taxa} step="0.5" min="0" max="100"
+                   <input key={taxa} type="number" defaultValue={taxa} step="0.5" min="0" max="100"
                      className={`w-16 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
                      onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== taxa) { saveUndo(); uG('taxa', v); }}} />
                    <span className="text-xs text-slate-500">%</span>
                  </div>
                </div>
+               {(() => { const sg = previsaoImpostos.taxaReservaSugerida; if (!sg) return <p className="text-[11px] text-slate-500 -mt-1">A parte de cada recibo posta de lado para o IRS e a Segurança Social (não é a retenção na fonte).</p>; const alvo = Math.ceil(sg.total) + 2; return (
+                 <p className="text-[11px] text-slate-500 -mt-1">Guardada de cada recibo para IRS e SS (não é a retenção na fonte). Pela previsão deste ano, os teus recibos custam ~{sg.total.toFixed(0)}% (IRS {sg.irs.toFixed(0)}% + SS {sg.ss.toFixed(0)}%).{Math.abs(alvo - taxa) >= 1 && <button onClick={() => { saveUndo(); uG('taxa', alvo); }} className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>}</p>
+               ); })()}
                <div className="flex items-center justify-between">
                  <span className="text-sm">Contribuição SS</span>
                  <span className="text-sm text-slate-500">21.4% (automático)</span>
