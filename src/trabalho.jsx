@@ -1134,7 +1134,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
           </div>
         ) : (
           <p className={`text-[11px] ${sub}`}>
-            Links do Google abrem com {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'a conta principal do browser'}{contaDoCliente ? ' (definida na ficha do cliente)' : ''} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">mudar</button>
+            Google: {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'conta principal do browser'} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">mudar</button>
           </p>
         )
       )}
@@ -1176,9 +1176,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
           ))}
         </div>
       ) : (
-        <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`w-full rounded-lg border-2 border-dashed py-5 text-xs ${claro ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-slate-700 text-slate-400 hover:bg-white/[0.03]'}`}>
-          Cola aqui o link do brief com Ctrl+V (ou arrasta um PDF, imagens, vídeos…)
-        </button>
+        <p className={`text-[11px] ${sub}`}>Ou arrasta para aqui um PDF, imagens ou vídeos.</p>
       )}
       {previa && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
@@ -1251,11 +1249,13 @@ const NotasDaTarefa = ({ t, set, inputClass, lab, sub }) => {
   return (
     <label className="flex flex-col gap-1">
       <span className={`${lab} flex items-center gap-2`}>Notas da tarefa{gravado && <span className={`text-[11px] font-normal ${sub}`}>✓ gravado</span>}</span>
-      <textarea value={v} rows={4} onChange={e => { setV(e.target.value); vRef.current = e.target.value; clearTimeout(timer.current); timer.current = setTimeout(gravar, 700); }} onBlur={gravar}
+      <textarea value={v} rows={3} onChange={e => { setV(e.target.value); vRef.current = e.target.value; clearTimeout(timer.current); timer.current = setTimeout(gravar, 700); }} onBlur={gravar}
         className={`${inputClass} text-sm`} placeholder="Feedback do cliente, ideias, referências…" />
     </label>
   );
 };
+// No ecrã grande a janela da tarefa cabe toda no ecrã: cada coluna rola sozinha se precisar
+const COL_XL = 'xl:h-full xl:overflow-y-auto xl:pr-1 xl:-mr-1 [scrollbar-width:thin]';
 const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
@@ -1304,19 +1304,26 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const est = Number(t.estimativa) || 0;
   const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
   const custo = Number(t.custoOutsourcing) || 0;
+  const comFicheiros = (trab.jogos || []).some(j => String(j.cid) === String(t.cid));
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-0 sm:p-4 lg:p-6 animate-backdropIn backdrop-blur-md" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
-      <div className={`w-full max-w-[1640px] h-full sm:h-auto sm:max-h-full overflow-y-auto shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
+      <div className={`w-full max-w-[1760px] h-full sm:h-auto sm:max-h-full overflow-y-auto xl:overflow-hidden xl:flex xl:flex-col shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
+            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
+            <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
+              const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
+              (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
+              mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
+            } }}>Apagar tarefa</button>
           <span className={`text-sm tabular-nums ${sub}`}><HorasVivas t={t} /></span>
           <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
-        <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-5 lg:gap-6 items-start">
-         <div className="space-y-4 min-w-0">
+        <div className={`p-4 lg:p-5 grid grid-cols-1 gap-4 lg:gap-5 items-start xl:items-stretch xl:flex-1 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)] ${comFicheiros ? 'lg:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,1.15fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]'}`}>
+         <div className={`space-y-3 min-w-0 ${COL_XL}`}>
           {nomeLivre || !prefixo ? (
             <label className="flex flex-col gap-1 min-w-0">
               <span className={`${lab} flex items-center gap-2`}>Nome da tarefa{prefixo && <button type="button" onClick={() => setNomeLivre(false)} className="ml-auto text-blue-400 hover:text-blue-300">só o conceito</button>}{!prefixo && <span className="ml-auto opacity-70">escolhe o tipo em Valor e o início do nome aparece sozinho</span>}</span>
@@ -1329,7 +1336,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </label>
           ) : (
             <div className="flex flex-col gap-1 min-w-0">
-              <span className={`${lab} flex items-center gap-2`}>Nome da tarefa <span className="opacity-70">— o início vem do tipo (em Valor), escreves só o conceito</span><button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">editar o nome todo</button></span>
+              <span className={`${lab} flex items-center gap-2`} title="O início vem do tipo (em Valor); escreves só o conceito">Nome da tarefa<button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">editar o nome todo</button></span>
               <div className={`flex items-stretch rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${claro ? 'border-slate-300 bg-white' : 'border-slate-600 bg-slate-800'}`}>
                 <span className={`shrink-0 flex items-center px-3 py-1.5 text-sm font-semibold max-w-[45%] sm:max-w-none sm:whitespace-nowrap border-r ${claro ? 'bg-blue-50 text-blue-700 border-slate-200' : 'bg-blue-500/10 text-blue-300 border-slate-700'}`} title="Muda quando escolhes o tipo em Valor">{prefixo}</span>
                 <textarea key={t.id + 'c' + t.nome} defaultValue={conceitoAtual} rows={1} aria-label="Conceito da tarefa" placeholder="Conceito (ex.: Monthly earnings - variation)"
@@ -1367,7 +1374,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           {onAbrirNota && <NotasLigadas lista={notasDe ? notasDe('tarefa', t.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('tarefa', t.id, t.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo="Notas sobre esta tarefa" />}
 
          </div>
-         <div className="space-y-4 min-w-0">
+         <div className={`space-y-3 min-w-0 ${COL_XL}`}>
           {/* Valor da tarefa: peças por tipo, com preço do cliente */}
           <div className={caixa}>
             <div className="flex items-center justify-between mb-2">
@@ -1393,7 +1400,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                 <>
                   {!verQtd ? (
                     <div>
-                      <span className={lab}>O que é esta tarefa? <span className={gravou ? 'text-emerald-400' : 'opacity-70'}>{gravou ? '✓ gravado' : '— carrega noutro para mudar, grava logo'}</span></span>
+                      <span className={lab}>Tipo {gravou && <span className="text-emerald-400">✓ gravado</span>}</span>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {tiposVis.map(x => (
                           <button key={x.id} type="button" onClick={() => aplicarTipo({ [x.id]: 1 })} className={chip(simples && tiposCom[0] === x.id)}>
@@ -1431,7 +1438,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>várias peças nesta tarefa</button>}
                     <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
-                    {temMao ? <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button> : <span className={sub}>lido do nome da tarefa</span>}
+                    {temMao && <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button>}
                   </div>
                 </>
               );
@@ -1470,11 +1477,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             )}
           </div>
 
-          <NomesFicheiros t={t} trab={trab} set={set} mudar={mudar} claro={claro} inputClass={inputClass} lab={lab} sub={sub} caixa={caixa} />
-
           {/* Outsourcing */}
           <div className={`${caixa} space-y-2`}>
-            <p className="text-sm font-medium">Subcontratação <span className={`font-normal text-xs ${sub}`}>(se passaste a tarefa a outro freelancer — desconta no mês em que a entregas)</span></p>
+            <p className="text-sm font-medium" title="Se passaste a tarefa a outro freelancer — desconta no mês em que a entregas">Subcontratação</p>
             <div className="grid grid-cols-2 gap-2">
               {(trab.freelancers || []).length > 0 ? (
                 <select value={t.freelancerId || (t.outsourcing ? '__' : '')} onChange={e => {
@@ -1492,7 +1497,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               )}
               <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
             </div>
-            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : (trab.freelancers || []).length ? null : <p className={`text-xs ${sub}`}>Junta os teus freelancers em Freelancers (barra lateral) para o custo sair sozinho.</p>; })()}
+            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
             {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
           </div>
 
@@ -1517,7 +1522,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                   <button type="button" className="text-slate-400 hover:text-red-400" aria-label="Apagar este tempo" onClick={() => mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.filter(z => z.id !== x.id) })))}>✕</button>
                 </div>
               ))}
-              {!(t.tempos || []).length && <p className={lab}>Ainda sem tempo registado. Usa o ▶ ou acrescenta à mão.</p>}
+              {!(t.tempos || []).length && <p className={lab}>Sem tempo registado.</p>}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} className={`${inputClass} !w-auto text-xs py-1`} />
@@ -1531,22 +1536,18 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </div>
           </div>
 
-          <div className={`${caixa} text-xs space-y-1`}>
-            <p className="text-sm font-medium mb-1">Registo automático</p>
-            {[['Criada', t.criada], ['Começada', t.iniciada], ['Posta em review', t.review], ['Terminada', t.feita]].map(([k, d]) => (
-              <div key={k} className="flex justify-between"><span className={lab}>{k}</span><span className="tabular-nums">{dataHora(d)}</span></div>
+          <div className={`flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] px-1 ${sub}`}>
+            {[['Criada', t.criada], ['Começada', t.iniciada], ['Review', t.review], ['Terminada', t.feita]].filter(([, d]) => d).map(([k, d]) => (
+              <span key={k}>{k} <span className="tabular-nums">{dataHora(d)}</span></span>
             ))}
           </div>
 
-          <div className="flex justify-between">
-            <button type="button" className="text-xs text-slate-400 hover:text-blue-400" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
-            <button type="button" className="text-xs text-red-400 hover:text-red-300" onClick={() => { if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
-              const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
-              (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
-              mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
-            } }}>Apagar tarefa</button>
-          </div>
          </div>
+         {comFicheiros && (
+           <div className={`min-w-0 lg:col-span-2 xl:col-span-1 ${COL_XL}`}>
+             <NomesFicheiros t={t} trab={trab} set={set} mudar={mudar} claro={claro} inputClass={inputClass} lab={lab} sub={sub} caixa={caixa} />
+           </div>
+         )}
         </div>
       </div>
     </div>
@@ -2028,6 +2029,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const [aLigar, setALigar] = useState(false);
   useEffect(() => { let vivo = true; sincronizarSempre().then(() => { if (vivo) setSempre(ligadoSempre(contaDe(t.cid) || '_')); }); return () => { vivo = false; }; }, [t.cid]);
   const inRef = useRef(null);
+  const [arrastarD, setArrastarD] = useState(false);
   useEffect(() => { carregarGis().catch(() => {}); }, []);
   const [historico, setHistorico] = useState(() => cacheHist.get(t.id) || []); // [{ itemId, handle, antes, depois }] — nomes que a app mudou no PC
   const carregado = useRef(false);
@@ -2305,21 +2307,23 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-sm font-medium flex-1">Enviar para o Drive</p>
-        {raiz && <span className={`text-[11px] ${sub}`} title={raizUrl}>{statics ? 'Statics' : 'Vídeos'} › {r.conceito || '…'}{r.conceito ? ` › ${baseDe(verSug)}` : ''}</span>}
+        {raiz && r.conceito && <span className={`text-[11px] truncate max-w-[60%] ${sub}`} title={`${statics ? 'Statics' : 'Vídeos'} › ${r.conceito} › ${baseDe(verSug)}`}>📁 {baseDe(verSug)}</span>}
       </div>
       {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
         <>
           <div
-            onDragOver={e => { e.preventDefault(); }} onDrop={e => {
-              e.preventDefault();
+            onDragOver={e => { e.preventDefault(); if (!arrastarD) setArrastarD(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastarD(false); }} onDrop={e => {
+              e.preventDefault(); setArrastarD(false);
               const its = Array.from(e.dataTransfer.items || []).filter(i => i.kind === 'file');
               const hs = its.map(i => (typeof i.getAsFileSystemHandle === 'function' ? i.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null)));
               const fs = its.length ? its.map(i => i.getAsFile()) : Array.from(e.dataTransfer.files || []);
               Promise.all(hs).then(h => juntar(fs, h));
             }}
             onClick={() => inRef.current && inRef.current.click()}
-            className={`rounded-lg border-2 border-dashed px-3 py-3 text-center text-xs cursor-pointer ${claro ? 'border-slate-300 hover:bg-slate-50' : 'border-slate-600 hover:bg-white/[0.03]'} ${sub}`}>
-            Arrasta para aqui os exports (ou carrega para escolher). A app reconhece o formato e a duração de cada vídeo e dá-lhe o nome certo.
+            className={`rounded-xl border-2 border-dashed px-3 ${lista.length ? 'py-4 min-h-[72px]' : 'py-8 min-h-[150px]'} flex flex-col items-center justify-center gap-1 text-center cursor-pointer transition-colors ${arrastarD ? 'border-blue-400 bg-blue-500/10' : claro ? 'border-slate-300 hover:bg-slate-50' : 'border-slate-600 hover:bg-white/[0.03]'} ${sub}`}>
+            <span className={`text-2xl leading-none ${arrastarD ? 'text-blue-400' : ''}`}>⬇</span>
+            <span className={`text-sm font-medium ${claro ? 'text-slate-700' : 'text-slate-200'}`}>{lista.length ? 'Arrasta mais exports' : 'Arrasta os exports para aqui'}</span>
+            <span className="text-[11px]">ou carrega para escolher</span>
             <input ref={inRef} type="file" multiple accept="video/*,image/*" className="hidden" onChange={e => { juntar(e.target.files); e.target.value = ''; }} />
           </div>
           {lista.length > 0 && (
@@ -2353,9 +2357,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
           )}
           {r.conceito && (infoVersao && infoVersao.conceito === r.conceito ? (
             <p className={`text-[11px] ${sub}`}>{infoVersao.existe
-              ? <>No Drive já há {infoVersao.versoes.length ? <b>{infoVersao.versoes.map(v => `V${v}`).join(', ')}</b> : 'a pasta'} de {infoVersao.nome}{!fx.versao && !versaoAnterior ? <> → {novoVideo ? 'vídeo novo' : 'variação'}: <b>V{versaoDe(verSug)}</b></> : null}</>
-              : <>{slugF(r.conceito)} ainda não está no Drive → conceito novo: <b>V1</b></>}</p>
-          ) : raiz ? <button type="button" onClick={verVersoes} className="text-[11px] text-blue-400 hover:text-blue-300 text-left">🔎 Ver as versões deste conceito no Drive</button> : null)}
+              ? <>No Drive: {infoVersao.versoes.length ? <b>{infoVersao.versoes.map(v => `V${v}`).join(', ')}</b> : 'só a pasta'}{!fx.versao && !versaoAnterior ? <> → {novoVideo ? 'vídeo novo' : 'variação'}: <b>V{versaoDe(verSug)}</b></> : null}</>
+              : <>Conceito novo no Drive → <b>V1</b></>}</p>
+          ) : raiz ? <button type="button" onClick={verVersoes} className="text-[11px] text-blue-400 hover:text-blue-300 text-left">🔎 Ver versões no Drive</button> : null)}
           {lista.length > 0 && !fx.versao && !(infoVersao && infoVersao.conceito === r.conceito) && (
             <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
@@ -2417,12 +2421,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             </div>
           )}
           <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${sub}`}>
-            <span className="flex-1 min-w-[200px]">Entra com {conta ? <b>{conta}</b> : 'a tua conta Google'} (a conta deste cliente). Os ficheiros vão direto do computador para o Drive — nada fica guardado na app nem no disco.</span>
+            <span className="flex-1 min-w-[160px] truncate" title="Os ficheiros vão direto do computador para o Drive — nada fica guardado na app.">Conta: {conta ? <b>{conta}</b> : 'a tua conta Google'}</span>
             {sempre ? (
-              <span className="text-emerald-500">🔒 Ligado ao Drive para sempre · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>desligar</button></span>
+              <span className="text-emerald-500">🔒 Ligado · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>desligar</button></span>
             ) : (
               <button type="button" disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await ligarDriveSempre(conta); setSempre(true); setMsg(`✓ Drive ligado para sempre${j.email ? ` (${j.email})` : ''} — já não precisas de entrar na Google.`); } catch (e) { setMsg(`⚠ ${e.message || e}`); } setALigar(false); }}
-                className="px-2 py-0.5 rounded-md border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50" title="A app fica com acesso permanente ao Drive desta conta (guardado cifrado no servidor). Podes desligar quando quiseres.">🔒 Manter o Drive sempre ligado</button>
+                className="px-2 py-0.5 rounded-md border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50" title="A app fica com acesso permanente ao Drive desta conta (guardado cifrado no servidor). Podes desligar quando quiseres.">🔒 Manter sempre ligado</button>
             )}
           </div>
         </>
@@ -2477,14 +2481,14 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
       </div>
       {raizD && (
         <div className="text-[11px] -mt-1">
-          {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver os conceitos que já estão no Drive deste jogo'}</button>
+          {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver conceitos no Drive'}</button>
             : conceitoNovo ? (
-              <span className="text-amber-500">⚠ "{conceitoAtual}" ainda não existe no Drive — vai ser um conceito novo (V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
-            ) : conceitoAtual ? <span className="text-emerald-500">✓ Este conceito já existe no Drive</span>
-            : <span className={sub}>{conceitosD.length} conceitos no Drive deste jogo — começa a escrever e escolhe da lista.</span>}
+              <span className="text-amber-500">⚠ Conceito novo no Drive (V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
+            ) : conceitoAtual ? <span className="text-emerald-500">✓ Já existe no Drive</span>
+            : <span className={sub}>{conceitosD.length} conceitos no Drive — escolhe da lista ao escrever</span>}
         </div>
       )}
-      {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em "Entrega" (ex.: 4:5, 9:16, 16:9) para veres os nomes.</p> : (
+      {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p> : (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2"><span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
           {r.ficheiros.map(f => (
@@ -2708,11 +2712,11 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
             </button>
             {aberto && (
               <div className={`border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
-                <div className={`hidden md:grid grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_84px] gap-3 px-3 h-8 items-center text-[11px] font-medium ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className={`hidden md:grid grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_170px] gap-3 px-3 h-8 items-center text-[11px] font-medium ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
                   <span>Data</span><span>Descrição</span><span className="text-right">Ilíquido</span><span className="text-right">IVA</span><span className="text-right">Retenção</span><span className="text-right">Recebido</span><span />
                 </div>
                 {rs.map(r => (
-                  <div key={`${r.k}:${r.id}`} className={`grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_84px] gap-x-3 gap-y-0.5 px-3 py-2 items-center border-t text-sm ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+                  <div key={`${r.k}:${r.id}`} className={`grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_170px] gap-x-3 gap-y-0.5 px-3 py-2 items-center border-t text-sm ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
                     <span className={`hidden md:block tabular-nums ${sub}`}>{dataTxt(r)}</span>
                     <span className="min-w-0">
                       <span className="block truncate">{r.desc || 'Recibo'}</span>
@@ -2726,8 +2730,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                     <span className={`hidden md:block text-right tabular-nums ${sub}`}>{num(r.iva) ? eur(r.iva) : '—'}</span>
                     <span className={`hidden md:block text-right tabular-nums ${sub}`}>{num(r.retIRS) ? eur(r.retIRS) : '—'}</span>
                     <span className="hidden md:block text-right tabular-nums">{eur(r.val)}</span>
-                    <span className="col-span-2 md:col-span-1 flex justify-end gap-1">
-                      {r.temFicheiro && onAbrirFicheiro && <button type="button" onClick={() => onAbrirFicheiro(r.k, r.id)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400`} title="Abrir o recibo">📎 PDF</button>}
+                    <span className="col-span-2 md:col-span-1 flex justify-end items-center gap-1 whitespace-nowrap">
+                      {r.temFicheiro && onAbrirFicheiro && <button type="button" onClick={() => onAbrirFicheiro(r.k, r.id)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400 inline-flex items-center gap-1`} title="Abrir o recibo">📎 PDF</button>}
                       {!r.temFicheiro && onJuntarFicheiro && <button type="button" disabled={aEnviar === `${r.k}:${r.id}`} onClick={() => { alvo.current = r; if (inRef.current) inRef.current.click(); }} className={`px-2 py-1 rounded-md text-xs ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} hover:text-blue-400`} title="Este recibo ainda não tem o PDF — junta-o aqui">{aEnviar === `${r.k}:${r.id}` ? 'A enviar…' : '+ PDF'}</button>}
                       {onIrMes && <button type="button" onClick={() => onIrMes(r.ano, r.mes)} className={`px-2 py-1 rounded-md text-xs text-blue-400 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} title="Ver em Receitas">Receitas →</button>}
                     </span>
@@ -4056,4 +4060,32 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   );
 };
 
-export { Trabalho };
+// ── Recibos verdes → pasta pessoal do Google Drive: RECIBOS VERDES / 2026 / 4º_Trimestre / Empresa_2026-10-13.pdf ──
+// Usado pelo OrcamentoApp (importa este ficheiro só quando é preciso). Nunca escreve por cima: se já houver
+// um ficheiro com o mesmo nome, junta _2, _3…
+const nomeFicheiroRecibo = (empresa, data) => `${String(empresa || 'Recibo').replace(/[\\/:*?"<>|,]+/g, ' ').trim().replace(/\s+/g, '_')}_${data}.pdf`;
+const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, semJanela }) => {
+  const raiz = idPastaDrive(pastaUrl);
+  if (!raiz) throw new Error('o link da pasta de recibos no Drive não parece certo');
+  if (!ficheiro) throw new Error('sem PDF');
+  const k = conta || '_';
+  if (semJanela && !tokenGuardadoDe(k) && !ligadoSempre(k)) {
+    await sincronizarSempre();
+    if (!ligadoSempre(k)) { const e = new Error(`liga primeiro o Drive ${conta || 'pessoal'} (Definições → Recibos no Google Drive → Manter sempre ligado)`); e.codigo = 'sem_ligacao'; throw e; }
+  }
+  await carregarGis().catch(() => {});
+  const token = await tokenDrive(conta);
+  const d = /^\d{4}-\d{2}-\d{2}/.test(String(data || '')) ? String(data).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const ano = d.slice(0, 4); const trim = Math.ceil(Number(d.slice(5, 7)) / 3);
+  const pAno = await pastaDrive(token, raiz, ano, false);
+  const pTrim = await pastaDrive(token, pAno.id, `${trim}º_Trimestre`, false);
+  const base = nomeFicheiroRecibo(empresa, d);
+  const existentes = new Set((await filhosDrive(token, pTrim.id, false)).map(f => f.name));
+  let nome = base; let i = 2;
+  while (existentes.has(nome)) nome = base.replace(/\.pdf$/, `_${i++}.pdf`);
+  const f = ficheiro.type ? ficheiro : new File([ficheiro], nome, { type: 'application/pdf' });
+  const res = await enviarParaDrive(token, { file: f, nome, pasta: pTrim.id, idExistente: null }, () => {});
+  return { nome, pasta: `${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
+};
+
+export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
