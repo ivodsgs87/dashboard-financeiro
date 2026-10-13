@@ -1851,7 +1851,7 @@ const planearMes = ({ trab, hoje = new Date(), horasDia = 6, folgas = new Set(),
     t.risco = !!(t.naoCabe || (t.fim && t.fim > t.prazo) || t.prazo < hojeIso);
   });
   const totalH = tarefas.reduce((a, t) => a + t.h, 0);
-  return { criado: new Date().toISOString(), horasDia, dias: dias.filter(d => d.itens.length).map(d => ({ d: d.d, itens: d.itens })), nDias: dias.length, totalH: Math.round(totalH * 4) / 4, sobra: Math.round(sobra * 4) / 4, precisaDia: dias.length ? Math.round(totalH / dias.length * 10) / 10 : totalH, tarefas: tarefas.map(t => ({ tid: t.tid, nome: t.nome, pasta: t.pasta, h: t.h, prazo: t.temPrazo ? t.prazo : null, atrasada: t.prazo < hojeIso, fim: t.fim, risco: t.risco, naoCabe: t.naoCabe || 0 })), antigas };
+  return { criado: new Date().toISOString(), horasDia, dias: dias.filter(d => d.itens.length).map(d => ({ d: d.d, itens: d.itens })), nDias: dias.length, totalH: Math.round(totalH * 4) / 4, sobra: Math.round(sobra * 4) / 4, precisaDia: dias.length ? Math.round(totalH / dias.length * 10) / 10 : totalH, tarefas: tarefas.map(t => ({ tid: t.tid, nome: t.nome, pasta: t.pasta, pastaId: t.pastaId, h: t.h, prazo: t.temPrazo ? t.prazo : null, atrasada: t.prazo < hojeIso, fim: t.fim, risco: t.risco, naoCabe: t.naoCabe || 0 })), antigas };
 };
 // Tarefas da app entregues num mês (para a estimativa).
 // Entram também as linhas à parte dos orçamentos (AI Credits, acertos...) no mês da data delas.
