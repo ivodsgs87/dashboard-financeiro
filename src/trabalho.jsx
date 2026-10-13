@@ -2071,9 +2071,15 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const deOutraLista = porFaturar.filter(t => { const m = mesDaLista(t); return m && m !== mes.m; });
   const marcarFora = lista => { const ids = new Set(lista.map(t => t.id)); mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (ids.has(t.id) ? { ...t, faturaId: 'fora' } : t)) })); };
   const auto = linhasAutoFatura(trab, tarefasFatura, extrasMes, cu, clientes);
-  const [edicoes, setEdicoes] = useState({});
-  const [manuais, setManuais] = useState([]);
-  useEffect(() => { setEdicoes({}); setManuais([]); }, [mesK, cid]);
+  // Rascunho da fatura deste cliente e mês: fica gravado (sais e voltas e está tudo como deixaste)
+  const chaveRasc = `${cid}_${mesK}`;
+  const rasc = (trab.rascunhosFatura || {})[chaveRasc] || {};
+  const setRasc = fn => mudar(tr => { const todos = { ...(tr.rascunhosFatura || {}) }; todos[chaveRasc] = fn(todos[chaveRasc] || {}); return { ...tr, rascunhosFatura: todos }; });
+  const campoRasc = k => v => setRasc(r => ({ ...r, [k]: typeof v === 'function' ? v(r[k]) : v }));
+  const edicoes = rasc.edicoes || {};
+  const manuais = rasc.manuais || [];
+  const setEdicoes = f => setRasc(r => ({ ...r, edicoes: typeof f === 'function' ? f(r.edicoes || {}) : f }));
+  const setManuais = f => setRasc(r => ({ ...r, manuais: typeof f === 'function' ? f(r.manuais || []) : f }));
   const linhas = [...auto.filter(l => !(edicoes[l.id] && edicoes[l.id].fora)).map(l => ({ ...l, ...(edicoes[l.id] || {}) })), ...manuais];
   const fat = c.fat || {};
   const ivaTaxa = Number(fat.ivaFatura) || 0;
@@ -2082,23 +2088,30 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const total = Math.round((subtotal + ivaValor) * 100) / 100;
   const proximoN = faturas.length ? Math.max(...faturas.map(f => Number(f.numero) || 0)) + 1 : (Number(fat.proxFatura) || 1);
   const ultimoDia = `${mes.a}-${String(mes.m).padStart(2, '0')}-${String(new Date(mes.a, mes.m, 0).getDate()).padStart(2, '0')}`;
-  const [numero, setNumero] = useState(null);
-  const [data, setData] = useState(null);
-  useEffect(() => { setNumero(null); setData(null); }, [mesK, cid]);
+  const numero = rasc.numero != null && rasc.numero !== '' ? rasc.numero : (rasc.numero === '' ? '' : null);
+  const data = rasc.data || null;
+  const setNumero = campoRasc('numero');
+  const setData = campoRasc('data');
   const nFinal = numero != null ? numero : proximoN;
   const dFinal = data || ultimoDia;
   const em = trab.emissor || {};
+  // Tipo de trabalho ("FOR:") desta fatura: o da última fatura deste cliente → o da ficha → o geral
+  const parasAntes = [...new Set(faturas.map(f => f.para).filter(Boolean))];
+  const paraSugerido = parasAntes[0] || fat.paraFatura || (em.para != null ? em.para : 'Motion Graphics');
+  const pFinal = rasc.para != null ? rasc.para : paraSugerido;
   const [verEmissor, setVerEmissor] = useState(!em.nome);
   const setEm = patch => mudar(tr => ({ ...tr, emissor: { ...(tr.emissor || {}), ...patch } }));
   const proxMes = mes.m === 12 ? { a: mes.a + 1, m: 1 } : { a: mes.a, m: mes.m + 1 };
-  const [registar, setRegistar] = useState(true);
-  const [mesRec, setMesRec] = useState(null);
+  const registar = rasc.registar !== false;
+  const setRegistar = campoRasc('registar');
+  const mesRec = rasc.mesRec || null;
+  const setMesRec = campoRasc('mesRec');
   const recK = mesRec || `${proxMes.a}-${proxMes.m}`;
   const [aGerar, setAGerar] = useState(false);
   const mudarMes = d => setMes(x => { let m = x.m + d, a = x.a; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { a, m }; });
   const linhasCliente = [fat.nomeLegal || c.nome, fat.nif ? `VAT No: ${fat.nif}` : '', fat.morada || ''];
   const dadosPdf = () => ({
-    emissor: { nome: em.nome, morada1: em.morada1, morada2: em.morada2, telefone: em.telefone, nif: em.nif, para: em.para != null ? em.para : 'Motion Graphics' },
+    emissor: { nome: em.nome, morada1: em.morada1, morada2: em.morada2, telefone: em.telefone, nif: em.nif, para: pFinal },
     data: dataEN(dFinal), numero: nFinal, cliente: linhasCliente,
     linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })),
     subtotal, ivaTaxa, ivaValor, total,
@@ -2125,15 +2138,15 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       if (onEnviarAnexo) { try { const r = await onEnviarAnexo(`faturas/${cid}/${trabId()}-${nome}`, new File([u8], nome, { type: 'application/pdf' })); pdf = { url: r.url, caminho: r.caminho, nome }; } catch (e) { console.error('Fatura PDF:', e); } }
       const idsT = new Set(linhas.flatMap(l => l.tarefas || []));
       const idsX = new Set(linhas.flatMap(l => l.extras || []));
-      const reg = { id: trabId(), cid, numero: Number(nFinal), data: dFinal, mes: mesK, linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })), subtotal, ivaTaxa, ivaValor, total, notaIva: dadosPdf().notaIva, tarefas: [...idsT], extras: [...idsX], pdf, criada: new Date().toISOString() };
+      const reg = { id: trabId(), cid, numero: Number(nFinal), data: dFinal, mes: mesK, para: pFinal, linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })), subtotal, ivaTaxa, ivaValor, total, notaIva: dadosPdf().notaIva, tarefas: [...idsT], extras: [...idsX], pdf, criada: new Date().toISOString() };
       if (registar && onCriarRecibo) { const r2 = onCriarRecibo({ cid, mesK: recK, numero: Number(nFinal), valor: subtotal, pdf, faturaId: reg.id, mesFatura: mes.m }); if (r2) reg.recibo = r2; }
       mudar(tr => ({
         ...tr,
         faturas: [...(tr.faturas || []), reg],
+        rascunhosFatura: (({ [chaveRasc]: _x, ...resto }) => resto)(tr.rascunhosFatura || {}),
         tarefas: (tr.tarefas || []).map(t => (idsT.has(t.id) ? { ...t, faturaId: reg.id } : t)),
         pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some((e, i) => idsX.has(`${p.id}:${i}`)) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map((e, i) => (idsX.has(`${p.id}:${i}`) ? { ...e, faturaId: reg.id } : e)) } } : p)),
       }));
-      setEdicoes({}); setManuais([]); setNumero(null);
       if (showToast) showToast(`Fatura nº ${nFinal} gerada${pdf ? ' e guardada' : ''}${registar && onCriarRecibo ? ' · registada em Receitas' : ''}`);
     } catch (e) { console.error('Fatura:', e); if (showToast) showToast('Não consegui gerar a fatura.', 'error'); }
     setAGerar(false);
@@ -2147,7 +2160,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some(e => e.faturaId === f.id) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map(e => (e.faturaId === f.id ? (({ faturaId, ...r }) => r)(e) : e)) } } : p)),
     }));
   };
-  const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
+  const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
   const chip = `px-2 py-0.5 rounded-md text-[11px]`;
   return (
     <div className="space-y-4 max-w-4xl">
@@ -2224,6 +2237,10 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
           <CampoF rot="Fatura nº"><input type="number" value={nFinal} onChange={e => setNumero(e.target.value === '' ? '' : Number(e.target.value))} className={ic} /></CampoF>
           <CampoF rot="Data"><input type="date" value={dFinal} onChange={e => setData(e.target.value)} className={ic} /></CampoF>
+          <CampoF rot={'Tipo de trabalho ("FOR:")'} largo>
+            <input value={pFinal} onChange={e => setRasc(r => ({ ...r, para: e.target.value }))} list={`para-${cid}`} placeholder="ex.: UA Creative Work" className={ic} />
+            <datalist id={`para-${cid}`}>{[...new Set([...parasAntes, fat.paraFatura, em.para].filter(Boolean))].map(x => <option key={x} value={x} />)}</datalist>
+          </CampoF>
           <CampoF rot="Registar em Receitas" largo>
             <span className="flex items-center gap-2">
               <input type="checkbox" checked={registar} onChange={e => setRegistar(e.target.checked)} className="accent-blue-500" disabled={!onCriarRecibo} />
@@ -2255,7 +2272,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             <CampoF rot="Morada (linha 1)"><TxtIn valor={em.morada1} onGravar={v => setEm({ morada1: v })} placeholder="Rua…" className={ic} /></CampoF>
             <CampoF rot="Morada (linha 2)"><TxtIn valor={em.morada2} onGravar={v => setEm({ morada2: v })} placeholder="Código postal, localidade" className={ic} /></CampoF>
             <CampoF rot="NIF"><TxtIn valor={em.nif} onGravar={v => setEm({ nif: v })} placeholder="PT…" className={ic} /></CampoF>
-            <CampoF rot={'"FOR:" na fatura'}><TxtIn valor={em.para != null ? em.para : 'Motion Graphics'} onGravar={v => setEm({ para: v })} className={ic} /></CampoF>
+            <CampoF rot={'Tipo de trabalho por defeito ("FOR:") — cada cliente pode ter o seu na Ficha'}><TxtIn valor={em.para != null ? em.para : 'Motion Graphics'} onGravar={v => setEm({ para: v })} className={ic} /></CampoF>
             <CampoF rot="IBAN"><TxtIn valor={em.iban} onGravar={v => setEm({ iban: v })} placeholder="PT50 …" className={ic} /></CampoF>
             <CampoF rot="SWIFT/BIC"><TxtIn valor={em.swift} onGravar={v => setEm({ swift: v })} className={ic} /></CampoF>
             <p className={`sm:col-span-2 text-[11px] ${sub}`}>Ficam só na tua base de dados da app (não no código). O nome legal, o VAT e a morada do cliente vêm da Ficha → Faturação; o IVA e a nota do IVA também se mudam lá.</p>
@@ -2386,6 +2403,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             </Campo>
             <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
             <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
+            <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
             <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
             <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder="0" onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
             <Campo rot={`Nota do IVA na fatura (vazio = ${(rec.pais || 'PT') === 'PT' ? 'sem frase, por ser cliente português' : 'frase da isenção'}; "-" = nenhuma)`} largo><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={(rec.pais || 'PT') === 'PT' ? 'Sem frase' : 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)'} className={ic} /></Campo>
