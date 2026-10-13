@@ -1718,6 +1718,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [verAtrasadas, setVerAtrasadas] = useState(false);
  // Agenda: lista das atrasadas fechada por defeito; tarefas recorrentes fechadas no telemóvel
  const [agVerAtrasadas, setAgVerAtrasadas] = useState(false);
+ const [agAbertos, setAgAbertos] = useState({});
+ const [agLista, setAgLista] = useState(null);
  const [agGerirMob, setAgGerirMob] = useState(false);
  // Painel no telemóvel: só o essencial; o resto abre em "Ver mais"
  const [resumoMaisMob, setResumoMaisMob] = useState(false);
@@ -1884,6 +1886,146 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const manual = (M[mesKey] || {}).passosManual || {};
    L.forEach(x => { if (manual[x.id] && x.estado !== 'ok') { x.auto = x.estado; x.estado = 'ok'; x.manual = true; } });
    return L;
+ };
+ // ══ Tarefas do mês: as tarefas recorrentes e os Passos do mês juntos numa só lista ══
+ // Cada linha sabe se a app já a vê como feita (dados reais) e para onde ir para a fazer.
+ const AG_CORES = { IVA: '#f59e0b', SS: '#3b82f6', IRS: '#ef4444', Seguros: '#10b981', Outro: '#94a3b8', Transf: '#10b981', Invest: '#8b5cf6', Contab: '#06b6d4', Rotina: '#64748b', Venda: '#ec4899', Receitas: '#10b981', Trabalho: '#0ea5e9' };
+ const AG_LINKS = [
+   [/e-?fatura/i, 'https://faturas.portaldasfinancas.gov.pt/', 'e-Fatura'],
+   [/declara(ç|c)(ã|a)o trimestral ss/i, 'https://app.seg-social.pt/', 'SS Direta'],
+   [/\birs\b/i, 'https://irs.portaldasfinancas.gov.pt/', 'Finanças'],
+ ];
+ const agConc = patch => { saveUndo(); setG(p => ({ ...p, tarefasConcluidas: { ...(p.tarefasConcluidas || {}), ...patch } })); };
+ const agManual = patch => { saveUndo(); setM(p => { const a = p[mesKey] || defM; return { ...p, [mesKey]: { ...a, passosManual: { ...(a.passosManual || {}), ...patch } } }; }); };
+ const tarefasDoMes = () => {
+   const idx = patIdx(mesKey), hIdx = patIdxHoje(), hDia = new Date().getDate();
+   const y = Math.floor(idx / 12), m = idx % 12 + 1, nDias = new Date(y, m, 0).getDate();
+   const conc = G.tarefasConcluidas || {};
+   const atual = idx === hIdx, passado = idx < hIdx;
+   const passos = getPassosMes();
+   const P = {}; passos.forEach(p => { P[p.id] = p; });
+   const usados = new Set();
+   const itens = [];
+   const linkDe = txt => { const l = AG_LINKS.find(([re]) => re.test(txt || '')); return l ? { url: l[1], nome: l[2] } : null; };
+   // Para onde vai o "Abrir": um site (e-Fatura, SS Direta, Finanças) ou o sítio da app onde se faz
+   const destino = (e, t) => { const link = linkDe(e.titulo); if (link) return { link, ir: null }; if (!t || ['SS', 'IVA'].includes(t.cat)) return { link: null, ir: e.ir || null }; return { link: null, ir: null }; };
+   // Estado de um passo: ok (dados ou à mão), na (ainda não se aplica), parcial (em curso), falta
+   const dePasso = (p, base) => {
+     const na = p.estado === 'na';
+     const feito = p.estado === 'ok' || (passado && na) || !!base.feitoMao;
+     return { ...base, feito, auto: feito && !p.manual && !base.feitoMao, na: na && !passado, espera: p.estado === 'parcial', detalhe: base.detalhe || (p.manual ? `Marcado à mão · ${p.detalhe}` : p.detalhe), ir: p.ir };
+   };
+   const evs = eventosCalendario(y, m);
+   const entregas = evs.filter(e => String(e.id).startsWith('tb-'));
+   evs.forEach(e => {
+     const id = String(e.id);
+     if (id === 'prest' || id === 'r-inicio' || id === 'r-prep' || id.startsWith('tb-')) return;
+     const t = id.startsWith('t') ? (G.tarefas || []).find(x => 't' + x.id === id) : null;
+     const pid = t && t.cat === 'Transf' && P.transf ? 'transf' : t && t.cat === 'Invest' && P.aloc ? 'aloc' : null;
+     if (pid) {
+       usados.add(pid);
+       const p = P[pid], feitoMao = conc[e.chave] === true;
+       itens.push(dePasso(p, { key: e.chave, titulo: e.titulo, dia: e.dia, cat: e.cat, feitoMao,
+         definir: v => { agConc({ [e.chave]: v }); if (v || p.manual) agManual({ [pid]: v }); } }));
+       return;
+     }
+     const feito = e.estado === 'ok';
+     const mao = !!(e.chave && conc[e.chave] === true);
+     itens.push({ key: e.chave || id, titulo: e.titulo, dia: e.dia, cat: e.cat, feito, auto: feito && !mao, valor: e.valor, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista,
+       ...destino(e, t), definir: e.chave && (!feito || mao) ? v => agConc({ [e.chave]: v }) : null });
+   });
+   // Tarefas semanais (o calendário não as mostra)
+   (G.tarefas || []).filter(t => t && t.ativo !== false && t.freq === 'semanal').forEach(t => {
+     for (let d = 1; d <= nDias; d++) {
+       if (new Date(y, m - 1, d).getDay() !== (t.diaSemana ?? 1)) continue;
+       const k = `${y}-${m}-${t.id}-w${Math.ceil(d / 7)}`;
+       itens.push({ key: k, titulo: t.desc, dia: d, cat: t.cat || 'Outro', feito: conc[k] === true, semanal: true, link: linkDe(t.desc), definir: v => agConc({ [k]: v }) });
+     }
+   });
+   // Passos do mês que não têm tarefa recorrente correspondente
+   const diaPasso = { rec: Math.min(3, nDias), aloc: Math.min(5, nDias), transf: Math.min(5, nDias), imp: Math.min(20, nDias), prep: Math.min(20, nDias), port: nDias, tx: nDias, horas: nDias };
+   const catPasso = { rec: 'Receitas', aloc: 'Invest', transf: 'Transf', imp: 'SS', prep: 'Rotina', port: 'Invest', tx: 'Invest', horas: 'Trabalho' };
+   const temPagarSS = itens.some(x => x.cat === 'SS' && /pagar|pagamento/i.test(x.titulo || ''));
+   passos.forEach(p => {
+     if (usados.has(p.id) || (p.id === 'imp' && temPagarSS)) return;
+     if (passado && p.estado === 'na') return;
+     itens.push(dePasso(p, { key: 'passo-' + p.id, titulo: p.titulo, dia: diaPasso[p.id] || nDias, cat: catPasso[p.id] || 'Rotina', passo: true,
+       definir: v => agManual({ [p.id]: v }) }));
+   });
+   itens.forEach(it => { if (it.auto) it.definir = null; it.y = y; it.m = m; });
+   // Em atraso de meses anteriores (só quando o mês aberto é o atual)
+   const antes = [];
+   if (atual) {
+     for (let k = 3; k >= 1; k--) {
+       const pi = idx - k, py = Math.floor(pi / 12), pm = pi % 12 + 1, md = M[patKey(pi)] || {};
+       const transfOk = Object.values(md.transf || {}).some(Boolean);
+       const invOk = (md.inv || []).some(i => i && i.done) || (G.transacoes || []).some(t => t && String(t.data || '').startsWith(`${py}-${String(pm).padStart(2, '0')}`));
+       eventosCalendario(py, pm).filter(e => e.estado === 'atrasado' && e.chave && String(e.id).startsWith('t')).forEach(e => {
+         const t = (G.tarefas || []).find(x => 't' + x.id === String(e.id));
+         if (t && ((t.cat === 'Transf' && transfOk) || (t.cat === 'Invest' && invOk))) return;
+         antes.push({ key: e.chave, titulo: e.titulo, dia: e.dia, y: py, m: pm, cat: e.cat, feito: false, detalhe: [e.valor > 0 ? fmt(e.valor) : '', e.nota].filter(Boolean).join(' · '), lista: e.lista, ...destino(e, t), definir: v => agConc({ [e.chave]: v }), anterior: true });
+       });
+     }
+   }
+   const G2 = { atrasadas: [], anteriores: antes, semana: [], depois: [], feitas: [] };
+   itens.sort((a, b) => a.dia - b.dia).forEach(it => {
+     if (it.feito) G2.feitas.push(it);
+     else if (passado) G2.atrasadas.push(it);
+     else if (idx > hIdx || it.na) G2.depois.push(it);
+     else if (it.dia < hDia && !it.espera) G2.atrasadas.push(it);
+     else if (it.dia <= hDia + 7) G2.semana.push(it);
+     else G2.depois.push(it);
+   });
+   // Próximo mês (só para ver o que vem aí)
+   const ni = idx + 1, ny = Math.floor(ni / 12), nm = ni % 12 + 1;
+   const proximo = eventosCalendario(ny, nm).filter(e => String(e.id).startsWith('t') || String(e.id).startsWith('vc-'))
+     .map(e => ({ key: 'px-' + (e.chave || e.id), titulo: e.titulo, dia: e.dia, y: ny, m: nm, cat: e.cat, feito: e.estado === 'ok', detalhe: e.valor > 0 ? fmt(e.valor) : '', link: linkDe(e.titulo) }));
+   const doMes = itens.filter(it => !it.na || it.feito);
+   return { grupos: G2, total: doMes.length, feitas: G2.feitas.length, atual, passado, idx, hIdx, hDia, entregas, proximo, nomeProx: meses[nm - 1] };
+ };
+ const AG_DSEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+ const agQuando = (it, D) => {
+   if (it.anterior || it.m !== (D.idx % 12) + 1 || it.y !== Math.floor(D.idx / 12)) return { txt: `${it.dia} ${meses[it.m - 1].slice(0, 3).toLowerCase()}`, cor: !it.feito ? 'text-red-400' : '' };
+   if (!D.atual || it.feito) return { txt: `dia ${it.dia}`, cor: '' };
+   const dif = it.dia - D.hDia;
+   if (dif === 0) return { txt: 'hoje', cor: 'text-amber-500 font-medium' };
+   if (dif === 1) return { txt: 'amanhã', cor: 'text-amber-500' };
+   if (dif < 0) return { txt: it.espera ? `desde dia ${it.dia}` : `há ${-dif} dia${dif === -1 ? '' : 's'}`, cor: it.espera ? '' : 'text-red-400' };
+   if (dif <= 7) return { txt: `${AG_DSEM[new Date(it.y, it.m - 1, it.dia).getDay()]} ${it.dia}`, cor: '' };
+   return { txt: `dia ${it.dia}`, cor: '' };
+ };
+ // Uma linha da lista (função, não componente: não perde estado nos re-renders)
+ const linhaAg = (it, D, compacta = false) => {
+   const claro = theme === 'light';
+   const q = agQuando(it, D);
+   const cor = AG_CORES[it.cat] || '#94a3b8';
+   const aberta = agLista === it.key;
+   const podeMarcar = !!it.definir;
+   const tituloCaixa = it.auto ? 'Feito — a app vê isto nos teus dados' : podeMarcar ? (it.feito ? 'Desmarcar' : 'Marcar como feito') : '';
+   return (
+     <div key={it.key} className={`border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+       <div className={`flex items-center gap-2.5 sm:gap-3 ${compacta ? 'px-1 py-1.5' : 'px-2 sm:px-3 py-2'} ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.02]'}`}>
+         <button type="button" onClick={podeMarcar ? () => it.definir(!it.feito) : undefined} disabled={!podeMarcar && !it.auto} aria-pressed={it.feito} aria-label={tituloCaixa || it.titulo} title={tituloCaixa}
+           className={`w-[18px] h-[18px] shrink-0 rounded-[5px] border flex items-center justify-center transition-colors ${it.feito ? (it.auto ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-500' : 'bg-emerald-500 border-emerald-500 text-white') : claro ? 'border-slate-300 hover:border-emerald-500' : 'border-slate-600 hover:border-emerald-400'} ${podeMarcar ? 'cursor-pointer' : 'cursor-default'}`}>
+           {it.feito && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>}
+         </button>
+         <div className="flex-1 min-w-0">
+           <p className={`text-sm truncate ${it.feito ? (claro ? 'text-slate-400 line-through' : 'text-slate-500 line-through') : ''}`} title={it.titulo}>{it.titulo}</p>
+           {!compacta && (it.detalhe || it.auto) && <p className={`text-xs truncate ${claro ? 'text-slate-500' : 'text-slate-500'}`}>{it.auto ? <span className="text-emerald-500/90">Feito pela app{it.detalhe ? ' · ' : ''}</span> : null}{it.detalhe}</p>}
+         </div>
+         {it.lista && !compacta && <button type="button" onClick={() => setAgLista(aberta ? null : it.key)} aria-expanded={aberta} className="hidden sm:inline text-xs text-slate-500 hover:text-blue-400">{aberta ? 'esconder' : 'o que enviar'}</button>}
+         <span className={`text-xs shrink-0 text-right tabular-nums whitespace-nowrap ${compacta ? 'w-16' : 'min-w-[3.5rem] sm:w-20'} ${q.cor || 'text-slate-500'}`}>{q.txt}</span>
+         {!compacta && <span className="hidden md:inline-flex items-center gap-1.5 w-24 shrink-0 text-xs text-slate-500 truncate"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cor }} />{it.cat}</span>}
+         <span className={`shrink-0 text-right ${compacta ? 'w-6' : 'w-6 sm:w-20'}`}>
+           {it.ir ? <button type="button" onClick={it.ir} className="text-xs text-blue-400 hover:text-blue-300" title="Ir para onde se faz isto"><span className="hidden sm:inline">{compacta ? '' : 'Abrir '}</span>→</button>
+             : it.link ? <a href={it.link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300" title={`Abrir ${it.link.nome}`}><span className="hidden sm:inline">{compacta ? '' : it.link.nome + ' '}</span>↗</a> : null}
+         </span>
+       </div>
+       {aberta && it.lista && (
+         <ul className={`mx-3 mb-2 ml-10 space-y-1 text-xs list-disc pl-4 ${claro ? 'text-slate-600' : 'text-slate-400'}`}>{it.lista.map((l, i) => <li key={i}>{l}</li>)}</ul>
+       )}
+     </div>
+   );
  };
  // Resumo dos números para o chat (sem nomes de clientes, NIF nem IBAN)
  const resumoParaIA = () => {
@@ -2116,45 +2258,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    />
  )}
  
- {/* Passos do mês: o que falta fazer, por ordem, ligado aos dados reais */}
+ {/* Tarefas do mês (resumo): o que está em atraso e o que vem a seguir — a lista toda está em Tarefas */}
  {(() => {
-   const passos = getPassosMes();
-   const conta = passos.filter(x => x.estado !== 'na');
-   const feitos = conta.filter(x => x.estado === 'ok').length;
-   const claro = theme === 'light';
-   const cor = { ok: 'border-emerald-500/40 bg-emerald-500/10', parcial: 'border-amber-500/40 bg-amber-500/10', falta: 'border-red-500/40 bg-red-500/10', na: claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/30' };
-   const sinal = { ok: <span className="text-emerald-400">✓</span>, parcial: <span className="text-amber-400">◐</span>, falta: <span className="text-red-400">✕</span>, na: <span className="text-slate-500">•</span> };
+   const D = tarefasDoMes();
+   const g = D.grupos;
+   let lista = D.atual ? [...g.atrasadas, ...g.semana] : D.passado ? g.atrasadas : g.depois;
+   const nAnt = g.anteriores.length;
+   if (!lista.length && D.atual) lista = g.depois.slice(0, 3);
+   const mostrar = lista.slice(0, 5);
+   const resto = lista.length - mostrar.length;
    return (
      <Card>
-       <div className="flex items-center justify-between mb-3">
-         <h3 className="font-semibold"><Ico e="🧭"/>Passos de {mes}</h3>
-         <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
+       <div className="flex items-center gap-3 mb-2">
+         <h3 className="font-semibold flex-1 min-w-0 truncate"><Ico e="🧭"/>Tarefas de {mes}</h3>
+         <span className={`text-xs ${D.total && D.feitas === D.total ? 'text-emerald-400' : 'text-slate-500'}`}>{D.feitas}/{D.total} feitas</span>
+         <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300">Ver todas →</button>
        </div>
-       <div className={`grid grid-cols-2 ${passos.length > 8 || passos.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2`}>
-         {passos.map((x, k) => {
-           const manual = (M[mesKey] || {}).passosManual || {};
-           const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
-           return (
-           <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
-             <button onClick={x.ir} className="w-full text-left p-2.5 pb-1 hover:brightness-110">
-               <div className="flex items-center gap-2">
-                 <span className="text-[11px] text-slate-500 w-4">{k + 1}</span>
-                 <span className="text-sm font-medium flex-1"><Ico e={x.icon}/>{x.titulo}</span>
-                 <span className="text-sm">{sinal[x.estado]}</span>
-               </div>
-               <p className="text-xs text-slate-500 mt-0.5 pl-6 truncate">{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</p>
-             </button>
-             <div className="flex justify-end px-2.5 pb-1.5 min-h-[18px]">
-               {x.manual
-                 ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
-                 : x.estado !== 'ok' && x.estado !== 'na'
-                   ? <button onClick={alternar} className="text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Marcar feito</button>
-                   : null}
-             </div>
-           </div>
-           );
-         })}
+       <ProgressBar value={D.feitas} max={D.total || 1} color="#10b981" height="h-1"/>
+       <div className="mt-2">
+         {mostrar.length ? mostrar.map(it => linhaAg(it, D)) : <p className="text-sm text-emerald-400 py-2">✓ Tudo feito por agora</p>}
        </div>
+       {(resto > 0 || nAnt > 0) && <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="mt-1 text-xs text-slate-500 hover:text-blue-400">{[resto > 0 ? `+ mais ${resto}` : '', nAnt > 0 ? `${nAnt} por marcar de meses anteriores` : ''].filter(Boolean).join(' · ')} →</button>}
      </Card>
    );
  })()}
@@ -2190,7 +2314,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    </Card>
 
- {renderWidget('tarefas')}
  </div>
    <div id="guia-transf" className="scroll-mt-24"><Card>
      {(() => {
@@ -8671,278 +8794,106 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    );
  };
 
- // AGENDA FINANCEIRA
+ // TAREFAS: tarefas recorrentes + passos do mês, por Atrasadas / Esta semana / Mais tarde / Feitas
  const Agenda = () => {
    const tarefas = G.tarefas || [];
-   const tarefasConcluidas = G.tarefasConcluidas || {};
-   const hoje = new Date();
-   const mesAtual = hoje.getMonth() + 1;
-   const anoAtual = hoje.getFullYear();
-   const diaAtual = hoje.getDate();
-   
-   // Usar estado do parent scope (sobrevive re-renders)
-   const showAddModal = agShowAddModal;
-   const setShowAddModal = setAgShowAddModal;
-   const editTarefa = agEditTarefa;
-   const setEditTarefa = setAgEditTarefa;
-   const novaTarefa = agNovaTarefa;
-   const setNovaTarefa = setAgNovaTarefa;
-   
-   // Determinar tarefas deste mês
-   const diasSemana = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-   const getTarefasMes = (mes, anoCheck) => {
-     const result = [];
-     tarefas.filter(t => {
-       if (!t.ativo && t.ativo !== undefined) return false;
-       if (t.freq === 'mensal') return true;
-       if (t.freq === 'semanal') return true;
-       if (t.freq === 'trimestral') return t.meses?.includes(mes);
-       if (t.freq === 'anual') return t.meses?.includes(mes);
-       return false;
-     }).forEach(t => {
-       if (t.freq === 'semanal') {
-         // Generate occurrences for each week in the month
-         const daysInMonth = new Date(anoCheck, mes, 0).getDate();
-         for (let d = 1; d <= daysInMonth; d++) {
-           const dow = new Date(anoCheck, mes - 1, d).getDay();
-           if (dow === (t.diaSemana || 1)) { // default Monday
-             const weekNum = Math.ceil(d / 7);
-             const key = `${anoCheck}-${mes}-${t.id}-w${weekNum}`;
-             result.push({
-               ...t,
-               dia: d,
-               key,
-               concluida: tarefasConcluidas[key] || false,
-               atrasada: mes < mesAtual || (mes === mesAtual && d < diaAtual),
-               proxima: mes === mesAtual && d >= diaAtual && d <= diaAtual + 7,
-               semanaLabel: `Semana ${weekNum}`
-             });
-           }
-         }
-       } else {
-         const key = `${anoCheck}-${mes}-${t.id}`;
-         result.push({
-           ...t,
-           key,
-           concluida: tarefasConcluidas[key] || false,
-           atrasada: mes < mesAtual || (mes === mesAtual && t.dia < diaAtual),
-           proxima: mes === mesAtual && t.dia >= diaAtual && t.dia <= diaAtual + 7
-         });
-       }
-     });
-     return result.sort((a, b) => a.dia - b.dia);
-   };
-   
-   // Obter tarefas atrasadas de meses anteriores (últimos 3 meses)
-   const getTarefasAtrasadasAnteriores = () => {
-     const atrasadas = [];
-     for (let i = 1; i <= 3; i++) {
-       let mesCheck = mesAtual - i;
-       let anoCheck = anoAtual;
-       if (mesCheck <= 0) {
-         mesCheck += 12;
-         anoCheck -= 1;
-       }
-       
-       tarefas.filter(t => {
-         if (!t.ativo) return false;
-         if (t.freq === 'mensal') return true;
-         if (t.freq === 'trimestral') return t.meses?.includes(mesCheck);
-         if (t.freq === 'anual') return t.meses?.includes(mesCheck);
-         return false;
-       }).forEach(t => {
-         const key = `${anoCheck}-${mesCheck}-${t.id}`;
-         if (!tarefasConcluidas[key]) {
-           atrasadas.push({
-             ...t,
-             key,
-             concluida: false,
-             atrasada: true,
-             mesAnterior: true,
-             mesNome: meses[mesCheck - 1],
-             anoRef: anoCheck,
-             mesRef: mesCheck
-           });
-         }
-       });
-     }
-     return atrasadas.sort((a, b) => {
-       const dataA = new Date(a.anoRef, a.mesRef - 1, a.dia);
-       const dataB = new Date(b.anoRef, b.mesRef - 1, b.dia);
-       return dataA - dataB;
-     });
-   };
-   
-   const tarefasMesAtual = getTarefasMes(mesAtual, anoAtual);
-   const tarefasProxMes = getTarefasMes(mesAtual === 12 ? 1 : mesAtual + 1, mesAtual === 12 ? anoAtual + 1 : anoAtual);
-   const tarefasAtrasadasAnteriores = getTarefasAtrasadasAnteriores();
-   
-   const toggleTarefa = (key) => {
-     saveUndo();
-     const novas = {...tarefasConcluidas, [key]: !tarefasConcluidas[key]};
-     uG('tarefasConcluidas', novas);
-   };
-   
-
-   
-
-   
+   const claro = theme === 'light';
+   const D = tarefasDoMes();
+   const g = D.grupos;
    const removeTarefa = (id) => {
      confirmDelete('Remover esta tarefa?', () => {
        saveUndo();
        uG('tarefas', tarefas.filter(t => t.id !== id));
      });
    };
-   
-
-   
-   const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Seguros':'#10b981','Outro':'#8b5cf6','Transf':'#10b981','Invest':'#8b5cf6','Contab':'#06b6d4'};
-   const categorias = ['IVA', 'SS', 'IRS', 'Contab', 'Transf', 'Invest', 'Seguros', 'Outro'];
-   
-   const pendentes = tarefasMesAtual.filter(t => !t.concluida);
-   const atrasadas = pendentes.filter(t => t.atrasada);
-   
-   // Modal para adicionar/editar tarefa - render direto sem componente interno
-
-   
-   const totalAtrasadas = atrasadas.length + tarefasAtrasadasAnteriores.length;
-   
-   return (
-     <div className="space-y-6">
-       
-       {/* RESUMO */}
-       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-         <StatCard label="Este Mês" value={tarefasMesAtual.length} color="text-blue-400" sub={`${tarefasMesAtual.filter(t=>t.concluida).length} concluídas`} icon="📋"/>
-         <StatCard label="Pendentes" value={pendentes.length} color={pendentes.length > 0 ? "text-orange-400" : "text-emerald-400"} icon="⏳"/>
-         <StatCard label="Atrasadas" value={totalAtrasadas} color={totalAtrasadas > 0 ? "text-red-400" : "text-emerald-400"} sub={tarefasAtrasadasAnteriores.length > 0 ? `${tarefasAtrasadasAnteriores.length} de meses anteriores` : ''} icon="⚠️"/>
-         <StatCard label="Próximo Mês" value={tarefasProxMes.length} color="text-slate-400" icon="📅"/>
+   const nova = () => { setAgEditTarefa(null); setAgNovaTarefa({ desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1 }); setAgShowAddModal(true); };
+   const aberto = id => (agAbertos[id] != null ? agAbertos[id] : !['feitas', 'prox', 'anteriores'].includes(id));
+   const abrirFechar = id => setAgAbertos(p => ({ ...p, [id]: !aberto(id) }));
+   const marcarTodas = lista => {
+     const conc = {}, man = {};
+     lista.forEach(it => { if (!it.definir) return; if (it.passo) man[it.key.replace(/^passo-/, '')] = true; else conc[it.key] = true; });
+     if (Object.keys(conc).length) agConc(conc);
+     if (Object.keys(man).length) agManual(man);
+     showToast('Tarefas em atraso marcadas como feitas');
+   };
+   const sec = claro ? 'text-slate-500' : 'text-slate-400';
+   const grupo = (id, titulo, lista, extra = null, corTitulo = '') => (
+     <div key={id} className="mt-4 first:mt-0">
+       <div className="flex items-center gap-2 mb-1">
+         <button type="button" onClick={() => abrirFechar(id)} aria-expanded={aberto(id)} className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${corTitulo || sec} hover:opacity-80`}>
+           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${aberto(id) ? 'rotate-90' : ''}`} aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+           {titulo} <span className="font-normal normal-case tracking-normal opacity-80">{lista.length}</span>
+         </button>
+         <div className="flex-1" />
+         {extra}
        </div>
-       
-       {/* TAREFAS EM ATRASO (deste mês e de meses anteriores) numa linha só; a lista abre com "Ver quais" */}
-       {totalAtrasadas > 0 && (
-         <Card className="border-red-500/40">
-           <div className="flex flex-wrap items-center justify-between gap-2">
-             <h3 className="font-semibold text-red-400"><Ico e="⚠️"/>{totalAtrasadas} tarefa{totalAtrasadas === 1 ? '' : 's'} em atraso{tarefasAtrasadasAnteriores.length > 0 && <span className="text-xs font-normal text-slate-400"> · {tarefasAtrasadasAnteriores.length} de meses anteriores</span>}</h3>
-             <div className="flex gap-2">
-               <button onClick={() => { saveUndo(); const novas = {...tarefasConcluidas}; [...atrasadas, ...tarefasAtrasadasAnteriores].forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Tarefas em atraso marcadas como feitas'); }} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">✓ Marcar todas feitas</button>
-               <button onClick={() => setAgVerAtrasadas(v => !v)} aria-expanded={agVerAtrasadas} className="text-xs px-3 py-1.5 rounded-lg tile">{agVerAtrasadas ? 'Esconder' : 'Ver quais'}</button>
-             </div>
+       {aberto(id) && (lista.length
+         ? <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/20'}`}>{lista.map(it => linhaAg(it, D))}</div>
+         : <p className={`text-xs px-1 py-2 ${sec}`}>{id === 'atrasadas' ? 'Nada em atraso.' : id === 'semana' ? 'Nada para os próximos 7 dias.' : 'Nada.'}</p>)}
+     </div>
+   );
+   const irHoje = () => { setAno(anoAtualSistema); setMes(mesAtualSistema); };
+   const pct = D.total ? Math.round(D.feitas / D.total * 100) : 0;
+   const nAtr = g.atrasadas.length, nAnt = g.anteriores.length;
+   const entregasPend = D.entregas.filter(e => e.estado !== 'ok').length;
+   return (
+     <div className="space-y-4 max-w-4xl mx-auto">
+       <Card>
+         <div className="flex flex-wrap items-center gap-3 mb-3">
+           <div className="flex-1 min-w-0">
+             <h3 className="font-semibold">Tarefas de {mes} {ano}</h3>
+             <p className={`text-xs ${sec}`}>{D.feitas} de {D.total} feitas{nAtr ? <> · <span className="text-red-400">{nAtr} em atraso</span></> : ''}{nAnt ? ` · ${nAnt} por marcar de meses anteriores` : ''}<span className="hidden sm:inline"> · as que dizem “feito pela app” marcam-se sozinhas</span></p>
            </div>
-           {agVerAtrasadas && (
-             <div className="space-y-2 mt-4">
-             {atrasadas.map(t => (
-               <div key={t.key} className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
-                 <div className="flex items-center gap-3">
-                   <input type="checkbox" checked={t.concluida} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-red-500"/>
-                   <div>
-                     <p className="font-medium">{t.desc}</p>
-                     <p className="text-xs text-slate-500">Dia {t.dia} · {t.cat}</p>
-                   </div>
+           {!D.atual && <button type="button" onClick={irHoje} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Ir para {mesAtualSistema}</button>}
+           <Button onClick={nova}>+ Nova</Button>
+         </div>
+         <ProgressBar value={pct} max={100} color="#10b981" height="h-1" />
+         <div className="mt-4">
+           {(nAtr > 0 || D.atual || D.passado) && grupo('atrasadas', 'Atrasadas', g.atrasadas,
+             nAtr > 0 ? <button type="button" onClick={() => marcarTodas(g.atrasadas)} className="text-xs text-slate-500 hover:text-emerald-400">✓ Marcar todas feitas</button> : null, nAtr ? 'text-red-400' : '')}
+           {nAnt > 0 && grupo('anteriores', 'De meses anteriores', g.anteriores,
+             <button type="button" onClick={() => marcarTodas(g.anteriores)} className="text-xs text-slate-500 hover:text-emerald-400">✓ Marcar todas feitas</button>)}
+           {D.atual && grupo('semana', 'Esta semana', g.semana)}
+           {!D.passado && grupo('depois', D.atual ? 'Mais tarde' : 'Por fazer', g.depois)}
+           {grupo('feitas', 'Feitas', g.feitas)}
+           {D.proximo.length > 0 && grupo('prox', `Em ${D.nomeProx}`, D.proximo)}
+         </div>
+         {entregasPend > 0 && (
+           <button type="button" onClick={() => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); }} className={`mt-4 w-full text-left text-xs ${sec} hover:text-blue-400`}>
+             + {entregasPend} entrega{entregasPend === 1 ? '' : 's'} de trabalho com prazo em {mes} → Calendário de projetos
+           </button>
+         )}
+       </Card>
+
+       {/* Tarefas recorrentes (o que se repete todos os meses / trimestres) */}
+       <Card>
+         <div className="flex items-center gap-2">
+           <button type="button" onClick={() => setAgGerirMob(v => !v)} aria-expanded={agGerirMob} className="flex-1 flex items-center gap-2 text-left">
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${sec} ${agGerirMob ? 'rotate-90' : ''}`} aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+             <span className="font-semibold text-sm">Tarefas recorrentes</span>
+             <span className={`text-xs ${sec}`}>{tarefas.filter(t => t.ativo !== false).length} ativas</span>
+           </button>
+           {agGerirMob && <>
+             <button type="button" onClick={nova} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Nova</button>
+             <button type="button" onClick={() => confirmDelete('Restaurar todas as tarefas para os valores padrão?', () => { saveUndo(); uG('tarefas', defG.tarefas); }, 'Restaurar')} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Repor padrão</button>
+           </>}
+         </div>
+         {agGerirMob && (
+           <div className={`mt-3 rounded-xl border max-h-[28rem] overflow-y-auto ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+             {tarefas.map(t => (
+               <div key={t.id} className={`group flex items-center gap-3 px-3 py-2 border-b last:border-b-0 ${claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.05] hover:bg-white/[0.02]'}`}>
+                 <input type="checkbox" checked={t.ativo !== false} onChange={() => { saveUndo(); uG('tarefas', tarefas.map(x => x.id === t.id ? { ...x, ativo: x.ativo === false } : x)); }} className="w-4 h-4 accent-blue-500 shrink-0" title={t.ativo !== false ? 'Ativa (desliga para deixar de aparecer)' : 'Desligada'} aria-label={`Ativa: ${t.desc}`} />
+                 <div className={`flex-1 min-w-0 ${t.ativo === false ? 'opacity-50' : ''}`}>
+                   <p className="text-sm truncate">{t.desc}</p>
+                   <p className={`text-xs ${sec}`}>{t.freq === 'semanal' ? `Todas as ${['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'][t.diaSemana ?? 1]}` : `Dia ${t.dia}`} · {t.freq === 'mensal' ? 'todos os meses' : t.freq === 'semanal' ? 'semanal' : (t.meses || []).map(m => meses[m - 1]?.slice(0, 3)).join(', ')}</p>
                  </div>
-                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat]}20`, color: catCores[t.cat]}}>{t.cat}</span>
+                 <span className="hidden sm:inline-flex items-center gap-1.5 w-20 text-xs text-slate-500"><span className="w-1.5 h-1.5 rounded-full" style={{ background: AG_CORES[t.cat] || '#94a3b8' }} />{t.cat}</span>
+                 <button type="button" onClick={() => agOpenEditModal(t)} className="text-xs text-slate-400 hover:text-blue-400 sm:opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Editar ${t.desc}`}>Editar</button>
+                 <button type="button" onClick={() => removeTarefa(t.id)} className="text-xs text-slate-400 hover:text-red-400 sm:opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Apagar ${t.desc}`}>✕</button>
                </div>
              ))}
-             {tarefasAtrasadasAnteriores.map(t => (
-               <div key={t.key} className="flex items-center justify-between p-3 rounded-xl bg-red-500/10 border border-red-500/30">
-                 <div className="flex items-center gap-3">
-                   <input type="checkbox" checked={false} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-emerald-500"/>
-                   <div>
-                     <p className="font-medium">{t.desc}</p>
-                     <p className="text-xs text-red-400">
-                       📅 {t.mesNome} {t.anoRef} · Dia {t.dia} · {t.cat}
-                     </p>
-                   </div>
-                 </div>
-                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <button onClick={() => toggleTarefa(t.key)} className="text-emerald-400/60 hover:text-emerald-400 text-xs ml-1 flex-shrink-0" title="Marcar concluída">✓</button>
-               </div>
-             ))}
-             </div>
-           )}
-         </Card>
-       )}
-       
-       {/* TAREFAS DO MÊS */}
-       <Card>
-         <div className="flex justify-between items-center mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="📅"/>{meses[mesAtual-1]} {anoAtual}</h3>
-           <Button onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+ Nova Tarefa</Button>
-         </div>
-         <div className="space-y-2">
-           {tarefasMesAtual.length === 0 ? (
-             <p className="text-center py-8 text-slate-500">Nenhuma tarefa para este mês</p>
-           ) : (
-             tarefasMesAtual.sort((a,b) => a.dia - b.dia).map(t => (
-               <div key={t.key} className={`flex items-center justify-between p-3 rounded-xl transition-all ${t.concluida ? 'bg-emerald-500/10 border border-emerald-500/30' : t.proxima ? 'bg-orange-500/10 border border-orange-500/30' : 'bg-slate-700/30'}`}>
-                 <div className="flex items-center gap-3">
-                   <input type="checkbox" checked={t.concluida} onChange={() => toggleTarefa(t.key)} className="w-5 h-5 accent-emerald-500"/>
-                   <div className={t.concluida ? 'opacity-50' : ''}>
-                     <p className={`font-medium ${t.concluida ? 'line-through' : ''}`}>{t.desc}</p>
-                     <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq} · {t.cat}</p>
-                   </div>
-                 </div>
-                 <div className="flex items-center gap-2">
-                   {t.proxima && !t.concluida && <span className="text-xs text-orange-400">Em breve!</span>}
-                   <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 </div>
-               </div>
-             ))
-           )}
-         </div>
-       </Card>
-       
-       {/* PRÓXIMO MÊS */}
-       <Card>
-         <h3 className="text-lg font-semibold mb-4 text-slate-400"><Ico e="📆"/>Próximo Mês: {meses[mesAtual === 12 ? 0 : mesAtual]}</h3>
-         <div className="space-y-2">
-           {tarefasProxMes.length === 0 ? (
-             <p className="text-center py-4 text-slate-500">Nenhuma tarefa</p>
-           ) : (
-             tarefasProxMes.sort((a,b) => a.dia - b.dia).map(t => (
-               <div key={t.key} className="flex items-center justify-between p-3 bg-slate-700/20 rounded-xl opacity-70">
-                 <div>
-                   <p className="font-medium text-sm">{t.desc}</p>
-                   <p className="text-xs text-slate-500">Dia {t.dia}</p>
-                 </div>
-                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-               </div>
-             ))
-           )}
-         </div>
-       </Card>
-       
-       {/* GERIR TAREFAS */}
-       <Card>
-         <div className="flex justify-between items-center mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="⚙️"/>Gerir Tarefas Recorrentes <button onClick={() => setAgGerirMob(v => !v)} className="sm:hidden ml-1 text-xs font-normal text-blue-400">{agGerirMob ? 'esconder' : 'mostrar'}</button></h3>
-           <div className="flex gap-2">
-             <Button variant="secondary" onClick={() => {setAgNovaTarefa({desc: '', dia: 1, freq: 'mensal', cat: 'Outro', meses: [], diaSemana: 1}); setAgShowAddModal(true);}}>+</Button>
-             <Button variant="secondary" onClick={() => {
-               confirmDelete('Restaurar todas as tarefas para os valores padrão?', () => {
-                 saveUndo();
-                 uG('tarefas', defG.tarefas);
-               }, 'Restaurar');
-             }}>🔄 Padrão</Button>
            </div>
-         </div>
-         <div className={`space-y-2 max-h-96 overflow-y-auto ${agGerirMob ? '' : 'max-sm:hidden'}`}>
-           {tarefas.map(t => (
-             <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl group">
-               <div className="flex items-center gap-3">
-                 <input type="checkbox" checked={t.ativo} onChange={() => uG('tarefas', tarefas.map(x => x.id === t.id ? {...x, ativo: !x.ativo} : x))} className="w-5 h-5 accent-blue-500"/>
-                 <div className={!t.ativo ? 'opacity-50' : ''}>
-                   <p className="font-medium text-sm">{t.desc}</p>
-                   <p className="text-xs text-slate-500">Dia {t.dia} · {t.freq}{t.meses?.length > 0 ? ` (${t.meses.map(m => meses[m-1]?.slice(0,3)).join(', ')})` : ''}</p>
-                 </div>
-               </div>
-               <div className="flex items-center gap-2">
-                 <span className="px-2 py-1 text-xs rounded-full" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <button onClick={() => agOpenEditModal(t)} className="text-slate-400 hover:text-blue-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✏️</button>
-                 <button onClick={() => removeTarefa(t.id)} className="text-red-400 hover:text-red-300 p-1 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-               </div>
-             </div>
-           ))}
-         </div>
+         )}
        </Card>
      </div>
    );
