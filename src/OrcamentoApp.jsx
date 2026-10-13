@@ -69,7 +69,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [tab, setTab] = useState('resumo');
   // O calendário de projetos passou para dentro do Trabalho
   useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
-  // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, Alt+←, botão de recuar do rato e gesto de voltar do telemóvel).
+  // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, seta ←, botão de recuar do rato e gesto de voltar do telemóvel).
   // Só muda de ecrã (separador, mês e posição na página) — nunca mexe nos dados.
   const [navPos, setNavPos] = useState(0);
   const [navSub, setNavSub] = useState(null);
@@ -294,6 +294,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         el.closest('input, textarea, select, [contenteditable="true"]')
       );
       
+      // Alt+← / Alt+→ mudam o mês em qualquer sítio (também a escrever) — e não deixam o browser recuar
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.altKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const idx = meses.indexOf(mes);
+        if (e.key === 'ArrowLeft') { if (idx > 0) setMes(meses[idx - 1]); else { setMes(meses[11]); setAno(a => a - 1); } }
+        else if (idx < 11) setMes(meses[idx + 1]); else { setMes(meses[0]); setAno(a => a + 1); }
+        return;
+      }
       if (isInput(target) || isInput(activeEl)) {
         // Só permitir Escape para sair do input
         if (e.key === 'Escape') {
@@ -348,7 +356,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       // ← → = Recuar / avançar (para onde estavas)
       if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); recuar(); return; }
       if (e.key === 'ArrowRight' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); avancar(); return; }
-      // Shift+← Shift+→ = Mês anterior/seguinte
+      // Shift+← Shift+→ = Mês anterior/seguinte (o Alt é tratado lá em cima)
       if (e.key === 'ArrowLeft' && e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
         const idx = meses.indexOf(mes);
@@ -4188,6 +4196,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Função para abrir o ficheiro do recibo
    const abrirFicheiroRecibo = (ficheiro, nome, tipo) => {
      if (!ficheiro) return;
+     if (/^https?:\/\//.test(ficheiro)) { window.open(ficheiro, '_blank', 'noopener'); return; } // guardado no Storage
      
      // Criar blob e abrir em nova janela
      const byteString = atob(ficheiro.split(',')[1]);
@@ -4508,9 +4517,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          ? <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
          : <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
         {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
-       {r.ficheiro && (
+       {(r.ficheiro || r.ficheiroUrl) && (
          <button 
-           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro || r.ficheiroUrl, r.ficheiroNome, r.ficheiroTipo)} 
            className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
            title="Abrir recibo"
          >
@@ -4548,9 +4557,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12]; return r.orcProx
          ? <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
          : <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
-       {r.ficheiro && (
+       {(r.ficheiro || r.ficheiroUrl) && (
          <button 
-           onClick={() => abrirFicheiroRecibo(r.ficheiro, r.ficheiroNome, r.ficheiroTipo)} 
+           onClick={() => abrirFicheiroRecibo(r.ficheiro || r.ficheiroUrl, r.ficheiroNome, r.ficheiroTipo)} 
            className="text-green-400 hover:text-green-300 p-0.5 sm:p-1 flex-shrink-0" 
            title="Abrir recibo"
          >
@@ -11267,7 +11276,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '0', desc: '💎 Portfolio' },
      { key: '←', desc: 'Recuar para onde estavas' },
      { key: '→', desc: 'Avançar outra vez' },
-     { key: 'Shift + ← →', desc: 'Mês anterior/seguinte' },
+     { key: 'Alt + ← →', desc: 'Mês anterior/seguinte' },
      { key: 'Ctrl + ← →', desc: 'Menu principal anterior/seguinte' },
      { key: 'Ctrl + .', desc: 'Esconder/mostrar os valores' },
      { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
@@ -13487,14 +13496,14 @@ ${transacoesOrdenadas.map(t => `<tr>
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
                     <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
-                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (Shift+←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                      <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (Alt+←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <select value={mes} onChange={e=>setMes(e.target.value)} aria-label="Mês" className={sel}>
                         {meses.map(m=><option key={m} value={m} className={opt}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
                       </select>
                       <select value={ano} onChange={e=>setAno(+e.target.value)} aria-label="Ano" className={sel}>
                         {anos.map(a=><option key={a} value={a} className={opt}>{a}{a === anoAtualSistema ? ' •' : ''}</option>)}
                       </select>
-                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (Shift+→)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                      <button onClick={() => irMes(1)} aria-label="Mês seguinte" title="Mês seguinte (Alt+→)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
                     </div>
                   );
                 })()}
@@ -13656,8 +13665,14 @@ ${transacoesOrdenadas.map(t => `<tr>
 {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
-   recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!ficheiro, k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
-   onAbrirRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (!r || !r.ficheiro) return; try { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([u8], { type: tipo })), '_blank'); } catch (e) { showToast('Não consegui abrir o ficheiro do recibo.', 'error'); } }}
+   recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
+   onJuntarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? async (k, id, f) => {
+     const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
+     saveUndo();
+     setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: f.name || 'recibo.pdf', ficheiroTipo: f.type || 'application/pdf' } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+     showToast('PDF junto ao recibo');
+   } : null}
+   onAbrirRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (r && !r.ficheiro && r.ficheiroUrl) { window.open(r.ficheiroUrl, '_blank', 'noopener'); return; } if (!r || !r.ficheiro) return; try { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([u8], { type: tipo })), '_blank'); } catch (e) { showToast('Não consegui abrir o ficheiro do recibo.', 'error'); } }}
    onIrMes={(a, m) => { setAno(a); setMes(meses[m - 1]); setTab('receitas'); window.scrollTo({ top: 0 }); }}
    notasDe={notasDe} onAbrirNota={id => { setNotaAbrir({ id }); setTab('notas'); }} onNovaNota={(tipo, id, nome) => { setNotaAbrir({ nova: { tipo, id: String(id), nome } }); setTab('notas'); }}
    onEnviarAnexo={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, ficheiro, prog) => enviarAnexo(user.uid, caminho, ficheiro, prog) : null}
