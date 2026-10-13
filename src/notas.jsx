@@ -144,7 +144,7 @@ const IC = {
   imagem: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>', arroba: '<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.4 6.8"/>',
   linha: '<path d="M4 12h16"/>', limpar: '<path d="M6 19h8M10 5h8M14 5l-4 14M4 4l16 16"/>', desfazer: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', refazer: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
   editar: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/>', mover: '<path d="M5 12h14M13 6l6 6-6 6"/>', copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
-  seta: '<path d="M9 6l6 6-6 6"/>', tag: '<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.25"/>',
+  seta: '<path d="M9 6l6 6-6 6"/>', pessoas: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.2a5 5 0 0 1 5.5 5.3"/>', tag: '<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.25"/>',
 };
 const Ic = ({ n, className = 'w-4 h-4' }) => <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: IC[n] || '' }} />;
 
@@ -459,12 +459,15 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
 };
 
 // ── Uma página aberta: título, data, editor; grava sozinha ──
-const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade }) => {
+const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade, ouvirPagina, partilhada }) => {
   const [conteudo, setConteudo] = useState(undefined); // undefined = a carregar; null = erro
   const [estado, setEstado] = useState('');
   const protegida = !!(seccao && seccao.protegida);
   const htmlRef = useRef(''); const timer = useRef(null); const sujo = useRef(false);
   const tituloRef = useRef(meta.titulo || '');
+  const [versao, setVersao] = useState(0);
+  const ultimaTecla = useRef(0);
+  const ultimoGravado = useRef(null);
   useEffect(() => {
     let vivo = true;
     setConteudo(undefined);
@@ -476,7 +479,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
           if (!chave) { if (vivo) setConteudo('__trancada'); return; }
           html = JSON.parse(await decifrar(chave, d.cifrado)).html || '';
         } else html = (d && d.html) || '';
-        if (vivo) { htmlRef.current = limparHtml(html); setConteudo(htmlRef.current); }
+        if (vivo) { htmlRef.current = limparHtml(html); ultimoGravado.current = limparHtml(html, { semBlob: true }); setConteudo(htmlRef.current); }
       } catch (e) { console.error('Nota:', e); if (vivo) setConteudo(null); }
     })();
     return () => { vivo = false; };
@@ -494,14 +497,27 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
         const tituloC = await cifrar(chave, tituloRef.current || '');
         mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: '', tituloC, txt: '', tags: [], editada: agora() } : p)) }));
       } else {
+        ultimoGravado.current = html;
         await guardarPagina(meta.id, { html, editada: agora() });
         mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: tituloRef.current, txt: txt.slice(0, 600), tags: tagsDe(html), editada: agora() } : p)) }));
       }
       setEstado('Gravado');
     } catch (e) { console.error('Nota:', e); sujo.current = true; setEstado('Não consegui gravar — tento outra vez'); clearTimeout(timer.current); timer.current = setTimeout(gravar, 4000); }
   }, [meta.id, protegida, chave, guardarPagina, mudarIndice]);
-  const agendar = () => { sujo.current = true; setEstado('…'); if (onAtividade) onAtividade(); clearTimeout(timer.current); timer.current = setTimeout(gravar, 800); };
+  const agendar = () => { ultimaTecla.current = Date.now(); sujo.current = true; setEstado('…'); if (onAtividade) onAtividade(); clearTimeout(timer.current); timer.current = setTimeout(gravar, 800); };
   useEffect(() => () => { clearTimeout(timer.current); if (sujo.current) gravar(); }, [gravar]);
+  // Caderno partilhado: o que a outra pessoa muda aparece aqui (se não estiveres a meio de escrever)
+  useEffect(() => {
+    if (!ouvirPagina || protegida) return undefined;
+    const parar = ouvirPagina(meta.id, d => {
+      if (!d || d.cifrado) return;
+      const html = limparHtml(d.html || '', { semBlob: true });
+      if (html === ultimoGravado.current || html === limparHtml(htmlRef.current, { semBlob: true })) return;
+      if (sujo.current || Date.now() - ultimaTecla.current < 2500) return;
+      ultimoGravado.current = html; htmlRef.current = html; setConteudo(html); setVersao(v => v + 1);
+    });
+    return () => { if (typeof parar === 'function') parar(); };
+  }, [meta.id, ouvirPagina, protegida]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const sair = () => { if (sujo.current) gravar(); };
     window.addEventListener('pagehide', sair); document.addEventListener('visibilitychange', sair);
@@ -512,7 +528,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
     <div className="min-w-0">
       <div className="flex items-center gap-2 mb-2">
         {onVoltar && <button type="button" onClick={onVoltar} className={`lg:hidden -ml-2 w-9 h-9 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} aria-label="Voltar"><Ic n="voltar" className="w-5 h-5" /></button>}
-        <span className={`text-xs truncate ${sub}`}>{seccao ? seccao.nome : ''}{protegida && <span className="inline-flex items-center gap-1 ml-2 text-amber-400"><Ic n="cadeado" className="w-3.5 h-3.5" /> protegida</span>}</span>
+        <span className={`text-xs truncate ${sub}`}>{seccao ? seccao.nome : ''}{partilhada && <span className="inline-flex items-center gap-1 ml-2 text-emerald-500"><Ic n="pessoas" className="w-3.5 h-3.5" /> partilhada</span>}{protegida && <span className="inline-flex items-center gap-1 ml-2 text-amber-400"><Ic n="cadeado" className="w-3.5 h-3.5" /> protegida</span>}</span>
         <span className="flex-1" />
         <span className={`text-xs ${sub}`} aria-live="polite">{estado}</span>
         <button type="button" onClick={() => mudarIndice(i => ({ ...i, paginas: i.paginas.map(x => (x.id === meta.id ? { ...x, fav: !x.fav } : x)) }))} aria-pressed={!!meta.fav}
@@ -541,7 +557,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
               </div>
             )}
             <div className="px-4 sm:px-6 -mx-4 sm:-mx-6 mt-2">
-              <Editor key={meta.id} html={conteudo} claro={claro} entidades={protegida ? [] : entidades} onIrEntidade={onIrEntidade} protegida={protegida}
+              <Editor key={`${meta.id}:${versao}`} html={conteudo} claro={claro} entidades={protegida ? [] : entidades} onIrEntidade={onIrEntidade} protegida={protegida}
                 onEnviarImagem={enviarImagem ? (nome, f) => enviarImagem(`notas/${meta.id}/${nome}`, f) : null} showToast={showToast}
                 onMudar={h => { htmlRef.current = h; agendar(); }} />
             </div>
@@ -551,8 +567,59 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
   );
 };
 
+// ── Quem tem acesso a um caderno partilhado ──
+const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => {
+  const [email, setEmail] = useState('');
+  const [erro, setErro] = useState('');
+  const [aguarde, setAguarde] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const link = `${window.location.origin}/?notas`;
+  const souDono = !c.dono || c.dono === meuEmail;
+  useEffect(() => {
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [onFechar]);
+  const juntar = async e => {
+    e.preventDefault(); setErro(''); setAguarde(true);
+    const r = await onJuntar(email); setAguarde(false);
+    if (r) setErro(r); else setEmail('');
+  };
+  const copiarLink = () => { try { navigator.clipboard.writeText(link); setCopiado(true); setTimeout(() => setCopiado(false), 1500); } catch (er) { /* sem acesso */ } };
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 pt-[12vh] sm:pt-4 bg-black/55 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
+      <div className={`w-full max-w-md rounded-2xl border p-4 shadow-2xl animate-modalIn space-y-3 ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-md inline-flex items-center justify-center text-white shrink-0" style={{ background: c.cor }}><Ic n="pessoas" className="w-3.5 h-3.5" /></span>
+          <p className="font-semibold flex-1 truncate">{c.nome}</p>
+          <button type="button" onClick={onFechar} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button>
+        </div>
+        <div className={`rounded-xl border divide-y ${claro ? 'border-slate-200 divide-slate-100' : 'border-slate-700 divide-slate-700'}`}>
+          {(c.membros || []).map(m => (
+            <div key={m} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <span className="flex-1 min-w-0 truncate">{m}{m === meuEmail ? ' (tu)' : ''}</span>
+              {m === c.dono && <span className={`text-[11px] ${claro ? 'text-slate-500' : 'text-slate-400'}`}>criou</span>}
+              {souDono && m !== meuEmail && <button type="button" onClick={() => { if (window.confirm(`Tirar o acesso a ${m}?`)) onTirar(m); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
+            </div>
+          ))}
+        </div>
+        <form onSubmit={juntar} className="flex gap-2">
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Juntar pessoa (email Google)" autoComplete="off"
+            className={`flex-1 min-w-0 rounded-lg border px-3 py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} />
+          <button type="submit" disabled={aguarde || !email.trim()} className="px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{aguarde ? '…' : 'Juntar'}</button>
+        </form>
+        {erro && <p className="text-sm text-red-400">{erro}</p>}
+        <div className={`rounded-xl p-3 text-xs space-y-2 ${claro ? 'bg-slate-50 text-slate-600' : 'bg-slate-900/50 text-slate-300'}`}>
+          <p>Manda este link a quem juntaste. Abre a app só com as Notas (sem as tuas finanças) — entra com a conta Google do email acima e vê apenas os cadernos partilhados com ela.</p>
+          <div className="flex items-center gap-2"><code className="flex-1 min-w-0 truncate">{link}</code><button type="button" onClick={copiarLink} className={`shrink-0 px-2 py-1 rounded-md border ${copiado ? 'border-emerald-400 text-emerald-400' : claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>{copiado ? '✓ copiado' : 'Copiar'}</button></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Ecrã das Notas ──
-const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
+const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, modo, theme, lerPagina, guardarPagina, apagarPagina, enviarImagem, entidades, onIrEntidade, abrir, onAberto, showToast }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const ix = indice || NOTAS_VAZIO;
@@ -585,6 +652,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
   const [ordem, setOrdem] = useState(() => { try { return localStorage.getItem('notas-ordem') || 'editada'; } catch (e) { return 'editada'; } });
   const [fechados, setFechados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('notas-fechados')) || []); } catch (e) { return new Set(); } });
   const [pedir, setPedir] = useState(null);
+  const [pessoas, setPessoas] = useState(null); // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
   const [titulosC, setTitulosC] = useState({});
   const [larguraTelemovel, setLarguraTelemovel] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
@@ -642,6 +710,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
   const tituloDe = p => (p.tituloC ? (titulosC[p.id] != null ? (titulosC[p.id] || 'Sem título') : 'Página protegida') : (p.titulo || 'Sem título'));
   const pagina = (ix.paginas || []).find(p => p.id === pagId) || null;
   const secPagina = pagina ? secDe(pagina.seccaoId) : null;
+  const cadPagina = secPagina ? (ix.cadernos || []).find(c => c.id === secPagina.cadernoId) : null;
 
   // Abrir uma página vinda de outro sítio da app (ex.: ficha do cliente)
   useEffect(() => {
@@ -676,7 +745,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
     const meta = { id, seccaoId: sid, titulo: protegida ? '' : titulo, criada: agora(), editada: agora(), txt: protegida ? '' : textoDe(html).slice(0, 600), tags: protegida ? [] : tagsDe(html) };
     try {
       if (protegida) { meta.tituloC = await cifrar(chave, titulo); await guardarPagina(id, { cifrado: await cifrar(chave, JSON.stringify({ html })), editada: agora() }); }
-      else await guardarPagina(id, { html, editada: agora() });
+      else await guardarPagina(id, { html, editada: agora() }, sid);
     } catch (e) { console.error('Nota:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
     mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
     setSecId(sid); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
@@ -692,7 +761,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
     try {
       const d = await lerPagina(p.id);
       const id = nId();
-      await guardarPagina(id, { ...(d || {}), editada: agora() });
+      await guardarPagina(id, { ...(d || {}), editada: agora() }, p.seccaoId);
       mudarIndice(i => ({ ...i, paginas: [...i.paginas, { ...p, id, titulo: p.titulo ? `${p.titulo} (cópia)` : p.titulo, criada: agora(), editada: agora(), fav: false }] }));
       setPagId(id);
     } catch (e) { if (showToast) showToast('Não consegui duplicar.', 'error'); }
@@ -733,10 +802,17 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
     ps.forEach(p => apagarPagina && apagarPagina(p.id).catch(() => {}));
     if (secId === s.id) setSecId(null);
   };
+  const partilharPedir = c => setPedir({
+    titulo: `Partilhar "${c.nome}"`,
+    texto: 'Escreve o email Google da pessoa (ex.: a Sara). Ela entra na app com essa conta e vê só este caderno — as tuas finanças e os outros cadernos ficam privados.',
+    campos: [{ k: 'e', tipo: 'email', ph: 'email@gmail.com' }],
+    ok: async v => { const r = await partilha.partilhar(c.id, v.e); if (r) return r; setPedir(null); setPessoas(c.id); if (showToast) showToast(`"${c.nome}" está partilhado`); return ''; },
+  });
+  const sairDoCaderno = c => { if (!window.confirm(`Deixar de ver "${c.nome}"? Para voltar, quem o criou tem de te juntar outra vez.`)) return; partilha.sair(c.id); };
   const apagarCaderno = c => {
     const ss = seccoes.filter(s => s.cadernoId === c.id); const ids = new Set(ss.map(s => s.id));
     const ps = (ix.paginas || []).filter(p => ids.has(p.seccaoId));
-    if (!window.confirm(`Apagar o caderno "${c.nome}" (${ss.length} secç${ss.length === 1 ? 'ão' : 'ões'}, ${ps.length} página${ps.length === 1 ? '' : 's'})?`)) return;
+    if (!window.confirm(`Apagar o caderno "${c.nome}" (${ss.length} secç${ss.length === 1 ? 'ão' : 'ões'}, ${ps.length} página${ps.length === 1 ? '' : 's'})?${c.partilhado ? '\n\nEstá partilhado: desaparece também para as outras pessoas.' : ''}`)) return;
     mudarIndice(i => ({ ...i, cadernos: i.cadernos.filter(x => x.id !== c.id), seccoes: i.seccoes.filter(s => !ids.has(s.id)), paginas: i.paginas.filter(p => !ids.has(p.seccaoId)) }));
     ps.forEach(p => apagarPagina && apagarPagina(p.id).catch(() => {}));
   };
@@ -868,9 +944,17 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
                   <svg width="9" height="9" viewBox="0 0 10 10" className={sub} style={{ transform: fechado ? 'none' : 'rotate(90deg)', transition: 'transform .15s' }} aria-hidden="true"><path d="M3 1.5 7 5l-4 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
                   <span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white shrink-0" style={{ background: c.cor }}><Ic n="caderno" className="w-3.5 h-3.5" /></span>
                   <span className="text-sm font-semibold break-words leading-snug min-w-0">{c.nome}</span>
+                  {c.partilhado && <span className="text-emerald-500 shrink-0" title={`Partilhado: ${(c.membros || []).join(', ')}`}><Ic n="pessoas" className="w-3.5 h-3.5" /></span>}
                 </button>
                 <button type="button" onClick={() => novaSeccao(c.id)} className={`w-7 h-7 inline-flex items-center justify-center rounded-md lg:opacity-0 lg:group-hover:opacity-100 ${sub}`} aria-label={`Nova secção em ${c.nome}`} title="Nova secção"><Ic n="mais" className="w-3.5 h-3.5" /></button>
-                <Menu claro={claro} itens={[{ txt: 'Mudar o nome', ic: 'editar', fn: () => renomear('caderno', c) }, { txt: 'Mudar a cor', fn: () => mudarCor('caderno', c) }, '-', { txt: 'Apagar caderno', ic: 'lixo', perigo: true, fn: () => apagarCaderno(c) }]} />
+                <Menu claro={claro} itens={[
+                  { txt: 'Mudar o nome', ic: 'editar', fn: () => renomear('caderno', c) }, { txt: 'Mudar a cor', fn: () => mudarCor('caderno', c) },
+                  partilha && (c.partilhado ? { txt: 'Pessoas com acesso', ic: 'pessoas', fn: () => setPessoas(c.id) } : { txt: 'Partilhar…', ic: 'pessoas', fn: () => partilharPedir(c) }),
+                  '-',
+                  c.partilhado && c.dono && partilha && c.dono !== partilha.meuEmail
+                    ? { txt: 'Deixar de ver este caderno', ic: 'lixo', perigo: true, fn: () => sairDoCaderno(c) }
+                    : { txt: c.partilhado ? 'Apagar para todos' : 'Apagar caderno', ic: 'lixo', perigo: true, fn: () => apagarCaderno(c) },
+                ]} />
               </div>
               {!fechado && (
                 <div className="ml-5 space-y-0.5">
@@ -886,7 +970,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
                         </button>
                         <Menu claro={claro} itens={[
                           { txt: 'Mudar o nome', ic: 'editar', fn: () => renomear('seccao', s) }, { txt: 'Mudar a cor', fn: () => mudarCor('seccao', s) },
-                          s.protegida ? { txt: 'Tirar a proteção', ic: 'aberto', fn: () => desprotegerSeccao(s) } : { txt: 'Proteger com palavra-passe', ic: 'cadeado', fn: () => protegerSeccao(s) },
+                          c.partilhado ? null : s.protegida ? { txt: 'Tirar a proteção', ic: 'aberto', fn: () => desprotegerSeccao(s) } : { txt: 'Proteger com palavra-passe', ic: 'cadeado', fn: () => protegerSeccao(s) },
                           '-', { txt: 'Apagar secção', ic: 'lixo', perigo: true, fn: () => apagarSeccao(s) },
                         ]} />
                       </div>
@@ -900,6 +984,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
         })}
       </div>
       {chave && <button type="button" onClick={trancar} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-lg border border-amber-400/40 text-amber-400 hover:bg-amber-400/10"><Ic n="cadeado" className="w-3.5 h-3.5" /> Trancar as notas protegidas</button>}
+      {partilha && partilha.erro && (ix.cadernos || []).some(c => c.partilhado) && <p className="px-2 text-[11px] text-amber-400">Os cadernos partilhados não estão a atualizar (regras da Firebase).</p>}
       {modo === 'g' && <p className="px-2 text-[11px] text-amber-400">As notas estão a gravar no documento principal (falta a regra do Firestore). Funciona, mas o espaço é limitado.</p>}
     </div>
   );
@@ -953,7 +1038,8 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
       <PaginaAberta key={pagina.id + (chave ? 'k' : '')} meta={pagina} seccao={secPagina} claro={claro} sub={sub}
         onVoltar={() => setVista('paginas')} lerPagina={lerPagina} guardarPagina={guardarPagina} mudarIndice={mudarIndice}
         entidades={entidades} onIrEntidade={onIrEntidade} enviarImagem={enviarImagem} chave={secPagina && secPagina.protegida ? chave : null}
-        pedirDesbloquear={() => pedirDesbloquear()} showToast={showToast} menuItens={menuPagina} onAtividade={() => { ultimaAtividade.current = Date.now(); }} />
+        pedirDesbloquear={() => pedirDesbloquear()} showToast={showToast} menuItens={menuPagina}
+        ouvirPagina={partilha && cadPagina && cadPagina.partilhado ? partilha.ouvirPagina : null} partilhada={!!(cadPagina && cadPagina.partilhado)} onAtividade={() => { ultimaAtividade.current = Date.now(); }} />
     </div>
   ) : (
     <div className={`${painel} p-10 text-center ${sub} hidden lg:block`}>
@@ -979,6 +1065,7 @@ const Notas = ({ navSub, onNavEmpurrar, onNavSubstituir, indice, mudarIndice, mo
         </div>
       )}
       {pedir && <Pedir {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
+      {pessoas && partilha && (() => { const c = (ix.cadernos || []).find(x => x.id === pessoas); if (!c) return null; return <PessoasCaderno c={c} claro={claro} meuEmail={partilha.meuEmail} onJuntar={e => partilha.partilhar(c.id, e)} onTirar={e => partilha.tirarPessoa(c.id, e)} onFechar={() => setPessoas(null)} />; })()}
     </div>
   );
 };
