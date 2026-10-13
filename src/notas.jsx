@@ -560,6 +560,12 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
               onChange={e => { tituloRef.current = e.target.value; agendar(); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const ed = e.currentTarget.parentElement.querySelector('.nota-ed'); if (ed) ed.focus(); } }}
               className={`w-full bg-transparent text-2xl sm:text-3xl font-semibold outline-none border-b pb-1 ${claro ? 'border-slate-200 placeholder-slate-300' : 'border-slate-700 placeholder-slate-600'}`} />
             <p className={`mt-1.5 text-xs ${sub}`}>{dataLonga(meta.criada)} · {horaTxt(meta.criada)}{meta.editada && meta.editada !== meta.criada ? ` · editada ${haQuanto(meta.editada)}` : ''}</p>
+            {!senha && protegida && !textoDe(conteudo || '').trim() && (
+              <button type="button" onClick={() => { const d0 = { tipo: 'login' }; senhaRef.current = d0; setSenha(d0); sujo.current = true; gravar(); mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, tipo: 'senha' } : p)) })); }}
+                className="mt-3 inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-amber-400/50 text-amber-500 hover:bg-amber-400/10">
+                <Ic n="cadeado" /> Usar o modelo de palavra-passe (utilizador, palavra-passe, 2FA…)
+              </button>
+            )}
             {senha ? (
               <CartaoSenha key={meta.id} inicial={senha} claro={claro} sub={sub} avisar={showToast} onMudar={v => { senhaRef.current = v; agendar(); }} />
             ) : (<>
@@ -1210,6 +1216,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       {!mostrarSeccao && secao && (
         <div className="flex gap-1.5 mb-2">
           <button type="button" onClick={() => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco'))} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" /> Página</button>
+          {secao.protegida && <button type="button" onClick={() => novaSenha()} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-amber-400/50 text-amber-500 hover:bg-amber-400/10" title="Nova palavra-passe (com 2FA)"><Ic n="cadeado" /> Palavra-passe</button>}
           <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }]} />
         </div>
       )}
