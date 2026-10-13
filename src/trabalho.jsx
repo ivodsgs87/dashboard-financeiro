@@ -391,7 +391,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
-            {(t.anexos || []).length > 0 && <span className={`inline-flex items-center gap-0.5 text-[11px] ${sub}`} title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" />{t.anexos.length}</span>}
+            {(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} />}
             {t.notas && <span className={sub} title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
           </>
         )}
@@ -814,6 +814,37 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
   );
 };
 
+// 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
+const ClipAnexos = ({ anexos, claro, sub }) => {
+  const [aberto, setAberto] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = e => { if (ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    document.addEventListener('mousedown', fora);
+    return () => document.removeEventListener('mousedown', fora);
+  }, [aberto]);
+  const abrir = a => { try { window.open(a.url, '_blank', 'noopener,noreferrer'); } catch (e) { /* bloqueado */ } };
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button type="button" onClick={e => { e.stopPropagation(); if (anexos.length === 1) abrir(anexos[0]); else setAberto(!aberto); }}
+        className={`inline-flex items-center gap-0.5 px-1 rounded text-[11px] ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}
+        title={anexos.length === 1 ? `Abrir ${anexos[0].nome}` : `${anexos.length} anexos`}>
+        <IcoA n="clip" className="w-3.5 h-3.5" />{anexos.length}
+      </button>
+      {aberto && (
+        <span className={`absolute z-30 top-full left-0 mt-1 w-64 rounded-xl border shadow-xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+          {anexos.map(a => (
+            <button key={a.id} type="button" onClick={e => { e.stopPropagation(); setAberto(false); abrir(a); }} className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+              <IcoA n={tipoAnexo(a) === 'imagem' ? 'ficheiro' : tipoAnexo(a)} className={`w-4 h-4 ${tipoAnexo(a) === 'pdf' ? 'text-red-400' : tipoAnexo(a) === 'link' ? 'text-blue-400' : sub}`} />
+              <span className="truncate">{a.nome}</span>
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+};
 // ── Anexos de uma tarefa (brief, referências): ficheiros no Firebase Storage + links ──
 const tamanhoTxt = b => (b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const tipoAnexo = a => {
@@ -845,12 +876,58 @@ const ICONE_ANEXO = {
 };
 const IcoA = ({ n, className = 'w-5 h-5' }) => <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONE_ANEXO[n] || ICONE_ANEXO.ficheiro }} />;
 const MAX_ANEXO = 100 * 1048576;
+// Pré-visualização: Google Slides/Docs/Sheets/Drive, Figma, YouTube, Vimeo, PDF e vídeos
+const googleId = url => { const m = /\/d\/([a-zA-Z0-9_-]{15,})/.exec(url) || /[?&]id=([a-zA-Z0-9_-]{15,})/.exec(url); return m ? m[1] : null; };
+const ehGoogle = url => /(docs|drive)\.google\.com/.test(url || '');
+const urlPrevia = a => {
+  const u = a.url || '';
+  const tp = tipoAnexo(a);
+  if (tp === 'pdf' || tp === 'video') return u;
+  if (tp !== 'link') return null;
+  if (ehGoogle(u)) {
+    const id = googleId(u); if (!id) return null;
+    if (/presentation/.test(u)) return `https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false`;
+    if (/document/.test(u)) return `https://docs.google.com/document/d/${id}/preview`;
+    if (/spreadsheets/.test(u)) return `https://docs.google.com/spreadsheets/d/${id}/preview`;
+    return `https://drive.google.com/file/d/${id}/preview`;
+  }
+  if (/figma\.com\/(file|design|proto|board)/.test(u)) return `https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(u)}`;
+  let m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  m = /vimeo\.com\/(\d+)/.exec(u); if (m) return `https://player.vimeo.com/video/${m[1]}`;
+  return null;
+};
+const miniatura = a => {
+  const u = a.url || '';
+  if (tipoAnexo(a) !== 'link') return null;
+  if (ehGoogle(u)) { const id = googleId(u); return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w640` : null; }
+  const m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
+  return null;
+};
+const MiniLink = ({ a, sub }) => {
+  const [falhou, setFalhou] = useState(false);
+  const src = miniatura(a);
+  let dominio = ''; try { dominio = new URL(a.url).hostname; } catch (e) { /* url estranho */ }
+  if (src && !falhou) return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhou(true)} className="w-full h-full object-cover object-top bg-white" />;
+  return (
+    <span className="flex flex-col items-center justify-center gap-1.5 w-full h-full text-blue-400">
+      {dominio ? <img src={`https://www.google.com/s2/favicons?domain=${dominio}&sz=64`} alt="" className="w-8 h-8 rounded" onError={e => { e.currentTarget.style.display = 'none'; }} /> : <IcoA n="link" className="w-8 h-8" />}
+      <span className={`text-[10px] uppercase tracking-wide opacity-80 ${sub}`}>{nomeDoLink(a.url)}</span>
+    </span>
+  );
+};
 const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, caixa, inputClass, showToast }) => {
   const anexos = t.anexos || [];
   const [envios, setEnvios] = useState([]); // { id, nome, p }
   const [arrastar, setArrastar] = useState(false);
   const [link, setLink] = useState(null);
   const [verImagem, setVerImagem] = useState(null);
+  const [previa, setPrevia] = useState(null);
+  useEffect(() => {
+    if (!previa && !verImagem) return undefined;
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setPrevia(null); setVerImagem(null); } };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, [previa, verImagem]);
   const inRef = useRef(null);
   const juntar = a => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, anexos: [...(x.anexos || []), a] })));
   const enviar = lista => {
@@ -927,18 +1004,25 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                 {tp === 'imagem' ? (
                   <button type="button" onClick={() => setVerImagem(a)} className="block w-full aspect-[4/3] bg-black/20" title={a.nome}><img src={a.url} alt={a.nome} loading="lazy" className="w-full h-full object-cover" /></button>
                 ) : tp === 'video' ? (
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover" /></a>
+                  <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover pointer-events-none" /></button>
+                ) : tp === 'link' ? (
+                  urlPrevia(a)
+                    ? <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] overflow-hidden" title={`Pré-visualizar ${a.nome}`}><MiniLink a={a} sub={sub} /></button>
+                    : <a href={a.url} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} /></a>
                 ) : (
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : tp === 'link' ? 'text-blue-400' : sub}`} title={a.url}>
+                  <button type="button" onClick={() => (urlPrevia(a) ? setPrevia(a) : window.open(a.url, '_blank', 'noopener,noreferrer'))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
                     <IcoA n={tp} className="w-8 h-8" />
-                    <span className="text-[10px] uppercase tracking-wide opacity-80">{tp === 'link' ? nomeDoLink(a.url) : tp === 'pdf' ? 'PDF' : (String(a.nome).split('.').pop() || '').slice(0, 5)}</span>
-                  </a>
+                    <span className="text-[10px] uppercase tracking-wide opacity-80">{tp === 'pdf' ? 'PDF' : (String(a.nome).split('.').pop() || '').slice(0, 5)}</span>
+                  </button>
                 )}
                 <div className="px-2 py-1.5">
                   <a href={a.url} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium truncate hover:underline" title={a.nome}>{a.nome}</a>
                   <p className={`text-[10px] ${sub}`}>{a.tamanho ? tamanhoTxt(a.tamanho) : 'link'} · {dataCurta(a.criado)}</p>
                 </div>
-                <button type="button" onClick={() => apagar(a)} className="absolute top-1 right-1 w-6 h-6 rounded-md bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Tirar ${a.nome}`}>✕</button>
+                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 text-white text-xs" title="Abrir noutro separador" aria-label={`Abrir ${a.nome} noutro separador`}>↗</a>
+                  <button type="button" onClick={() => apagar(a)} className="w-6 h-6 rounded-md bg-black/60 text-white text-xs" aria-label={`Tirar ${a.nome}`}>✕</button>
+                </div>
               </div>
             );
           })}
@@ -954,6 +1038,21 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`w-full rounded-lg border-2 border-dashed py-5 text-xs ${claro ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-slate-700 text-slate-400 hover:bg-white/[0.03]'}`}>
           Arrasta para aqui o brief (PDF, imagens, vídeos…), cola uma imagem com Ctrl+V, ou carrega para escolher
         </button>
+      )}
+      {previa && (
+        <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
+          <div className="flex items-center gap-2 mb-2 text-white">
+            <p className="flex-1 min-w-0 text-sm font-medium truncate">{previa.nome}</p>
+            <a href={previa.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir ↗</a>
+            <button type="button" onClick={() => setPrevia(null)} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
+          </div>
+          <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-black">
+            {tipoAnexo(previa) === 'video'
+              ? <video src={previa.url} controls autoPlay className="w-full h-full object-contain" />
+              : <iframe src={urlPrevia(previa)} title={previa.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-write" allowFullScreen />}
+          </div>
+          {ehGoogle(previa.url) && <p className="mt-2 text-[11px] text-white/60">Se não aparecer, o ficheiro não está partilhado com a conta Google com que tens sessão aberta neste browser.</p>}
+        </div>
       )}
       {verImagem && (
         <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4 animate-backdropIn" onMouseDown={() => setVerImagem(null)}>
@@ -992,7 +1091,7 @@ const ChecklistTarefa = ({ t, mudar, claro, sub, caixa, inputClass }) => {
 // ── Detalhe de uma tarefa (painel lateral) ──
 const PRIORIDADES = [['urgente', 'Urgente', '#ef4444'], ['alta', 'Alta', '#f59e0b'], ['normal', 'Normal', '#3b82f6'], ['baixa', 'Baixa', '#94a3b8']];
 const FORMATOS = ['9:16', '1:1', '4:5', '16:9'];
-const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast }) => {
+const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
@@ -1050,12 +1149,6 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                 <option value="">—</option>{PRIORIDADES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
               </select>
             </label>
-            <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Estimativa de horas</span>
-              <NumIn valor={t.estimativa ?? null} placeholder="ex.: 6" onGravar={x => set({ estimativa: x })} className={`${inputClass} text-sm py-1.5`} />
-            </label>
-            <div className="flex flex-col gap-1 min-w-0"><span className={lab}>Tempo vs estimativa</span>
-              <p className={`text-sm py-1.5 tabular-nums ${est && horasTarefa > est ? 'text-red-400' : ''}`}>{tempoTxt(horasTarefa)}{est ? ` de ${tempoTxt(est)} (${Math.round(horasTarefa / est * 100)}%)` : ''}</p>
-            </div>
           </div>
 
           <AnexosTarefa t={t} trab={trab} mudar={mudar} onEnviar={onEnviarAnexo} onApagarFicheiro={onApagarAnexo} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} showToast={showToast} />
@@ -1065,6 +1158,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           </label>
 
           <ChecklistTarefa t={t} mudar={mudar} claro={claro} sub={sub} caixa={caixa} inputClass={inputClass} />
+
+          {onAbrirNota && <NotasLigadas lista={notasDe ? notasDe('tarefa', t.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('tarefa', t.id, t.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo="Notas sobre esta tarefa" />}
 
           {/* Valor da tarefa: peças por tipo, com preço do cliente */}
           <div className={caixa}>
@@ -1186,7 +1281,14 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 
           {/* Tempo */}
           <div className={caixa}>
-            <div className="flex items-center justify-between mb-2"><p className="text-sm font-medium">Tempo</p><p className="text-sm tabular-nums font-semibold"><HorasVivas t={t} /></p></div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-sm font-medium">Tempo</p>
+              <span className="flex-1" />
+              <label className={`flex items-center gap-1.5 text-xs ${sub}`} title="Opcional: quantas horas achas que vai levar">Estimativa
+                <NumIn valor={t.estimativa ?? null} placeholder="—" onGravar={x => set({ estimativa: x })} className={`${inputClass} !w-16 text-xs py-1 text-right`} />
+              </label>
+              <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
+            </div>
             <div className="space-y-1">
               {(t.tempos || []).slice().reverse().map(x => (
                 <div key={x.id} className="flex items-center gap-2 text-xs">
@@ -1444,7 +1546,7 @@ const NomesFicheiros = ({ t, trab, set, claro, inputClass, lab, sub, caixa }) =>
 };
 
 // ── Jogos de um cliente (cartões com cor, outros nomes, Drive e spreadsheet) ──
-const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar }) => {
+const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, notasDe, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [nome, setNome] = useState('');
@@ -1492,6 +1594,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar }
               </div>
               <Campo rot="Pasta do Google Drive"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
               <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
+              {onAbrirNota && <div className={`pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}><p className={`text-xs mb-0.5 ${sub}`}>Notas</p><NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} /></div>}
             </div>
           );
         })}
@@ -1592,6 +1695,86 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
   );
 };
 
+// Notas (do separador Notas) que falam de um cliente, jogo ou tarefa
+const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Notas', compacto = false }) => {
+  if (!onAbrir) return null;
+  const l = lista || [];
+  return (
+    <div className={compacto ? 'space-y-1' : `${caixa} space-y-1.5`}>
+      {!compacto && <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium flex items-center gap-1.5"><IcoT n="nota" className="w-4 h-4" /> {titulo} {l.length > 0 && <span className={`text-xs font-normal ${sub}`}>{l.length}</span>}</p>
+        {onNova && <button type="button" onClick={onNova} className="text-xs text-blue-400 hover:text-blue-300">+ Nova nota</button>}</div>}
+      {l.slice(0, compacto ? 3 : 6).map(p => (
+        <button key={p.id} type="button" onClick={() => onAbrir(p.id)} className={`w-full text-left px-2 py-1.5 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+          <span className="block text-sm truncate">{p.titulo || 'Sem título'}</span>
+          {!compacto && <span className={`block text-[11px] truncate ${sub}`}>{p.txt ? p.txt.slice(0, 90) : ''}</span>}
+        </button>
+      ))}
+      {l.length > (compacto ? 3 : 6) && <p className={`px-2 text-[11px] ${sub}`}>+{l.length - (compacto ? 3 : 6)} no separador Notas</p>}
+      {!l.length && !compacto && <p className={`px-2 text-xs ${sub}`}>Nenhuma nota com @ a falar disto. Escreve @ numa nota para ligar.</p>}
+      {compacto && onNova && <button type="button" onClick={onNova} className="px-2 text-[11px] text-blue-400 hover:text-blue-300">+ Nova nota</button>}
+    </div>
+  );
+};
+// Recibos de um cliente (os que juntas em Receitas), por ano
+const RecibosCliente = ({ lista, onAbrirFicheiro, onIrMes, claro, sub }) => {
+  const [anoAberto, setAnoAberto] = useState(null);
+  const anos = [...new Set((lista || []).map(r => r.ano))].sort((a, b) => b - a);
+  if (!anos.length) return <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente. Junta-os em Receitas.</p>;
+  const num = v => Number(v) || 0;
+  const ili = r => (r.valIliq != null && r.valIliq !== '' ? num(r.valIliq) : num(r.val));
+  const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
+  return (
+    <div className="space-y-4">
+      {anos.map((a, i) => {
+        const rs = lista.filter(r => r.ano === a);
+        const aberto = anoAberto == null ? i === 0 : anoAberto === a;
+        const tot = rs.reduce((x, r) => x + ili(r), 0), totIva = rs.reduce((x, r) => x + num(r.iva), 0), totRet = rs.reduce((x, r) => x + num(r.retIRS), 0);
+        return (
+          <div key={a} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+            <button type="button" onClick={() => setAnoAberto(aberto ? -1 : a)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
+              <span className={`text-[10px] ${sub}`} style={{ transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+              <span className="font-semibold">{a}</span>
+              <span className={`text-xs ${sub}`}>{rs.length} recibo{rs.length === 1 ? '' : 's'}</span>
+              <span className="flex-1" />
+              <span className="text-sm tabular-nums"><span className={sub}>ilíquido </span><strong>{eur(tot)}</strong></span>
+              {totIva > 0 && <span className={`text-xs tabular-nums ${sub}`}>IVA {eur(totIva)}</span>}
+              {totRet > 0 && <span className={`text-xs tabular-nums ${sub}`}>retido {eur(totRet)}</span>}
+            </button>
+            {aberto && (
+              <div className={`border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+                <div className={`hidden md:grid grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_84px] gap-3 px-3 h-8 items-center text-[11px] font-medium ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <span>Data</span><span>Descrição</span><span className="text-right">Ilíquido</span><span className="text-right">IVA</span><span className="text-right">Retenção</span><span className="text-right">Recebido</span><span />
+                </div>
+                {rs.map(r => (
+                  <div key={`${r.k}:${r.id}`} className={`grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_84px] gap-x-3 gap-y-0.5 px-3 py-2 items-center border-t text-sm ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+                    <span className={`hidden md:block tabular-nums ${sub}`}>{dataTxt(r)}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">{r.desc || 'Recibo'}</span>
+                      <span className={`flex flex-wrap gap-1.5 text-[11px] ${sub}`}>
+                        <span className="md:hidden">{dataTxt(r)} ·</span>
+                        <span className={`px-1.5 rounded ${r.tipo === 'sem' ? (claro ? 'bg-slate-100' : 'bg-white/5') : (claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/10 text-blue-300')}`}>{r.tipo === 'sem' ? 'Sem taxas' : 'Com taxas'}</span>
+                        {r.pais && <span>{r.pais}</span>}{r.emitidoPorSara && <span>emitido pela Sara</span>}
+                      </span>
+                    </span>
+                    <span className="text-right tabular-nums md:order-none font-medium md:font-normal">{eur(ili(r))}<span className={`md:hidden block text-[11px] ${sub}`}>{num(r.iva) ? `IVA ${eur(r.iva)} · ` : ''}{num(r.retIRS) ? `ret. ${eur(r.retIRS)}` : ''}</span></span>
+                    <span className={`hidden md:block text-right tabular-nums ${sub}`}>{num(r.iva) ? eur(r.iva) : '—'}</span>
+                    <span className={`hidden md:block text-right tabular-nums ${sub}`}>{num(r.retIRS) ? eur(r.retIRS) : '—'}</span>
+                    <span className="hidden md:block text-right tabular-nums">{eur(r.val)}</span>
+                    <span className="col-span-2 md:col-span-1 flex justify-end gap-1">
+                      {r.temFicheiro && onAbrirFicheiro && <button type="button" onClick={() => onAbrirFicheiro(r.k, r.id)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400`} title="Abrir o recibo">📎 PDF</button>}
+                      {onIrMes && <button type="button" onClick={() => onIrMes(r.ano, r.mes)} className={`px-2 py-1 rounded-md text-xs text-blue-400 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} title="Ver em Receitas">Receitas →</button>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
 const PAISES_RECIBO = [['PT', 'Portugal'], ['UE', 'UE'], ['Fora UE', 'Fora da UE']];
 const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
@@ -1623,7 +1806,7 @@ const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text' }) => (
     onBlur={e => { const v = e.target.value.trim(); if (v !== String(valor ?? '')) onGravar(v); }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
 );
-const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar }) => {
+const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar, notas, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
@@ -1659,7 +1842,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             <Campo rot="Cor">
               <div className="flex flex-wrap gap-1.5 py-1">{CORES_PASTA.map(cor => <button key={cor} type="button" onClick={() => set({ cor })} className={`w-6 h-6 rounded-md ${c.cor === cor ? 'ring-2 ring-offset-2 ring-blue-500 ' + (claro ? 'ring-offset-white' : 'ring-offset-slate-900') : ''}`} style={{ background: cor }} aria-label={`Cor ${cor}`} />)}</div>
             </Campo>
-            <Campo rot="Outros nomes (separados por vírgulas — o OCR e o ClickUp reconhecem o cliente por eles)" largo>
+            <Campo rot="Outros nomes (separados por vírgulas — o OCR reconhece o cliente por eles)" largo>
               <TxtIn valor={(c.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Anorak Games, Anorak" className={ic} />
             </Campo>
             <Campo rot="Tags" largo>
@@ -1740,6 +1923,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             ))}
           </div>
         </div>
+        <NotasLigadas lista={notas} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('cliente', c.id, c.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo={`Notas sobre ${c.nome}`} />
         <button type="button" onClick={onIrPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Preços de {c.nome} →</button>
         <p className={`text-[11px] ${sub}`}>O NIF e a morada ficam só na app — não vão no resumo do chat.</p>
       </div>
@@ -1781,7 +1965,7 @@ const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbr
               <span className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ background: c.cor || '#64748b' }}>{String(c.nome || '?').charAt(0).toUpperCase()}</span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium truncate">{c.nome}</span>
-                <span className={`block text-[11px] truncate ${sub}`}>{c.soTrabalho ? 'só no ClickUp — falta criar' : [c.recibo && c.recibo.pais, c.estado === 'pausa' ? 'em pausa' : c.estado === 'antigo' ? 'antigo' : '', c.fat && c.fat.nomeLegal].filter(Boolean).join(' · ') || 'sem ficha preenchida'}</span>
+                <span className={`block text-[11px] truncate ${sub}`}>{c.soTrabalho ? 'sem ficha — falta criar' : [c.recibo && c.recibo.pais, c.estado === 'pausa' ? 'em pausa' : c.estado === 'antigo' ? 'antigo' : '', c.fat && c.fat.nomeLegal].filter(Boolean).join(' · ') || 'sem ficha preenchida'}</span>
               </span>
             </span>
             <span className="hidden md:flex flex-wrap gap-1 min-w-0">{(c.tags || []).map(t => <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] ${claro ? 'bg-slate-100 text-slate-600' : 'bg-white/10 text-slate-300'}`}>#{t}</span>)}</span>
@@ -2068,7 +2252,7 @@ const VisaoGeral = ({ trab, cu, clientes, theme, mudar, onAbrir, ano, mesNum }) 
       {Bloco({ titulo: `Prazos até ${dataCurta(em7)}`, lista: prazos, vazio: 'Sem prazos nos próximos 7 dias.' })}
       {!(trab.tarefas || []).length && (
         <Card>
-          <p className="text-sm">Começa por escolher um cliente à esquerda e criar uma pasta (por exemplo "2026" → "6_Mahjong" → "44 - Mahjong - Oct"). Depois escreve as tarefas como no ClickUp: <strong>"2x New Videos - Halloween"</strong>. A app calcula o valor, regista os tempos e faz o orçamento sozinha.</p>
+          <p className="text-sm">Começa por escolher um cliente à esquerda e criar uma pasta (por exemplo "2026" → "6_Mahjong" → "44 - Mahjong - Oct"). Depois escreve as tarefas (as sugestões ajudam): <strong>"2x New Videos - Halloween"</strong>. A app calcula o valor, regista os tempos e faz o orçamento sozinha.</p>
         </Card>
       )}
     </div>
@@ -2116,7 +2300,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo }) => {
+const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onIrMes }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -2133,11 +2317,13 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
     return [...app, ...Object.values(extra)];
   }, [clientesIn, trabIn]);
   const [sel, setSelEstado] = useState(() => { try { return JSON.parse(localStorage.getItem('trab-sel')) || { tipo: 'geral' }; } catch (e) { return { tipo: 'geral' }; } });
-  const setSel = v => { setSelEstado(v); setArvoreMob(false); try { localStorage.setItem('trab-sel', JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } };
+  const historico = useRef([]);
+  const irPara = v => { setSelEstado(v); setArvoreMob(false); try { localStorage.setItem('trab-sel', JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } };
+  const setSel = v => { if (JSON.stringify(v) !== JSON.stringify(sel)) { historico.current = [...historico.current.slice(-30), { sel, aba }]; } irPara(v); };
   const [abertas, setAbertas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-abertas')) || []); } catch (e) { return new Set(); } });
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
-  const [aba, setAba] = useState('tarefas');
-  const [tarefaAberta, setTarefaAberta] = useState(null);
+  const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || 'tarefas'; } catch (e) { return 'tarefas'; } });
+  const [tarefaAberta, setTarefaAberta] = useState(() => { try { const t = localStorage.getItem('trab-abrir-tarefa'); localStorage.removeItem('trab-abrir-tarefa'); return t || null; } catch (e) { return null; } });
   const [procura, setProcura] = useState('');
   const [arvoreMob, setArvoreMob] = useState(false);
   const [semArvore, setSemArvore] = useState(() => { try { return localStorage.getItem('trab-sem-arvore') === '1'; } catch (e) { return false; } });
@@ -2269,7 +2455,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
-  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ['tarefas', 'Tarefas'], ['jogos', 'Jogos'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
+  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ...(recibosDe ? [['recibos', 'Recibos']] : []), ['tarefas', 'Tarefas'], ['jogos', 'Jogos'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
   const abaAtual = abas.some(a => a[0] === aba) ? aba : 'tarefas';
   const valorAberto = tarefas.filter(t => t.estado !== 'feito').reduce((a, t) => a + trabValor(t, cu, clientes), 0);
   const horasTot = tarefas.reduce((a, t) => a + trabHoras(t), 0);
@@ -2281,6 +2467,16 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
   const organizarCliente = () => {
     const planos = anosPorOrganizar.map(p => ({ p, n: planoPorMeses(trab, p.id).length }));
     if (window.confirm(`Organizar por meses: ${planos.map(x => `${x.p.nome} (${x.n} listas)`).join(', ')}?\n\nCada lista vai para a pasta do mês dela. As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => anosPorOrganizar.reduce((acc, p) => opPorMeses(acc, p.id), tr));
+  };
+
+  // Voltar: ao ecrã anterior (ou, se não houver, à pasta de cima / ao cliente)
+  const podeVoltar = historico.current.length > 0 || !!pasta || sel.tipo !== 'geral';
+  const voltar = () => {
+    const h = historico.current;
+    if (h.length) { const ant = h[h.length - 1]; historico.current = h.slice(0, -1); irPara(ant.sel); if (ant.aba) setAba(ant.aba); return; }
+    if (pasta && pasta.paiId) irPara({ tipo: 'pasta', id: pasta.paiId });
+    else if (pasta) irPara({ tipo: 'cliente', id: pasta.cid });
+    else irPara({ tipo: 'geral' });
   };
 
   if (modo === 'carregar') return <div className="py-16 text-center text-slate-400 text-sm">A carregar o teu trabalho…</div>;
@@ -2296,7 +2492,6 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
         <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} flex-1 min-w-[160px] max-w-sm text-sm py-2`} />
         <span className="flex-1" />
         {modo === 'g' && <span className="text-[11px] text-amber-400" title="As regras do Firestore ainda não deixam gravar à parte. Os dados ficam no documento principal.">a gravar no documento principal</span>}
-        <button type="button" onClick={() => ficheiroRef.current && ficheiroRef.current.click()} className={`px-3 py-2 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Importar do ClickUp</button>
         <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
       </div>
       <div className={`grid grid-cols-1 gap-5 items-start ${semArvore ? '' : 'lg:grid-cols-[330px_minmax(0,1fr)]'}`}>
@@ -2304,8 +2499,11 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
         <section className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
             <div className="min-w-0 w-full sm:w-auto sm:flex-1">
-              {migalhas.length > 0 && <p className={`text-xs truncate ${sub}`}>{migalhas.join(' / ')}</p>}
+              {migalhas.length > 0 && <p className={`text-xs truncate ${sub} ${podeVoltar ? 'pl-9' : ''}`}>{migalhas.join(' / ')}</p>}
               <div className="flex items-center gap-2">
+                {podeVoltar && <button type="button" onClick={voltar} className={`-ml-1 w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70 text-slate-600' : 'hover:bg-white/10 text-slate-300'}`} title="Voltar" aria-label="Voltar">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+                </button>}
                 {pasta && <span className="w-3 h-3 rounded" style={{ background: pasta.cor }} />}
                 <h2 className="text-xl font-bold truncate">{titulo}</h2>
               </div>
@@ -2399,10 +2597,11 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} />}
+          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
+          {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
-              onCliente={onCliente} onIrPrecos={() => setAba('precos')} onApagar={onApagarCliente ? id => { onApagarCliente(id); setSel({ tipo: 'clientes' }); } : null}
+              onCliente={onCliente} onIrPrecos={() => setAba('precos')} notas={notasDe ? notasDe('cliente', cliente.id) : []} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} onApagar={onApagarCliente ? id => { onApagarCliente(id); setSel({ tipo: 'clientes' }); } : null}
               onCriarDoClickUp={() => {
                 const velho = cliente.id;
                 const id = onNovoCliente(cliente.nome, { cor: cliente.cor && cliente.cor !== '#64748b' ? cliente.cor : undefined, aliases: [cliente.nome] });
@@ -2447,7 +2646,7 @@ const Trabalho = ({ trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, 
           </form>
         </div>
       )}
-      {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} />}
+      {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
     </div>
   );
 };
