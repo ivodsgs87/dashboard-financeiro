@@ -1241,6 +1241,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const [maisTipos, setMaisTipos] = useState(false);
   const [varias, setVarias] = useState(false);
   const [gravou, setGravou] = useState(false);
+  const [nomeLivre, setNomeLivre] = useState(false);
   useEffect(() => { if (!gravou) return undefined; const i = setTimeout(() => setGravou(false), 1600); return () => clearTimeout(i); }, [gravou]);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
   if (!t) return null;
@@ -1258,7 +1259,25 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const temMao = t.pecas && Object.keys(t.pecas).length > 0;
   const preco = tipo => cuPreco(cu, clientes, t.cid, tipo);
   const tiposVis = tiposDe(cu, pecasAtuais).filter(x => maisTipos || preco(x.id) > 0 || pecasAtuais[x.id]);
-  const setPeca = (tipo, n) => { const base = temMao ? { ...t.pecas } : { ...pecasAtuais }; if (!n) delete base[tipo]; else base[tipo] = n; set({ pecas: base }); };
+  // Escolher o tipo muda o início do nome ("1x Variation - …"); o conceito fica como está
+  const pecasNome = contarPecas(trabPecas(t));
+  const conceitoAtual = conceitoDoNome(t.nome, cu);
+  const prefixo = prefixoDoTipo(pecasNome, cu);
+  const aplicarTipo = (pecasNovas, conceito = conceitoAtual) => {
+    const limpas = {}; Object.entries(pecasNovas || {}).forEach(([k, n]) => { if (Number(n) > 0) limpas[k] = Number(n); });
+    const nome = nomeComTipo(limpas, conceito, cu) || t.nome;
+    const lidas = contarPecas(cuPecas(nome));
+    set({ nome, pecas: !Object.keys(limpas).length || mesmasPecas(lidas, limpas) ? null : limpas });
+    setGravou(true);
+  };
+  const gravarConceito = txt => {
+    const v = String(txt || '').trim();
+    if (!v || v === conceitoAtual) return;
+    if (conceitoDoNome(v, cu) !== v) { set({ nome: v, pecas: null }); return; } // escreveste o nome todo ("2x New Videos - …")
+    if (!prefixo) { set({ nome: v }); return; }
+    aplicarTipo(temMao ? t.pecas : pecasNome, v);
+  };
+  const setPeca = (tipo, n) => { const base = temMao ? { ...t.pecas } : { ...pecasAtuais }; if (!n) delete base[tipo]; else base[tipo] = n; aplicarTipo(base); };
   const horasTarefa = trabHoras(t);
   const est = Number(t.estimativa) || 0;
   const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
@@ -1276,14 +1295,30 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
         </div>
         <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-5 lg:gap-6 items-start">
          <div className="space-y-4 min-w-0">
-          <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Nome da tarefa</span>
-            <textarea key={t.id + 'n' + t.nome} defaultValue={t.nome} rows={1} aria-label="Nome da tarefa"
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
-              onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }}
-              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-              onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) { set({ nome: n }); setGravou(true); } else if (!n) e.target.value = t.nome; }}
-              className={`${inputClass} text-base font-semibold resize-none overflow-hidden py-2 leading-snug`} />
-          </label>
+          {nomeLivre || !prefixo ? (
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className={`${lab} flex items-center gap-2`}>Nome da tarefa{prefixo && <button type="button" onClick={() => setNomeLivre(false)} className="ml-auto text-blue-400 hover:text-blue-300">só o conceito</button>}{!prefixo && <span className="ml-auto opacity-70">escolhe o tipo em Valor e o início do nome aparece sozinho</span>}</span>
+              <textarea key={t.id + 'n' + t.nome} defaultValue={t.nome} rows={1} aria-label="Nome da tarefa"
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+                onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }}
+                ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) { set({ nome: n }); setGravou(true); } else if (!n) e.target.value = t.nome; }}
+                className={`${inputClass} text-base font-semibold resize-none overflow-hidden py-2 leading-snug`} />
+            </label>
+          ) : (
+            <div className="flex flex-col gap-1 min-w-0">
+              <span className={`${lab} flex items-center gap-2`}>Nome da tarefa <span className="opacity-70">— o início vem do tipo (em Valor), escreves só o conceito</span><button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">editar o nome todo</button></span>
+              <div className={`flex items-stretch rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${claro ? 'border-slate-300 bg-white' : 'border-slate-600 bg-slate-800'}`}>
+                <span className={`shrink-0 flex items-center px-3 py-1.5 text-sm font-semibold max-w-[45%] sm:max-w-none sm:whitespace-nowrap border-r ${claro ? 'bg-blue-50 text-blue-700 border-slate-200' : 'bg-blue-500/10 text-blue-300 border-slate-700'}`} title="Muda quando escolhes o tipo em Valor">{prefixo}</span>
+                <textarea key={t.id + 'c' + t.nome} defaultValue={conceitoAtual} rows={1} aria-label="Conceito da tarefa" placeholder="Conceito (ex.: Monthly earnings - variation)"
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
+                  onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }}
+                  ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                  onBlur={e => gravarConceito(e.target.value)}
+                  className="flex-1 min-w-0 bg-transparent px-3 py-2 text-base font-semibold resize-none overflow-hidden leading-snug outline-none" />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 min-w-0 col-span-2"><span className={lab}>Pasta</span>
@@ -1339,11 +1374,11 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                       <span className={lab}>O que é esta tarefa? <span className={gravou ? 'text-emerald-400' : 'opacity-70'}>{gravou ? '✓ gravado' : '— carrega noutro para mudar, grava logo'}</span></span>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {tiposVis.map(x => (
-                          <button key={x.id} type="button" onClick={() => { set({ pecas: { [x.id]: 1 } }); setGravou(true); }} className={chip(simples && tiposCom[0] === x.id)}>
+                          <button key={x.id} type="button" onClick={() => aplicarTipo({ [x.id]: 1 })} className={chip(simples && tiposCom[0] === x.id)}>
                             {x.curto || x.nome} <span className="opacity-60 tabular-nums">{eur(preco(x.id))}</span>
                           </button>
                         ))}
-                        <button type="button" onClick={() => { set({ pecas: { extra: 1 } }); setGravou(true); }} className={chip(porHora)}>
+                        <button type="button" onClick={() => aplicarTipo({ extra: 1 })} className={chip(porHora)}>
                           À hora <span className="opacity-60 tabular-nums">{preco('dia') > 0 ? `${eur(preco('dia'))}/dia` : `${eur(preco('hora'))}/h`}</span>
                         </button>
                       </div>
@@ -1630,12 +1665,31 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
 const TIPO_FICHEIRO = { video: 'VID', variacao: 'VID', iteracao: 'VID', hook: 'VID', aso: 'VID', ai_clip: 'VID', video3d: 'VID', banner: 'BAN', banner_var: 'BAN', icone: 'ICO', feature: 'FG', screenshots: 'SS' };
 const slugF = x => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const iniciaisJogo = nome => tokensJ(nome).map(w => w[0]).join('').toUpperCase().slice(0, 4);
-const conceitoDoNome = nome => {
-  let s = String(nome || '').split(/\s\+\s/)[0];
-  const i = s.search(/\s[-–—]\s/);
-  if (i >= 0) s = s.slice(i).replace(/^\s[-–—]\s/, '');
-  return s.trim();
+// Nome da tarefa = "1x Variation - Conceito" (o início sai do tipo escolhido em Valor; tu escreves só o conceito)
+const ehRotuloTipo = (txt, cu) => {
+  const x = String(txt || '').trim().toLowerCase();
+  if (!x) return false;
+  if (/^(extra|idea|ideation|ideia|ideação)\b/.test(x)) return true;
+  const ts = tiposDe(cu);
+  return [...Object.values(CU_NOMES_EN).flat(), ...ts.map(t => t.nome), ...ts.map(t => t.curto)].some(n => n && n.toLowerCase() === x);
 };
+const conceitoDoNome = (nome, cu) => {
+  let s = String(nome || '').trim();
+  s = s.replace(/\s\+\s*\d+\s*x\s[^+]*?(?=\s[-–—]\s|\s\+\s|$)/gi, ''); // " + 1x Iteration"
+  const m = /^(\d+\s*x\s+)?(.*?)\s[-–—]\s([\s\S]*)$/i.exec(s);
+  if (m && (m[1] || ehRotuloTipo(m[2], cu))) return m[3].trim();
+  if (/^\d+\s*x\s/i.test(s) || ehRotuloTipo(s, cu)) return '';
+  return s;
+};
+const prefixoDoTipo = (pecas, cu) => {
+  const ordem = tiposDe(cu, pecas).map(t => t.id);
+  const ents = Object.entries(pecas || {}).filter(([, n]) => Number(n) > 0).sort((a, b) => ordem.indexOf(a[0]) - ordem.indexOf(b[0]));
+  if (ents.some(([k]) => k === 'extra')) return 'Extra work';
+  return ents.filter(([k]) => k !== 'outro').map(([k, n]) => `${n}x ${nomeTipoEN(k, Number(n), cu)}`).join(' + ');
+};
+const nomeComTipo = (pecas, conceito, cu) => [prefixoDoTipo(pecas, cu), String(conceito || '').trim()].filter(Boolean).join(' - ');
+const contarPecas = lista => { const o = {}; lista.forEach(p => { if (p.n > 0) o[p.tipo] = (o[p.tipo] || 0) + p.n; }); return o; };
+const mesmasPecas = (a, b) => { const k = o => JSON.stringify(Object.keys(o).filter(x => o[x] > 0).sort().map(x => [x, Number(o[x])])); return k(a) === k(b); };
 const jogoDaTarefa = (trab, t) => {
   const p = (trab.pastas || []).find(x => x.id === t.pastaId);
   if (!p) return null;
@@ -2106,6 +2160,8 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
   const setF = patch => set({ ficheiros: { ...fx, ...patch } });
   const ic = `${inputClass} text-sm py-1.5`;
+  // Clientes sem jogos (ex.: Hendrik) têm outro workflow: a secção não aparece
+  if (!(trab.jogos || []).some(j => String(j.cid) === String(t.cid))) return null;
   const botaoCopiar = (txt, k) => <button type="button" onClick={() => { copiar(txt); setCopiado(k); }} className={`shrink-0 px-2 py-1 text-[11px] rounded-md border ${copiado === k ? 'border-emerald-400 text-emerald-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{copiado === k ? '✓ copiado' : 'Copiar'}</button>;
   return (
     <div className={`${caixa} space-y-3`}>
