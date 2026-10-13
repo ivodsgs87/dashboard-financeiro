@@ -1265,7 +1265,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const custo = Number(t.custoOutsourcing) || 0;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-0 sm:p-4 lg:p-6 animate-backdropIn backdrop-blur-md" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
-      <div className={`w-full max-w-6xl h-full sm:h-auto sm:max-h-full overflow-y-auto shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
+      <div className={`w-full max-w-[1640px] h-full sm:h-auto sm:max-h-full overflow-y-auto shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
@@ -1274,7 +1274,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
-        <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-5 items-start">
+        <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-5 lg:gap-6 items-start">
          <div className="space-y-4 min-w-0">
           <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Nome da tarefa</span>
             <textarea key={t.id + 'n' + t.nome} defaultValue={t.nome} rows={1} aria-label="Nome da tarefa"
@@ -1775,6 +1775,58 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link) => {
   } }] }) });
   return { ok: true, linha: linha + 1, tab: f.title };
 };
+// Pasta de exports no PC (para mudar o nome dos ficheiros): guardada no browser (IndexedDB) para não perguntar sempre
+let usarPastaExports = false;
+const idbPastas = () => new Promise((ok, falha) => { const r = indexedDB.open('app-pastas', 1); r.onupgradeneeded = () => r.result.createObjectStore('h'); r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
+const idbLer = async k => { try { const db = await idbPastas(); return await new Promise(ok => { const q = db.transaction('h').objectStore('h').get(k); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); } catch (e) { return null; } };
+const idbGravar = async (k, v) => { try { const db = await idbPastas(); await new Promise(ok => { const tx = db.transaction('h', 'readwrite'); tx.objectStore('h').put(v, k); tx.oncomplete = ok; tx.onerror = ok; }); } catch (e) { /* sem IndexedDB */ } };
+// Pastas de exports conhecidas (uma por projeto, ou uma pasta-mãe): a app procura lá dentro e lembra-se
+// da subpasta onde encontrou os ficheiros, ligada ao projeto (lista) e ao jogo.
+const IGNORAR_PASTAS = /cache|auto-save|autosave|node_modules|^\.|^\$|backup/i;
+const pastasConhecidas = async () => { const l = await idbLer('exports-lista'); const v = await idbLer('exports'); return [...(Array.isArray(l) ? l : []), ...(v && !(l || []).length ? [{ dir: v, em: 0 }] : [])]; };
+const lembrarPasta = async (dir, chaves) => {
+  const l = (await pastasConhecidas()).filter(x => x && x.dir);
+  const fora = [];
+  for (const x of l) { let igual = false; try { igual = await x.dir.isSameEntry(dir); } catch (e) { /* */ } if (!igual) fora.push(x); }
+  await idbGravar('exports-lista', [{ dir, ...chaves, em: Date.now() }, ...fora].slice(0, 40));
+};
+const permissaoPasta = async (d, pedir) => {
+  try {
+    let p = await d.queryPermission({ mode: 'readwrite' });
+    if (p !== 'granted' && pedir) p = await d.requestPermission({ mode: 'readwrite' });
+    return p === 'granted';
+  } catch (e) { return false; }
+};
+const escolherPastaExports = async inicio => {
+  if (!window.showDirectoryPicker) throw new Error('este browser não deixa (usa o Chrome)');
+  const o = { id: 'exports', mode: 'readwrite' };
+  if (inicio) o.startIn = inicio;
+  try { return await window.showDirectoryPicker(o); } catch (e) { if (inicio && e && e.name === 'TypeError') return window.showDirectoryPicker({ id: 'exports', mode: 'readwrite' }); throw e; }
+};
+// Procura o ficheiro (o mesmo, não só o mesmo nome) dentro da pasta e subpastas (até 5 níveis) e muda-lhe o nome
+const procurarNaPasta = async (raiz, h) => {
+  const fila = [[raiz, 0]]; let vistos = 0;
+  while (fila.length && vistos < 4000) {
+    const [dir, nivel] = fila.shift(); vistos++;
+    const subs = [];
+    try {
+      for await (const [nome, e] of dir.entries()) {
+        if (e.kind === 'file') { if (e.name === h.name || nome === h.name) { if (await e.isSameEntry(h)) return { dir, nome }; } }
+        else if (nivel < 5 && !IGNORAR_PASTAS.test(nome)) subs.push(e);
+      }
+    } catch (e) { /* pasta sem acesso */ }
+    subs.forEach(d => fila.push([d, nivel + 1]));
+  }
+  return null;
+};
+const renomearEm = async ({ dir, nome }, novo) => {
+  const src = await (await dir.getFileHandle(nome)).getFile();
+  const nh = await dir.getFileHandle(novo, { create: true });
+  const w = await nh.createWritable();
+  await src.stream().pipeTo(w);
+  await dir.removeEntry(nome);
+  return nh;
+};
 const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const [lista, setLista] = useState([]); // { id, file, meta, formato, estado, prog, erro }
   const [aEnviar, setAEnviar] = useState(false);
@@ -1823,6 +1875,73 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   };
   const temVersao = !!versaoConfirmada(verSug);
   const comHandle = lista.filter(x => x.handle && x.formato && x.estado !== 'feito');
+  // Mudar o nome no PC: 1.º tenta o "move" do Chrome; se não der, procura o ficheiro nas pastas de exports
+  // que a app já conhece (primeiro a deste projeto) e cria lá o ficheiro com o nome novo, apagando o antigo.
+  const chaves = { pastaId: t.pastaId || null, jogoId: jogo ? jogo.id : null };
+  const renomearFicheiros = async (alvos, escolhida = null) => {
+    let ok = 0; const erros = []; const faltam = [];
+    let conhecidas = null;
+    for (const a of alvos) {
+      const h = a.handle;
+      if (!h) { erros.push('sem acesso ao ficheiro'); continue; }
+      if (h.name === a.novo) { ok++; continue; }
+      let feito = false;
+      if (typeof h.move === 'function' && !usarPastaExports) {
+        try {
+          let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
+          if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
+          if (perm === 'granted') { await h.move(a.novo); feito = true; }
+        } catch (e) { usarPastaExports = true; }
+      }
+      if (!feito) {
+        try {
+          let onde = escolhida ? await procurarNaPasta(escolhida, h) : null;
+          if (!onde) {
+            if (!conhecidas) {
+              const pts = x => (chaves.pastaId && x.pastaId === chaves.pastaId ? 4 : 0) + (chaves.jogoId && x.jogoId === chaves.jogoId ? 2 : 0);
+              conhecidas = (await pastasConhecidas()).filter(x => x && x.dir).sort((x, y) => pts(y) - pts(x) || (y.em || 0) - (x.em || 0));
+            }
+            // 1.º as que já têm autorização; depois pede autorização às 3 mais prováveis
+            for (const pedir of [false, true]) {
+              for (const x of pedir ? conhecidas.slice(0, 3) : conhecidas) {
+                if (!(await permissaoPasta(x.dir, pedir))) continue;
+                onde = await procurarNaPasta(x.dir, h);
+                if (onde) break;
+              }
+              if (onde) break;
+            }
+          }
+          if (onde) { a.handleNovo = await renomearEm(onde, a.novo); feito = true; await lembrarPasta(onde.dir, chaves); }
+          else faltam.push(a);
+        } catch (e) { erros.push(e && e.name === 'SecurityError' ? 'clica outra vez (o browser pediu um clique novo)' : String((e && e.message) || e)); }
+      }
+      if (feito) {
+        ok++;
+        if (a.id) { const nh = a.handleNovo || h; try { const f = await nh.getFile(); mudarItem(a.id, { file: f, handle: nh, renomeado: true }); } catch (e) { mudarItem(a.id, { renomeado: true }); } }
+      }
+    }
+    return { ok, erros, faltam };
+  };
+  const [pedirPasta, setPedirPasta] = useState(null); // { alvos, depois } quando não encontrou os ficheiros
+  const fimRenomear = ({ ok, erros, faltam }, alvos, depois) => {
+    setPedirPasta(faltam.length ? { alvos: faltam, depois } : null);
+    if (depois && ok && !faltam.length) setRenomeados(null);
+    const pl = n => (n === 1 ? '' : 's');
+    setMsg(faltam.length
+      ? `${ok ? `✓ ${ok} renomeado${pl(ok)}. ` : ''}Não sei em que pasta ${faltam.length === 1 ? 'está' : 'estão'} ${faltam.length === 1 ? faltam[0].handle.name : `${faltam.length} ficheiros`} — escolhe a pasta dos exports deste projeto (ou a pasta onde tens todos os projetos).`
+      : ok ? `✓ ${ok} ficheiro${pl(ok)} renomeado${pl(ok)} no PC${erros.length ? ` · ${erros[0]}` : ''}` : `⚠ Não consegui mudar o nome no PC: ${erros[0] || 'sem autorização'}.`);
+  };
+  const escolherEContinuar = async () => {
+    if (!pedirPasta) return;
+    let dir;
+    try {
+      const recente = (await pastasConhecidas()).filter(x => x && x.dir).sort((x, y) => (y.em || 0) - (x.em || 0))[0];
+      dir = await escolherPastaExports(recente ? recente.dir : undefined);
+    } catch (e) { if (!(e && e.name === 'AbortError')) setMsg(`⚠ ${e.message || e}`); return; }
+    await lembrarPasta(dir, {});
+    setMsg('A procurar os ficheiros nessa pasta…');
+    fimRenomear(await renomearFicheiros(pedirPasta.alvos, dir), pedirPasta.alvos, pedirPasta.depois);
+  };
   const renomearAgora = async () => {
     if (!temVersao && raiz && r.conceito) {
       try {
@@ -1832,38 +1951,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         return; // o browser pede um clique novo para deixar mexer nos ficheiros
       } catch (e) { setMsg(`⚠ ${e.message || e}`); return; }
     }
-    let ok = 0, falhou = 0;
-    for (const it of comHandle) {
-      const h = it.handle; const novo = nomeFinal(it);
-      if (typeof h.move !== 'function') { falhou++; continue; }
-      try {
-        let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
-        if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
-        if (perm !== 'granted') { falhou++; continue; }
-        if (h.name !== novo) await h.move(novo);
-        const f = await h.getFile();
-        mudarItem(it.id, { file: f, renomeado: true });
-        ok++;
-      } catch (e) { falhou++; }
-    }
-    setMsg(ok ? `✓ ${ok} ficheiro${ok === 1 ? '' : 's'} renomeado${ok === 1 ? '' : 's'} no PC${falhou ? ` (${falhou} não deu)` : ''}` : '⚠ O browser não deixou mudar o nome no PC (usa o Chrome e arrasta os ficheiros do Explorador).');
+    const alvos = comHandle.map(it => ({ id: it.id, handle: it.handle, novo: nomeFinal(it) }));
+    fimRenomear(await renomearFicheiros(alvos), alvos, false);
   };
-  // Mudar o nome dos ficheiros no próprio PC (Chrome: só os que foram arrastados do Explorador)
   const renomearNoPc = async itens => {
-    let ok = 0, falhou = 0, semSuporte = 0;
-    for (const it of itens) {
-      const h = it.handle;
-      if (!h || typeof h.move !== 'function') { semSuporte++; continue; }
-      try {
-        let perm = h.queryPermission ? await h.queryPermission({ mode: 'readwrite' }) : 'granted';
-        if (perm !== 'granted' && h.requestPermission) perm = await h.requestPermission({ mode: 'readwrite' });
-        if (perm !== 'granted') { falhou++; continue; }
-        if (h.name !== it.nomeNovo) await h.move(it.nomeNovo);
-        ok++;
-      } catch (e) { falhou++; }
-    }
-    setRenomeados(null);
-    setMsg(ok ? `✓ ${ok} ficheiro${ok === 1 ? '' : 's'} com o nome novo também no PC${falhou ? ` (${falhou} não deu)` : ''}` : semSuporte ? '⚠ Este browser não deixa mudar o nome no PC (usa o Chrome e arrasta os ficheiros do Explorador). No Drive já ficaram com o nome certo.' : '⚠ Não consegui mudar o nome no PC (sem autorização).');
+    const alvos = itens.map(it => ({ handle: it.handle, novo: it.nomeNovo }));
+    fimRenomear(await renomearFicheiros(alvos), alvos, true);
   };
   const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
@@ -1955,7 +2048,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
                     <select value={item.formato || ''} onChange={e => mudarItem(item.id, { formato: e.target.value || null })} disabled={aEnviar} className={`${inputClass} !w-20 text-xs py-1`} aria-label="Formato">
                       <option value="">?</option>{FORMATOS.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
-                    <code className="flex-1 min-w-0 truncate" title={`${item.file.name} → ${nomeFinal(item)}`}>{nomeFinal(item)}</code>
+                    <code className="flex-1 min-w-0 break-all leading-snug" title={`${item.file.name} → ${nomeFinal(item)}`}>{nomeFinal(item)}</code>
                     <span className={`shrink-0 tabular-nums ${sub}`}>{(item.file.size / 1048576).toFixed(0)} MB</span>
                     {!aEnviar && item.estado !== 'feito' && <button type="button" onClick={() => setLista(l => l.filter(x => x.id !== item.id))} className={`shrink-0 ${sub} hover:text-red-400`} aria-label="Tirar">✕</button>}
                   </div>
@@ -1980,6 +2073,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? `(pelo Drive: ${novoVideo ? 'vídeo novo → a seguinte' : 'variação → a última'})` : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+          {pedirPasta && (
+            <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
+          )}
           {renomeados && renomeados.length > 0 && (
             <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏️ Dar o mesmo nome aos {renomeados.length} ficheiros no PC</button>
           )}
@@ -2029,7 +2125,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         <div className="space-y-1.5">
           <div className="flex items-center gap-2"><span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
           {r.ficheiros.map(f => (
-            <div key={f.formato} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 truncate text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, f.formato)}</div>
+            <div key={f.formato} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 break-all leading-snug text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, f.formato)}</div>
           ))}
           {r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
         </div>
