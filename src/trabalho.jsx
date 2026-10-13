@@ -1105,9 +1105,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                 ) : tp === 'video' ? (
                   <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover pointer-events-none" /></button>
                 ) : tp === 'link' ? (
-                  urlPrevia(a, t.cid)
-                    ? <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] overflow-hidden" title={`Pré-visualizar ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} /></button>
-                    : <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={a.url}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
+                  <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={`Abrir ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
                 ) : (
                   <button type="button" onClick={() => (urlPrevia(a, t.cid) ? setPrevia(a) : abrirLink(a.url, t.cid))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
                     <IcoA n={tp} className="w-8 h-8" />
@@ -1244,8 +1242,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
   const custo = Number(t.custoOutsourcing) || 0;
   return (
-    <div className="fixed inset-0 z-50 flex justify-end animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: 'rgba(0,0,0,.45)' }}>
-      <div className={`w-full max-w-2xl h-full overflow-y-auto shadow-2xl animate-slideInRight ${claro ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100'}`}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-0 sm:p-4 lg:p-6 animate-backdropIn backdrop-blur-md" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
+      <div className={`w-full max-w-6xl h-full sm:h-auto sm:max-h-full overflow-y-auto shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
@@ -1254,7 +1252,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
-        <div className="p-4 space-y-4">
+        <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-5 items-start">
+         <div className="space-y-4 min-w-0">
           <textarea key={t.id + 'n'} defaultValue={t.nome} rows={2} onBlur={e => { const n = e.target.value.trim(); if (n && n !== t.nome) set({ nome: n }); }}
             className={`w-full bg-transparent text-lg font-semibold resize-none focus:outline-none rounded-lg px-1 ${claro ? 'focus:bg-slate-50' : 'focus:bg-white/5'}`} />
 
@@ -1282,6 +1281,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
 
           {onAbrirNota && <NotasLigadas lista={notasDe ? notasDe('tarefa', t.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('tarefa', t.id, t.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo="Notas sobre esta tarefa" />}
 
+         </div>
+         <div className="space-y-4 min-w-0">
           {/* Valor da tarefa: peças por tipo, com preço do cliente */}
           <div className={caixa}>
             <div className="flex items-center justify-between mb-2">
@@ -1368,10 +1369,14 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                 {t.link && <a href={urlAbrir(t.link, t.cid)} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
               </div>
             </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={!!t.faturada} onChange={e => set({ faturada: e.target.checked })} />
-              Já faturada ao cliente
-            </label>
+            {t.faturaId && t.faturaId !== 'fora' ? (
+              <p className="text-sm text-emerald-500">✓ Faturada na fatura nº {((trab.faturas || []).find(f => f.id === t.faturaId) || {}).numero || '?'} (para tirar, anula a fatura no separador Faturas do cliente)</p>
+            ) : (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!!(t.faturaId || t.faturada)} onChange={e => set(e.target.checked ? { faturaId: 'fora' } : { faturaId: null, faturada: false })} />
+                Já faturada (fora da app) — não entra nas faturas
+              </label>
+            )}
           </div>
 
           <NomesFicheiros t={t} trab={trab} set={set} claro={claro} inputClass={inputClass} lab={lab} sub={sub} caixa={caixa} />
@@ -1450,6 +1455,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
             } }}>Apagar tarefa</button>
           </div>
+         </div>
         </div>
       </div>
     </div>
@@ -1711,6 +1717,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
               <p className={`text-xs ${sub}`}>{st.listas} lista{st.listas === 1 ? '' : 's'} · {st.tarefas} tarefa{st.tarefas === 1 ? '' : 's'} · <span className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(st.valor)}</span> em {ano}</p>
               <div className="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
                 <Campo rot="Outros nomes (vírgulas)"><TxtIn valor={(j.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Win Money Mahjong" className={ic} /></Campo>
+                <Campo rot="Nome na fatura"><TxtIn valor={j.nomeFatura} onGravar={v => set({ nomeFatura: v })} placeholder={j.nome} className={ic} /></Campo>
                 <Campo rot="Código"><TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="ex.: MJ" className={ic} /></Campo>
               </div>
               <Campo rot="Pasta do Google Drive"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
@@ -1907,6 +1914,346 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
     </div>
   );
 };
+const PDF_LARG = { F1: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,761,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500], F2: [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,761,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556], F3: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,761,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500] };
+
+// ── PDF da fatura (sem bibliotecas): Helvetica, A4, mesmo desenho dos modelos ──
+const pdfBytes = s => { const out = []; for (const ch of String(s == null ? '' : s)) { const c = ch.codePointAt(0); const m = { 0x20AC: 0x80, 0x2013: 0x96, 0x2014: 0x97, 0x2019: 0x92, 0x2018: 0x91, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2026: 0x85 }; if (m[c]) out.push(m[c]); else if (c >= 32 && c < 256) out.push(c); else if (c === 10 || c === 9) out.push(32); else out.push(63); } return out; };
+const pdfLarg = (s, f, tam) => pdfBytes(s).reduce((a, c) => a + (PDF_LARG[f][c - 32] || 500), 0) * tam / 1000;
+const pdfTxt = s => pdfBytes(s).map(c => (c === 40 || c === 41 || c === 92 ? '\\' + String.fromCharCode(c) : String.fromCharCode(c))).join('');
+const eurFatura = v => `${(Math.round((Number(v) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const gerarPdfFatura = d => {
+  const ops = [];
+  const T = (x, y, s, f = 'F1', tam = 8.5, cinza = null) => { if (s == null || s === '') return; ops.push(`BT ${cinza != null ? `${cinza} g ` : '0 g '}/${f} ${tam} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${pdfTxt(s)}) Tj ET`); };
+  const TD = (xd, y, s, f, tam) => T(xd - pdfLarg(s, f, tam), y, s, f, tam);
+  const TC = (xc, y, s, f, tam) => T(xc - pdfLarg(s, f, tam) / 2, y, s, f, tam);
+  const L = (x1, y1, x2, y2, w = 0.6) => ops.push(`0 G ${w} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
+  const R = (x, y, w, h, cinza) => ops.push(`${cinza} g ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f 0 g`);
+  const E = 53, D = 497, DIV = 372, TAM = 8.5;
+  const e = d.emissor || {};
+  T(E, 770, e.nome || '', 'F2', 13);
+  T(362, 764, 'INVOICE', 'F1', 22, 0.45);
+  let y = 718;
+  [e.morada1, e.morada2, e.telefone, e.nif ? `NIF: ${e.nif}` : ''].filter(Boolean).forEach(l => { T(E, y, l); y -= 12.5; });
+  TD(367, 718, 'DATE:', 'F2', TAM); TD(D, 718, d.data || '', 'F1', TAM);
+  TD(367, 705.5, 'INVOICE #', 'F2', TAM); TD(D, 705.5, String(d.numero || ''), 'F1', TAM);
+  TD(367, 693, 'FOR:', 'F2', TAM); TD(D, 693, e.para || '', 'F3', TAM);
+  y = Math.min(y, 680) - 4; T(E, y, 'Bill To:', 'F2', TAM); y -= 17;
+  (d.cliente || []).filter(Boolean).forEach(l => { T(E, y, l); y -= 12.5; });
+  // Tabela
+  let topo = Math.min(582, y - 18);
+  const cab = 23;
+  L(E, topo, D + 1, topo, 1.2); L(E, topo - cab, D + 1, topo - cab, 1.2);
+  TC((E + DIV) / 2, topo - 15, 'DESCRIPTION', 'F2', TAM); TC((DIV + D) / 2, topo - 15, 'AMOUNT', 'F2', TAM);
+  let yy = topo - cab;
+  const larguraTxt = DIV - E - 8;
+  const partir = (titulo, resto) => {
+    const fichas = [];
+    String(titulo || '').split(/(\s+)/).filter(Boolean).forEach(p => fichas.push({ t: p, f: 'F2' }));
+    String(resto || '').split(/(\s+)/).filter(Boolean).forEach(p => fichas.push({ t: p, f: 'F1' }));
+    const linhas = [[]]; let w = 0;
+    fichas.forEach(fc => { const lw = pdfLarg(fc.t, fc.f, TAM); if (w + lw > larguraTxt && /\S/.test(fc.t) && linhas[linhas.length - 1].length) { linhas.push([]); w = 0; } if (!linhas[linhas.length - 1].length && !/\S/.test(fc.t)) return; linhas[linhas.length - 1].push(fc); w += lw; });
+    return linhas;
+  };
+  const linhasT = d.linhas || [];
+  const nLinhas = Math.max(11, linhasT.length);
+  for (let i = 0; i < nLinhas; i++) {
+    const ln = linhasT[i];
+    const partes = ln ? partir(ln.titulo, ln.resto) : [];
+    const h = Math.max(23, 12 + partes.length * 11);
+    partes.forEach((pl, k) => { let x = E + 4; pl.forEach(fc => { T(x, yy - 10 - k * 11, fc.t, fc.f, TAM); x += pdfLarg(fc.t, fc.f, TAM); }); });
+    if (ln && ln.valor != null && ln.valor !== '') TC((DIV + D) / 2, yy - 10, eurFatura(ln.valor), 'F1', TAM);
+    yy -= h; L(E, yy, D + 1, yy, 0.6);
+  }
+  // Total (e IVA, se houver)
+  const extra = [];
+  if (d.ivaTaxa > 0) { extra.push(['SUBTOTAL', d.subtotal]); extra.push([`VAT ${d.ivaTaxa}%`, d.ivaValor]); }
+  extra.push(['TOTAL', d.total]);
+  const fimTabela = yy;
+  L(E, topo, E, fimTabela, 1.2); L(DIV, topo, DIV, fimTabela, 1.2); L(D + 1, topo, D + 1, fimTabela, 1.2);
+  extra.forEach(([rot, v]) => { R(DIV, yy - 18, D + 1 - DIV, 18, 0.93); L(DIV, yy, D + 1, yy, 0.6); TD(DIV - 4, yy - 12.5, rot, 'F2', TAM); TC((DIV + D) / 2, yy - 12.5, eurFatura(v), 'F1', TAM); L(DIV, yy - 18, D + 1, yy - 18, 0.6); L(DIV, yy, DIV, yy - 18, 0.6); L(D + 1, yy, D + 1, yy - 18, 0.6); yy -= 18; });
+  yy -= 13;
+  if (d.notaIva) { const pal = String(d.notaIva).split(/(\s+)/); let lin = ''; pal.forEach(p => { if (pdfLarg(lin + p, 'F1', TAM) > D - E && lin.trim()) { T(E, yy, lin.trim()); yy -= 11; lin = p.trim() ? p : ''; } else lin += p; }); if (lin.trim()) { T(E, yy, lin.trim()); yy -= 11; } }
+  yy -= 38;
+  (d.pagamento || []).filter(Boolean).forEach(l => { T(E, yy, l); yy -= 12; });
+  yy -= 18;
+  TC(286, yy, d.obrigado || 'THANK YOU!', 'F2', TAM);
+  // Montar o ficheiro
+  const conteudo = ops.join('\n');
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents 7 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>',
+    `<< /Length ${conteudo.length} >>\nstream\n${conteudo}\nendstream`,
+  ];
+  let s = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'; const pos = [];
+  objs.forEach((o, i) => { pos.push(s.length); s += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = s.length;
+  s += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${pos.map(p => `${String(p).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info << /Title (${pdfTxt(`Invoice ${d.numero || ''}`)}) /Producer (Dashboard) >> >>\nstartxref\n${xref}\n%%EOF`;
+  const u8 = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i) & 0xFF;
+  return u8;
+};
+
+// ── Faturas do mês (Trabalho → cliente → Faturas): tarefas entregues no mês, agrupadas por jogo ──
+const MESES_EN_F = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MESES_PT_F = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const ORDEM_TIPOS_F = ['video', 'variacao', 'iteracao', 'hook', 'aso', 'ai_clip', 'video3d', 'banner', 'banner_var', 'icone', 'feature', 'screenshots'];
+const NOTA_IVA_UE = 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)';
+const dataEN = iso => { const [y, m, d] = String(iso || '').split('-').map(Number); return y ? `${MESES_EN_F[m - 1]} ${d}, ${y}` : ''; };
+const horasF = h => `${Math.round(h * 10) / 10}h`;
+const nomeTipoEN = (tipo, n, cu) => { const en = CU_NOMES_EN[tipo]; if (en) return en[n === 1 ? 0 : 1]; const t = tiposDe(cu, { [tipo]: 1 }).find(x => x.id === tipo); return t ? t.nome : tipo; };
+// Linhas automáticas: uma por jogo, com as peças somadas e o valor das tarefas (+ linhas à parte dos orçamentos)
+const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
+  const grupos = new Map();
+  const grupo = (key, titulo) => { if (!grupos.has(key)) grupos.set(key, { key, titulo, pecas: {}, horas: 0, soltas: [], extras: [], valor: 0, tarefas: [], extrasIds: [] }); return grupos.get(key); };
+  tarefas.forEach(t => {
+    const j = jogoDaTarefa(trab, t);
+    const g = grupo(j && j.id ? j.id : j && j.nome ? `n:${j.nome}` : 'outros', j ? (j.nomeFatura || j.nome) : 'Other');
+    trabPecas(t).forEach(p => {
+      if (p.tipo === 'extra' || p.tipo === 'outro') { const h = trabHoras(t); if (h > 0) g.horas += h; else g.soltas.push(conceitoDoNome(t.nome) || t.nome); }
+      else g.pecas[p.tipo] = (g.pecas[p.tipo] || 0) + p.n;
+    });
+    g.valor += trabValor(t, cu, clientes); g.tarefas.push(t.id);
+  });
+  extras.forEach(x => {
+    const p = (trab.pastas || []).find(y => y.id === x.pastaId) || {};
+    const j = (trab.jogos || []).find(y => y.id === p.jogoId);
+    const g = grupo(j ? j.id : 'outros', j ? (j.nomeFatura || j.nome) : 'Other');
+    g.extras.push(x.desc); g.valor += x.val; g.extrasIds.push(x.key);
+  });
+  return [...grupos.values()].map(g => {
+    const tipos = [...ORDEM_TIPOS_F.filter(t => g.pecas[t]), ...Object.keys(g.pecas).filter(t => !ORDEM_TIPOS_F.includes(t))];
+    const partes = tipos.map(t => `${g.pecas[t]}x ${nomeTipoEN(t, g.pecas[t], cu)}`);
+    g.soltas.forEach(s => partes.push(s));
+    if (g.horas > 0) partes.push(`Extra work (${horasF(g.horas)})`);
+    g.extras.forEach(s => partes.push(s));
+    return { id: `a:${g.key}`, titulo: g.titulo, resto: partes.length ? ` - ${partes.join(' + ')}` : '', valor: Math.round(g.valor * 100) / 100, tarefas: g.tarefas, extras: g.extrasIds };
+  });
+};
+const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
+const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, showToast }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const ic = `${inputClass} text-sm py-1.5`;
+  const [mes, setMes] = useState(() => ({ a: ano, m: mesNum }));
+  const pref = `${mes.a}-${String(mes.m).padStart(2, '0')}-`;
+  const mesK = pref.slice(0, 7);
+  const cid = c.id;
+  const doCliente = (trab.tarefas || []).filter(t => String(t.cid) === String(cid));
+  const faturas = (trab.faturas || []).filter(f => String(f.cid) === String(cid)).sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.numero || 0) - (a.numero || 0));
+  const inicio = faturas.length ? faturas.map(f => f.mes).sort()[0] : null;
+  // Tarefas do mês ainda por faturar, já faturadas, e as que ficaram para trás
+  const doMes = doCliente.filter(t => trabEntrega(t).startsWith(pref));
+  const jaFat = t => !!(t.faturaId || t.faturada);
+  const porFaturar = doMes.filter(t => !jaFat(t));
+  const jaFaturadas = doMes.filter(jaFat);
+  const atrasadas = inicio ? doCliente.filter(t => !jaFat(t) && trabEntrega(t) && trabEntrega(t) < pref && trabEntrega(t).slice(0, 7) >= inicio) : [];
+  const porEntregar = doCliente.filter(t => t.estado === 'todo' || t.estado === 'curso');
+  const [incluirAtras, setIncluirAtras] = useState(true);
+  const extrasMes = [];
+  (trab.pastas || []).filter(p => String(p.cid) === String(cid)).forEach(p => ((p.orcamento && p.orcamento.extras) || []).forEach((e, i) => {
+    const v = Number(String(e.val ?? '').replace(',', '.')) || 0;
+    if (v && !e.faturaId && String(e.data || '').startsWith(pref)) extrasMes.push({ key: `${p.id}:${i}`, pastaId: p.id, desc: e.desc || 'Extra', val: v });
+  }));
+  const tarefasFatura = [...porFaturar, ...(incluirAtras ? atrasadas : [])];
+  const semPreco = tarefasFatura.filter(t => !(trabValor(t, cu, clientes) > 0));
+  const auto = linhasAutoFatura(trab, tarefasFatura, extrasMes, cu, clientes);
+  const [edicoes, setEdicoes] = useState({});
+  const [manuais, setManuais] = useState([]);
+  useEffect(() => { setEdicoes({}); setManuais([]); }, [mesK, cid]);
+  const linhas = [...auto.filter(l => !(edicoes[l.id] && edicoes[l.id].fora)).map(l => ({ ...l, ...(edicoes[l.id] || {}) })), ...manuais];
+  const fat = c.fat || {};
+  const ivaTaxa = Number(fat.ivaFatura) || 0;
+  const subtotal = Math.round(linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0) * 100) / 100;
+  const ivaValor = Math.round(subtotal * ivaTaxa) / 100;
+  const total = Math.round((subtotal + ivaValor) * 100) / 100;
+  const proximoN = faturas.length ? Math.max(...faturas.map(f => Number(f.numero) || 0)) + 1 : (Number(fat.proxFatura) || 1);
+  const ultimoDia = `${mes.a}-${String(mes.m).padStart(2, '0')}-${String(new Date(mes.a, mes.m, 0).getDate()).padStart(2, '0')}`;
+  const [numero, setNumero] = useState(null);
+  const [data, setData] = useState(null);
+  useEffect(() => { setNumero(null); setData(null); }, [mesK, cid]);
+  const nFinal = numero != null ? numero : proximoN;
+  const dFinal = data || ultimoDia;
+  const em = trab.emissor || {};
+  const [verEmissor, setVerEmissor] = useState(!em.nome);
+  const setEm = patch => mudar(tr => ({ ...tr, emissor: { ...(tr.emissor || {}), ...patch } }));
+  const proxMes = mes.m === 12 ? { a: mes.a + 1, m: 1 } : { a: mes.a, m: mes.m + 1 };
+  const [registar, setRegistar] = useState(true);
+  const [mesRec, setMesRec] = useState(null);
+  const recK = mesRec || `${proxMes.a}-${proxMes.m}`;
+  const [aGerar, setAGerar] = useState(false);
+  const mudarMes = d => setMes(x => { let m = x.m + d, a = x.a; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { a, m }; });
+  const linhasCliente = [fat.nomeLegal || c.nome, fat.nif ? `VAT No: ${fat.nif}` : '', fat.morada || ''];
+  const dadosPdf = () => ({
+    emissor: { nome: em.nome, morada1: em.morada1, morada2: em.morada2, telefone: em.telefone, nif: em.nif, para: em.para != null ? em.para : 'Motion Graphics' },
+    data: dataEN(dFinal), numero: nFinal, cliente: linhasCliente,
+    linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })),
+    subtotal, ivaTaxa, ivaValor, total,
+    notaIva: fat.notaIva === '-' ? '' : fat.notaIva != null && fat.notaIva !== '' ? fat.notaIva : (ivaTaxa > 0 || ((c.recibo || {}).pais || 'PT') === 'PT' ? '' : NOTA_IVA_UE), // clientes portugueses: sem a frase da isenção
+    pagamento: ['Payment via bank transfer to:', [em.iban ? `IBAN: ${em.iban}` : '', em.swift ? `SWIFT/BIC: ${em.swift}` : ''].filter(Boolean).join(' ')],
+  });
+  const nomeFicheiro = (n, iso) => { const [y, m] = String(iso).split('-').map(Number); return `${n}_Invoice_${MESES_EN_F[(m || 1) - 1]}_${String(y).slice(2)}.pdf`; };
+  const descarregar = (u8, nome) => { const url = URL.createObjectURL(new Blob([u8], { type: 'application/pdf' })); const a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); };
+  const verPdf = u8 => { const url = URL.createObjectURL(new Blob([u8], { type: 'application/pdf' })); window.open(url, '_blank', 'noopener'); };
+  const avisos = [];
+  if (!em.nome || !em.iban) avisos.push('Faltam os teus dados (nome, morada, NIF, IBAN) — preenche em "Os meus dados".');
+  if (!fat.nomeLegal) avisos.push('Falta o nome legal do cliente na Ficha → Faturação.');
+  if (faturas.some(f => Number(f.numero) === Number(nFinal))) avisos.push(`Já existe uma fatura nº ${nFinal} deste cliente.`);
+  if (faturas.some(f => f.mes === mesK)) avisos.push(`Já fizeste uma fatura de ${MESES_PT_F[mes.m - 1]} para este cliente — esta junta só o que ficou de fora.`);
+  const gerar = async () => {
+    if (!linhas.length || !(total > 0)) { if (showToast) showToast('Não há nada para faturar neste mês.', 'error'); return; }
+    if (!em.nome) { setVerEmissor(true); if (showToast) showToast('Preenche primeiro os teus dados.', 'error'); return; }
+    setAGerar(true);
+    try {
+      const u8 = gerarPdfFatura(dadosPdf());
+      const nome = nomeFicheiro(nFinal, dFinal);
+      descarregar(u8, nome);
+      let pdf = null;
+      if (onEnviarAnexo) { try { const r = await onEnviarAnexo(`faturas/${cid}/${trabId()}-${nome}`, new File([u8], nome, { type: 'application/pdf' })); pdf = { url: r.url, caminho: r.caminho, nome }; } catch (e) { console.error('Fatura PDF:', e); } }
+      const idsT = new Set(linhas.flatMap(l => l.tarefas || []));
+      const idsX = new Set(linhas.flatMap(l => l.extras || []));
+      const reg = { id: trabId(), cid, numero: Number(nFinal), data: dFinal, mes: mesK, linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })), subtotal, ivaTaxa, ivaValor, total, notaIva: dadosPdf().notaIva, tarefas: [...idsT], extras: [...idsX], pdf, criada: new Date().toISOString() };
+      if (registar && onCriarRecibo) { const r2 = onCriarRecibo({ cid, mesK: recK, numero: Number(nFinal), valor: subtotal, pdf, faturaId: reg.id, mesFatura: mes.m }); if (r2) reg.recibo = r2; }
+      mudar(tr => ({
+        ...tr,
+        faturas: [...(tr.faturas || []), reg],
+        tarefas: (tr.tarefas || []).map(t => (idsT.has(t.id) ? { ...t, faturaId: reg.id } : t)),
+        pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some((e, i) => idsX.has(`${p.id}:${i}`)) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map((e, i) => (idsX.has(`${p.id}:${i}`) ? { ...e, faturaId: reg.id } : e)) } } : p)),
+      }));
+      setEdicoes({}); setManuais([]); setNumero(null);
+      if (showToast) showToast(`Fatura nº ${nFinal} gerada${pdf ? ' e guardada' : ''}${registar && onCriarRecibo ? ' · registada em Receitas' : ''}`);
+    } catch (e) { console.error('Fatura:', e); if (showToast) showToast('Não consegui gerar a fatura.', 'error'); }
+    setAGerar(false);
+  };
+  const anular = f => {
+    if (!window.confirm(`Anular a fatura nº ${f.numero}? As tarefas voltam a ficar por faturar.${f.recibo ? '\n\nO registo em Receitas não é apagado — apaga-o lá se for preciso.' : ''}`)) return;
+    mudar(tr => ({
+      ...tr,
+      faturas: (tr.faturas || []).filter(x => x.id !== f.id),
+      tarefas: (tr.tarefas || []).map(t => (t.faturaId === f.id ? (({ faturaId, ...r }) => r)(t) : t)),
+      pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some(e => e.faturaId === f.id) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map(e => (e.faturaId === f.id ? (({ faturaId, ...r }) => r)(e) : e)) } } : p)),
+    }));
+  };
+  const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
+  const chip = `px-2 py-0.5 rounded-md text-[11px]`;
+  return (
+    <div className="space-y-4 max-w-4xl">
+      <div className={caixa}>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button type="button" onClick={() => mudarMes(-1)} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mês anterior">‹</button>
+          <p className="font-semibold">Fatura de {MESES_PT_F[mes.m - 1]} de {mes.a}</p>
+          <button type="button" onClick={() => mudarMes(1)} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mês seguinte">›</button>
+          <span className="flex-1" />
+          <span className={`text-xs ${sub}`}>{porFaturar.length} tarefa{porFaturar.length === 1 ? '' : 's'} entregue{porFaturar.length === 1 ? '' : 's'} por faturar{jaFaturadas.length ? ` · ${jaFaturadas.length} já faturada${jaFaturadas.length === 1 ? '' : 's'}` : ''}</span>
+        </div>
+        {/* Verificações */}
+        <div className="space-y-1.5 mb-3 text-xs">
+          {atrasadas.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500">
+              <span className="flex-1 min-w-0">⚠ {atrasadas.length} tarefa{atrasadas.length === 1 ? '' : 's'} de meses anteriores ficaram por faturar: {atrasadas.slice(0, 4).map(t => t.nome).join(' · ')}{atrasadas.length > 4 ? '…' : ''}</span>
+              <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={incluirAtras} onChange={e => setIncluirAtras(e.target.checked)} className="accent-amber-500" /> Juntar a esta fatura</label>
+            </div>
+          )}
+          {semPreco.length > 0 && <div className="rounded-lg px-3 py-2 bg-red-500/10 text-red-400">⚠ Sem preço: {semPreco.map(t => t.nome).join(' · ')} — define o tipo na tarefa ou o valor final.</div>}
+          {!inicio && <div className={`rounded-lg px-3 py-2 ${claro ? 'bg-slate-50' : 'bg-white/[0.03]'} ${sub}`}>É a primeira fatura deste cliente na app. A partir daqui, a app avisa se alguma tarefa entregue ficar por faturar.</div>}
+          {porEntregar.length > 0 && <div className={sub}>{porEntregar.length} tarefa{porEntregar.length === 1 ? '' : 's'} ainda por entregar (Por começar / Em curso) — entram na fatura do mês em que passarem a Review ou Feito.</div>}
+          {porFaturar.length === 0 && !atrasadas.length && !extrasMes.length && <div className={sub}>Nenhuma tarefa entregue neste mês por faturar.</div>}
+        </div>
+        {/* Linhas */}
+        <div className={`rounded-xl border overflow-hidden ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+          <div className={`grid grid-cols-[minmax(0,1fr)_110px_28px] gap-2 px-3 h-8 items-center text-[11px] font-semibold uppercase tracking-wide ${claro ? 'bg-slate-50 text-slate-500' : 'bg-white/[0.03] text-slate-400'}`}><span>Descrição</span><span className="text-right">Valor</span><span /></div>
+          {linhas.map((l, i) => {
+            const ed = (patch) => { if (String(l.id).startsWith('m:')) setManuais(ms => ms.map(x => (x.id === l.id ? { ...x, ...patch } : x))); else setEdicoes(e => ({ ...e, [l.id]: { ...(e[l.id] || {}), ...patch } })); };
+            return (
+              <div key={l.id} className={`grid grid-cols-[minmax(0,1fr)_110px_28px] gap-2 px-3 py-2 items-start border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+                <div className="flex flex-col sm:flex-row gap-1.5 min-w-0">
+                  <input value={l.titulo} onChange={e => ed({ titulo: e.target.value })} placeholder="Jogo" className={`${ic} sm:!w-40 font-semibold`} />
+                  <input value={l.resto} onChange={e => ed({ resto: e.target.value })} placeholder=" - 3x New Videos" className={`${ic} flex-1`} />
+                </div>
+                <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
+                <button type="button" onClick={() => (String(l.id).startsWith('m:') ? setManuais(ms => ms.filter(x => x.id !== l.id)) : ed({ fora: true }))} className={`h-8 text-xs ${sub} hover:text-red-400`} title="Tirar esta linha" aria-label="Tirar esta linha">✕</button>
+                {(l.tarefas || []).length > 0 && <p className={`col-span-3 text-[11px] ${sub}`}>{l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}: {l.tarefas.map(id => (doCliente.find(t => t.id === id) || {}).nome).filter(Boolean).slice(0, 6).join(' · ')}{l.tarefas.length > 6 ? '…' : ''}</p>}
+              </div>
+            );
+          })}
+          <div className={`flex items-center gap-3 px-3 py-2 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+            <button type="button" onClick={() => setManuais(ms => [...ms, { id: `m:${trabId()}`, titulo: '', resto: 'AI Credits', valor: '' }])} className="text-xs text-blue-400 hover:text-blue-300">+ Linha (AI Credits, extra…)</button>
+            {Object.values(edicoes).some(e => e.fora) && <button type="button" onClick={() => setEdicoes(e => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, { ...v, fora: false }])))} className={`text-xs ${sub} hover:text-blue-400`}>repor linhas tiradas</button>}
+            <span className="flex-1" />
+            {ivaTaxa > 0 && <span className={`text-xs ${sub}`}>IVA {ivaTaxa}%: {eurFatura(ivaValor)}</span>}
+            <span className="text-sm">Total <strong className="tabular-nums">{eurFatura(total)}</strong></span>
+          </div>
+        </div>
+        {/* Cabeçalho e ações */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+          <CampoF rot="Fatura nº"><input type="number" value={nFinal} onChange={e => setNumero(e.target.value === '' ? '' : Number(e.target.value))} className={ic} /></CampoF>
+          <CampoF rot="Data"><input type="date" value={dFinal} onChange={e => setData(e.target.value)} className={ic} /></CampoF>
+          <CampoF rot="Registar em Receitas" largo>
+            <span className="flex items-center gap-2">
+              <input type="checkbox" checked={registar} onChange={e => setRegistar(e.target.checked)} className="accent-blue-500" disabled={!onCriarRecibo} />
+              <select value={recK} onChange={e => setMesRec(e.target.value)} disabled={!registar} className={`${ic} flex-1`}>
+                {[0, 1, 2].map(d => { const mm = ((mes.m - 1 + d) % 12) + 1, aa = mes.a + Math.floor((mes.m - 1 + d) / 12); return <option key={d} value={`${aa}-${mm}`}>em {MESES_PT_F[mm - 1]} {aa}{d === 1 ? ' (quando pagam)' : ''}</option>; })}
+              </select>
+            </span>
+          </CampoF>
+        </div>
+        {avisos.length > 0 && <ul className="mt-3 space-y-1 text-xs text-amber-500">{avisos.map(a => <li key={a}>• {a}</li>)}</ul>}
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          <button type="button" onClick={() => verPdf(gerarPdfFatura(dadosPdf()))} disabled={!linhas.length} className={`px-3 py-2 text-sm rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Pré-visualizar PDF</button>
+          <button type="button" onClick={gerar} disabled={aGerar || !linhas.length} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aGerar ? 'A gerar…' : `Gerar fatura nº ${nFinal}`}</button>
+          <span className={`text-xs ${sub}`}>Descarrega o PDF, guarda-o aqui e marca as tarefas como faturadas.</span>
+        </div>
+      </div>
+
+      {/* Os meus dados */}
+      <div className={caixa}>
+        <button type="button" onClick={() => setVerEmissor(v => !v)} className="w-full flex items-center gap-2 text-left">
+          <span className={`text-[10px] ${sub}`} style={{ transform: verEmissor ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+          <span className="text-sm font-semibold flex-1">Os meus dados (aparecem em todas as faturas)</span>
+          {!em.nome && <span className="text-xs text-amber-500">por preencher</span>}
+        </button>
+        {verEmissor && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            <CampoF rot="Nome"><TxtIn valor={em.nome} onGravar={v => setEm({ nome: v })} placeholder="O teu nome" className={ic} /></CampoF>
+            <CampoF rot="Telefone"><TxtIn valor={em.telefone} onGravar={v => setEm({ telefone: v })} placeholder="(+351)…" className={ic} /></CampoF>
+            <CampoF rot="Morada (linha 1)"><TxtIn valor={em.morada1} onGravar={v => setEm({ morada1: v })} placeholder="Rua…" className={ic} /></CampoF>
+            <CampoF rot="Morada (linha 2)"><TxtIn valor={em.morada2} onGravar={v => setEm({ morada2: v })} placeholder="Código postal, localidade" className={ic} /></CampoF>
+            <CampoF rot="NIF"><TxtIn valor={em.nif} onGravar={v => setEm({ nif: v })} placeholder="PT…" className={ic} /></CampoF>
+            <CampoF rot={'"FOR:" na fatura'}><TxtIn valor={em.para != null ? em.para : 'Motion Graphics'} onGravar={v => setEm({ para: v })} className={ic} /></CampoF>
+            <CampoF rot="IBAN"><TxtIn valor={em.iban} onGravar={v => setEm({ iban: v })} placeholder="PT50 …" className={ic} /></CampoF>
+            <CampoF rot="SWIFT/BIC"><TxtIn valor={em.swift} onGravar={v => setEm({ swift: v })} className={ic} /></CampoF>
+            <p className={`sm:col-span-2 text-[11px] ${sub}`}>Ficam só na tua base de dados da app (não no código). O nome legal, o VAT e a morada do cliente vêm da Ficha → Faturação; o IVA e a nota do IVA também se mudam lá.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Faturas feitas */}
+      <div className={caixa}>
+        <p className="text-sm font-semibold mb-2">Faturas emitidas</p>
+        {!faturas.length ? <p className={`text-sm ${sub}`}>Ainda nenhuma.</p> : (
+          <div className="space-y-1">
+            {faturas.map(f => (
+              <div key={f.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>
+                <span className="font-medium tabular-nums w-12">nº {f.numero}</span>
+                <span className={`text-sm ${sub}`}>{MESES_PT_F[Number(String(f.mes).slice(5, 7)) - 1]} {String(f.mes).slice(0, 4)}</span>
+                <span className={`${chip} ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{(f.tarefas || []).length} tarefas</span>
+                {f.recibo && <span className={`${chip} bg-emerald-500/10 text-emerald-500`}>em Receitas</span>}
+                <span className="flex-1" />
+                <span className="tabular-nums font-medium">{eurFatura(f.total)}</span>
+                <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>
+                <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>Anular</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
 const PAISES_RECIBO = [['PT', 'Portugal'], ['UE', 'UE'], ['Fora UE', 'Fora da UE']];
 const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
@@ -2006,6 +2353,9 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             </Campo>
             <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
             <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
+            <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
+            <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder="0" onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
+            <Campo rot={`Nota do IVA na fatura (vazio = ${(rec.pais || 'PT') === 'PT' ? 'sem frase, por ser cliente português' : 'frase da isenção'}; "-" = nenhuma)`} largo><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={(rec.pais || 'PT') === 'PT' ? 'Sem frase' : 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)'} className={ic} /></Campo>
           </div>
         </div>
 
@@ -2435,7 +2785,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onIrMes }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onIrMes }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -2615,7 +2965,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
-  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ...(recibosDe ? [['recibos', 'Recibos']] : []), ['tarefas', 'Tarefas'], ['jogos', 'Jogos'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
+  const abas = pasta ? [['tarefas', 'Tarefas'], ['notas', 'Notas e reuniões'], ['orcamento', 'Orçamento']] : sel.tipo === 'cliente' ? [...(onCliente ? [['ficha', 'Ficha']] : []), ...(recibosDe ? [['recibos', 'Recibos']] : []), ...(onCliente ? [['faturas', 'Faturas']] : []), ['tarefas', 'Tarefas'], ['jogos', 'Jogos'], ['notas', 'Notas e reuniões'], ['precos', 'Preços']] : [];
   const abaAtual = abas.some(a => a[0] === aba) ? aba : 'tarefas';
   const valorAberto = tarefas.filter(t => t.estado !== 'feito').reduce((a, t) => a + trabValor(t, cu, clientes), 0);
   const horasTot = tarefas.reduce((a, t) => a + trabHoras(t), 0);
@@ -2758,6 +3108,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
+          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} showToast={showToast} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
