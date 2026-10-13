@@ -352,9 +352,14 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   };
   const escolher = e => {
     if (!mencao || !mencao.node.isConnected) { setMencao(null); return; }
+    // Troca o "@texto" pela etiqueta no próprio sítio (o insertHTML do Chrome às vezes punha-a numa linha nova)
     const r = document.createRange(); r.setStart(mencao.node, Math.max(0, mencao.ini)); r.setEnd(mencao.node, mencao.fim);
-    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    document.execCommand('insertHTML', false, `${tagHtml(e.t, e.id, e.nome)}&nbsp;`);
+    r.deleteContents();
+    const tmp = document.createElement('span'); tmp.innerHTML = tagHtml(e.t, e.id, e.nome);
+    const tag = tmp.firstChild; const esp = document.createTextNode('\u00a0');
+    r.insertNode(esp); r.insertNode(tag);
+    const c = document.createRange(); c.setStart(esp, 1); c.collapse(true);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(c);
     setMencao(null); avisar();
   };
   const tecla = e => {
@@ -466,6 +471,8 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
   const htmlRef = useRef(''); const timer = useRef(null); const sujo = useRef(false);
   const tituloRef = useRef(meta.titulo || '');
   const [versao, setVersao] = useState(0);
+  const [senha, setSenha] = useState(null); // página de palavra-passe (cofre)
+  const senhaRef = useRef(null);
   const ultimaTecla = useRef(0);
   const ultimoGravado = useRef(null);
   useEffect(() => {
@@ -477,7 +484,9 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
         let html = '';
         if (d && d.cifrado) {
           if (!chave) { if (vivo) setConteudo('__trancada'); return; }
-          html = JSON.parse(await decifrar(chave, d.cifrado)).html || '';
+          const obj = JSON.parse(await decifrar(chave, d.cifrado)) || {};
+          html = obj.html || '';
+          if (obj.senha && vivo) { senhaRef.current = obj.senha; setSenha(obj.senha); }
         } else html = (d && d.html) || '';
         if (vivo) { htmlRef.current = limparHtml(html); ultimoGravado.current = limparHtml(html, { semBlob: true }); setConteudo(htmlRef.current); }
       } catch (e) { console.error('Nota:', e); if (vivo) setConteudo(null); }
@@ -493,7 +502,7 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
     try {
       if (protegida) {
         if (!chave) { setEstado('Trancada — não gravei'); return; }
-        await guardarPagina(meta.id, { cifrado: await cifrar(chave, JSON.stringify({ html })), editada: agora() });
+        await guardarPagina(meta.id, { cifrado: await cifrar(chave, JSON.stringify(senhaRef.current ? { html: '', senha: senhaRef.current } : { html })), editada: agora() });
         const tituloC = await cifrar(chave, tituloRef.current || '');
         mudarIndice(ix => ({ ...ix, paginas: ix.paginas.map(p => (p.id === meta.id ? { ...p, titulo: '', tituloC, txt: '', tags: [], editada: agora() } : p)) }));
       } else {
@@ -547,10 +556,13 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
       ) : conteudo === undefined ? <p className={`py-10 text-center text-sm ${sub}`}>A abrir…</p>
         : conteudo === null ? <p className="py-10 text-center text-sm text-red-400">Não consegui abrir esta página.</p> : (
           <>
-            <input key={meta.id + 't'} defaultValue={meta.titulo || ''} placeholder="Título"
+            <input key={meta.id + 't'} defaultValue={meta.titulo || ''} placeholder={senha ? 'Nome (ex.: Gmail, Millennium, Wi-Fi de casa)' : 'Título'}
               onChange={e => { tituloRef.current = e.target.value; agendar(); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const ed = e.currentTarget.parentElement.querySelector('.nota-ed'); if (ed) ed.focus(); } }}
               className={`w-full bg-transparent text-2xl sm:text-3xl font-semibold outline-none border-b pb-1 ${claro ? 'border-slate-200 placeholder-slate-300' : 'border-slate-700 placeholder-slate-600'}`} />
             <p className={`mt-1.5 text-xs ${sub}`}>{dataLonga(meta.criada)} · {horaTxt(meta.criada)}{meta.editada && meta.editada !== meta.criada ? ` · editada ${haQuanto(meta.editada)}` : ''}</p>
+            {senha ? (
+              <CartaoSenha key={meta.id} inicial={senha} claro={claro} sub={sub} avisar={showToast} onMudar={v => { senhaRef.current = v; agendar(); }} />
+            ) : (<>
             {tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {tags.map(t => <button key={`${t.t}:${t.id}`} type="button" onClick={() => onIrEntidade && onIrEntidade(t.t, t.id)} className={`px-2 py-0.5 rounded-md text-xs ${claro ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/5 hover:bg-white/10 text-slate-300'}`}>@{t.n}</button>)}
@@ -561,8 +573,178 @@ const PaginaAberta = ({ meta, seccao, claro, sub, onVoltar, lerPagina, guardarPa
                 onEnviarImagem={enviarImagem ? (nome, f) => enviarImagem(`notas/${meta.id}/${nome}`, f) : null} showToast={showToast}
                 onMudar={h => { htmlRef.current = h; agendar(); }} />
             </div>
+            </>)}
           </>
         )}
+    </div>
+  );
+};
+
+// ── Cofre: páginas de palavra-passe (só em secções protegidas; tudo cifrado neste dispositivo) ──
+const TIPOS_SENHA = [
+  { id: 'login', nome: 'Site / app', campos: [['url', 'Site', 'url'], ['utilizador', 'Utilizador / email'], ['senha', 'Palavra-passe', 'secreto']], dois: true },
+  { id: 'banco', nome: 'Banco', campos: [['url', 'Site', 'url'], ['utilizador', 'Nº de adesão / utilizador'], ['senha', 'Código de acesso', 'secreto'], ['pin', 'PIN', 'secreto']], dois: true },
+  { id: 'email', nome: 'Email', campos: [['utilizador', 'Email'], ['senha', 'Palavra-passe', 'secreto'], ['servidor', 'Servidor (IMAP / SMTP)']], dois: true },
+  { id: 'cartao', nome: 'Cartão', campos: [['titular', 'Titular'], ['numero', 'Número', 'secreto'], ['validade', 'Validade (MM/AA)'], ['cvv', 'CVV', 'secreto'], ['pin', 'PIN', 'secreto']] },
+  { id: 'wifi', nome: 'Wi-Fi', campos: [['rede', 'Nome da rede'], ['senha', 'Palavra-passe', 'secreto']] },
+  { id: 'licenca', nome: 'Licença', campos: [['url', 'Site', 'url'], ['utilizador', 'Conta / email'], ['chave', 'Chave da licença', 'secreto']], dois: true },
+  { id: 'outro', nome: 'Outro', campos: [['utilizador', 'Utilizador'], ['senha', 'Palavra-passe', 'secreto']], dois: true },
+];
+const b32 = s => { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; const c = String(s || '').toUpperCase().replace(/[^A-Z2-7]/g, ''); let bits = ''; for (const ch of c) bits += A.indexOf(ch).toString(2).padStart(5, '0'); const out = []; for (let i = 0; i + 8 <= bits.length; i += 8) out.push(parseInt(bits.slice(i, i + 8), 2)); return new Uint8Array(out); };
+// Código 2FA (TOTP, RFC 6238) — calculado aqui, sem enviar o segredo para lado nenhum
+const codigoTotp = async (otp, quando = Date.now()) => {
+  const chave = b32(otp.segredo); if (!chave.length || !TEM_CRIPTO) return null;
+  const alg = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' }[otp.algoritmo || 'SHA1'] || 'SHA-1';
+  const k = await crypto.subtle.importKey('raw', chave, { name: 'HMAC', hash: alg }, false, ['sign']);
+  let ct = Math.floor(quando / 1000 / (otp.periodo || 30)); const buf = new Uint8Array(8); for (let i = 7; i >= 0; i--) { buf[i] = ct & 0xff; ct = Math.floor(ct / 256); }
+  const h = new Uint8Array(await crypto.subtle.sign('HMAC', k, buf));
+  const o = h[h.length - 1] & 0xf; const n = ((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  const dg = otp.digitos || 6; return String(n % 10 ** dg).padStart(dg, '0');
+};
+// Aceita a chave em texto ("JBSW Y3DP …") ou o link otpauth:// (o que está dentro do QR code)
+const lerOtp = txt => {
+  const t = String(txt || '').trim();
+  if (/^otpauth:\/\//i.test(t)) {
+    try {
+      const u = new URL(t); const p = u.searchParams;
+      const seg = (p.get('secret') || '').replace(/\s/g, '').replace(/=+$/, '');
+      if (!seg) return null;
+      return { segredo: seg.toUpperCase(), digitos: Number(p.get('digits')) || 6, periodo: Number(p.get('period')) || 30, algoritmo: (p.get('algorithm') || 'SHA1').toUpperCase(), emissor: p.get('issuer') || decodeURIComponent(u.pathname.replace(/^\/+/, '').split(':')[0] || '') };
+    } catch (e) { return null; }
+  }
+  const seg = t.replace(/[\s-]/g, '').replace(/=+$/, '');
+  return /^[A-Za-z2-7]{16,}$/.test(seg) ? { segredo: seg.toUpperCase(), digitos: 6, periodo: 30, algoritmo: 'SHA1' } : null;
+};
+const gerarSenha = (n = 20) => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*-_=+?'; const r = crypto.getRandomValues(new Uint32Array(n)); return Array.from(r, x => A[x % A.length]).join(''); };
+let limparCopia = null;
+const copiarSeguro = async (txt, avisar) => {
+  let ok = false;
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(txt); ok = true; } } catch (e) { /* tenta o método antigo */ }
+  if (!ok) { try { const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); ok = true; } catch (e) { /* sem acesso */ } }
+  clearTimeout(limparCopia);
+  limparCopia = setTimeout(() => { try { if (navigator.clipboard && document.hasFocus()) navigator.clipboard.writeText('').catch(() => {}); } catch (e) { /* sem acesso */ } }, 30000);
+  if (avisar) avisar(ok ? 'Copiado — a área de transferência limpa-se dentro de 30 s' : 'Não consegui copiar', ok ? 'success' : 'error');
+};
+const CodigoTotp = ({ otp, claro, sub, avisar }) => {
+  const [agora, setAgora] = useState(Date.now());
+  const [cod, setCod] = useState(null);
+  const periodo = otp.periodo || 30;
+  const janela = Math.floor(agora / 1000 / periodo);
+  useEffect(() => { const i = setInterval(() => setAgora(Date.now()), 1000); return () => clearInterval(i); }, []);
+  useEffect(() => { let vivo = true; codigoTotp(otp, agora).then(c => { if (vivo) setCod(c); }).catch(() => { if (vivo) setCod(null); }); return () => { vivo = false; }; }, [otp.segredo, otp.digitos, otp.algoritmo, periodo, janela]); // eslint-disable-line react-hooks/exhaustive-deps
+  const resta = periodo - (Math.floor(agora / 1000) % periodo);
+  const meio = cod ? Math.ceil(cod.length / 2) : 0;
+  return (
+    <button type="button" onClick={() => cod && copiarSeguro(cod, avisar)} className={`flex items-center gap-3 w-full rounded-xl border px-3 py-2.5 text-left ${claro ? 'border-slate-200 hover:bg-slate-50' : 'border-slate-700 hover:bg-white/5'}`} title="Copiar o código">
+      <span className={`font-mono text-2xl tracking-widest tabular-nums ${resta <= 5 ? 'text-red-400' : claro ? 'text-blue-700' : 'text-blue-300'}`}>{cod ? `${cod.slice(0, meio)} ${cod.slice(meio)}` : '— — —'}</span>
+      <span className="flex-1" />
+      <span className="relative w-8 h-8 shrink-0" aria-label={`${resta} segundos`}>
+        <svg viewBox="0 0 36 36" className="w-8 h-8 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeOpacity=".15" strokeWidth="3" /><circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(resta / periodo) * 94.2} 94.2`} className={resta <= 5 ? 'text-red-400' : 'text-blue-500'} /></svg>
+        <span className={`absolute inset-0 flex items-center justify-center text-[10px] tabular-nums ${sub}`}>{resta}</span>
+      </span>
+      <span className={`text-xs ${sub}`}>Copiar</span>
+    </button>
+  );
+};
+const CartaoSenha = ({ inicial, onMudar, claro, sub, avisar }) => {
+  const [d, setD] = useState(() => ({ tipo: 'login', ...(inicial || {}) }));
+  const [ver, setVer] = useState({});
+  const [otpTxt, setOtpTxt] = useState('');
+  const [otpErro, setOtpErro] = useState('');
+  const qrRef = useRef(null);
+  const set = patch => setD(prev => { const n = { ...prev, ...patch }; onMudar(n); return n; });
+  const tipo = TIPOS_SENHA.find(t => t.id === d.tipo) || TIPOS_SENHA[0];
+  const ic = `w-full min-w-0 rounded-lg border px-3 py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-300' : 'bg-slate-900/60 border-slate-600'}`;
+  const bt = `shrink-0 h-9 px-2.5 rounded-lg border text-xs ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`;
+  const semGuardar = { autoComplete: 'off', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-form-type': 'other', spellCheck: false, autoCapitalize: 'off', autoCorrect: 'off' };
+  const campo = (k, rot, modo, valores = d, mudar = v => set({ [k]: v }), extraBotoes = null) => {
+    const v = valores[k] || '';
+    const secreto = modo === 'secreto';
+    return (
+      <div key={k} className="grid grid-cols-1 sm:grid-cols-[150px_minmax(0,1fr)] gap-1 sm:gap-3 items-center">
+        <label className={`text-xs sm:text-sm ${sub}`}>{rot}</label>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <input {...semGuardar} type={secreto && !ver[k] ? 'password' : 'text'} value={v} onChange={e => mudar(e.target.value)} className={`${ic} ${secreto ? 'font-mono' : ''}`} />
+          {secreto && <button type="button" onClick={() => setVer(x => ({ ...x, [k]: !x[k] }))} className={bt} aria-label={ver[k] ? 'Esconder' : 'Mostrar'} title={ver[k] ? 'Esconder' : 'Mostrar'}>{ver[k] ? 'Esconder' : 'Ver'}</button>}
+          {modo === 'url' && v && <a href={/^https?:\/\//i.test(v) ? v : `https://${v}`} target="_blank" rel="noopener noreferrer" className={`${bt} inline-flex items-center`} title="Abrir o site">↗</a>}
+          {extraBotoes}
+          {v && modo !== 'url' && <button type="button" onClick={() => copiarSeguro(v, avisar)} className={bt}>Copiar</button>}
+        </div>
+      </div>
+    );
+  };
+  const juntarOtp = txt => {
+    const o = lerOtp(txt);
+    if (!o) { setOtpErro('Não reconheci. Cola a chave (letras e números, ex.: JBSW Y3DP EHPK 3PXP) ou o link otpauth://'); return; }
+    setOtpErro(''); setOtpTxt(''); set({ otp: o });
+  };
+  const lerQr = async f => {
+    try {
+      if (!('BarcodeDetector' in window)) { setOtpErro('Este browser não lê QR codes de imagens. Usa a chave em texto (no site, "não consigo ler o código").'); return; }
+      const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const img = await createImageBitmap(f);
+      const r = await det.detect(img);
+      if (!r.length) { setOtpErro('Não encontrei nenhum QR code nessa imagem.'); return; }
+      juntarOtp(r[0].rawValue);
+    } catch (e) { setOtpErro('Não consegui ler a imagem.'); }
+  };
+  const extras = d.extras || [];
+  return (
+    <div className="space-y-4 mt-3">
+      <div className="flex flex-wrap gap-1.5">
+        {TIPOS_SENHA.map(t => <button key={t.id} type="button" onClick={() => set({ tipo: t.id })} className={`px-2.5 py-1 rounded-full text-xs border ${d.tipo === t.id ? 'border-blue-400 bg-blue-500/15 text-blue-500 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{t.nome}</button>)}
+      </div>
+      <div className="space-y-2.5">
+        {tipo.campos.map(([k, rot, modo]) => campo(k, rot, modo, d, v => set({ [k]: v }),
+          k === 'senha' ? <button type="button" onClick={() => { if (!d.senha || window.confirm('Trocar a palavra-passe por uma nova, gerada ao acaso?')) { set({ senha: gerarSenha() }); setVer(x => ({ ...x, senha: true })); } }} className={bt} title="Gerar uma palavra-passe forte">Gerar</button> : null))}
+        {extras.map((x, i) => (
+          <div key={x.id || i} className="grid grid-cols-1 sm:grid-cols-[150px_minmax(0,1fr)] gap-1 sm:gap-3 items-center">
+            <input {...semGuardar} value={x.nome || ''} onChange={e => set({ extras: extras.map((y, j) => (j === i ? { ...y, nome: e.target.value } : y)) })} placeholder="Nome do campo" className={`${ic} !py-1.5 text-xs sm:text-sm`} />
+            <div className="flex items-center gap-1.5 min-w-0">
+              <input {...semGuardar} type={x.secreto && !ver['x' + i] ? 'password' : 'text'} value={x.valor || ''} onChange={e => set({ extras: extras.map((y, j) => (j === i ? { ...y, valor: e.target.value } : y)) })} className={`${ic} ${x.secreto ? 'font-mono' : ''}`} />
+              <button type="button" onClick={() => (x.secreto ? setVer(v => ({ ...v, ['x' + i]: !v['x' + i] })) : set({ extras: extras.map((y, j) => (j === i ? { ...y, secreto: true } : y)) }))} className={bt} title={x.secreto ? 'Mostrar / esconder' : 'Tornar secreto'}>{x.secreto ? (ver['x' + i] ? 'Esconder' : 'Ver') : 'Secreto?'}</button>
+              {x.valor && <button type="button" onClick={() => copiarSeguro(x.valor, avisar)} className={bt}>Copiar</button>}
+              <button type="button" onClick={() => set({ extras: extras.filter((y, j) => j !== i) })} className={`${bt} text-red-400`} aria-label="Tirar o campo">✕</button>
+            </div>
+          </div>
+        ))}
+        <button type="button" onClick={() => set({ extras: [...extras, { id: Math.random().toString(36).slice(2, 8), nome: '', valor: '', secreto: false }] })} className={`text-xs ${sub} hover:text-blue-400`}>+ Campo</button>
+      </div>
+
+      {tipo.dois && (
+        <div className={`rounded-xl border p-3 space-y-2.5 ${claro ? 'border-slate-200 bg-slate-50/60' : 'border-slate-700 bg-slate-900/30'}`}>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium flex-1">Autenticação de 2 fatores</p>
+            {d.otp && <button type="button" onClick={() => { if (window.confirm('Tirar o 2FA desta página? (No site, o 2FA continua ligado.)')) set({ otp: null }); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
+          </div>
+          {d.otp ? (
+            <>
+              <CodigoTotp otp={d.otp} claro={claro} sub={sub} avisar={avisar} />
+              <p className={`text-[11px] ${sub}`}>{d.otp.emissor ? `${d.otp.emissor} · ` : ''}{d.otp.digitos || 6} dígitos · muda a cada {d.otp.periodo || 30} s</p>
+            </>
+          ) : (
+            <>
+              <p className={`text-xs ${sub}`}>No site, ao ligar o 2FA, escolhe "não consigo ler o QR code" e cola aqui a chave que aparece. A app passa a mostrar os códigos de 6 dígitos.</p>
+              <div className="flex items-center gap-1.5">
+                <input {...semGuardar} value={otpTxt} onChange={e => setOtpTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); juntarOtp(otpTxt); } }} placeholder="Chave 2FA ou otpauth://…" className={`${ic} font-mono`} />
+                <button type="button" onClick={() => juntarOtp(otpTxt)} disabled={!otpTxt.trim()} className={`${bt} disabled:opacity-40`}>Juntar</button>
+                {typeof window !== 'undefined' && 'BarcodeDetector' in window && <button type="button" onClick={() => qrRef.current && qrRef.current.click()} className={bt} title="Ler o QR code de uma captura de ecrã">QR</button>}
+                <input ref={qrRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) lerQr(f); }} />
+              </div>
+              {otpErro && <p className="text-xs text-red-400">{otpErro}</p>}
+            </>
+          )}
+          <div className="space-y-1">
+            <label className={`text-xs ${sub}`}>Códigos de recuperação</label>
+            <textarea {...semGuardar} rows={d.recuperacao ? 4 : 2} value={d.recuperacao || ''} onChange={e => set({ recuperacao: e.target.value })} placeholder="Os códigos de uso único que o site te dá ao ligar o 2FA" className={`${ic} font-mono text-xs ${ver.rec || !d.recuperacao ? '' : 'blur-sm'}`} onFocus={() => setVer(x => ({ ...x, rec: true }))} onBlur={() => setVer(x => ({ ...x, rec: false }))} />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1">
+        <label className={`text-xs ${sub}`}>Notas</label>
+        <textarea {...semGuardar} rows={3} value={d.notas || ''} onChange={e => set({ notas: e.target.value })} placeholder="Perguntas de segurança, quem tem acesso, etc." className={ic} />
+      </div>
     </div>
   );
 };
@@ -631,7 +813,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   // Recuar/avançar da app: cada secção, página ou lista aberta fica no histórico
   const navN = useRef({ primeiro: true, deFora: false, ult: null, desde: Date.now() });
   useEffect(() => {
-    const r = navN.current; const sub = { secId, pagId, filtro, vista }; const k = JSON.stringify(sub);
+    const r = navN.current; const sub = { secId, pagId, filtro, vista: larguraTelemovel ? vista : null }; const k = JSON.stringify(sub); // no computador a 'vista' não muda o ecrã
     if (r.primeiro) { r.primeiro = false; r.ult = k; const tm = setTimeout(() => { if (onNavSubstituir) onNavSubstituir(sub); }, 0); return () => clearTimeout(tm); }
     if (k === r.ult) return undefined;
     r.ult = k;
@@ -644,16 +826,17 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   useEffect(() => {
     if (!navSub || !navSub.sub) return;
     const s = navSub.sub;
-    const alvo = { secId: s.secId ?? null, pagId: s.pagId ?? null, filtro: s.filtro ?? null, vista: s.vista || vista };
+    const alvo = { secId: s.secId ?? null, pagId: s.pagId ?? null, filtro: s.filtro ?? null, vista: larguraTelemovel ? (s.vista || vista) : null };
     if (JSON.stringify(alvo) === navN.current.ult) return;
     navN.current.deFora = true;
-    setSecId(alvo.secId); setPagId(alvo.pagId); setFiltro(alvo.filtro); setVista(alvo.vista); setProcura('');
+    setSecId(alvo.secId); setPagId(alvo.pagId); setFiltro(alvo.filtro); if (alvo.vista) setVista(alvo.vista); setProcura('');
   }, [navSub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ordem, setOrdem] = useState(() => { try { return localStorage.getItem('notas-ordem') || 'editada'; } catch (e) { return 'editada'; } });
   const [fechados, setFechados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('notas-fechados')) || []); } catch (e) { return new Set(); } });
   const [pedir, setPedir] = useState(null);
   const [pessoas, setPessoas] = useState(null); // id do caderno partilhado aberto em "Pessoas com acesso"
   const [chave, setChave] = useState(null);
+  const chaveAtual = chave;
   const [titulosC, setTitulosC] = useState({});
   const [larguraTelemovel, setLarguraTelemovel] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
   // As colunas da esquerda ficam presas logo abaixo da barra de cima da app (e não por baixo dela)
@@ -732,7 +915,8 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const mostrarSeccao = !!(q || filtro);
 
   // ── Operações ──
-  const novaPagina = async (modeloId = 'branco', sobre = null) => {
+  const novaPagina = async (modeloId = 'branco', sobre = null, kDesbloq = null) => {
+    const chave = kDesbloq || chaveAtual;
     let sid = secao ? secao.id : (seccoes[0] && seccoes[0].id);
     if (sobre || !sid || (secDe(sid) && secDe(sid).protegida && !chave)) sid = (seccoes.find(s => !s.protegida) || {}).id;
     if (!sid) { if (showToast) showToast('Cria primeiro uma secção.', 'error'); return; }
@@ -750,6 +934,28 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
     setSecId(sid); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
     if (protegida) setTitulosC(t => ({ ...t, [id]: titulo }));
+  };
+  // Nova palavra-passe: vai sempre para uma secção protegida (cria a secção "Cofre" se ainda não houver)
+  const novaSenha = async (k = chave) => {
+    if (!TEM_CRIPTO) { if (showToast) showToast('Este browser não tem cifra disponível.', 'error'); return; }
+    if (!k) { pedirDesbloquear(kk => novaSenha(kk)); return; }
+    const cadDe = s => (ix.cadernos || []).find(c => c.id === s.cadernoId) || {};
+    let s = secao && secao.protegida && !cadDe(secao).partilhado ? secao : seccoes.find(x => x.protegida && !cadDe(x).partilhado);
+    if (!s) {
+      const cad = secao && !cadDe(secao).partilhado ? secao.cadernoId : ((ix.cadernos || []).find(c => !c.partilhado) || {}).id;
+      if (!cad) { if (showToast) showToast('Cria primeiro um caderno.', 'error'); return; }
+      s = { id: nId(), cadernoId: cad, nome: 'Cofre', cor: '#f59e0b', ordem: 99, protegida: true };
+      const nova = s;
+      mudarIndice(i => ({ ...i, seccoes: [...(i.seccoes || []), nova] }));
+    }
+    const id = nId();
+    try {
+      await guardarPagina(id, { cifrado: await cifrar(k, JSON.stringify({ html: '', senha: { tipo: 'login' } })), editada: agora() }, s.id);
+      const meta = { id, seccaoId: s.id, titulo: '', tituloC: await cifrar(k, ''), tipo: 'senha', criada: agora(), editada: agora(), txt: '', tags: [] };
+      mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
+    } catch (e) { console.error('Cofre:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
+    setTitulosC(t2 => ({ ...t2, [id]: '' }));
+    setSecId(s.id); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina');
   };
   const apagarPaginaOp = p => {
     if (!window.confirm(`Apagar a página "${tituloDe(p)}"?`)) return;
@@ -769,6 +975,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
   const moverPagina = (p, destino) => {
     const de = secDe(p.seccaoId), para = secDe(destino);
     if (!para || de === para) return;
+    if (p.tipo === 'senha' && !para.protegida) { if (showToast) showToast('As palavras-passe só podem ir para secções protegidas.', 'error'); return; }
     if (!!(de && de.protegida) !== !!para.protegida) {
       if (!chave) { pedirDesbloquear(() => moverPagina(p, destino)); return; }
       (async () => {
@@ -828,7 +1035,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
           const k = await derivarChave(v.p, deB64(ix.cofre.salt));
           const t = await decifrar(k, ix.cofre.verif);
           if (t !== 'cofre-ok') return 'Palavra-passe errada.';
-          ultimaAtividade.current = Date.now(); setChave(k); setPedir(null); if (depois) setTimeout(depois, 0); return '';
+          ultimaAtividade.current = Date.now(); setChave(k); setPedir(null); if (depois) setTimeout(() => depois(k), 0); return '';
         } catch (e) { return 'Palavra-passe errada.'; }
       },
     });
@@ -865,6 +1072,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
     if (!chave) pedirDesbloquear(fazer); else fazer();
   };
   const desprotegerSeccao = s => {
+    if ((ix.paginas || []).some(p => p.seccaoId === s.id && p.tipo === 'senha')) { if (showToast) showToast('Esta secção tem palavras-passe: passa-as primeiro para outra secção protegida.', 'error'); return; }
     const fazer = async () => {
       if (!window.confirm(`Tirar a proteção de "${s.nome}"? As páginas voltam a ficar legíveis na base de dados.`)) return;
       const ps = (ix.paginas || []).filter(p => p.seccaoId === s.id);
@@ -1001,8 +1209,8 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
       </div>
       {!mostrarSeccao && secao && (
         <div className="flex gap-1.5 mb-2">
-          <button type="button" onClick={() => (secao.protegida && !chave ? pedirDesbloquear(() => novaPagina('branco')) : novaPagina('branco'))} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" /> Página</button>
-          <Menu claro={claro} itens={MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(() => novaPagina(m.id)) : novaPagina(m.id)) }))} />
+          <button type="button" onClick={() => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco'))} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"><Ic n="mais" /> Página</button>
+          <Menu claro={claro} itens={[...MODELOS.filter(m => m.id !== 'branco').map(m => ({ txt: `Nova: ${m.nome}`, fn: () => (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina(m.id, null, k)) : novaPagina(m.id)) })), '-', { txt: 'Nova: Palavra-passe (cofre)', ic: 'cadeado', fn: () => novaSenha() }]} />
         </div>
       )}
       <div className="space-y-0.5">
@@ -1012,7 +1220,7 @@ const Notas = ({ partilha, navSub, onNavEmpurrar, onNavSubstituir, indice, mudar
             <button key={p.id} type="button" onClick={() => abrirPagina(p)} className={`w-full text-left px-2.5 py-2 rounded-lg ${pagId === p.id && !larguraTelemovel ? (claro ? 'bg-slate-200/70' : 'bg-white/10') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
               <span className="flex items-center gap-1.5">
                 {p.fav && <span className="text-amber-400 text-xs">★</span>}
-                {p.tituloC && !chave && <Ic n="cadeado" className="w-3.5 h-3.5 text-amber-400" />}
+                {p.tipo === 'senha' ? <Ic n="cadeado" className="w-3.5 h-3.5 text-amber-400" /> : p.tituloC && !chave && <Ic n="cadeado" className="w-3.5 h-3.5 text-amber-400" />}
                 <span className="text-sm font-medium truncate">{tituloDe(p)}</span>
               </span>
               <span className={`block text-xs truncate ${sub}`}>{mostrarSeccao && s ? `${s.nome} · ` : ''}{haQuanto(p.editada || p.criada)}{p.txt ? ` · ${p.txt.slice(0, 80)}` : ''}</span>
