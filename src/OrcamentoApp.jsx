@@ -2,7 +2,7 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
@@ -72,7 +72,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, Alt+←, botão de recuar do rato e gesto de voltar do telemóvel).
   // Só muda de ecrã (separador, mês e posição na página) — nunca mexe nos dados.
   const [navPos, setNavPos] = useState(0);
-  const [navSub, setNavSub] = useState(null); // ecrã interno pedido pelo recuar/avançar ({ tab, sub, k })
+  const [navSub, setNavSub] = useState(null);
+  const menuNavRef = useRef(null); // Ctrl+← / Ctrl+→: menu principal anterior/seguinte (definido junto do menu) // ecrã interno pedido pelo recuar/avançar ({ tab, sub, k })
   const navRef = useRef({ tab: 'resumo', mes: mesAtualSistema, ano: anoAtualSistema, y: 0, pos: 0, voltando: false, iniciado: false });
   useEffect(() => {
     const n = navRef.current;
@@ -305,6 +306,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
         e.preventDefault();
         setTab('agenda');
       }
+      // Ctrl+← Ctrl+→ = Menu principal anterior/seguinte
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); if (menuNavRef.current) menuNavRef.current(e.key === 'ArrowLeft' ? -1 : 1); return; }
       // ← → = Recuar / avançar (para onde estavas)
       if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); recuar(); return; }
       if (e.key === 'ArrowRight' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) { e.preventDefault(); avancar(); return; }
@@ -578,6 +581,167 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     if (notasModoRef.current === 'doc') { await apagarPaginaNota(user.uid, id); return; }
     setG(p => { const x = { ...(p.notasPaginas || {}) }; delete x[id]; return { ...p, notasPaginas: x }; });
   }, [user]);
+  // ── Cadernos partilhados (ex.: lista de compras com a Sara) ──
+  //    partilhas/<id> = índice do caderno + "membros" (emails); partilhas/<id>/paginas/<pág> = conteúdo.
+  //    As Notas recebem tudo junto (os meus cadernos + os partilhados) e cada gravação vai para o sítio certo.
+  const meuEmail = String((user && user.email) || '').toLowerCase();
+  const [partilhas, setPartilhas] = useState({});
+  const partilhasRef = useRef({}); partilhasRef.current = partilhas;
+  const partSujo = useRef({}); const partTimer = useRef({});
+  const ultimoDonoPag = useRef({}); // página → caderno partilhado (para apagar depois de sair do índice)
+  const [partErro, setPartErro] = useState(false);
+  useEffect(() => {
+    if (!meuEmail || typeof ouvirPartilhas !== 'function') return undefined;
+    let vivo = true; let parar = null;
+    try {
+      parar = ouvirPartilhas(meuEmail, (dados, pendente) => {
+        if (!vivo || pendente) return;
+        const out = {};
+        Object.keys(dados || {}).forEach(id => { out[id] = partSujo.current[id] && partilhasRef.current[id] ? partilhasRef.current[id] : dados[id]; });
+        partilhasRef.current = out; setPartilhas(out); setPartErro(false);
+      }, () => { if (vivo) setPartErro(true); });
+    } catch (e) { setPartErro(true); }
+    return () => { vivo = false; if (parar) parar(); };
+  }, [meuEmail]); // eslint-disable-line react-hooks/exhaustive-deps
+  const jsonEstavel = o => JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, kk) => { a[kk] = v[kk]; return a; }, {}) : v));
+  const juntarPartilhas = (base, ps) => {
+    const lista = Object.values(ps || {});
+    if (!lista.length) return base;
+    const ids = new Set(lista.map(p => p.id));
+    return { ...base,
+      cadernos: [...(base.cadernos || []).filter(c => !ids.has(c.id)), ...lista.map(p => ({ id: p.id, nome: p.nome || 'Partilhado', cor: p.cor || '#10b981', ordem: p.ordem ?? 900, partilhado: true, membros: p.membros || [], dono: p.dono || '' }))],
+      seccoes: [...(base.seccoes || []).filter(s => !ids.has(s.cadernoId)), ...lista.flatMap(p => (p.seccoes || []).map(s => ({ ...s, cadernoId: p.id })))],
+      paginas: [...(base.paginas || []), ...lista.flatMap(p => p.paginas || [])],
+    };
+  };
+  const notasComb = useMemo(() => juntarPartilhas(notasIndice, partilhas), [notasIndice, partilhas]); // eslint-disable-line react-hooks/exhaustive-deps
+  const notasCombRef = useRef(null); notasCombRef.current = notasComb;
+  const cadernoPartilhadoDe = (id, sid) => {
+    const ix = notasCombRef.current || {};
+    const s0 = sid || ((ix.paginas || []).find(p => p.id === id) || {}).seccaoId;
+    const s = (ix.seccoes || []).find(x => x.id === s0);
+    if (s && partilhasRef.current[s.cadernoId]) return s.cadernoId;
+    if (!s0 && ultimoDonoPag.current[id]) return ultimoDonoPag.current[id];
+    return null;
+  };
+  const sairPartilha = async cid => {
+    const p = partilhasRef.current[cid] || {};
+    try {
+      if (p.dono && p.dono === meuEmail) {
+        await Promise.all((p.paginas || []).map(pg => apagarPaginaPartilha(cid, pg.id).catch(() => {})));
+        await apagarPartilha(cid);
+      } else await guardarPartilha(cid, { membros: (p.membros || []).filter(e => e !== meuEmail) });
+    } catch (e) { console.error('Partilha:', e); showToast('Não consegui atualizar o caderno partilhado.', 'error'); }
+  };
+  const mudarNotasComb = useCallback(fn => {
+    const ps = partilhasRef.current;
+    const idsP = Object.keys(ps);
+    if (!idsP.length) { mudarNotas(fn); return; }
+    const antes = notasCombRef.current || NOTAS_VAZIO_APP;
+    const novo = fn(antes);
+    notasCombRef.current = novo;
+    const setP = new Set(idsP);
+    const cadDe = (ix, sid) => { const s = (ix.seccoes || []).find(x => x.id === sid); return s && setP.has(s.cadernoId) ? s.cadernoId : null; };
+    (antes.paginas || []).forEach(p => { const c = cadDe(antes, p.seccaoId); if (c) ultimoDonoPag.current[p.id] = c; });
+    // 1) Os meus cadernos
+    const meu = { ...novo,
+      cadernos: (novo.cadernos || []).filter(c => !setP.has(c.id)).map(({ partilhado, membros, dono, ...c }) => c),
+      seccoes: (novo.seccoes || []).filter(s => !setP.has(s.cadernoId)),
+      paginas: (novo.paginas || []).filter(p => !cadDe(novo, p.seccaoId)) };
+    const meuAntes = { ...antes,
+      cadernos: (antes.cadernos || []).filter(c => !setP.has(c.id)).map(({ partilhado, membros, dono, ...c }) => c),
+      seccoes: (antes.seccoes || []).filter(s => !setP.has(s.cadernoId)),
+      paginas: (antes.paginas || []).filter(p => !cadDe(antes, p.seccaoId)) };
+    if (jsonEstavel(meu) !== jsonEstavel(meuAntes)) mudarNotas(() => meu);
+    // 2) Cada caderno partilhado
+    const novasP = { ...ps };
+    idsP.forEach(cid => {
+      const c = (novo.cadernos || []).find(x => x.id === cid);
+      if (!c) { delete novasP[cid]; sairPartilha(cid); return; }
+      const ss = (novo.seccoes || []).filter(s => s.cadernoId === cid).map(({ cadernoId, protegida, ...s }) => s);
+      const sids = new Set(ss.map(s => s.id));
+      const dados = { nome: c.nome, cor: c.cor, ordem: c.ordem ?? 900, seccoes: ss, paginas: (novo.paginas || []).filter(p => sids.has(p.seccaoId)) };
+      const v = ps[cid];
+      if (jsonEstavel(dados) === jsonEstavel({ nome: v.nome, cor: v.cor, ordem: v.ordem ?? 900, seccoes: v.seccoes || [], paginas: v.paginas || [] })) return;
+      novasP[cid] = { ...v, ...dados };
+      partSujo.current[cid] = true;
+      clearTimeout(partTimer.current[cid]);
+      partTimer.current[cid] = setTimeout(() => {
+        const d = partilhasRef.current[cid]; if (!d) { partSujo.current[cid] = false; return; }
+        guardarPartilha(cid, JSON.parse(JSON.stringify({ nome: d.nome, cor: d.cor, ordem: d.ordem ?? 900, seccoes: d.seccoes || [], paginas: d.paginas || [], atualizado: new Date().toISOString() })))
+          .then(() => { partSujo.current[cid] = false; })
+          .catch(e => { partSujo.current[cid] = false; console.error('Partilha:', e); showToast('Não consegui gravar o caderno partilhado.', 'error'); });
+      }, 500);
+    });
+    partilhasRef.current = novasP; setPartilhas(novasP);
+    // 3) Páginas que passaram de um caderno meu para um partilhado (ou ao contrário): o conteúdo vai atrás
+    (antes.paginas || []).forEach(p0 => {
+      const p1 = (novo.paginas || []).find(x => x.id === p0.id); if (!p1) return;
+      const a = cadDe(antes, p0.seccaoId), b = cadDe(novo, p1.seccaoId);
+      if (a === b) return;
+      (async () => {
+        try {
+          const d = a ? await lerPaginaPartilha(a, p0.id) : await lerNotaApp(p0.id);
+          if (d) { if (b) await guardarPaginaPartilha(b, p0.id, JSON.parse(JSON.stringify(d))); else await guardarNotaApp(p0.id, d); }
+          if (a) await apagarPaginaPartilha(a, p0.id); else await apagarNotaApp(p0.id);
+        } catch (e) { console.error('Mover página:', e); showToast('Não consegui mover o conteúdo da página.', 'error'); }
+      })();
+    });
+  }, [mudarNotas, lerNotaApp, guardarNotaApp, apagarNotaApp, meuEmail]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lerNotaComb = useCallback(async id => { const cid = cadernoPartilhadoDe(id); return cid ? lerPaginaPartilha(cid, id) : lerNotaApp(id); }, [lerNotaApp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const guardarNotaComb = useCallback(async (id, dados, sid) => {
+    const cid = cadernoPartilhadoDe(id, sid);
+    if (cid) { await guardarPaginaPartilha(cid, id, JSON.parse(JSON.stringify(dados))); return; }
+    await guardarNotaApp(id, dados);
+  }, [guardarNotaApp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const apagarNotaComb = useCallback(async id => { const cid = cadernoPartilhadoDe(id); if (cid) { await apagarPaginaPartilha(cid, id); return; } await apagarNotaApp(id); }, [apagarNotaApp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ouvirNotaComb = useCallback((id, cb) => { const cid = cadernoPartilhadoDe(id); if (!cid || typeof ouvirPaginaPartilha !== 'function') return null; return ouvirPaginaPartilha(cid, id, cb); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Partilhar um caderno (passa para partilhas/<id>) ou juntar mais uma pessoa
+  const partilharCaderno = useCallback(async (cadId, email) => {
+    const em = String(email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return 'Escreve um email válido.';
+    if (!meuEmail) return 'Precisas de ter sessão iniciada.';
+    if (em === meuEmail) return 'Esse é o teu email.';
+    const atual = partilhasRef.current[cadId];
+    try {
+      if (atual) {
+        if ((atual.membros || []).includes(em)) return 'Essa pessoa já tem acesso.';
+        const membros = [...(atual.membros || []), em];
+        await guardarPartilha(cadId, { membros });
+        partilhasRef.current = { ...partilhasRef.current, [cadId]: { ...atual, membros } }; setPartilhas(partilhasRef.current);
+        return '';
+      }
+      const ix = notasCombRef.current || NOTAS_VAZIO_APP;
+      const c = (ix.cadernos || []).find(x => x.id === cadId); if (!c) return 'Não encontro este caderno.';
+      const ss = (ix.seccoes || []).filter(s => s.cadernoId === cadId);
+      if (ss.some(s => s.protegida)) return 'Este caderno tem secções protegidas com palavra-passe. Tira primeiro a proteção (ou passa essas páginas para outro caderno) — as notas protegidas não se partilham.';
+      const sids = new Set(ss.map(s => s.id));
+      const pgs = (ix.paginas || []).filter(p => sids.has(p.seccaoId));
+      const dados = { nome: c.nome, cor: c.cor, ordem: c.ordem ?? 900, dono: meuEmail, membros: [meuEmail, em], seccoes: ss.map(({ cadernoId, protegida, ...s }) => s), paginas: pgs, criado: new Date().toISOString() };
+      await guardarPartilha(cadId, JSON.parse(JSON.stringify(dados)));
+      for (const p of pgs) { const d = await lerNotaApp(p.id); if (d) await guardarPaginaPartilha(cadId, p.id, JSON.parse(JSON.stringify(d))); }
+      partilhasRef.current = { ...partilhasRef.current, [cadId]: { ...dados, id: cadId } }; setPartilhas(partilhasRef.current);
+      mudarNotas(i => ({ ...i, cadernos: (i.cadernos || []).filter(x => x.id !== cadId), seccoes: (i.seccoes || []).filter(s => !sids.has(s.id)), paginas: (i.paginas || []).filter(p => !sids.has(p.seccaoId)) }));
+      pgs.forEach(p => { apagarNotaApp(p.id).catch(() => {}); });
+      return '';
+    } catch (e) {
+      console.error('Partilhar:', e);
+      return /permission|insufficient/i.test(String(e && (e.code || e.message))) ? 'A Firebase ainda não deixa partilhar: falta juntar as regras dos cadernos partilhados (vê as instruções que te dei).' : 'Não consegui partilhar. Tenta outra vez.';
+    }
+  }, [meuEmail, mudarNotas, lerNotaApp, apagarNotaApp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tirarPessoaCaderno = useCallback(async (cadId, email) => {
+    const atual = partilhasRef.current[cadId]; if (!atual) return;
+    const membros = (atual.membros || []).filter(e => e !== email);
+    try { await guardarPartilha(cadId, { membros }); partilhasRef.current = { ...partilhasRef.current, [cadId]: { ...atual, membros } }; setPartilhas(partilhasRef.current); }
+    catch (e) { showToast('Não consegui tirar o acesso.', 'error'); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const sairCaderno = useCallback(async cadId => {
+    await sairPartilha(cadId);
+    const r = { ...partilhasRef.current }; delete r[cadId]; partilhasRef.current = r; setPartilhas(r);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const partilhaApi = useMemo(() => ({ meuEmail, erro: partErro, partilhar: partilharCaderno, tirarPessoa: tirarPessoaCaderno, sair: sairCaderno, ouvirPagina: ouvirNotaComb }), [meuEmail, partErro, partilharCaderno, tirarPessoaCaderno, sairCaderno, ouvirNotaComb]);
+  // "Só notas": quem abre a app com ?notas (ex.: a Sara) vê apenas as Notas
+  const [soNotas, setSoNotas] = useState(() => { try { const u = new URL(window.location.href); if (u.searchParams.has('notas')) { localStorage.setItem('so-notas', '1'); return true; } return localStorage.getItem('so-notas') === '1'; } catch (e) { return false; } });
   // Abrir no Trabalho o que foi marcado com @ numa nota
   const irEntidade = useCallback((tipo, id) => {
     const T = trabDocRef.current || gTrabRef.current || TRAB_VAZIO;
@@ -602,7 +766,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     ];
   }, [G.clientes, trabalho]);
   // Notas que falam de um cliente / jogo / tarefa (para mostrar no Trabalho)
-  const notasDe = useCallback((tipo, id) => ((notasIndice && notasIndice.paginas) || []).filter(p => (p.tags || []).some(t => t.t === tipo && String(t.id) === String(id))).sort((a, b) => String(b.editada || b.criada).localeCompare(String(a.editada || a.criada))), [notasIndice]);
+  const notasDe = useCallback((tipo, id) => ((notasComb && notasComb.paginas) || []).filter(p => (p.tags || []).some(t => t.t === tipo && String(t.id) === String(id))).sort((a, b) => String(b.editada || b.criada).localeCompare(String(a.editada || a.criada))), [notasComb]);
 
   // Trabalho e Notas vivem em documentos à parte: juntam-se às cópias de segurança
   const extrasRef = useRef(null);
@@ -10803,6 +10967,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  if (grupoMob) ultMobRef.current[grupoMob.id] = tab;
  const ultimaSubRef = useRef({});
  if (grupoAtivo) ultimaSubRef.current[grupoAtivo.id] = tab;
+ // Ctrl+← / Ctrl+→: salta entre os menus principais (num grupo, abre o último separador que usaste nele)
+ menuNavRef.current = dir => {
+   const principais = tabs.filter(t => !t.separator);
+   const i = principais.findIndex(t => t.id === tab || (t.submenu && t.submenu.some(x => x.id === tab)));
+   const alvo = principais[((i < 0 ? 0 : i) + dir + principais.length) % principais.length];
+   setTab(alvo.submenu ? (ultimaSubRef.current[alvo.id] || alvo.submenu[0].id) : alvo.id);
+   window.scrollTo({ top: 0 });
+ };
  // Início: vai para o Resumo e volta ao topo da página
  const irInicio = () => { setTab('resumo'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
@@ -11035,6 +11207,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      { key: '←', desc: 'Recuar para onde estavas' },
      { key: '→', desc: 'Avançar outra vez' },
      { key: 'Shift + ← →', desc: 'Mês anterior/seguinte' },
+     { key: 'Ctrl + ← →', desc: 'Menu principal anterior/seguinte' },
      { key: 'Ctrl+Z', desc: 'Desfazer (Undo)' },
      { key: 'Ctrl+Y', desc: 'Refazer (Redo)' },
      { key: 'Ctrl+F', desc: 'Pesquisar' },
@@ -13009,6 +13182,30 @@ ${transacoesOrdenadas.map(t => `<tr>
  );
  };
 
+ // Modo "só notas" (link com ?notas): só o caderno de notas, sem as finanças
+ if (soNotas) return (
+ <TemaCtx.Provider value={theme}>
+ <div className={`min-h-screen ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
+   <header className={`sticky top-0 z-50 backdrop-blur-xl border-b px-3 sm:px-6 py-3 flex items-center gap-2 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/50'}`}>
+     <h1 className="font-bold text-lg flex-1">📓 Notas</h1>
+     <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className={`w-9 h-9 rounded-lg ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mudar tema" title="Mudar tema">{theme === 'light' ? '🌙' : '☀️'}</button>
+     <button onClick={() => { try { localStorage.removeItem('so-notas'); const u = new URL(window.location.href); u.searchParams.delete('notas'); window.history.replaceState(null, '', u.toString()); } catch (e) { /* sem armazenamento */ } setSoNotas(false); setTab('resumo'); }} className={`px-3 py-1.5 text-xs rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>App completa</button>
+     <button onClick={onLogout} className={`px-3 py-1.5 text-xs rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Sair</button>
+   </header>
+   <main className="px-3 sm:px-6 py-4 sm:py-6 mx-auto max-w-[1920px]">
+     <Suspense fallback={<SeparadorCarregar/>}><Notas indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
+       lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
+       enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
+       entidades={[]} onIrEntidade={null} showToast={showToast} /></Suspense>
+   </main>
+   {toasts.length > 0 && (
+     <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+       {toasts.map(t => <div key={t.id} className={`pointer-events-auto px-4 py-3 rounded-xl shadow-lg text-sm font-medium max-w-sm text-white ${t.type === 'error' ? 'bg-red-500/90' : t.type === 'warning' ? 'bg-amber-500/90' : 'bg-emerald-500/90'}`}>{t.message}</div>)}
+     </div>
+   )}
+ </div>
+ </TemaCtx.Provider>
+ );
  return (
  <TemaCtx.Provider value={theme}>
  <div className={`min-h-screen transition-colors duration-300 ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`} >
@@ -13384,8 +13581,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasIndice} mudarIndice={mudarNotas} modo={notasModo} theme={theme}
-   lerPagina={lerNotaApp} guardarPagina={guardarNotaApp} apagarPagina={apagarNotaApp}
+ {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
+   lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
 {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
