@@ -2069,7 +2069,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const conta = contaDe(t.cid);
   const fx = t.ficheiros || {};
   // Versão: a que escreveste; senão a da última vez que esta tarefa foi enviada; senão a adivinhada pelo Drive
-  const versaoAnterior = (() => { const m = t.drive && /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
+  // Versão da última vez que ESTA tarefa foi enviada — só conta se for o mesmo conceito
+  const versaoAnterior = (() => { if (!t.drive || (t.drive.conceito && slugF(t.drive.conceito) !== slugF(r.conceito))) return null; const m = /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
   const versaoConfirmada = v => String(fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
   const versaoDe = v => versaoConfirmada(v) || '1'; // sem versão em lado nenhum: V1 (o Drive confirma ao enviar)
   const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
@@ -2087,11 +2088,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     return String(novoVideo ? max + 1 : Math.max(1, max));
   };
   const verVersoes = async () => {
-    try { const tk = tokenGuardado() || await tokenDrive(conta); const v = await adivinharVersao(tk); if (!fx.versao && !versaoAnterior) setVerSug(v); }
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta); const v = await adivinharVersao(tk);
+      if (!fx.versao && !versaoAnterior) { setVerSug(v); if (novoVideo) set({ ficheiros: { ...fx, versao: v } }); } // vídeo novo: a versão seguinte fica logo escrita
+    }
     catch (e) { setMsg(`⚠ ${e.message || e}`); }
   };
   // Com sessão da Google aberta, a app vai logo ver as versões quando o conceito muda
-  useEffect(() => { if (raiz && r.conceito && tokenGuardado()) verVersoes(); }, [raiz, r.conceito]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (raiz && r.conceito && (tokenGuardado() || ligadoSempre(conta || '_'))) verVersoes(); }, [raiz, r.conceito]); // eslint-disable-line react-hooks/exhaustive-deps
   const tokenGuardado = () => tokenGuardadoDe(conta);
   const juntar = async (fs, handles = []) => {
     setMsg('');
@@ -2244,7 +2248,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   };
   const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
-  const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito;
+  // Vídeo novo com uma versão que já existe no Drive (e que não é a desta tarefa): não deixa avançar
+  const versaoEscolhida = Number(versaoDe(verSug));
+  const infoAtual = infoVersao && infoVersao.conceito === r.conceito ? infoVersao : null;
+  const proximaVersao = infoAtual && infoAtual.versoes.length ? infoAtual.versoes[infoAtual.versoes.length - 1] + 1 : 1;
+  const versaoOcupada = !!(novoVideo && infoAtual && infoAtual.versoes.includes(versaoEscolhida) && String(versaoAnterior || '') !== String(versaoEscolhida));
+  const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada;
   const enviar = async () => {
     if (!pronto || aEnviar) return;
     setAEnviar(true); setMsg('A entrar na Google…');
@@ -2263,6 +2272,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
       // Versão: escrita, da última vez, ou adivinhada agora pelo Drive
       let v = fx.versao || versaoAnterior || verSug;
       if (!v) { setMsg('A ver as versões que já estão no Drive…'); v = await adivinharVersao(token); setVerSug(v); }
+      else if (novoVideo) {
+        // Confirma no Drive que esta versão ainda não existe (um vídeo novo nunca vai para a pasta de outro)
+        const info = await versoesNoDrive(token, raiz, r.conceito);
+        setInfoVersao({ ...info, conceito: r.conceito });
+        if (info.versoes.includes(Number(v)) && String(versaoAnterior || '') !== String(v)) {
+          const prox = info.versoes[info.versoes.length - 1] + 1;
+          throw new Error(`A V${v} já existe no Drive. Um vídeo novo tem de ser a V${prox} — carrega em "Usar V${prox}".`);
+        }
+      }
       const nomeVersao = baseDe(v) || r.conceito;
       pVersao = nomeVersao === r.conceito ? pConceito : await pastaDrive(token, pConceito.id, nomeVersao, true);
       const existentes = await filhosDrive(token, pVersao.id, false);
@@ -2348,11 +2366,17 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="flex-1" />
                 {comHandle.length > 0 ? (
-                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
+                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0 || versaoOcupada} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏️ Renomear no PC'}</button>
                 ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
               </div>
+            </div>
+          )}
+          {versaoOcupada && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-amber-500">
+              <span>⚠ A V{versaoEscolhida} já existe no Drive. Um vídeo novo tem de ser a <b>V{proximaVersao}</b>.</span>
+              <button type="button" onClick={() => { set({ ficheiros: { ...fx, versao: String(proximaVersao) } }); setVerSug(String(proximaVersao)); }} className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-medium">Usar V{proximaVersao}</button>
             </div>
           )}
           {r.conceito && (infoVersao && infoVersao.conceito === r.conceito ? (
