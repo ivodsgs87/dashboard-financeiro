@@ -3298,8 +3298,18 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
 // ── Criar uma spreadsheet (tracker) para vários jogos de uma vez ──
 const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => {
   const modelos = jogos.filter(j => /docs\.google\.com\/spreadsheets\/d\//.test(String(j.sheet || '')));
-  const [sel, setSel] = useState(() => new Set(jogos.filter(j => !j.sheet).map(j => j.id)));
+  // Estúdios (ex.: Bear Hug, Hyp Games): escolhem os jogos de uma vez; o nome fica guardado em cada jogo
+  const estudios = [...new Set(jogos.map(j => String(j.estudio || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt'));
+  const [sel, setSel] = useState(() => new Set());
+  const [estudio, setEstudio] = useState('');
   const [titulo, setTitulo] = useState('Creative tracker');
+  const [tituloMexido, setTituloMexido] = useState(false);
+  const escolherEstudio = e => {
+    setEstudio(e);
+    const dele = jogos.filter(j => String(j.estudio || '').trim().toLowerCase() === e.trim().toLowerCase());
+    if (dele.length) setSel(new Set(dele.map(j => j.id)));
+    if (!tituloMexido) setTitulo(e.trim() ? `${e.trim()} — Creative tracker` : 'Creative tracker');
+  };
   const [modeloId, setModeloId] = useState(() => (modelos[0] ? modelos[0].id : ''));
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -3313,7 +3323,8 @@ const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => 
       const conta = contaDe(cid);
       const tk = tokenGuardadoDe(conta) || await tokenDrive(conta);
       const r = await criarFolhaTracker(tk, { titulo: titulo.trim(), jogos: escolhidos, modelo, aviso: setMsg });
-      mudar(tr => r.tabs.reduce((acc, x) => opJogo(acc, x.jogoId, { sheet: `${r.url}#gid=${x.gid}` }), tr));
+      const est = estudio.trim();
+      mudar(tr => r.tabs.reduce((acc, x) => opJogo(acc, x.jogoId, { sheet: `${r.url}#gid=${x.gid}`, ...(est ? { estudio: est } : {}) }), tr));
       setFeito(r); setMsg('');
     } catch (e) { setMsg(`Não consegui criar: ${e.message || e}`); }
     setOcupado(false);
@@ -3335,8 +3346,20 @@ const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => 
         <p className="text-sm font-semibold">📊 Nova spreadsheet de tracker</p>
         <button type="button" onClick={onFechar} disabled={ocupado} className={`text-xs ${sub} hover:text-red-400`} aria-label="Fechar">✕</button>
       </div>
+      <div>
+        <p className={`text-xs mb-1 ${sub}`}>Estúdio</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {estudios.map(e => (
+            <button key={e} type="button" aria-pressed={estudio === e} onClick={() => escolherEstudio(estudio === e ? '' : e)}
+              className={`px-2.5 py-1 text-xs rounded-lg border ${estudio === e ? 'border-blue-500 bg-blue-600 text-white' : claro ? 'border-slate-200 bg-white hover:bg-slate-50' : 'border-slate-600 hover:bg-white/5'}`}>{e}</button>
+          ))}
+          <input value={estudios.includes(estudio) ? '' : estudio} onChange={e => escolherEstudio(e.target.value)} placeholder={estudios.length ? 'ou outro (ex.: Hyp Games)' : 'ex.: Bear Hug'} aria-label="Nome do estúdio"
+            className={`${inputClass} !w-48 text-xs py-1`} />
+        </div>
+        <p className={`text-[11px] mt-1 ${sub}`}>{estudios.length ? 'Carregar num estúdio escolhe os jogos dele.' : 'Escreve o estúdio e escolhe os jogos dele — fica guardado para a próxima vez.'}</p>
+      </div>
       <label className="block"><span className={`text-xs ${sub}`}>Nome da spreadsheet</span>
-        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="ex.: Bear Hug — Creative tracker" className={`${inputClass} text-sm py-1.5 mt-1`} /></label>
+        <input value={titulo} onChange={e => { setTitulo(e.target.value); setTituloMexido(true); }} placeholder="ex.: Bear Hug — Creative tracker" className={`${inputClass} text-sm py-1.5 mt-1`} /></label>
       <div>
         <p className={`text-xs mb-1 ${sub}`}>Jogos (uma tab para cada)</p>
         <div className="flex flex-wrap gap-1.5">
@@ -3345,7 +3368,7 @@ const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => 
             return (
               <button key={j.id} type="button" aria-pressed={on} onClick={() => setSel(p => { const n = new Set(p); if (n.has(j.id)) n.delete(j.id); else n.add(j.id); return n; })}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border ${on ? 'border-blue-500 bg-blue-600 text-white' : claro ? 'border-slate-200 bg-white hover:bg-slate-50' : 'border-slate-600 hover:bg-white/5'}`}>
-                <span className="w-2 h-2 rounded-sm" style={{ background: j.cor }} />{j.nome}{j.sheet ? <span className={on ? 'text-white/80' : sub} title="Já tem spreadsheet — fica com a nova">·📊</span> : null}
+                <span className="w-2 h-2 rounded-sm" style={{ background: j.cor }} />{j.nome}{j.estudio && j.estudio !== estudio ? <span className={on ? 'text-white/70' : sub}>· {j.estudio}</span> : null}{j.sheet ? <span className={on ? 'text-white/80' : sub} title="Já tem spreadsheet — se o escolheres, fica com a nova">·📊</span> : null}
               </button>
             );
           })}
@@ -3414,6 +3437,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
                 <Campo rot="Outros nomes (vírgulas)"><TxtIn valor={(j.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Win Money Mahjong" className={ic} /></Campo>
                 <Campo rot="Nome na fatura"><TxtIn valor={j.nomeFatura} onGravar={v => set({ nomeFatura: v })} placeholder={j.nome} className={ic} /></Campo>
                 <Campo rot="Código"><TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="ex.: MJ" className={ic} /></Campo>
+                <Campo rot="Estúdio"><TxtIn valor={j.estudio} onGravar={v => set({ estudio: v.trim() })} placeholder="ex.: Bear Hug" className={ic} /></Campo>
               </div>
               <Campo rot="Pasta do Drive — vídeos"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
               <Campo rot="Pasta do Drive — banners / statics"><div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="https://drive.google.com/… (opcional)" className={ic} />{link(j.driveStatics)}</div></Campo>
