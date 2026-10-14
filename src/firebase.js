@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, writeBatch } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -76,6 +76,22 @@ export const ouvirTrabalho = (userId, cb, erro) => onSnapshot(
   (snap) => cb(snap.exists() ? snap.data() : null, snap.metadata.hasPendingWrites),
   (e) => { console.error('Trabalho:', e); if (erro) erro(e); }
 );
+
+// Trabalho dividido por anos: users/<uid>/trabalho/dados (pastas, jogos, freelancers…) +
+// users/<uid>/trabalho/tarefas-2026, tarefas-2025… (as tarefas de cada ano). Cada documento tem o seu limite de 1 MB.
+// Ouve a coleção toda de uma vez: cb({ dados, 'tarefas-2026': {...}, … }, pendente)
+export const ouvirTrabalhoAnos = (userId, cb, erro) => onSnapshot(
+  collection(db, 'users', userId, 'trabalho'),
+  { includeMetadataChanges: false },
+  (snap) => { const docs = {}; snap.forEach(d => { docs[d.id] = d.data(); }); cb(docs, snap.metadata.hasPendingWrites); },
+  (e) => { console.error('Trabalho (anos):', e); if (erro) erro(e); }
+);
+// Grava vários documentos do Trabalho de uma vez (ou todos ou nenhum)
+export const guardarTrabalhoDocs = async (userId, mapa) => {
+  const b = writeBatch(db);
+  Object.entries(mapa).forEach(([id, dados]) => b.set(doc(db, 'users', userId, 'trabalho', id), dados));
+  await b.commit();
+};
 
 // Google Sheets API - Criar nova spreadsheet
 export const createGoogleSheet = async (title, sheetsData) => {
