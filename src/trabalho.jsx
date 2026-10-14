@@ -519,7 +519,26 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Tipo</span><span className="grid grid-cols-[repeat(5,26px)] justify-items-center" aria-hidden="true"><IcoA n="clip" className="w-3 h-3 opacity-70" /><IcoT n="nota" className="w-3 h-3 opacity-70" /><IcoTrello s={11} /><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8l6 10-4 7H6l-4-7z" /></svg><IcoFolha s={11} /></span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                    <span>Nome</span><span>Tipo</span>{(() => {
+                      // Só mostra o ícone de cada coluna quando alguma tarefa deste grupo o pode ter (ex.: jogos sem Trello não mostram o do Trello)
+                      const jg = x => (trab ? jogoDaTarefa(trab, x) : null);
+                      const tem = {
+                        anexo: g.lista.some(x => (x.anexos || []).length),
+                        notas: g.lista.some(x => x.notas && String(x.notas).trim()),
+                        trello: g.lista.some(x => (x.trello && x.trello.url) || (x.estado !== 'feito' && (jg(x) || {}).trello)),
+                        drive: g.lista.some(x => x.drive && x.drive.url),
+                        folha: g.lista.some(x => { const j = jg(x); return j && j.sheet && ((x.drive && x.drive.folha && x.drive.folha.ok) || x.estado !== 'feito'); }),
+                      };
+                      return (
+                        <span className="grid grid-cols-[repeat(5,26px)] justify-items-center" aria-hidden="true">
+                          <span>{tem.anexo && <IcoA n="clip" className="w-3 h-3 opacity-70" />}</span>
+                          <span>{tem.notas && <IcoT n="nota" className="w-3 h-3 opacity-70" />}</span>
+                          <span>{tem.trello && <IcoTrello s={11} />}</span>
+                          <span>{tem.drive && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8l6 10-4 7H6l-4-7z" /></svg>}</span>
+                          <span>{tem.folha && <IcoFolha s={11} />}</span>
+                        </span>
+                      );
+                    })()}<span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -980,7 +999,7 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
   };
   const criar = async () => {
     setOcupado(true); setMsg('');
-    try { const r = await criarCartaoTrello(jogo, t.nome); ligar(r); setAberto(false); }
+    try { const r = await criarCartaoTrello(jogo, nomeCartaoTarefa(jogo, t)); ligar(r); setAberto(false); }
     catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupado(false);
   };
@@ -995,7 +1014,7 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
         <span onClick={e => e.stopPropagation()} className={`absolute z-40 top-full mt-1 ${alinhar === 'dir' ? 'right-0' : 'left-0'} w-72 rounded-xl border shadow-xl p-3 space-y-2 text-left text-xs font-normal ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
           <span className="block text-[13px] font-medium">Enviar para o Trello</span>
           <span className={`block ${sub}`}>{jogo.trelloNome || 'Quadro do jogo'}{jogo.trelloLista ? <> · lista <b>{jogo.trelloLista.nome}</b></> : ''}</span>
-          {jogo.trelloLista && <span className={`block px-2 py-1 rounded-md break-words ${claro ? 'bg-slate-100' : 'bg-white/5'}`} title="Nome do cartão">{nomeCartao(jogo, t.nome)}</span>}
+          {jogo.trelloLista && <span className={`block px-2 py-1 rounded-md break-words ${claro ? 'bg-slate-100' : 'bg-white/5'}`} title="Nome do cartão">{nomeCartaoTarefa(jogo, t)}</span>}
           {jogo.trelloLista
             ? <button type="button" disabled={ocupado} onClick={criar} className="w-full px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">{ocupado ? 'A criar…' : '+ Criar cartão'}</button>
             : <span className="block text-amber-500">Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).</span>}
@@ -1175,7 +1194,7 @@ const QuemFaz = ({ t, mudar, claro, editavel = true, className = '' }) => {
 };
 // Reserva para impostos (%) das Definições — para mostrar a margem depois de impostos nas tarefas subcontratadas
 const RESERVA = { taxa: null };
-const TRAB_ATUAL = { trab: null }; // para os botões do Trello nas linhas saberem o jogo da tarefa
+const TRAB_ATUAL = { trab: null, cu: null }; // para os botões do Trello nas linhas saberem o jogo da tarefa
 const contaDe = cid => String((cid != null && CONTA_LINKS.porCliente[String(cid)]) || CONTA_LINKS.padrao || '').trim();
 const comConta = (url, cid) => {
   const conta = contaDe(cid);
@@ -2168,6 +2187,17 @@ const nomeCartao = (jogo, nome) => {
   const n = String(nome || '').trim(); const j = String((jogo && jogo.nome) || '').trim();
   if (!j || normJ(n).startsWith(normJ(j))) return n;
   return `${j} - ${n}`;
+};
+// Nome do cartão a partir do ficheiro final: "Jogo - 1x Iteration - Conceito - Variação" (não do nome da tarefa)
+const nomeCartaoTarefa = (jogo, t) => {
+  const cu = TRAB_ATUAL.cu;
+  const fx = t.ficheiros || {};
+  const v = String(fx.versao || versaoDaPasta(t.drive) || '1');
+  const conceito = String(fx.conceito || conceitoDoNome(t.nome, cu) || '').trim();
+  const variacao = String(campoVersao(fx, v, 'variacao', t) || '').trim();
+  const prefixo = prefixoDoTipo(contarPecas(trabPecas(t)), cu);
+  const base = conceito ? [prefixo, conceito, variacao].filter(Boolean).join(' - ') : t.nome;
+  return nomeCartao(jogo, base);
 };
 const criarCartaoTrello = async (jogo, nomeTarefa) => {
   const nome = nomeCartao(jogo, nomeTarefa);
@@ -3172,8 +3202,10 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
   const [parecidos, setParecidos] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState('');
-  const [nome, setNome] = useState(() => nomeCartao(jogo, t.nome));
-  useEffect(() => { setNome(nomeCartao(jogo, t.nome)); setParecidos(null); setMsg(''); }, [t.id, t.nome]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nomeAuto = jogo && !jogo.semJogo ? nomeCartaoTarefa(jogo, t) : t.nome;
+  const [nome, setNome] = useState(nomeAuto);
+  useEffect(() => { setNome(nomeAuto); setParecidos(null); setMsg(''); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setNome(nomeAuto); }, [nomeAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!quadro) return null;
   const btn = `px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} disabled:opacity-50`;
   const procurar = async () => {
@@ -4348,6 +4380,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
   FREE.lista = trab.freelancers || [];
   TRAB_ATUAL.trab = trab;
+  TRAB_ATUAL.cu = cu;
   RESERVA.taxa = Number.isFinite(Number(taxaReserva)) ? Number(taxaReserva) : null;
   CONTA_LINKS.padrao = trab.contaGoogle || '';
   CONTA_LINKS.porCliente = {};
@@ -4470,7 +4503,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     const id = trabId();
     mudar(tr => opNovaTarefa(tr, { id, pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo, pecas }));
     if (op.trello && jogoTrello) {
-      const nome = txt.trim();
+      const nome = nomeCartaoTarefa(jogoTrello, { nome: txt.trim(), pecas: pecas || undefined, ficheiros: {} });
       criarCartaoTrello(jogoTrello, nome)
         .then(r => { mudar(tr => opTarefa(tr, id, x => ({ ...x, trello: { id: r.id, url: r.url, nome: r.nome } }))); if (showToast) showToast(r.jaExistia ? 'Já havia um cartão no Trello com este nome — ficou ligado.' : 'Cartão criado no Trello'); })
         .catch(e => { if (showToast) showToast(`Tarefa criada, mas o Trello falhou: ${e.message || e}`, 'error'); });
