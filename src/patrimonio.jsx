@@ -1312,3 +1312,4 @@ export {
   ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
   LigacaoDriveRecibos
 };
+export const FICHEIRO_APP = 'patrimonio';
