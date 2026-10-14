@@ -2450,13 +2450,31 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   const [txtConceito, setTxtConceito] = useState(null);
   const carregarConceitos = async pedir => {
     if (!raizD || aVerD) return;
-    const tk = tokenGuardadoDe(contaD) || (pedir ? await tokenDrive(contaD).catch(() => null) : null);
+    const tk = tokenGuardadoDe(contaD) || (pedir || ligadoSempre(contaD || '_') ? await tokenDrive(contaD).catch(() => null) : null);
     if (!tk) return;
     setAVerD(true);
     try { setConceitosD((await conceitosNoDrive(tk, raizD)).map(x => x.name).sort((a, b) => a.localeCompare(b))); } catch (e) { /* sem acesso */ }
     setAVerD(false);
   };
   useEffect(() => { if (raizD && !conceitosD) carregarConceitos(false); }, [raizD]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Lista do menu: conceitos que estão no Drive + os das outras tarefas deste jogo (sem repetir)
+  const [menuC, setMenuC] = useState(false);
+  const [marcadoC, setMarcadoC] = useState(0);
+  const conceitosLocais = useMemo(() => {
+    if (!jogoD) return [];
+    const out = [];
+    (trab.tarefas || []).forEach(x => { if (x.id === t.id) return; const j = jogoDaTarefa(trab, x); if (!j || j.id !== jogoD.id) return; const doNome = conceitoDoNome(x.nome); const c = (x.ficheiros && x.ficheiros.conceito) || (doNome && doNome !== String(x.nome || '').trim() ? doNome : ''); if (c && !/^\d+\s*x\s*\d+$/i.test(c)) out.push(c); });
+    return out;
+  }, [trab.tarefas, jogoD && jogoD.id, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opcoesC = useMemo(() => {
+    const vistos = new Map();
+    (conceitosD || []).forEach(n => { const k = slugF(n); if (k && !vistos.has(k)) vistos.set(k, { nome: n, drive: true }); });
+    conceitosLocais.forEach(n => { const k = slugF(n); if (k && !vistos.has(k)) vistos.set(k, { nome: n, drive: false }); });
+    return [...vistos.values()].sort((a, b) => (b.drive - a.drive) || a.nome.localeCompare(b.nome, 'pt'));
+  }, [conceitosD, conceitosLocais]);
+  const txtFiltro = txtConceito != null ? txtConceito : '';
+  const filtradasC = (txtFiltro.trim() ? opcoesC.filter(o => slugF(o.nome).includes(slugF(txtFiltro)) || conceitoParecido(o.nome, txtFiltro)) : opcoesC).slice(0, 40);
+  const escolherC = n => { setF({ conceito: n }); setTxtConceito(null); setMenuC(false); };
   const conceitoAtual = txtConceito != null ? txtConceito : (fx.conceito || conceitoDoNome(t.nome));
   const conceitoNovo = conceitosD && conceitoAtual && !conceitosD.some(n => slugF(n) === slugF(conceitoAtual));
   const parecidos = conceitoNovo ? conceitosD.filter(n => conceitoParecido(n, conceitoAtual)).slice(0, 4) : [];
@@ -2470,8 +2488,32 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         <span className={`text-xs ${sub}`}>{r.jogo ? `${r.jogo.nome} (${r.cod})` : 'sem jogo'}{r.jogo && !r.jogo.codigo ? ' · código no separador Jogos' : ''}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-        <label className="flex flex-col gap-1 col-span-2 sm:col-span-3 min-w-0"><span className={lab}>Conceito</span><TxtIn valor={fx.conceito} onGravar={v => { setF({ conceito: v }); setTxtConceito(null); }} onInput={e => setTxtConceito(e.currentTarget.value)} onFocus={() => { if (!conceitosD) carregarConceitos(false); }} list={conceitosD ? `conceitos-${t.id}` : undefined} placeholder={conceitoDoNome(t.nome) || 'ex.: Enemy at the gates'} className={ic} />
-          {conceitosD && <datalist id={`conceitos-${t.id}`}>{conceitosD.map(n => <option key={n} value={n} />)}</datalist>}
+        <label className="flex flex-col gap-1 col-span-2 sm:col-span-3 min-w-0"><span className={lab}>Conceito</span>
+          <div className="relative">
+            <input value={txtConceito != null ? txtConceito : (fx.conceito || '')} placeholder={conceitoDoNome(t.nome) || 'ex.: Enemy at the gates'} className={`${ic} pr-7`} autoComplete="off" aria-label="Conceito"
+              onFocus={() => { setMenuC(true); setMarcadoC(0); if (!conceitosD) carregarConceitos(false); }}
+              onChange={e => { setTxtConceito(e.target.value); setMenuC(true); setMarcadoC(0); }}
+              onBlur={e => { const v = e.target.value.trim(); setMenuC(false); if (v !== (fx.conceito || '')) setF({ conceito: v }); setTxtConceito(null); }}
+              onKeyDown={e => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMenuC(true); setMarcadoC(i => Math.min(i + 1, filtradasC.length - 1)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setMarcadoC(i => Math.max(i - 1, 0)); }
+                else if (e.key === 'Enter') { e.preventDefault(); if (menuC && filtradasC[marcadoC] && txtConceito != null && txtConceito.trim()) { escolherC(filtradasC[marcadoC].nome); } e.currentTarget.blur(); }
+                else if (e.key === 'Escape' && menuC) { e.stopPropagation(); setMenuC(false); }
+              }} />
+            <button type="button" tabIndex={-1} onMouseDown={e => { e.preventDefault(); setMenuC(m => !m); if (!conceitosD) carregarConceitos(false); }} className={`absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] ${sub} hover:text-blue-400`} aria-label="Ver conceitos">▼</button>
+            {menuC && (filtradasC.length > 0 || aVerD) && (
+              <div className={`absolute z-40 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-lg border shadow-xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600'}`}>
+                {aVerD && !filtradasC.length && <p className={`px-3 py-1.5 text-xs ${sub}`}>A ver o Drive…</p>}
+                {filtradasC.map((o, i) => (
+                  <button key={o.nome} type="button" onMouseDown={e => { e.preventDefault(); escolherC(o.nome); }} onMouseEnter={() => setMarcadoC(i)}
+                    className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${i === marcadoC ? (claro ? 'bg-blue-50' : 'bg-blue-500/15') : ''}`}>
+                    <span className="flex-1 min-w-0 truncate">{o.nome}</span>
+                    <span className={`shrink-0 text-[10px] ${o.drive ? 'text-emerald-500' : sub}`}>{o.drive ? 'no Drive' : 'tarefas'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn valor={fx.versao} onGravar={v => setF({ versao: v.replace(/^v/i, '') })} placeholder="ex.: 4" className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span><TxtIn valor={fx.variacao} onGravar={v => setF({ variacao: v })} placeholder="ex.: Reaction" className={ic} /></label>
