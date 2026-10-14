@@ -342,8 +342,9 @@ const useLargo = (q = '(min-width: 900px)') => {
   return l;
 };
 // Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
-const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_112px_92px_96px_108px_84px_96px_84px] items-center gap-x-3';
-const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_104px_84px_108px_76px_80px] items-center gap-x-3';
+// Nome · Tipo · ícones (anexo, notas, Trello, Drive) · Estado · Quem faz · Prioridade · Criada · Tempo · Prazo · Terminada · Valor
+const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_104px_96px_92px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
+const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_100px_104px_96px_88px_64px_88px_48px_60px] items-center gap-x-2.5';
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
   const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
@@ -361,11 +362,11 @@ const etiquetaTipo = (t, cu) => {
 // Tons próximos do verde (verde → azul-petróleo → azul), para distinguir os tipos sem virar arco-íris
 const MATIZ_TIPO = { video: 152, variacao: 174, iteracao: 190, ai_clip: 182, hook: 136, aso: 163, video3d: 144, banner: 204, banner_var: 214, icone: 222, feature: 198, screenshots: 208 };
 const matizTipo = id => { if (MATIZ_TIPO[id] != null) return MATIZ_TIPO[id]; let h = 0; String(id || '').split('').forEach(ch => { h = (h * 31 + ch.charCodeAt(0)) % 997; }); return 130 + (h % 90); };
-const EtiquetaTipo = ({ t, cu, claro, className = '' }) => {
+const EtiquetaTipo = ({ t, cu, claro, className = '', maxw = 'max-w-[45%]' }) => {
   const txt = etiquetaTipo(t, cu);
   if (!txt) return null;
   const p0 = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro');
-  const cls = `${className} shrink-0 max-w-[45%] truncate px-1.5 py-px rounded-md text-[11px] font-medium`;
+  const cls = `${className} shrink-0 ${maxw} truncate px-1.5 py-px rounded-md text-[11px] font-medium`;
   if (!p0) return <span className={`${cls} ${claro ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200' : 'bg-white/5 text-slate-300 ring-1 ring-white/10'}`} title={txt}>{txt}</span>;
   const h = matizTipo(p0.tipo);
   const est = claro
@@ -400,16 +401,18 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
               <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
               {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
             </button>
-            <EtiquetaTipo t={t} cu={cu} claro={claro} />
-            <LinkDrive t={t} claro={claro} />
-            <BotaoTrello t={t} mudar={mudar} claro={claro} />
-            <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
+            <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 hidden group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
-            {(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}
-            {t.notas && String(t.notas).trim() && <button type="button" onClick={e => { e.stopPropagation(); onAbrir(t.id); }} className={`inline-flex items-center px-1 rounded ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} title={`Notas: ${String(t.notas).slice(0, 300)}`} aria-label="Ver as notas da tarefa"><IcoT n="nota" className="w-3.5 h-3.5" /></button>}
           </>
         )}
+      </div>
+      <div className="min-w-0 flex"><EtiquetaTipo t={t} cu={cu} claro={claro} maxw="max-w-full" /></div>
+      <div className="grid grid-cols-[repeat(4,26px)] items-center justify-items-center">
+        <span className="inline-flex">{(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}</span>
+        <span className="inline-flex">{t.notas && String(t.notas).trim() && <button type="button" onClick={e => { e.stopPropagation(); onAbrir(t.id); }} className={`inline-flex items-center px-1 h-5 rounded ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} title={`Notas: ${String(t.notas).slice(0, 300)}`} aria-label="Ver as notas da tarefa"><IcoT n="nota" className="w-3.5 h-3.5" /></button>}</span>
+        <span className="inline-flex"><BotaoTrello t={t} mudar={mudar} claro={claro} /></span>
+        <span className="inline-flex"><LinkDrive t={t} claro={claro} /></span>
       </div>
       <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
       <div className="min-w-0"><QuemFaz t={t} mudar={mudar} claro={claro} /></div>
@@ -514,7 +517,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                    <span>Nome</span><span>Tipo</span><span className="grid grid-cols-[repeat(4,26px)] justify-items-center" aria-hidden="true"><IcoA n="clip" className="w-3 h-3 opacity-70" /><IcoT n="nota" className="w-3 h-3 opacity-70" /><IcoTrello s={11} /><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8l6 10-4 7H6l-4-7z" /></svg></span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -959,8 +962,9 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
         <span onClick={e => e.stopPropagation()} className={`absolute z-40 top-full mt-1 ${alinhar === 'dir' ? 'right-0' : 'left-0'} w-72 rounded-xl border shadow-xl p-3 space-y-2 text-left text-xs font-normal ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
           <span className="block text-[13px] font-medium">Enviar para o Trello</span>
           <span className={`block ${sub}`}>{jogo.trelloNome || 'Quadro do jogo'}{jogo.trelloLista ? <> · lista <b>{jogo.trelloLista.nome}</b></> : ''}</span>
+          {jogo.trelloLista && <span className={`block px-2 py-1 rounded-md break-words ${claro ? 'bg-slate-100' : 'bg-white/5'}`} title="Nome do cartão">{nomeCartao(jogo, t.nome)}</span>}
           {jogo.trelloLista
-            ? <button type="button" disabled={ocupado} onClick={criar} className="w-full px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">{ocupado ? 'A criar…' : '+ Criar cartão com o nome da tarefa'}</button>
+            ? <button type="button" disabled={ocupado} onClick={criar} className="w-full px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">{ocupado ? 'A criar…' : '+ Criar cartão'}</button>
             : <span className="block text-amber-500">Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).</span>}
           {parecidos == null && !msg && <span className={`block ${sub}`}>A procurar cartões parecidos…</span>}
           {parecidos && parecidos.length > 0 && (
@@ -1899,6 +1903,35 @@ const jogoDaTarefa = (trab, t) => {
   if (!p) return null;
   return (trab.jogos || []).find(j => j.id === p.jogoId) || acharJogo(trab.jogos, t.cid, jogoDoNome(p.nome)) || { nome: jogoDoNome(p.nome), semJogo: true };
 };
+// Variação e duração são de cada versão (a V2 pode ter variação e a V1 não): ficam em ficheiros.porVersao[n]
+const CAMPOS_VERSAO = ['variacao', 'duracao'];
+const versaoDaPasta = d => Number((d && (d.versao || (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1])) || 0);
+// Variação de uma versão já enviada, lida do nome da pasta no Drive (CONCEITO_V1_VARIAÇÃO) — para tarefas antigas
+const variacaoEnviada = (t, v) => {
+  if (!t || !t.drive) return undefined;
+  const d = [t.drive, ...(t.drive.anteriores || [])].find(x => x && versaoDaPasta(x) === Number(v));
+  if (!d || !d.pasta) return undefined;
+  const m = new RegExp(`_V${Number(v)}(?:_(.+))?$`).exec(String(d.pasta));
+  return m ? (m[1] || '') : undefined;
+};
+const campoVersao = (fx, v, k, t) => {
+  const pv = fx && fx.porVersao && fx.porVersao[String(v)];
+  if (pv && pv[k] !== undefined) return pv[k];
+  if (k === 'variacao') { const e = variacaoEnviada(t, v); if (e !== undefined) return e; }
+  return (fx || {})[k];
+};
+const versoesEnviadas = t => [...new Set([t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(Boolean).map(versaoDaPasta).filter(n => n > 0))].sort((a, b) => a - b);
+// Mudar um campo de uma versão sem mexer nas versões já enviadas (que ficam com o valor que tinham)
+const fxComVersao = (fx, t, v, patch) => {
+  const pv = { ...(fx.porVersao || {}) };
+  const vs = String(v);
+  Object.keys(patch).forEach(k => {
+    if (!CAMPOS_VERSAO.includes(k)) return;
+    versoesEnviadas(t).forEach(n => { const s = String(n); if (s !== vs && !(pv[s] && pv[s][k] !== undefined)) pv[s] = { ...(pv[s] || {}), [k]: campoVersao(fx, s, k, t) ?? '' }; });
+    pv[vs] = { ...(pv[vs] || {}), [k]: patch[k] ?? '' };
+  });
+  return { ...fx, ...patch, porVersao: pv };
+};
 const nomesFicheiros = (trab, t) => {
   const fx = t.ficheiros || {};
   const jogo = jogoDaTarefa(trab, t);
@@ -1906,15 +1939,17 @@ const nomesFicheiros = (trab, t) => {
   const tipoP = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro');
   const tipo = slugF(fx.tipo) || (tipoP ? (TIPO_FICHEIRO[tipoP.tipo] || slugF(tipoP.tipo).slice(0, 3)) : 'VID');
   const conceito = slugF(fx.conceito || conceitoDoNome(t.nome));
-  const versao = `V${String(fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || '1').replace(/^v/i, '')}`; // sem versão: V1
-  const variacao = slugF(fx.variacao);
+  const vNum = String(fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || '1').replace(/^v/i, '');
+  const versao = `V${vNum}`; // sem versão: V1
+  const variacao = slugF(campoVersao(fx, vNum, 'variacao', t));
+  const duracaoV = campoVersao(fx, vNum, 'duracao');
   const dia = fx.data || trabDia(new Date().toISOString()); // a data do nome é a do dia do export, a não ser que escolhas outra
   const ddmmyy = dia ? `${dia.slice(8, 10)}${dia.slice(5, 7)}${dia.slice(2, 4)}` : '';
-  const dur = fx.duracao ? `${Math.round(Number(fx.duracao))}S` : '';
+  const dur = duracaoV ? `${Math.round(Number(duracaoV))}S` : '';
   const base = [conceito, versao, variacao].filter(Boolean).join('_');
   const formatos = (t.formatos && t.formatos.length ? t.formatos : []);
   return {
-    jogo, cod, tipo, conceito, dia, base, ddmmyy, dur,
+    jogo, cod, tipo, conceito, dia, base, ddmmyy, dur, vNum,
     pasta: conceito ? `${conceito} / ${base}` : '',
     ficheiros: formatos.map(f => ({ formato: f, nome: [cod, tipo, base, f.replace(':', 'X'), dur, ddmmyy].filter(Boolean).join('_') })),
   };
@@ -1993,13 +2028,21 @@ const cartoesTrello = async (quadro, fresco = false) => {
   return j.cartoes || [];
 };
 // Cria o cartão na lista do jogo — mas, se já houver um com o mesmo nome (a Sophie pode tê-lo criado), liga a esse
-const criarCartaoTrello = async (jogo, nome) => {
+// O cartão leva sempre o nome do jogo à frente: "Mahjong - 1x Variation - …"
+const nomeCartao = (jogo, nome) => {
+  const n = String(nome || '').trim(); const j = String((jogo && jogo.nome) || '').trim();
+  if (!j || normJ(n).startsWith(normJ(j))) return n;
+  return `${j} - ${n}`;
+};
+const criarCartaoTrello = async (jogo, nomeTarefa) => {
+  const nome = nomeCartao(jogo, nomeTarefa);
   if (!jogo || !jogo.trello) throw new Error('Este jogo não tem quadro do Trello.');
   if (!jogo.trelloLista) throw new Error('Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).');
   const n = String(nome || '').trim();
   if (!n) throw new Error('Falta o nome do cartão.');
   const cs = await cartoesTrello(jogo.trello, true);
-  const igual = cs.find(c => c.nome.trim().toLowerCase() === n.toLowerCase());
+  const sem = String(nomeTarefa || '').trim().toLowerCase();
+  const igual = cs.find(c => c.nome.trim().toLowerCase() === n.toLowerCase()) || cs.find(c => c.nome.trim().toLowerCase() === sem);
   if (igual) return { id: igual.id, url: igual.url, nome: igual.nome, jaExistia: true };
   const c = await chamarTrello('criar', { lista: jogo.trelloLista.id, nome: n });
   cacheCartoes.delete(jogo.trello);
@@ -2304,11 +2347,11 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const versoesTarefa = [...new Set([t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(Boolean).map(d => Number(d.versao || (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1])).filter(n => n > 0))].sort((a, b) => a - b);
   const versaoConfirmada = v => String(versaoLote || fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
   const versaoDe = v => versaoConfirmada(v) || '1'; // sem versão em lado nenhum: V1 (o Drive confirma ao enviar)
-  const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
+  const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(campoVersao(fx, versaoDe(v), 'variacao', t))].filter(Boolean).join('_');
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
-  const durDe = item => fx.duracao || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
+  const durDe = (item, v = verSug) => campoVersao(fx, versaoDe(v), 'duracao') || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
   const nomeDe = item => (item.handle ? item.handle.name : item.file ? item.file.name : '');
-  const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(nomeDe(item)) || ['.mp4'])[0].toLowerCase(); const d = durDe(item); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
+  const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(nomeDe(item)) || ['.mp4'])[0].toLowerCase(); const d = durDe(item, v); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
   // Adivinhar a versão pelas pastas que já estão no Drive (CONCEITO_V1, _V2…): vídeo novo → a seguinte; variação/iteração → a última
   const novoVideo = trabPecas(t).some(p => ['video', 'video3d', 'ai_clip', 'aso'].includes(p.tipo));
   const [infoVersao, setInfoVersao] = useState(null); // { conceito, existe, versoes }
@@ -2400,8 +2443,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
       // A tarefa fica com os formatos, a versão e a duração destes ficheiros (para os nomes aparecerem lá em cima)
       const its = lista.filter(x => alvos.some(a => a.feito && a.id === x.id));
       if (its.length) {
-        const durs = its.map(durDe).filter(Boolean);
-        set({ formatos: [...new Set([...(t.formatos || []), ...its.map(x => x.formato).filter(Boolean)])], ficheiros: { ...fx, ...(!fx.versao ? { versao: versaoDe(verSug) } : {}), ...(!fx.duracao && durs.length ? { duracao: durs[0] } : {}) } });
+        const durs = its.map(x => durDe(x)).filter(Boolean);
+        const vR = versaoDe(verSug);
+        const fx2 = !campoVersao(fx, vR, 'duracao') && durs.length ? fxComVersao(fx, t, vR, { duracao: durs[0] }) : fx;
+        set({ formatos: [...new Set([...(t.formatos || []), ...its.map(x => x.formato).filter(Boolean)])], ficheiros: { ...fx2, ...(!fx.versao ? { versao: vR } : {}) } });
       }
     }
     return { ok, erros, faltam };
@@ -2536,9 +2581,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
       const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, versao: String(v), conceito: pConceito.name, nomeBase: [r.cod, r.tipo, baseDe(v)].filter(Boolean).join('_'), enviados, em: new Date().toISOString(), ...(antes.length ? { anteriores: antes.slice(0, 10) } : {}) };
       setRenomeados(paraRenomear.length ? paraRenomear : null);
       setResultado(reg);
-      const durs = lista.map(durDe).filter(Boolean);
+      const durs = lista.map(x => durDe(x, v)).filter(Boolean);
       const formatos = [...new Set([...(t.formatos || []), ...lista.map(x => x.formato)])];
-      set({ drive: reg, link: url, formatos, ficheiros: { ...fx, versao: String(v), ...(!fx.duracao && durs.length ? { duracao: durs[0] } : {}) } });
+      const durV = campoVersao(fx, String(v), 'duracao') || (durs.length ? durs[0] : null);
+      set({ drive: reg, link: url, formatos, ficheiros: { ...fxComVersao(fx, t, v, { variacao: campoVersao(fx, String(v), 'variacao', t) ?? '', duracao: durV ?? null }), versao: String(v) } });
       // Spreadsheet do jogo: se for uma Google Sheet, junta a linha sozinha (nome com o link da pasta)
       let folha = null;
       if (jogo.sheet && enviados.length) {
@@ -2726,6 +2772,9 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   const [copiado, setCopiado] = useState('');
   useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
   const setF = patch => set({ ficheiros: { ...fx, ...patch } });
+  const setFV = patch => set({ ficheiros: fxComVersao(fx, t, r.vNum, patch) });
+  const [nomesFechados, setNomesFechados] = useState(() => { try { return localStorage.getItem('trab-nomes-fechados') === '1'; } catch (e) { return false; } });
+  const alternarNomes = () => setNomesFechados(v => { try { localStorage.setItem('trab-nomes-fechados', v ? '0' : '1'); } catch (e) { /* */ } return !v; });
   const ic = `${inputClass} text-sm py-1.5`;
   // Conceitos que já estão no Drive deste jogo: sugere-os ao escrever e avisa se o nome é novo (evita gralhas → V1 por engano)
   const jogoD = r.jogo && !r.jogo.semJogo ? r.jogo : null;
@@ -2802,8 +2851,8 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
           </div>
         </label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn valor={fx.versao} onGravar={v => setF({ versao: v.replace(/^v/i, '') })} placeholder="ex.: 4" className={ic} /></label>
-        <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span><TxtIn valor={fx.variacao} onGravar={v => setF({ variacao: v })} placeholder="ex.: Reaction" className={ic} /></label>
-        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span><NumIn valor={fx.duracao ?? null} placeholder="59" decimal={false} onGravar={v => setF({ duracao: v })} className={ic} /></label>
+        <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span><TxtIn key={'var' + r.vNum} valor={campoVersao(fx, r.vNum, 'variacao', t)} onGravar={v => setFV({ variacao: v })} placeholder="ex.: Reaction" className={ic} /></label>
+        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span><NumIn key={'dur' + r.vNum} valor={campoVersao(fx, r.vNum, 'duracao') ?? null} placeholder="59" decimal={false} onGravar={v => setFV({ duracao: v })} className={ic} /></label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Tipo</span><TxtIn valor={fx.tipo} onGravar={v => setF({ tipo: v })} placeholder={r.tipo} className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-2 min-w-0"><span className={lab}>Data</span><input key={t.id + 'fd' + (fx.data || '')} type="date" defaultValue={fx.data || r.dia} onBlur={e => { if (e.target.value && e.target.value !== (fx.data || r.dia)) setF({ data: e.target.value }); }} className={ic} /></label>
       </div>
@@ -2818,11 +2867,19 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
       )}
       {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p> : (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2"><span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span><code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>{botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}</div>
-          {r.ficheiros.map(f => (
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={alternarNomes} aria-expanded={!nomesFechados} title={nomesFechados ? 'Mostrar os nomes dos vídeos' : 'Esconder os nomes dos vídeos'} className={`flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+              <span className={`shrink-0 text-[9px] ${sub} transition-transform`} style={{ transform: nomesFechados ? 'none' : 'rotate(90deg)' }}>▶</span>
+              <span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span>
+              <code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>
+              {nomesFechados && <span className={`shrink-0 text-[11px] ${sub}`}>{r.ficheiros.length} vídeo{r.ficheiros.length === 1 ? '' : 's'}</span>}
+            </button>
+            {botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}
+          </div>
+          {!nomesFechados && r.ficheiros.map(f => (
             <div key={f.formato} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 break-all leading-snug text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, f.formato)}</div>
           ))}
-          {r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
+          {!nomesFechados && r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
         </div>
       )}
       <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} />
@@ -2932,8 +2989,8 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
   const [parecidos, setParecidos] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState('');
-  const [nome, setNome] = useState(t.nome || '');
-  useEffect(() => { setNome(t.nome || ''); setParecidos(null); setMsg(''); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [nome, setNome] = useState(() => nomeCartao(jogo, t.nome));
+  useEffect(() => { setNome(nomeCartao(jogo, t.nome)); setParecidos(null); setMsg(''); }, [t.id, t.nome]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!quadro) return null;
   const btn = `px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} disabled:opacity-50`;
   const procurar = async () => {
@@ -4176,6 +4233,28 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }
   const ordenar = l => l.slice().sort((a, b) => (a.prazo || '9999').localeCompare(b.prazo || '9999') || String(a.criada).localeCompare(String(b.criada)));
   tarefas = ordenar(tarefas);
+
+  // Cartões do Trello apagados ou arquivados lá: a tarefa deixa de estar ligada (verifica ao abrir a lista e ao voltar à app)
+  const comTrello = tarefas.filter(t => t.trello && t.trello.id);
+  const chaveTrello = comTrello.map(t => t.id + t.trello.id).join(',');
+  const [focoTic, setFocoTic] = useState(0);
+  useEffect(() => { const f = () => { cacheCartoes.clear(); setFocoTic(x => x + 1); }; window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, []);
+  useEffect(() => {
+    if (!comTrello.length) return undefined;
+    let vivo = true;
+    const porQuadro = {};
+    comTrello.forEach(t => { const j = jogoDaTarefa(trab, t); if (j && !j.semJogo && j.trello) (porQuadro[j.trello] = porQuadro[j.trello] || []).push(t.id); });
+    Object.entries(porQuadro).forEach(async ([q, ids]) => {
+      try {
+        const cs = await cartoesTrello(q);
+        if (!vivo || !Array.isArray(cs)) return;
+        const abertos = new Set(cs.map(c => c.id));
+        const soltas = ids.filter(id => { const t = (trab.tarefas || []).find(x => x.id === id); return t && t.trello && !abertos.has(t.trello.id); });
+        if (soltas.length) mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (soltas.includes(t.id) && t.trello && !abertos.has(t.trello.id) ? { ...t, trello: null } : t)) }));
+      } catch (e) { /* sem ligação ao Trello: fica como está */ }
+    });
+    return () => { vivo = false; };
+  }, [chaveTrello, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [pedir, setPedir] = useState(null); // { titulo, valor, ok }
   const novaPasta = (cid, paiId) => setPedir({ titulo: paiId ? 'Nome da subpasta' : 'Nome da pasta', valor: '', ok: nome => {
