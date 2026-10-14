@@ -314,6 +314,9 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
       <span className={`hidden sm:inline w-16 text-right text-xs tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</span>
       <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
+      {APAGAR.pedir && <button type="button" onClick={e => { e.stopPropagation(); APAGAR.pedir(t); }} className={`shrink-0 w-6 h-6 hidden sm:group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${claro ? 'text-slate-400' : 'text-slate-500'} hover:text-red-400`} title="Apagar a tarefa" aria-label="Apagar a tarefa">
+        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+      </button>}
     </div>
   );
 };
@@ -405,6 +408,9 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 hidden group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
+            {APAGAR.pedir && <button type="button" onClick={e => { e.stopPropagation(); APAGAR.pedir(t); }} className={`shrink-0 w-6 h-6 hidden group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${sub} hover:text-red-400 ${claro ? 'hover:bg-red-50' : 'hover:bg-red-500/10'}`} title="Apagar a tarefa" aria-label="Apagar a tarefa">
+              <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            </button>}
           </>
         )}
       </div>
@@ -525,9 +531,9 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                       const tem = {
                         anexo: g.lista.some(x => (x.anexos || []).length),
                         notas: g.lista.some(x => x.notas && String(x.notas).trim()),
-                        trello: g.lista.some(x => (x.trello && x.trello.url) || (x.estado !== 'feito' && (jg(x) || {}).trello)),
+                        trello: g.lista.some(x => (x.trello && x.trello.url) || (jg(x) || {}).trello),
                         drive: g.lista.some(x => x.drive && x.drive.url),
-                        folha: g.lista.some(x => { const j = jg(x); return j && j.sheet && ((x.drive && x.drive.folha && x.drive.folha.ok) || x.estado !== 'feito'); }),
+                        folha: g.lista.some(x => { const j = jg(x); return j && !j.semJogo && j.sheet; }),
                       };
                       return (
                         <span className="grid grid-cols-[repeat(5,26px)] justify-items-center" aria-hidden="true">
@@ -937,6 +943,8 @@ const IcoTrello = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" 
 // Todas as versões enviadas para o Drive (V1, V2…) com os links ainda por juntar a este cartão
 const versoesDrive = d => (d ? [d, ...(d.anteriores || [])] : []).filter(x => x && x.url && (x.enviados || []).length);
 const porPartilhar = (t, cartao) => versoesDrive(t.drive).filter(d => !(d.trello && d.trello.ok && d.trello.cartao === cartao));
+// Cartão a que os links do Drive desta tarefa foram juntados (para voltar a ligar se a ligação se perdeu)
+const cartaoLembrado = t => (t.trello || t.trelloSolto ? null : (versoesDrive(t.drive).map(d => d.trello && d.trello.ok && d.trello.cartao).find(Boolean) || null));
 const linkNoTrello = t => !!(t.trello && t.trello.id && versoesDrive(t.drive).length && !porPartilhar(t, t.trello.id).length);
 // Junta ao cartão o link de cada versão que ainda lá não está (como anexo); devolve o Drive já marcado
 const partilharNoTrello = async (t, cartao) => {
@@ -983,12 +991,11 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
     return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
   }, [aberto]);
   if (t.trello && t.trello.url) return <LinkTrello t={t} claro={claro} />;
-  if (t.estado === 'feito') return null; // tarefas antigas já entregues: não enche a lista de ícones
   const trab = TRAB_ATUAL.trab;
   const jogo = trab ? jogoDaTarefa(trab, t) : null;
   if (!jogo || jogo.semJogo || !jogo.trello) return null;
   const ligar = c => {
-    mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome } })));
+    mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome }, trelloSolto: false })));
     // A tarefa já tinha versões no Drive: junta logo esses links ao cartão
     if (porPartilhar(t, c.id).length) partilharNoTrello(t, c.id).then(r => { if (r.n) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, drive: r.drive }))); });
   };
@@ -1044,14 +1051,13 @@ const LinkFolha = ({ t, claro }) => {
   const trab = TRAB_ATUAL.trab;
   const jogo = trab ? jogoDaTarefa(trab, t) : null;
   if (!jogo || jogo.semJogo || !jogo.sheet) return null;
-  const folha = t.drive && t.drive.folha;
+  const folha = versoesDrive(t.drive).map(d => d.folha).find(f => f && f.ok) || (t.drive && t.drive.folha);
   const ok = !!(folha && folha.ok);
-  if (!ok && t.estado === 'feito') return null;
   const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1];
   const url = ok && id && folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${folha.gid}&range=A${folha.linha}` : jogo.sheet;
   return (
     <a href={urlAbrir(url, t.cid)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir a spreadsheet"
-      title={ok ? `Já está na spreadsheet${folha.tab ? ` (${folha.tab}, linha ${folha.linha})` : ''}` : 'Ainda não está na spreadsheet — abrir a spreadsheet do jogo'}
+      title={ok ? `Já está na spreadsheet${folha.tab ? ` (${folha.tab}, linha ${folha.linha})` : ''}` : t.estado === 'feito' ? 'Abrir a spreadsheet do jogo (a app não registou esta tarefa lá)' : 'Ainda não está na spreadsheet — abrir a spreadsheet do jogo'}
       className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md ${ok ? 'text-emerald-500' : claro ? 'text-slate-300 hover:text-emerald-600' : 'text-slate-600 hover:text-emerald-400'} ${claro ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/10'}`}>
       <IcoFolha />
       {ok && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
@@ -1142,7 +1148,25 @@ const slideDoLink = url => { const m = /[#&?]slide=id\.([\w-]+)/.exec(url || '')
 const CONTA_LINKS = { padrao: '', porCliente: {} };
 // Freelancers (preenchido pelo Trabalho em cada render) — para mostrar e mudar "quem faz" nas listas
 const FREE = { lista: [] };
-const NAV_FREE = { abrir: null }; // abrir a página de um freelancer (preenchido pelo Trabalho)
+const NAV_FREE = { abrir: null };
+const APAGAR = { pedir: null }; // pedir para apagar uma tarefa (abre a caixa de confirmação do Trabalho)
+const ConfirmarApagar = ({ t, claro, onSim, onNao }) => {
+  useEffect(() => { const k = e => { if (e.key === 'Escape') { e.stopPropagation(); onNao(); } }; window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const comAnexos = (t.anexos || []).some(a => a.caminho);
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 animate-backdropIn" style={{ background: claro ? 'rgba(15,23,42,.3)' : 'rgba(0,0,0,.55)' }} onMouseDown={e => { if (e.target === e.currentTarget) onNao(); }}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="apagar-titulo" className={`w-full max-w-sm rounded-2xl border p-5 shadow-2xl animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <p id="apagar-titulo" className="text-base font-semibold">Apagar esta tarefa?</p>
+        <p className={`mt-1.5 text-sm break-words ${claro ? 'text-slate-600' : 'text-slate-300'}`}>“{t.nome}”</p>
+        <p className={`mt-2 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Não dá para desfazer.{comAnexos ? ' Os anexos dela também são apagados.' : ''} Não mexe em nada no Drive nem no Trello.</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" autoFocus onClick={onNao} className={`px-3 py-1.5 text-sm rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Cancelar</button>
+          <button type="button" onClick={onSim} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white">Apagar</button>
+        </div>
+      </div>
+    </div>
+  );
+}; // abrir a página de um freelancer (preenchido pelo Trabalho)
 const tarefasDoFreelancer = (trab, f) => (trab.tarefas || []).filter(t => t.freelancerId === f.id || (!t.freelancerId && t.outsourcing && normJ(t.outsourcing) === normJ(f.nome)));
 const FREE_CORES = ['#ec4899', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#f43f5e', '#6366f1', '#84cc16', '#0ea5e9', '#d946ef'];
 const corFreelancer = f => { if (!f) return '#94a3b8'; if (f.cor) return f.cor; const i = FREE.lista.findIndex(x => x.id === f.id); return FREE_CORES[(i < 0 ? 0 : i) % FREE_CORES.length]; };
@@ -1547,7 +1571,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             {<a href={linkAE(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
             <a href={`${linkAE(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">trocar projeto</a>
             <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
-            <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
+            <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
               const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
               (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
               mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
@@ -1754,19 +1778,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               </label>
               <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
             </div>
-            <div className="space-y-1">
-              {(t.tempos || []).slice().reverse().map(x => (
-                <div key={x.id} className="flex items-center gap-2 text-xs">
-                  <input type="datetime-local" defaultValue={paraInputLocal(x.ini)} key={x.ini} onBlur={e => { if (!e.target.value) return; const ini = new Date(e.target.value).toISOString(); mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.map(z => (z.id === x.id ? { ...z, ini } : z)) }))); }} className={`${inputClass} !w-auto text-xs py-1`} />
-                  <span className="opacity-50">→</span>
-                  {x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(x.fim)} key={x.fim} onBlur={e => { if (!e.target.value) return; const fim = new Date(e.target.value).toISOString(); mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.map(z => (z.id === x.id ? { ...z, fim } : z)) }))); }} className={`${inputClass} !w-auto text-xs py-1`} />
-                    : <span className="text-red-400 font-medium">a correr</span>}
-                  <span className="flex-1 text-right tabular-nums">{tempoTxt(trabMsTempo(x) / 3600000)}</span>
-                  <button type="button" className="text-slate-400 hover:text-red-400" aria-label="Apagar este tempo" onClick={() => mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: y.tempos.filter(z => z.id !== x.id) })))}>✕</button>
-                </div>
-              ))}
-              {!(t.tempos || []).length && <p className={lab}>Sem tempo registado.</p>}
-            </div>
+            <GraficoTempo t={t} mudar={mudar} claro={claro} inputClass={inputClass} est={est} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} className={`${inputClass} !w-auto text-xs py-1`} />
               <input value={hManual} onChange={e => setHManual(e.target.value)} placeholder="ex.: 2h30" className={`${inputClass} !w-24 text-xs py-1`} />
@@ -2454,7 +2466,6 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const [aEnviar, setAEnviar] = useState(false);
   const [msg, setMsg] = useState('');
   const [resultado, setResultado] = useState(t.drive || null);
-  const [copiadoS, setCopiadoS] = useState(false);
   const [verSug, setVerSug] = useState(null);
   const [renomeados, setRenomeados] = useState(null); // itens enviados que ainda podem mudar de nome no PC
   const [noDrive, setNoDrive] = useState(null); // ficheiros na pasta do Drive desta tarefa
@@ -2891,9 +2902,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
           {resultado && resultado.trello && <p className={`text-xs ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? (resultado.trelloN > 1 ? `✓ ${resultado.trelloN} links (esta versão e as anteriores) juntados ao cartão do Trello` : '✓ Link da pasta juntado ao cartão do Trello') : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</p>}
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive{resultado.anteriores && resultado.anteriores.length ? ` (${resultado.versao ? `V${resultado.versao}` : resultado.pasta})` : ''}</a>
-              {(resultado.anteriores || []).map(d => <a key={d.pastaId} href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn} title={d.pasta}>📁 {d.versao ? `V${d.versao}` : (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || ['', ''])[1] ? `V${(/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1]}` : d.pasta}</a>)}
-              <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
+              {[resultado, ...(resultado.anteriores || [])].filter(d => d && d.url).sort((x, y) => versaoDaPasta(x) - versaoDaPasta(y)).map(d => (
+                <a key={d.pastaId || d.url} href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
+              ))}
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
               {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
               {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂 Ver / apagar ficheiros no Drive'}</button>}
@@ -3218,7 +3229,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
     setOcupado(true); setMsg('');
     try {
       const r = await criarCartaoTrello(jogo, nome.trim() || t.nome);
-      set({ trello: { id: r.id, url: r.url, nome: r.nome } });
+      set({ trello: { id: r.id, url: r.url, nome: r.nome }, trelloSolto: false });
       setMsg(r.jaExistia ? '✓ Já havia um cartão com este nome — liguei a esse.' : `✓ Cartão criado em "${jogo.trelloLista.nome}".`);
       if (porPartilhar(t, r.id).length) { setOcupado(false); await partilharDrive(r.id); }
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
@@ -3240,7 +3251,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <a href={t.trello.url} target="_blank" rel="noopener noreferrer" className={`${btn} !border-blue-500/50 text-blue-400`}>Abrir o cartão ↗</a>
           <span className={`truncate max-w-[60%] ${sub}`} title={t.trello.nome}>{t.trello.nome}</span>
-          <button type="button" onClick={() => set({ trello: null })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
+          <button type="button" onClick={() => set({ trello: null, trelloSolto: true })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
           {linkNoTrello(t)
             ? <p className="w-full text-[11px] text-emerald-500">✓ O link da pasta do Drive já está neste cartão.</p>
             : versoesDrive(t.drive).length
@@ -3260,7 +3271,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
               {parecidos.map(c => (
                 <div key={c.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
                   <a href={c.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate hover:text-blue-400" title={c.nome}>{c.nome}</a>
-                  <button type="button" onClick={() => { set({ trello: { id: c.id, url: c.url, nome: c.nome } }); setParecidos(null); setMsg('✓ Ligado.'); partilharDrive(c.id); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
+                  <button type="button" onClick={() => { set({ trello: { id: c.id, url: c.url, nome: c.nome }, trelloSolto: false }); setParecidos(null); setMsg('✓ Ligado.'); partilharDrive(c.id); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
                 </div>
               ))}
             </div>
@@ -3268,6 +3279,102 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
         </>
       )}
       {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
+    </div>
+  );
+};
+
+// ── Tempo de uma tarefa em gráfico: uma linha por dia, cada sessão é uma barra (passa o rato para ver, carrega para editar) ──
+const hhmm = ms => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
+  const [selId, setSelId] = useState(null);
+  const corre = (t.tempos || []).some(x => !x.fim);
+  const [, setTic] = useState(0);
+  useEffect(() => { if (!corre) return undefined; const i = setInterval(() => setTic(x => x + 1), 30000); return () => clearInterval(i); }, [corre]);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const agora = Date.now();
+  const sessoes = (t.tempos || []).map(x => ({ x, ini: Date.parse(x.ini), fim: x.fim ? Date.parse(x.fim) : agora })).filter(q => q.ini && q.fim > q.ini);
+  // Parte as sessões que passam da meia-noite (cada bocado fica no seu dia)
+  const segs = [];
+  sessoes.forEach(q => {
+    let a = q.ini;
+    while (a < q.fim) {
+      const d = new Date(a); const dia0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const b = Math.min(q.fim, new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime());
+      segs.push({ q, dia: dia0, h0: (a - dia0) / 3600000, h1: (b - dia0) / 3600000 });
+      a = b;
+    }
+  });
+  const dias = [...new Set(segs.map(x => x.dia))].sort((a, b) => a - b);
+  let hMin = segs.length ? Math.floor(Math.min(...segs.map(x => x.h0))) : 9;
+  let hMax = segs.length ? Math.ceil(Math.max(...segs.map(x => x.h1))) : 18;
+  if (hMax - hMin < 6) { const falta = 6 - (hMax - hMin); hMin = Math.max(0, hMin - Math.ceil(falta / 2)); hMax = Math.min(24, hMin + 6); hMin = Math.max(0, hMax - 6); }
+  const span = hMax - hMin;
+  const passo = span > 12 ? 3 : span > 6 ? 2 : 1;
+  const marcas = []; for (let h = Math.ceil(hMin / passo) * passo; h <= hMax; h += passo) marcas.push(h);
+  const pct = h => `${((h - hMin) / span) * 100}%`;
+  const totalH = sessoes.reduce((a, q) => a + (q.fim - q.ini), 0) / 3600000;
+  const sel = sessoes.find(q => q.x.id === selId);
+  const grelha = claro ? 'bg-slate-200' : 'bg-white/[0.06]';
+  const atualizar = (id, patch) => mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: (y.tempos || []).map(z => (z.id === id ? { ...z, ...patch } : z)) })));
+  if (!sessoes.length) return <p className={`text-xs ${sub}`}>Sem tempo registado.</p>;
+  return (
+    <div className="space-y-2">
+      {est > 0 && (
+        <div title={`${tempoTxt(totalH)} de ${tempoTxt(est)} estimadas`}>
+          <div className={`relative h-1.5 rounded-full overflow-hidden ${grelha}`}>
+            <div className={`absolute inset-y-0 left-0 rounded-full ${totalH > est ? 'bg-red-400' : 'bg-blue-500'}`} style={{ width: `${Math.min(100, totalH / est * 100)}%` }} />
+          </div>
+          <p className={`mt-0.5 text-[10px] text-right ${totalH > est ? 'text-red-400' : sub}`}>{totalH > est ? `+${tempoTxt(totalH - est)} acima da estimativa` : `faltam ${tempoTxt(est - totalH)} para a estimativa`}</p>
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {dias.map(dia => {
+          const ds = segs.filter(x => x.dia === dia);
+          const tot = ds.reduce((a, x) => a + (x.h1 - x.h0), 0);
+          const d = new Date(dia);
+          return (
+            <div key={dia} className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+              <div className="leading-tight">
+                <p className="text-[11px] font-medium">{DIAS_SEM[d.getDay()]} {String(d.getDate()).padStart(2, '0')}/{String(d.getMonth() + 1).padStart(2, '0')}</p>
+                <p className={`text-[10px] tabular-nums ${sub}`}>{tempoTxt(tot)}</p>
+              </div>
+              <div className={`relative h-6 rounded-md ${claro ? 'bg-slate-100' : 'bg-white/[0.03]'}`}>
+                {marcas.map(h => <span key={h} className={`absolute inset-y-0 w-px ${grelha}`} style={{ left: pct(h) }} />)}
+                {ds.map((x, i) => {
+                  const q = x.q; const ativo = selId === q.x.id; const aCorrer = !q.x.fim;
+                  const doisDias = new Date(q.ini).getDate() !== new Date(q.fim).getDate();
+                  return (
+                    <button key={q.x.id + i} type="button" onClick={() => setSelId(ativo ? null : q.x.id)}
+                      className={`group/bar absolute top-1 bottom-1 rounded-[4px] transition-[filter] hover:brightness-125 focus:outline-none ${aCorrer ? 'bg-red-500 animate-pulse' : q.x.manual ? 'bg-sky-400/70' : 'bg-blue-500'} ${ativo ? 'ring-2 ring-offset-1 ' + (claro ? 'ring-slate-800 ring-offset-white' : 'ring-white ring-offset-slate-900') : ''}`}
+                      style={{ left: pct(x.h0), width: `max(4px, calc(${pct(x.h1)} - ${pct(x.h0)}))` }} aria-label={`Sessão ${hhmm(q.ini)} a ${aCorrer ? 'agora' : hhmm(q.fim)}`}>
+                      <span className={`pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-30 hidden group-hover/bar:block whitespace-nowrap rounded-md px-2 py-1 text-[11px] shadow-lg ${claro ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'}`}>
+                        {hhmm(q.ini)} → {aCorrer ? 'agora' : `${hhmm(q.fim)}${doisDias ? ' (dia seg.)' : ''}`} · <b>{tempoTxt((q.fim - q.ini) / 3600000)}</b>{q.x.manual ? ' · à mão' : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-2">
+          <span />
+          <div className="relative h-3">
+            {marcas.map(h => <span key={h} className={`absolute -translate-x-1/2 text-[9px] tabular-nums ${sub}`} style={{ left: pct(h) }}>{h}h</span>)}
+          </div>
+        </div>
+      </div>
+      {sel ? (
+        <div className={`rounded-lg border p-2 flex flex-wrap items-center gap-2 text-xs ${claro ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.03]'}`}>
+          <input type="datetime-local" defaultValue={paraInputLocal(sel.x.ini)} key={'i' + sel.x.id + sel.x.ini} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { ini: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Início" />
+          <span className="opacity-50">→</span>
+          {sel.x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(sel.x.fim)} key={'f' + sel.x.id + sel.x.fim} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { fim: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Fim" />
+            : <span className="text-red-400 font-medium">a correr</span>}
+          <span className="flex-1 text-right font-semibold tabular-nums">{tempoTxt((sel.fim - sel.ini) / 3600000)}</span>
+          <button type="button" className="px-2 py-1 rounded-md text-red-400 hover:bg-red-500/10" onClick={() => { mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: (y.tempos || []).filter(z => z.id !== sel.x.id) }))); setSelId(null); }}>Apagar</button>
+          <button type="button" className={`px-1.5 ${sub} hover:text-current`} onClick={() => setSelId(null)} aria-label="Fechar">✕</button>
+        </div>
+      ) : <p className={`text-[10px] ${sub}`}>Passa o rato por uma barra para ver as horas · carrega para mudar ou apagar{sessoes.some(q => q.x.manual) ? ' · azul claro = tempo posto à mão' : ''}</p>}
     </div>
   );
 };
@@ -4447,6 +4554,16 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const freeSel = sel.tipo === 'freelancer' ? (trab.freelancers || []).find(f => f.id === sel.id) : null;
   useEffect(() => { if (sel.tipo === 'freelancer' && !freeSel && modo !== 'carregar') setSelEstado({ tipo: 'freelancers' }); }, [sel.tipo, freeSel, modo]); // eslint-disable-line react-hooks/exhaustive-deps
   NAV_FREE.abrir = id => { setSel({ tipo: 'freelancer', id }); setAba('tarefas'); setTarefaAberta(null); };
+  const [aApagarT, setAApagarT] = useState(null);
+  APAGAR.pedir = t => setAApagarT(t);
+  const apagarTarefaJa = t => {
+    const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
+    (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
+    mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).filter(x => x.id !== t.id) }));
+    if (tarefaAberta === t.id) setTarefaAberta(null);
+    setAApagarT(null);
+    if (showToast) showToast('Tarefa apagada');
+  };
 
   const abertasPorPasta = useMemo(() => {
     const m = {};
@@ -4466,25 +4583,40 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const ordenar = l => l.slice().sort((a, b) => (a.prazo || '9999').localeCompare(b.prazo || '9999') || String(a.criada).localeCompare(String(b.criada)));
   tarefas = ordenar(tarefas);
 
-  // Cartões do Trello apagados ou arquivados lá: a tarefa deixa de estar ligada (verifica ao abrir a lista e ao voltar à app)
-  const comTrello = tarefas.filter(t => t.trello && t.trello.id);
-  const chaveTrello = comTrello.map(t => t.id + t.trello.id).join(',');
+  // Cartões do Trello: se foi apagado ou arquivado lá, a tarefa deixa de estar ligada; se mudou de lista ou de quadro, continua.
+  // Tarefas que perderam a ligação mas cujo Drive se lembra do cartão voltam a ficar ligadas. (Ao abrir a lista e ao voltar à app.)
+  const comTrello = tarefas.filter(t => (t.trello && t.trello.id) || cartaoLembrado(t));
+  const chaveTrello = comTrello.map(t => t.id + ((t.trello && t.trello.id) || cartaoLembrado(t))).join(',');
   const [focoTic, setFocoTic] = useState(0);
   useEffect(() => { const f = () => { cacheCartoes.clear(); setFocoTic(x => x + 1); }; window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, []);
   useEffect(() => {
     if (!comTrello.length) return undefined;
     let vivo = true;
-    const porQuadro = {};
-    comTrello.forEach(t => { const j = jogoDaTarefa(trab, t); if (j && !j.semJogo && j.trello) (porQuadro[j.trello] = porQuadro[j.trello] || []).push(t.id); });
-    Object.entries(porQuadro).forEach(async ([q, ids]) => {
-      try {
-        const cs = await cartoesTrello(q);
-        if (!vivo || !Array.isArray(cs)) return;
-        const abertos = new Set(cs.map(c => c.id));
-        const soltas = ids.filter(id => { const t = (trab.tarefas || []).find(x => x.id === id); return t && t.trello && !abertos.has(t.trello.id); });
-        if (soltas.length) mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (soltas.includes(t.id) && t.trello && !abertos.has(t.trello.id) ? { ...t, trello: null } : t)) }));
-      } catch (e) { /* sem ligação ao Trello: fica como está */ }
-    });
+    (async () => {
+      const ligado = t => (t.trello && t.trello.id) || null;
+      // 1) os cartões abertos dos quadros dos jogos (um pedido por quadro)
+      const quadros = [...new Set(comTrello.map(t => { const j = jogoDaTarefa(trab, t); return j && !j.semJogo && j.trello ? j.trello : null; }).filter(Boolean))];
+      const abertos = new Map();
+      for (const q of quadros) { try { (await cartoesTrello(q)).forEach(c => abertos.set(c.id, c)); } catch (e) { return; } }
+      if (!vivo) return;
+      // 2) os que não aparecem nos quadros: pergunta ao Trello por cada um (pode ter mudado de quadro)
+      const duvidas = [...new Set(comTrello.map(t => ligado(t) || cartaoLembrado(t)).filter(id => id && !abertos.has(id)))];
+      const estado = new Map();
+      if (duvidas.length) {
+        try { const r = await chamarTrello('estado', { cartoes: duvidas }); (r.cartoes || []).forEach(x => estado.set(x.id, x)); }
+        catch (e) { return; } // sem ligação (ou functions antigas): não mexe em nada
+      }
+      if (!vivo) return;
+      const mudancas = {};
+      comTrello.forEach(t => {
+        const id = ligado(t) || cartaoLembrado(t);
+        const c = abertos.get(id) || (estado.get(id) && estado.get(id).existe && !estado.get(id).fechado ? estado.get(id) : null);
+        const morto = !abertos.has(id) && estado.get(id) && (estado.get(id).existe === false || estado.get(id).fechado);
+        if (ligado(t) && morto) mudancas[t.id] = null;
+        else if (!ligado(t) && c) mudancas[t.id] = { id: c.id, url: c.url || `https://trello.com/c/${c.id}`, nome: c.nome || '' };
+      });
+      if (Object.keys(mudancas).length) mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (t.id in mudancas ? { ...t, trello: mudancas[t.id], trelloSolto: !mudancas[t.id] } : t)) }));
+    })();
     return () => { vivo = false; };
   }, [chaveTrello, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4505,7 +4637,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     if (op.trello && jogoTrello) {
       const nome = nomeCartaoTarefa(jogoTrello, { nome: txt.trim(), pecas: pecas || undefined, ficheiros: {} });
       criarCartaoTrello(jogoTrello, nome)
-        .then(r => { mudar(tr => opTarefa(tr, id, x => ({ ...x, trello: { id: r.id, url: r.url, nome: r.nome } }))); if (showToast) showToast(r.jaExistia ? 'Já havia um cartão no Trello com este nome — ficou ligado.' : 'Cartão criado no Trello'); })
+        .then(r => { mudar(tr => opTarefa(tr, id, x => ({ ...x, trello: { id: r.id, url: r.url, nome: r.nome }, trelloSolto: false }))); if (showToast) showToast(r.jaExistia ? 'Já havia um cartão no Trello com este nome — ficou ligado.' : 'Cartão criado no Trello'); })
         .catch(e => { if (showToast) showToast(`Tarefa criada, mas o Trello falhou: ${e.message || e}`, 'error'); });
     }
   };
@@ -4851,6 +4983,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           </form>
         </div>
       )}
+      {aApagarT && <ConfirmarApagar t={aApagarT} claro={claro} onSim={() => apagarTarefaJa(aApagarT)} onNao={() => setAApagarT(null)} />}
       {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
     </div>
   );
