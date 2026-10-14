@@ -2233,7 +2233,7 @@ const nomeCartao = (jogo, nome) => {
   if (!j || normJ(n).startsWith(normJ(j))) return n;
   return `${j} - ${n}`;
 };
-// Nome do cartão a partir do ficheiro final: "Jogo - 1x Iteration - Conceito - Variação" (não do nome da tarefa)
+// Nome do cartão a partir do ficheiro final: "Jogo - 1x Iteration - Conceito V2 - Variação" (não do nome da tarefa; a V1 não leva versão)
 const nomeCartaoTarefa = (jogo, t) => {
   const cu = TRAB_ATUAL.cu;
   const fx = t.ficheiros || {};
@@ -2241,7 +2241,8 @@ const nomeCartaoTarefa = (jogo, t) => {
   const conceito = String(fx.conceito || conceitoDoNome(t.nome, cu) || '').trim();
   const variacao = String(campoVersao(fx, v, 'variacao', t) || '').trim();
   const prefixo = prefixoDoTipo(contarPecas(trabPecas(t)), cu);
-  const base = conceito ? [prefixo, conceito, variacao].filter(Boolean).join(' - ') : t.nome;
+  const vN = Number(String(v).replace(/^v/i, '')) || 1;
+  const base = conceito ? [prefixo, vN > 1 ? `${conceito} V${vN}` : conceito, variacao].filter(Boolean).join(' - ') : t.nome; // a partir da V2 leva a versão
   return nomeCartao(jogo, base);
 };
 const criarCartaoTrello = async (jogo, nomeTarefa) => {
