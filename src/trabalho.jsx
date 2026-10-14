@@ -1779,7 +1779,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
             </div>
             <GraficoTempo t={t} mudar={mudar} claro={claro} inputClass={inputClass} est={est} />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className={`mt-3 pt-2 border-t flex flex-wrap items-center gap-2 ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+              <span className={`text-xs ${sub}`}>Juntar tempo à mão:</span>
               <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} className={`${inputClass} !w-auto text-xs py-1`} />
               <input value={hManual} onChange={e => setHManual(e.target.value)} placeholder="ex.: 2h30" className={`${inputClass} !w-24 text-xs py-1`} />
               <button type="button" className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white disabled:opacity-40" disabled={!cuLerHoras(hManual)} onClick={() => {
@@ -3343,11 +3344,13 @@ const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
                 {ds.map((x, i) => {
                   const q = x.q; const ativo = selId === q.x.id; const aCorrer = !q.x.fim;
                   const doisDias = new Date(q.ini).getDate() !== new Date(q.fim).getDate();
+                  const meio = ((x.h0 + x.h1) / 2 - hMin) / span;
+                  const lado = meio > 0.62 ? 'right-0' : meio < 0.38 ? 'left-0' : 'left-1/2 -translate-x-1/2';
                   return (
                     <button key={q.x.id + i} type="button" onClick={() => setSelId(ativo ? null : q.x.id)}
-                      className={`group/bar absolute top-1 bottom-1 rounded-[4px] transition-[filter] hover:brightness-125 focus:outline-none ${aCorrer ? 'bg-red-500 animate-pulse' : q.x.manual ? 'bg-sky-400/70' : 'bg-blue-500'} ${ativo ? 'ring-2 ring-offset-1 ' + (claro ? 'ring-slate-800 ring-offset-white' : 'ring-white ring-offset-slate-900') : ''}`}
+                      className={`group/bar absolute top-1 bottom-1 rounded-[4px] transition-[filter] hover:brightness-125 hover:z-40 focus:outline-none ${aCorrer ? 'bg-red-500 animate-pulse' : q.x.manual ? 'bg-sky-400/70' : 'bg-blue-500'} ${ativo ? 'ring-2 ring-offset-1 ' + (claro ? 'ring-slate-800 ring-offset-white' : 'ring-white ring-offset-slate-900') : ''}`}
                       style={{ left: pct(x.h0), width: `max(4px, calc(${pct(x.h1)} - ${pct(x.h0)}))` }} aria-label={`Sessão ${hhmm(q.ini)} a ${aCorrer ? 'agora' : hhmm(q.fim)}`}>
-                      <span className={`pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-30 hidden group-hover/bar:block whitespace-nowrap rounded-md px-2 py-1 text-[11px] shadow-lg ${claro ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'}`}>
+                      <span className={`pointer-events-none absolute top-full ${lado} mt-1.5 z-30 hidden group-hover/bar:block whitespace-nowrap rounded-md px-2 py-1 text-[11px] shadow-lg ${claro ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'}`}>
                         {hhmm(q.ini)} → {aCorrer ? 'agora' : `${hhmm(q.fim)}${doisDias ? ' (dia seg.)' : ''}`} · <b>{tempoTxt((q.fim - q.ini) / 3600000)}</b>{q.x.manual ? ' · à mão' : ''}
                       </span>
                     </button>
@@ -3370,11 +3373,13 @@ const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
           <span className="opacity-50">→</span>
           {sel.x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(sel.x.fim)} key={'f' + sel.x.id + sel.x.fim} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { fim: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Fim" />
             : <span className="text-red-400 font-medium">a correr</span>}
-          <span className="flex-1 text-right font-semibold tabular-nums">{tempoTxt((sel.fim - sel.ini) / 3600000)}</span>
-          <button type="button" className="px-2 py-1 rounded-md text-red-400 hover:bg-red-500/10" onClick={() => { mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: (y.tempos || []).filter(z => z.id !== sel.x.id) }))); setSelId(null); }}>Apagar</button>
-          <button type="button" className={`px-1.5 ${sub} hover:text-current`} onClick={() => setSelId(null)} aria-label="Fechar">✕</button>
+          <span className="ml-auto flex items-center gap-1">
+            <span className="font-semibold tabular-nums mr-1">{tempoTxt((sel.fim - sel.ini) / 3600000)}</span>
+            <button type="button" className="px-2 py-1 rounded-md text-red-400 hover:bg-red-500/10" onClick={() => { mudar(tr => opTarefa(tr, t.id, y => ({ ...y, tempos: (y.tempos || []).filter(z => z.id !== sel.x.id) }))); setSelId(null); }}>Apagar</button>
+            <button type="button" className={`px-1.5 py-1 rounded-md ${sub} hover:text-current`} onClick={() => setSelId(null)} aria-label="Fechar">✕</button>
+          </span>
         </div>
-      ) : <p className={`text-[10px] ${sub}`}>Passa o rato por uma barra para ver as horas · carrega para mudar ou apagar{sessoes.some(q => q.x.manual) ? ' · azul claro = tempo posto à mão' : ''}</p>}
+      ) : <p className={`text-[10px] ${sub}`}>Passa o rato por uma barra para ver as horas · carrega para mudar ou apagar{sessoes.some(q => q.x.manual) ? <> · <span className="inline-block w-2 h-2 rounded-sm bg-sky-400/70 align-middle" /> posto à mão</> : ''}</p>}
     </div>
   );
 };
