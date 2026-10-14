@@ -151,6 +151,8 @@ const VendaCasa = ({ G, uG, theme }) => {
         )}
       </div>
 
+      {/* Esquerda: o processo (prazos até à escritura) e as contas da venda */}
+      <div className="space-y-4 min-w-0">
       {/* Contrato-promessa (CPCV): prazos até à escritura */}
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold"><Ico e="📝"/>Contrato-promessa (CPCV)</h3>
@@ -196,6 +198,33 @@ const VendaCasa = ({ G, uG, theme }) => {
         )}
       </div>
 
+      {/* Apuramento */}
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+        <h3 className="text-lg font-semibold mb-3"><Ico e="🧾"/>Apuramento da venda</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+          {NumField({ label: "Valor de venda", val: vc.valorVenda, onSave: v => set({ valorVenda: n(v) }) })}
+          {NumField({ label: "Comissão agência", val: vc.comissaoPct, onSave: v => set({ comissaoPct: n(v) }), suffix: "%" })}
+          {NumField({ label: "Crédito amortizado", val: vc.creditoAmortizado, onSave: v => set({ creditoAmortizado: n(v) }) })}
+          {NumField({ label: "Penalização amortização", val: vc.penalizacaoPct, onSave: v => set({ penalizacaoPct: n(v) }), suffix: "%" })}
+          {NumField({ label: "Escritura", val: vc.custoEscritura, onSave: v => set({ custoEscritura: n(v) }) })}
+          {NumField({ label: "Rendas adiantadas", val: vc.rendasAdiantadas, onSave: v => set({ rendasAdiantadas: n(v) }) })}
+          {NumField({ label: "Outros", val: vc.outrosCustos, onSave: v => set({ outrosCustos: n(v) }) })}
+        </div>
+        <div className={`border-t ${line} pt-3 space-y-1.5 text-sm`}>
+          <div className="flex justify-between"><span className={sub}>Valor de venda</span><span>{f(valorVenda)}</span></div>
+          <div className="flex justify-between"><span className={sub}>Comissão agência ({vc.comissaoPct}%)</span><span className="text-red-400">−{f(custoComissao)}</span></div>
+          <div className="flex justify-between"><span className={sub}>Amortização do crédito</span><span className="text-red-400">−{f(creditoAmort)}</span></div>
+          <div className="flex justify-between"><span className={sub}>Penalização ({vc.penalizacaoPct}%)</span><span className="text-red-400">−{f(custoPenal)}</span></div>
+          {escritura > 0 && <div className="flex justify-between"><span className={sub}>Escritura</span><span className="text-red-400">−{f(escritura)}</span></div>}
+          {rendasAdiant > 0 && <div className="flex justify-between"><span className={sub}>Rendas adiantadas (voltam para ti)</span><span className="text-red-400">−{f(rendasAdiant)}</span></div>}
+          {outros > 0 && <div className="flex justify-between"><span className={sub}>Outros</span><span className="text-red-400">−{f(outros)}</span></div>}
+          <div className={`flex justify-between border-t ${line} pt-2 font-semibold`}><span>Capital líquido</span><span className="text-emerald-400">{f(liquido)}</span></div>
+        </div>
+      </div>
+
+      </div>
+      {/* Direita: o dinheiro (reserva para a HPP, onde está, o que repor e os movimentos) */}
+      <div className="space-y-4 min-w-0">
       {/* Reserva HPP */}
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -243,30 +272,6 @@ const VendaCasa = ({ G, uG, theme }) => {
           </label>
         </div>
         <p className={`text-[11px] mt-3 ${sub}`}>Estimativas simplificadas — não substituem o teu contabilista. A mais-valia real depende do valor de aquisição corrigido, encargos e obras comprovadas.</p>
-      </div>
-
-      {/* Apuramento */}
-      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
-        <h3 className="text-lg font-semibold mb-3"><Ico e="🧾"/>Apuramento da venda</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-          {NumField({ label: "Valor de venda", val: vc.valorVenda, onSave: v => set({ valorVenda: n(v) }) })}
-          {NumField({ label: "Comissão agência", val: vc.comissaoPct, onSave: v => set({ comissaoPct: n(v) }), suffix: "%" })}
-          {NumField({ label: "Crédito amortizado", val: vc.creditoAmortizado, onSave: v => set({ creditoAmortizado: n(v) }) })}
-          {NumField({ label: "Penalização amortização", val: vc.penalizacaoPct, onSave: v => set({ penalizacaoPct: n(v) }), suffix: "%" })}
-          {NumField({ label: "Escritura", val: vc.custoEscritura, onSave: v => set({ custoEscritura: n(v) }) })}
-          {NumField({ label: "Rendas adiantadas", val: vc.rendasAdiantadas, onSave: v => set({ rendasAdiantadas: n(v) }) })}
-          {NumField({ label: "Outros", val: vc.outrosCustos, onSave: v => set({ outrosCustos: n(v) }) })}
-        </div>
-        <div className={`border-t ${line} pt-3 space-y-1.5 text-sm`}>
-          <div className="flex justify-between"><span className={sub}>Valor de venda</span><span>{f(valorVenda)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Comissão agência ({vc.comissaoPct}%)</span><span className="text-red-400">−{f(custoComissao)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Amortização do crédito</span><span className="text-red-400">−{f(creditoAmort)}</span></div>
-          <div className="flex justify-between"><span className={sub}>Penalização ({vc.penalizacaoPct}%)</span><span className="text-red-400">−{f(custoPenal)}</span></div>
-          {escritura > 0 && <div className="flex justify-between"><span className={sub}>Escritura</span><span className="text-red-400">−{f(escritura)}</span></div>}
-          {rendasAdiant > 0 && <div className="flex justify-between"><span className={sub}>Rendas adiantadas (voltam para ti)</span><span className="text-red-400">−{f(rendasAdiant)}</span></div>}
-          {outros > 0 && <div className="flex justify-between"><span className={sub}>Outros</span><span className="text-red-400">−{f(outros)}</span></div>}
-          <div className={`flex justify-between border-t ${line} pt-2 font-semibold`}><span>Capital líquido</span><span className="text-emerald-400">{f(liquido)}</span></div>
-        </div>
       </div>
 
       {/* Onde está o dinheiro */}
@@ -343,7 +348,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       </div>
 
       {/* Movimentos */}
-      <div className={`rounded-2xl border p-4 sm:p-5 ${card} col-toda`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <h3 className="text-lg font-semibold mb-1"><Ico e="💸"/>Movimentos</h3>
         <p className={`text-xs mb-3 ${sub}`}>Parqueado = só mudou de sítio · Gasto = saiu de vez · Investido = aplicado</p>
 
@@ -399,6 +404,7 @@ const VendaCasa = ({ G, uG, theme }) => {
           <div><p className={`text-xs ${sub}`}>Gasto</p><p className="font-semibold text-red-400">{f(totGasto)}</p></div>
           <div><p className={`text-xs ${sub}`}>Investido</p><p className="font-semibold text-purple-400">{f(totInvestido)}</p></div>
         </div>
+      </div>
       </div>
     </div>
   );
