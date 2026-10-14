@@ -1710,12 +1710,12 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
                     series={[{ nome: 'nesse dia', cor: '#10b981', valores: porDia }]}
                     referencia={media > 0 ? { valor: Math.round(media), nome: 'média por dia útil' } : null}
                     apagado={fds}
-                    extraTip={i => est.clientes.filter(c => (c.diario[i + 1] || 0) > 0 || c.tarefas.some(t => Number(String(t.fechada).slice(8, 10)) === i + 1)).flatMap(c => {
+                    extraTip={i => est.clientes.filter(c => (c.diario[i + 1] || 0) > 0).flatMap(c => {
                       // Cada cliente e, por baixo, as tarefas entregues nesse dia
-                      const ts = c.tarefas.filter(t => Number(String(t.fechada).slice(8, 10)) === i + 1).sort((a, b) => (b.valor || 0) - (a.valor || 0));
+                      const ts = c.tarefas.filter(t => Number(String(t.fechada).slice(8, 10)) === i + 1 && (t.valor || 0) > 0).sort((a, b) => (b.valor || 0) - (a.valor || 0));
                       return [
                         { cor: corCli(c), valor: f(c.diario[i + 1] || 0), nome: nomeCli(c), sep: true },
-                        ...ts.slice(0, 6).map(t => ({ tarefa: true, nome: t.nome, valor: t.valor ? f(t.valor) : (t.nosDias ? 'à diária' : '') })),
+                        ...ts.slice(0, 6).map(t => ({ tarefa: true, nome: t.nome, valor: f(t.valor) })),
                         ...(ts.length > 6 ? [{ tarefa: true, nome: `+ ${ts.length - 6} tarefa${ts.length - 6 === 1 ? '' : 's'}`, valor: '' }] : []),
                       ];
                     })} />
