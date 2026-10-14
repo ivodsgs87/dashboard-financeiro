@@ -2203,7 +2203,9 @@ const linkAE = (trab, t, clientes) => {
   return `aeproj://abrir/?${p.toString()}`;
 };
 // "Mudar o nome no PC": o lançador muda a pasta do projeto, o .aep mais recente e o collect da @Source para este nome
-const linkAERenomear = (trab, t, clientes, novo) => linkAE(trab, t, clientes).replace('aeproj://abrir/?', 'aeproj://renomear/?') + `&novo=${encodeURIComponent(novo)}`;
+// Leva o nome de um export desta tarefa: o lançador encontra a pasta do projeto pela @Exports onde ele está (é a certa, mesmo com projetos parecidos)
+const exportDaTarefa = t => { const vs = versoesDrive(t.drive).slice().sort((x, y) => String(y.em || '').localeCompare(String(x.em || ''))); const e = vs.map(d => (d.enviados || [])[0]).find(Boolean); return e ? e.nome : ''; };
+const linkAERenomear = (trab, t, clientes, novo, ficheiro) => { const f = ficheiro || exportDaTarefa(t); return linkAE(trab, t, clientes).replace('aeproj://abrir/?', 'aeproj://renomear/?') + `&novo=${encodeURIComponent(novo)}${f ? `&ficheiro=${encodeURIComponent(f)}` : ''}`; };
 const nomeProjetoTarefa = (trab, t) => {
   const nf = nomesFicheiros(trab, t);
   if (!nf.conceito) return '';
@@ -2933,6 +2935,28 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   // Anular o envio de uma versão (ex.: foi para a V3 por engano): ficheiros e pasta para o lixo do Drive,
   // tira a linha da spreadsheet e a tarefa deixa de ter essa versão (o número fica livre outra vez)
   const [anular, setAnular] = useState(null); // pastaId à espera de confirmação
+  // Pastas de versões que foram para o lixo do Drive (ou apagadas): a tarefa deixa de as mostrar como enviadas
+  useEffect(() => {
+    const vsD = [t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(d => d && d.pastaId);
+    if (!vsD.length) return undefined;
+    let vivo = true;
+    (async () => {
+      const tk = tokenGuardado() || (ligadoSempre(conta || '_') ? await tokenDrive(conta).catch(() => null) : null);
+      if (!tk) return;
+      const mortas = [];
+      for (const d of vsD) {
+        try { const f = await driveApi(tk, `${DRV}/${d.pastaId}?fields=id,trashed&supportsAllDrives=true`); if (f && f.trashed) mortas.push(d); }
+        catch (e) { if (e.status === 404) mortas.push(d); }
+      }
+      if (!vivo || !mortas.length) return;
+      const ids = new Set(mortas.map(d => d.pastaId));
+      const ficam = vsD.filter(d => !ids.has(d.pastaId)).map(({ anteriores, ...x }) => x).sort((x, y) => String(y.em || '').localeCompare(String(x.em || '')));
+      const reg = ficam.length ? { ...ficam[0], ...(ficam.length > 1 ? { anteriores: ficam.slice(1) } : {}) } : null;
+      setResultado(reg); set({ drive: reg, ...(reg ? { link: reg.url } : { link: '' }) });
+      setMsg(`${mortas.map(d => `V${versaoDaPasta(d) || '?'}`).join(' e ')} ${mortas.length === 1 ? 'estava' : 'estavam'} no lixo do Drive — já não ${mortas.length === 1 ? 'aparece' : 'aparecem'} como enviada${mortas.length === 1 ? '' : 's'} nesta tarefa.`);
+    })();
+    return () => { vivo = false; };
+  }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Tirar uma versão só desta tarefa (ex.: veio de outra tarefa ao duplicar) — não mexe no Drive nem na spreadsheet
   const esquecerVersao = d => {
     const todas = [resultado, ...((resultado && resultado.anteriores) || [])].filter(x => x && x.pastaId && x.pastaId !== d.pastaId).map(({ anteriores, ...x }) => x);
@@ -2948,10 +2972,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     setOcupadoDrive(true); setMsg(`A anular o envio da V${versaoDaPasta(d) || '?'}…`);
     try {
       const tk = tokenGuardado() || await tokenDrive(conta);
-      const fs = await filhosDrive(tk, d.pastaId, false);
+      // Só os ficheiros que ESTA tarefa enviou (a pasta pode ter ficheiros de outra tarefa com a mesma versão)
+      const todosF = await filhosDrive(tk, d.pastaId, false);
+      const meus = d.enviados || [];
+      const fs = todosF.filter(f => meus.some(e => (e.id && e.id === f.id) || e.nome === f.name));
       for (const f of fs) await driveApi(tk, `${DRV}/${f.id}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
       const subs = await filhosDrive(tk, d.pastaId, true);
-      if (!subs.length) await driveApi(tk, `${DRV}/${d.pastaId}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+      const sobram = todosF.length - fs.length;
+      if (!subs.length && !sobram) await driveApi(tk, `${DRV}/${d.pastaId}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
       let folhaTxt = '';
       if (jogo.sheet && d.nomeBase) { try { const tr = await tirarDaSpreadsheet(tk, jogo.sheet, [d.nomeBase], [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); if (tr.apagadas) folhaTxt = ' e a linha da spreadsheet'; } catch (e) { /* fica */ } }
       const todas = [resultado, ...((resultado && resultado.anteriores) || [])].filter(x => x && x.pastaId && x.pastaId !== d.pastaId).map(({ anteriores, ...x }) => x);
@@ -2962,7 +2990,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       const fichNovo = String(fx0.versao || '') === String(v) && reg ? { ...fx0, versao: String(versaoDaPasta(reg) || '') } : fx0;
       setResultado(reg); set({ drive: reg, link: reg ? reg.url : '', ficheiros: fichNovo });
       if (infoVersao) setInfoVersao(null);
-      setMsg(`↩ Envio da V${v || '?'} anulado: ${fs.length} ficheiro${fs.length === 1 ? '' : 's'}${subs.length ? '' : ' e a pasta'} no lixo do Drive${folhaTxt}. ${t.trello && t.trello.id ? 'O link no cartão do Trello fica — apaga-o lá se quiseres. ' : ''}Para voltar aos nomes antigos no PC usa "Voltar ao nome anterior".`);
+      setMsg(`↩ Envio da V${v || '?'} anulado: ${fs.length} ficheiro${fs.length === 1 ? '' : 's'}${subs.length || sobram ? '' : ' e a pasta'} no lixo do Drive${sobram ? ` (a pasta fica: tem ${sobram} ficheiro${sobram === 1 ? '' : 's'} que não são desta tarefa)` : ''}${folhaTxt}. ${t.trello && t.trello.id ? 'O link no cartão do Trello fica — apaga-o lá se quiseres. ' : ''}Para voltar aos nomes antigos no PC usa "Voltar ao nome anterior".`);
     } catch (e) { setMsg(`⚠ Não consegui anular: ${e.message || e}`); }
     setAnular(null); setOcupadoDrive(false);
   };
@@ -3210,7 +3238,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                     <span key={d.pastaId || d.url} className="inline-flex items-center">
                       <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`${btn} ${d.pastaId ? '!rounded-r-none' : ''}`} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
                       {d.pastaId && <button type="button" disabled={ocupadoDrive} onClick={() => anularEnvio(d)} onBlur={() => setTimeout(() => setAnular(a => (a === d.pastaId ? null : a)), 200)}
-                        className={`${btn} !rounded-l-none -ml-px disabled:opacity-50 ${anular === d.pastaId ? '!border-red-500/60 text-red-400' : sub}`} title={`Anular o envio da ${versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : 'pasta'}: ficheiros e pasta para o lixo do Drive, tira a linha da spreadsheet e liberta o número`}>
+                        className={`${btn} !rounded-l-none -ml-px disabled:opacity-50 ${anular === d.pastaId ? '!border-red-500/60 text-red-400' : sub}`} title={`Anular o envio da ${versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : 'pasta'}: os ficheiros que esta tarefa enviou vão para o lixo do Drive (os de outras tarefas ficam), tira a linha da spreadsheet e liberta o número`}>
                         {anular === d.pastaId ? `Anular V${versaoDaPasta(d) || ''} (apaga no Drive)` : '✕'}</button>}
                       {anular === d.pastaId && <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => esquecerVersao(d)} className={`${btn} ml-1`} title="Só desliga esta versão desta tarefa — o Drive e a spreadsheet ficam como estão (ex.: veio de outra tarefa ao duplicar)">Só tirar daqui</button>}
                     </span>
@@ -3245,7 +3273,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                       <p>Mudar a <b>pasta do projeto</b>, o <b>.aep</b> e o <b>collect</b> da @Source para:</p>
                       <input value={pastaProj.novo} onChange={e => setPastaProj(p => ({ ...p, novo: e.target.value }))} aria-label="Nome novo da pasta e do projeto" className={`${inputClass} text-xs py-1 font-mono`} />
                       <div className="flex flex-wrap items-center gap-2">
-                        <a href={linkAERenomear(trab, t, null, pastaProj.novo.trim())} onClick={() => setTimeout(() => setPastaProj(null), 500)} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Mudar no PC</a>
+                        <a href={linkAERenomear(trab, t, null, pastaProj.novo.trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Mudar no PC</a>
                         <button type="button" onClick={() => setPastaProj(null)} className={`px-2.5 py-1 rounded-lg ${sub}`}>Agora não</button>
                         <span className={sub}>Fecha antes o projeto no After Effects. Mostra-te o que vai mudar antes de mexer.</span>
                       </div>
