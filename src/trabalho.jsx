@@ -1436,7 +1436,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
           </div>
         ) : (
           <p className={`text-[11px] ${sub}`}>
-            Google: {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'conta principal do browser'} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">mudar</button>
+            Google: {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'conta principal do browser'} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">Mudar</button>
           </p>
         )
       )}
@@ -1617,9 +1617,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
             {<a href={linkAE(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
-            <a href={`${linkAE(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">trocar projeto</a>
-            {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>mudar nome</a> : null; })()}
-            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
+            <a href={`${linkAE(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
+            {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>Mudar nome</a> : null; })()}
+            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] }))}>Duplicar</button>
             <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
               const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
               (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
@@ -1633,7 +1633,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
          <div className={`space-y-3 min-w-0 ${COL_XL}`}>
           {nomeLivre || !prefixo ? (
             <label className="flex flex-col gap-1 min-w-0">
-              <span className={`${lab} flex items-center gap-2`}>Nome da tarefa{prefixo && <button type="button" onClick={() => setNomeLivre(false)} className="ml-auto text-blue-400 hover:text-blue-300">só o conceito</button>}{!prefixo && <span className="ml-auto opacity-70">escolhe o tipo em Valor e o início do nome aparece sozinho</span>}</span>
+              <span className={`${lab} flex items-center gap-2`}>Nome da tarefa{prefixo && <button type="button" onClick={() => setNomeLivre(false)} className="ml-auto text-blue-400 hover:text-blue-300">Só o conceito</button>}{!prefixo && <span className="ml-auto opacity-70">escolhe o tipo em Valor e o início do nome aparece sozinho</span>}</span>
               <textarea key={t.id + 'n' + t.nome} defaultValue={t.nome} rows={1} aria-label="Nome da tarefa"
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
                 onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }}
@@ -1643,7 +1643,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </label>
           ) : (
             <div className="flex flex-col gap-1 min-w-0">
-              <span className={`${lab} flex items-center gap-2`} title="O início vem do tipo (em Valor); escreves só o conceito">Nome da tarefa<button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">editar o nome todo</button></span>
+              <span className={`${lab} flex items-center gap-2`} title="O início vem do tipo (em Valor); escreves só o conceito">Nome da tarefa<button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">Editar o nome todo</button></span>
               <div className={`flex items-stretch rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${claro ? 'border-slate-300 bg-white' : 'border-slate-600 bg-slate-800'}`}>
                 <span className={`shrink-0 flex items-center px-3 py-1.5 text-sm font-semibold max-w-[45%] sm:max-w-none sm:whitespace-nowrap border-r ${claro ? 'bg-blue-50 text-blue-700 border-slate-200' : 'bg-blue-500/10 text-blue-300 border-slate-700'}`} title="Muda quando escolhes o tipo em Valor">{prefixo}</span>
                 <textarea key={t.id + 'c' + t.nome} defaultValue={conceitoAtual} rows={1} aria-label="Conceito da tarefa" placeholder="Conceito (ex.: Monthly earnings - variation)"
@@ -1743,9 +1743,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>várias peças nesta tarefa</button>}
-                    <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'menos tipos' : 'mais tipos'}</button>
-                    {temMao && <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>voltar a ler do nome</button>}
+                    {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>Várias peças nesta tarefa</button>}
+                    <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'Menos tipos' : 'Mais tipos'}</button>
+                    {temMao && <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>Voltar a ler do nome</button>}
                   </div>
                 </>
               );
@@ -1804,7 +1804,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               )}
               <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
             </div>
-            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
+            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">Usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
             {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
             {custo > 0 && RESERVA.taxa != null && (() => {
               // Nos recibos verdes o imposto é sobre o valor todo da tarefa: o que pagas ao freelancer não o reduz
@@ -2295,6 +2295,7 @@ const nomeCartao = (jogo, nome) => {
   return `${j} - ${n}`;
 };
 // Nome do cartão a partir do ficheiro final: "Jogo - 1x Iteration - Conceito V2 - Variação" (não do nome da tarefa; a V1 não leva versão)
+const emTitulo = x => String(x || '').split(/(\s+)/).map(w => (/^\s+$/.test(w) || !w ? w : (w.length > 1 && w === w.toUpperCase() && /[A-Z]/.test(w) && w.length <= 4) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join('');
 // Nome "Tipo - Conceito [Vn] - Variação" a partir dos campos dos ficheiros (a partir da V2 leva a versão)
 const nomeBaseTarefa = (t, vForcada, legivel) => {
   const cu = TRAB_ATUAL.cu;
@@ -2305,12 +2306,14 @@ const nomeBaseTarefa = (t, vForcada, legivel) => {
   const doNome = legivel ? String(conceitoDoNome(t.nome, cu) || '').split(/\s[-–—]\s/)[0].replace(/\s+V\d+$/i, '').trim() : '';
   if (legivel && doNome && slugF(doNome) === slugF(conceito)) conceito = doNome; // como já estava escrito na tarefa (ex.: "UGC signs")
   else if (legivel) conceito = /^[A-Z0-9_]+$/.test(conceito) && /_|[A-Z]{2}/.test(conceito) ? conceito.split('_').filter(Boolean).map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ') : conceito.replace(/_/g, ' ');
-  const variacao = String(campoVersao(fx, v, 'variacao', t) || '').trim();
+  let variacao = String(campoVersao(fx, v, 'variacao', t) || '').trim();
+  // Cada palavra com maiúscula ("everyday savings" → "Everyday Savings"); siglas como UGC ficam como estão
+  if (legivel) { conceito = emTitulo(conceito); variacao = emTitulo(variacao.replace(/_/g, ' ')); }
   const prefixo = prefixoDoTipo(contarPecas(trabPecas(t)), cu);
   const vN = Number(String(v).replace(/^v/i, '')) || 1;
   return conceito ? [prefixo, vN > 1 ? `${conceito} V${vN}` : conceito, variacao].filter(Boolean).join(' - ') : t.nome;
 };
-const nomeCartaoTarefa = (jogo, t) => nomeCartao(jogo, nomeBaseTarefa(t));
+const nomeCartaoTarefa = (jogo, t) => nomeCartao(jogo, nomeBaseTarefa(t, null, true));
 const criarCartaoTrello = async (jogo, nomeTarefa) => {
   const nome = nomeCartao(jogo, nomeTarefa);
   if (!jogo || !jogo.trello) throw new Error('Este jogo não tem quadro do Trello.');
@@ -2491,6 +2494,18 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) 
   } }] }) });
   return { ok: true, linha: linha + 1, tab: f.title, gid: f.sheetId };
 };
+// Nomes que estão na coluna A de uma tab (nome → n.º da linha), com cache de 1 minuto — para o ícone da spreadsheet acompanhar o que mudas à mão
+const cacheFolhas = new Map();
+const linhasDaFolha = async (token, sheetUrl, tab, forcar) => {
+  const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
+  if (!id || !tab) return null;
+  const k = `${id}|${tab}`; const c = cacheFolhas.get(k);
+  if (!forcar && c && Date.now() - c.em < 60000) return c.nomes;
+  const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${tab}'!A:A`)}`);
+  const nomes = new Map(); (vals.values || []).forEach((l, i) => { const n = String((l && l[0]) || '').trim().toUpperCase(); if (n && !nomes.has(n)) nomes.set(n, i + 1); });
+  cacheFolhas.set(k, { em: Date.now(), nomes });
+  return nomes;
+};
 // Tira da spreadsheet as linhas com estes nomes (coluna A da tab do jogo) — para refazer pela ordem certa
 const tirarDaSpreadsheet = async (token, sheetUrl, nomes, nomesJogo = []) => {
   const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
@@ -2664,9 +2679,13 @@ const cacheHist = new Map();
 const assinaturaLista = l => JSON.stringify(l.map(x => [x.id, x.formato, x.renomeado, x.nomeAntigo, x.handle ? x.handle.name : x.file && x.file.name]));
 const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLote, setVersaoLote, infoVersao, setInfoVersao }) => {
   const [lista, setLista] = useState(() => cacheEnvio.get(t.id) || []); // { id, file, meta, formato, estado, prog, erro }
-  const [aEnviar, setAEnviar] = useState(false);
+  const [aEnviar, setAEnviarS] = useState(false);
+  const setAEnviar = v => { aEnviarRef.current = v; setAEnviarS(v); };
   const [msg, setMsg] = useState('');
   const [resultado, setResultado] = useState(t.drive || null);
+  // Se a tarefa mudar por fora (ex.: a spreadsheet foi conferida, ou outro dispositivo), o painel acompanha
+  const aEnviarRef = useRef(false);
+  useEffect(() => { if (!aEnviarRef.current) setResultado(r0 => (t.drive ? { ...t.drive, ...(r0 && r0.trelloN && r0.pastaId === t.drive.pastaId ? { trelloN: r0.trelloN } : {}) } : null)); }, [t.drive]);
   const [verSug, setVerSug] = useState(null);
   const [renomeados, setRenomeados] = useState(null); // itens enviados que ainda podem mudar de nome no PC
   const [noDrive, setNoDrive] = useState(null); // ficheiros na pasta do Drive desta tarefa
@@ -2914,6 +2933,15 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   // Anular o envio de uma versão (ex.: foi para a V3 por engano): ficheiros e pasta para o lixo do Drive,
   // tira a linha da spreadsheet e a tarefa deixa de ter essa versão (o número fica livre outra vez)
   const [anular, setAnular] = useState(null); // pastaId à espera de confirmação
+  // Tirar uma versão só desta tarefa (ex.: veio de outra tarefa ao duplicar) — não mexe no Drive nem na spreadsheet
+  const esquecerVersao = d => {
+    const todas = [resultado, ...((resultado && resultado.anteriores) || [])].filter(x => x && x.pastaId && x.pastaId !== d.pastaId).map(({ anteriores, ...x }) => x);
+    todas.sort((x, y) => String(y.em || '').localeCompare(String(x.em || '')));
+    const reg = todas.length ? { ...todas[0], ...(todas.length > 1 ? { anteriores: todas.slice(1) } : {}) } : null;
+    setResultado(reg); set({ drive: reg, ...(reg ? {} : { link: '' }) });
+    setAnular(null);
+    setMsg(`A V${versaoDaPasta(d) || '?'} já não está ligada a esta tarefa (no Drive e na spreadsheet ficou tudo igual).`);
+  };
   const anularEnvio = async d => {
     if (!d || !d.pastaId) return;
     if (anular !== d.pastaId) { setAnular(d.pastaId); return; }
@@ -3183,7 +3211,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                       <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`${btn} ${d.pastaId ? '!rounded-r-none' : ''}`} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
                       {d.pastaId && <button type="button" disabled={ocupadoDrive} onClick={() => anularEnvio(d)} onBlur={() => setTimeout(() => setAnular(a => (a === d.pastaId ? null : a)), 200)}
                         className={`${btn} !rounded-l-none -ml-px disabled:opacity-50 ${anular === d.pastaId ? '!border-red-500/60 text-red-400' : sub}`} title={`Anular o envio da ${versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : 'pasta'}: ficheiros e pasta para o lixo do Drive, tira a linha da spreadsheet e liberta o número`}>
-                        {anular === d.pastaId ? `Anular V${versaoDaPasta(d) || ''}?` : '✕'}</button>}
+                        {anular === d.pastaId ? `Anular V${versaoDaPasta(d) || ''} (apaga no Drive)` : '✕'}</button>}
+                      {anular === d.pastaId && <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => esquecerVersao(d)} className={`${btn} ml-1`} title="Só desliga esta versão desta tarefa — o Drive e a spreadsheet ficam como estão (ex.: veio de outra tarefa ao duplicar)">Só tirar daqui</button>}
                     </span>
                   ))}
                   {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂 Ver ficheiros'}</button>}
@@ -3242,7 +3271,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                       {aApagar === f.id ? (
                         <>
                           <button type="button" disabled={ocupadoDrive} onClick={() => apagarNoDrive(f)} className="shrink-0 px-2 py-0.5 rounded-md bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">Apagar</button>
-                          <button type="button" onClick={() => setAApagar(null)} className={`shrink-0 ${sub} hover:text-blue-400`}>não</button>
+                          <button type="button" onClick={() => setAApagar(null)} className={`shrink-0 ${sub} hover:text-blue-400`}>Não</button>
                         </>
                       ) : <button type="button" onClick={() => apagarNoDrive(f)} className={`shrink-0 ${sub} hover:text-red-400`} aria-label={`Apagar ${f.name} do Drive`} title="Apagar do Drive (vai para o lixo)">🗑</button>}
                     </div>
@@ -3255,7 +3284,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
           <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${sub}`}>
             <span className="flex-1 min-w-[160px] truncate" title="Os ficheiros vão direto do computador para o Drive — nada fica guardado na app.">Conta: {conta ? <b>{conta}</b> : 'a tua conta Google'}</span>
             {sempre ? (
-              <span className="text-emerald-500">🔒 Ligado · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>desligar</button></span>
+              <span className="text-emerald-500">🔒 Ligado · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>Desligar</button></span>
             ) : (
               <button type="button" disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await ligarDriveSempre(conta); setSempre(true); setMsg(`✓ Drive ligado para sempre${j.email ? ` (${j.email})` : ''} — já não precisas de entrar na Google.`); } catch (e) { setMsg(`⚠ ${e.message || e}`); } setALigar(false); }}
                 className="px-2 py-0.5 rounded-md border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50" title="A app fica com acesso permanente ao Drive desta conta (guardado cifrado no servidor). Podes desligar quando quiseres.">🔒 Manter sempre ligado</button>
@@ -3667,7 +3696,7 @@ const TrelloJogo = ({ j, set, ic, sub, claro, link, semRotulo }) => {
           ) : (
             <>
               <b>{j.trelloLista ? j.trelloLista.nome : 'ainda não escolhida'}</b>
-              <button type="button" onClick={carregar} className="text-blue-400 hover:text-blue-300">{j.trelloLista ? 'mudar' : 'escolher a lista'}</button>
+              <button type="button" onClick={carregar} className="text-blue-400 hover:text-blue-300">{j.trelloLista ? 'Mudar' : 'Escolher a lista'}</button>
             </>
           )}
           {msg && <span className={/^⚠/.test(msg) ? 'text-red-400' : sub}>{msg}</span>}
@@ -3722,7 +3751,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
           <a href={t.trello.url} target="_blank" rel="noopener noreferrer" className={`${btn} !border-blue-500/50 text-blue-400`}>Abrir o cartão ↗</a>
           <span className={`truncate max-w-[60%] ${sub}`} title={t.trello.nome}>{t.trello.nome}</span>
           {listaDoCartao(t.trello.id) && <span className={`px-1.5 py-px rounded text-[11px] font-medium ${corListaTrello(listaDoCartao(t.trello.id)) === 'review' ? 'bg-amber-500/15 text-amber-500' : corListaTrello(listaDoCartao(t.trello.id)) === 'ok' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-sky-500/15 text-sky-500'}`} title="Lista onde o cartão está no Trello">{listaDoCartao(t.trello.id)}</span>}
-          <button type="button" onClick={() => set({ trello: null, trelloSolto: true })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
+          <button type="button" onClick={() => set({ trello: null, trelloSolto: true })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">Desligar</button>
           {linkNoTrello(t)
             ? <p className="w-full text-[11px] text-emerald-500">✓ O link da pasta do Drive já está neste cartão.</p>
             : versoesDrive(t.drive).length
@@ -4345,7 +4374,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
           })}
           <div className={`flex items-center gap-3 px-3 py-2 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
             <button type="button" onClick={() => setManuais(ms => [...ms, { id: `m:${trabId()}`, titulo: '', resto: 'AI Credits', valor: '' }])} className="text-xs text-blue-400 hover:text-blue-300">+ Linha (AI Credits, extra…)</button>
-            {Object.values(edicoes).some(e => e.fora) && <button type="button" onClick={() => setEdicoes(e => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, { ...v, fora: false }])))} className={`text-xs ${sub} hover:text-blue-400`}>repor linhas tiradas</button>}
+            {Object.values(edicoes).some(e => e.fora) && <button type="button" onClick={() => setEdicoes(e => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, { ...v, fora: false }])))} className={`text-xs ${sub} hover:text-blue-400`}>Repor linhas tiradas</button>}
             <span className="flex-1" />
             {ivaTaxa > 0 && <span className={`text-xs ${sub}`}>IVA {ivaTaxa}%: {eurFatura(ivaValor)}</span>}
             <span className="text-sm">Total <strong className="tabular-nums">{eurFatura(total)}</strong></span>
@@ -5101,6 +5130,37 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     })();
     return () => { vivo = false; };
   }, [chaveTrello, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Spreadsheet: se apagaste (ou juntaste) uma linha à mão, o ícone acompanha — confere a coluna A ao abrir a lista e ao voltar à app
+  const comFolhaT = tarefas.filter(t => { const j = jogoDaTarefa(trab, t); return j && !j.semJogo && j.sheet && versoesDrive(t.drive).some(d => d.nomeBase && d.folha && d.folha.tab); });
+  const chaveFolha = comFolhaT.map(t => t.id + ':' + versoesDrive(t.drive).map(d => `${d.nomeBase}${d.folha && d.folha.ok ? d.folha.linha : '-'}`).join('/')).join(',');
+  useEffect(() => {
+    if (!comFolhaT.length) return undefined;
+    let vivo = true;
+    (async () => {
+      const mud = {};
+      for (const t of comFolhaT) {
+        const j = jogoDaTarefa(trab, t); const conta = contaDe(t.cid);
+        const tk = tokenGuardadoDe(conta) || (ligadoSempre(conta || '_') ? await tokenDrive(conta).catch(() => null) : null);
+        if (!tk || !vivo) continue;
+        const acerta = async d => {
+          if (!d || !d.nomeBase || !d.folha || !d.folha.tab) return d;
+          let nomes; try { nomes = await linhasDaFolha(tk, j.sheet, d.folha.tab, false); } catch (e) { return d; }
+          if (!nomes) return d;
+          const linha = nomes.get(String(d.nomeBase).trim().toUpperCase());
+          if (linha && !(d.folha.ok && d.folha.linha === linha)) return { ...d, folha: { ...d.folha, ok: true, linha, erro: undefined } };
+          if (!linha && d.folha.ok) return { ...d, folha: { ...d.folha, ok: false, linha: null, tirada: true } };
+          return d;
+        };
+        const novo = await acerta(t.drive);
+        const ant = t.drive && t.drive.anteriores ? await Promise.all(t.drive.anteriores.map(acerta)) : null;
+        const mudou = novo !== t.drive || (ant && ant.some((x, i) => x !== t.drive.anteriores[i]));
+        if (mudou) mud[t.id] = { ...novo, ...(ant ? { anteriores: ant } : {}) };
+      }
+      if (vivo && Object.keys(mud).length) mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id in mud ? { ...x, drive: mud[x.id] } : x)) }));
+    })();
+    return () => { vivo = false; };
+  }, [chaveFolha, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [pedir, setPedir] = useState(null); // { titulo, valor, ok }
   // Menu "⋯" da pasta (subpasta, nome, cor, apagar) — o cabeçalho fica numa linha só
