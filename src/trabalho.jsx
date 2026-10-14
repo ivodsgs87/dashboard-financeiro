@@ -193,6 +193,12 @@ const opNovaTarefa = (trab, { id, pastaId, cid, nome, prazo, pecas }) => ({
 });
 const opTarefa = (trab, id, fn) => ({ ...trab, tarefas: (trab.tarefas || []).map(t => (t.id === id ? fn(t) : t)) });
 const opParar = trabParar;
+// Mudar o dia em que a tarefa foi entregue (para review / terminada) — é este dia que conta nas receitas do mês
+const comEntregaEm = (x, dia) => {
+  if (!dia || (x.estado !== 'review' && x.estado !== 'feito')) return x;
+  const iso = new Date(`${dia}T18:00`).toISOString();
+  return { ...x, ...(x.review || x.estado === 'review' ? { review: iso } : {}), ...(x.feita || x.estado === 'feito' ? { feita: iso } : {}) };
+};
 const opIniciar = (trab, id) => opTarefa(opParar(trab), id, t => ({
   ...t, tempos: [...(t.tempos || []), { id: trabId(), ini: agoraIso(), fim: null }],
   estado: t.estado === 'todo' ? 'curso' : t.estado, iniciada: t.iniciada || agoraIso(),
@@ -490,6 +496,10 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
             <input type="date" onChange={e => { if (e.target.value) emTodas(x => ({ ...x, prazo: e.target.value })); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-600 text-slate-100'}`} aria-label="Prazo para as selecionadas" />
           </label>
           <button type="button" onClick={() => emTodas(x => ({ ...x, prazo: null }))} className={`text-xs ${sub} hover:text-red-400`}>Tirar prazo</button>
+          <span className={`w-px h-5 ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} />
+          <label className={`flex items-center gap-1.5 text-xs ${sub}`} title="Para tarefas já entregues: o dia em que as entregaste (é esse dia que conta nas receitas)">Entregues em
+            <input type="date" onChange={e => { if (e.target.value) emTodas(x => comEntregaEm(x, e.target.value)); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-600 text-slate-100'}`} />
+          </label>
           <select value="" onChange={e => { if (e.target.value) estadoTodas(e.target.value); }} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Estado para as selecionadas">
             <option value="">Estado…</option>
             {TRAB_ESTADOS.map(e2 => <option key={e2.id} value={e2.id}>{e2.nome}</option>)}
@@ -1793,8 +1803,12 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           </div>
 
           <div className={`flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] px-1 ${sub}`}>
-            {[['Criada', t.criada], ['Começada', t.iniciada], ['Review', t.review], ['Terminada', t.feita]].filter(([, d]) => d).map(([k, d]) => (
-              <span key={k}>{k} <span className="tabular-nums">{dataHora(d)}</span></span>
+            {[['Criada', 'criada', t.criada], ['Começada', 'iniciada', t.iniciada], ['Review', 'review', t.review], ['Terminada', 'feita', t.feita]].filter(([, , d]) => d).map(([k, campo, d]) => (
+              <label key={k} className="inline-flex items-center gap-1 cursor-pointer" title={campo === 'review' || campo === 'feita' ? 'Carrega para mudar (o dia da entrega conta nas receitas desse mês)' : 'Carrega para mudar'}>
+                {k}
+                <input type="datetime-local" defaultValue={paraInputLocal(d)} key={campo + d} onBlur={e => { if (e.target.value) { const iso = new Date(e.target.value).toISOString(); if (iso !== d) set({ [campo]: iso }); } }}
+                  className={`tabular-nums bg-transparent border-0 p-0 text-[11px] rounded hover:underline focus:outline-none focus:ring-1 focus:ring-blue-500 ${claro ? 'text-slate-600' : 'text-slate-300'}`} />
+              </label>
             ))}
           </div>
 
