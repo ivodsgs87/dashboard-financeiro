@@ -117,6 +117,7 @@ const valorDe = (x, ...a) => (typeof x === 'function' ? x(...a) : x);
 
 // ── Estilos do editor (uma vez) ──
 const CSS_NOTAS = `
+.nota-ed,.nota-ed *{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif}
 .nota-ed{outline:none;font-size:16px;line-height:1.65;word-wrap:break-word;overflow-wrap:anywhere;min-height:40vh;padding-bottom:30vh}
 .nota-ed:empty::before{content:attr(data-ph);opacity:.4;pointer-events:none}
 .nota-ed h1{font-size:1.55em;font-weight:700;line-height:1.25;margin:.7em 0 .3em}
@@ -152,6 +153,8 @@ const ROTULO_TIPO = { cliente: 'Cliente', jogo: 'Jogo', freelancer: 'Freelancer'
 // ── Ícones de linha ──
 const IC = {
   voltar: '<path d="M15 18l-6-6 6-6"/>', mais: '<path d="M12 5v14M5 12h14"/>', procurar: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  carrinho: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.5L21.5 8H6"/>',
+  visto: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/>',
   caderno: '<path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M5 18a2 2 0 0 1 2-2h11"/><path d="M9 4v12"/>',
   cadeado: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', aberto: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   estrela: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>', relogio: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
@@ -2054,26 +2057,26 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
         </div>
       ) : (<>
         <div className="space-y-2">
-          <button type="button" onClick={notaRapida} className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-white shadow-lg shadow-blue-600/20 bg-gradient-to-br from-violet-500 to-blue-600 active:scale-[0.99] transition-transform">
+          <button type="button" onClick={notaRapida} className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-white shadow-lg shadow-blue-600/25 bg-gradient-to-br from-blue-500 to-blue-700 active:scale-[0.99] transition-transform">
             <span className="w-10 h-10 rounded-xl bg-white/20 inline-flex items-center justify-center shrink-0"><Ic n="editar" className="w-5 h-5" /></span>
             <span className="min-w-0 text-left"><span className="block font-semibold">Nova nota</span><span className="block text-xs text-white/80 truncate">{secRapida ? `em ${secRapida.nome}` : 'Escreve já, organizas depois'}</span></span>
             <Ic n="mais" className="w-5 h-5 ml-auto shrink-0" />
           </button>
           <div className={`grid gap-2 ${secCofre ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button type="button" onClick={() => (ultCompras ? abrirDaHome(ultCompras) : novaPagina('compras', null, null, secRapida ? { sid: secRapida.id } : null))} className={`${tile} px-3 py-3`}>
-              <span className="text-xl leading-none" aria-hidden="true">🛒</span>
-              <span className="block text-sm font-medium mt-1.5">Compras</span>
+              <span className="w-8 h-8 rounded-lg inline-flex items-center justify-center bg-amber-500/15 text-amber-500"><Ic n="carrinho" className="w-[18px] h-[18px]" /></span>
+              <span className="block text-sm font-medium mt-2">Compras</span>
               <span className={`block text-[11px] truncate ${sub}`}>{ultCompras ? haQuanto(ultCompras.editada || ultCompras.criada) : 'Lista nova'}</span>
             </button>
             <button type="button" onClick={() => novaPagina('todo', null, null, secRapida ? { sid: secRapida.id } : null)} className={`${tile} px-3 py-3`}>
-              <span className="text-xl leading-none" aria-hidden="true">✅</span>
-              <span className="block text-sm font-medium mt-1.5">Tarefas</span>
+              <span className="w-8 h-8 rounded-lg inline-flex items-center justify-center bg-emerald-500/15 text-emerald-500"><Ic n="visto" className="w-[18px] h-[18px]" /></span>
+              <span className="block text-sm font-medium mt-2">Tarefas</span>
               <span className={`block text-[11px] truncate ${sub}`}>Lista com visto</span>
             </button>
             {secCofre && (
               <button type="button" onClick={() => abrirSeccao(secCofre)} className={`${tile} px-3 py-3`}>
-                <span className="text-xl leading-none" aria-hidden="true">🔐</span>
-                <span className="block text-sm font-medium mt-1.5">{secCofre.nome}</span>
+                <span className="w-8 h-8 rounded-lg inline-flex items-center justify-center bg-slate-500/15 text-slate-400"><Ic n="cadeado" className="w-[18px] h-[18px]" /></span>
+                <span className="block text-sm font-medium mt-2">{secCofre.nome}</span>
                 <span className={`block text-[11px] truncate ${chave ? 'text-emerald-500' : sub}`}>{chave ? 'Aberto' : 'Trancado'}</span>
               </button>
             )}
@@ -2124,7 +2127,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const fabNotas = larguraTelemovel && vista === 'paginas' && !emGrelha ? (
     <button type="button" aria-label="Nova nota" title="Nova nota"
       onClick={() => (vista === 'paginas' && secao && !mostrarSeccao ? (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco')) : notaRapida())}
-      className="fixed right-4 z-40 w-14 h-14 rounded-full shadow-xl text-white inline-flex items-center justify-center bg-gradient-to-br from-violet-500 to-blue-600 active:scale-95 transition-transform no-print"
+      className="fixed right-4 z-40 w-14 h-14 rounded-full shadow-xl text-white inline-flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700 active:scale-95 transition-transform no-print"
       style={{ bottom: comMenuBaixo ? 'calc(max(0.6rem, env(safe-area-inset-bottom)) + 96px)' : '1.5rem' }}>
       <Ic n="editar" className="w-6 h-6" />
     </button>
