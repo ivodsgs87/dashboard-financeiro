@@ -472,12 +472,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       {id:'transporte',nome:'Transporte',icon:'🚗',cor:'#ef4444'},
       {id:'saude',nome:'Saúde',icon:'💊',cor:'#10b981'},
       {id:'lazer',nome:'Lazer',icon:'🎭',cor:'#8b5cf6'},
-      {id:'restauracao',nome:'Restauração',icon:'🍽️',cor:'#ec4899'},
+      {id:'restauracao',nome:'Restauração',icon:'🍽',cor:'#ec4899'},
       {id:'subscricoes',nome:'Subscrições',icon:'📱',cor:'#06b6d4'},
       {id:'educacao',nome:'Educação',icon:'📚',cor:'#f97316'},
       {id:'vestuario',nome:'Vestuário',icon:'👕',cor:'#a855f7'},
       {id:'servicos',nome:'Serviços',icon:'🔧',cor:'#64748b'},
-      {id:'impostos',nome:'Impostos',icon:'🏛️',cor:'#dc2626'},
+      {id:'impostos',nome:'Impostos',icon:'🏛',cor:'#dc2626'},
       {id:'investimentos',nome:'Investimentos',icon:'📈',cor:'#059669'},
       {id:'transferencia',nome:'Transferência',icon:'🔄',cor:'#94a3b8'},
       {id:'outros',nome:'Outros',icon:'📦',cor:'#78716c'}
@@ -2107,7 +2107,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        .forEach(e => mostrar(`${quando}-${e.chave || e.id}`, `${quando}: ${e.titulo}`, [e.valor > 0 ? fmt(e.valor) : '', e.nota || ''].filter(Boolean).join(' · ')));
      doDia(h, 'Hoje'); doDia(am, 'Amanhã');
      const atr = f(h.getFullYear(), h.getMonth() + 1).filter(e => e.estado === 'atrasado' && e.cat !== 'Casa');
-     if (atr.length) mostrar('atraso', `⚠️ ${atr.length} ${atr.length === 1 ? 'coisa' : 'coisas'} em atraso`, atr.slice(0, 4).map(e => e.titulo).join(' · '));
+     if (atr.length) mostrar('atraso', `⚠ ${atr.length} ${atr.length === 1 ? 'coisa' : 'coisas'} em atraso`, atr.slice(0, 4).map(e => e.titulo).join(' · '));
      try { localStorage.setItem('notif-enviadas', JSON.stringify(enviados)); } catch (e) { /* sem armazenamento */ }
    };
    const t0 = setTimeout(verificar, 8000);
@@ -2169,7 +2169,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const hTxt = `${hM < 10 ? hM.toFixed(1).replace('.', ',') : Math.round(hM)} h`;
      const cedoH = atual && new Date().getDate() < fimM;
      const resumoH = hM <= 0 ? 'Sem horas registadas' : `${hTxt}${semH ? ` · ${semH} dia${semH === 1 ? ' útil' : 's úteis'} sem horas` : ' · todos os dias úteis'}`;
-     passoHoras = { id: 'horas', icon: '⏱️', titulo: 'Fechar as horas do mês',
+     passoHoras = { id: 'horas', icon: '⏱', titulo: 'Fechar as horas do mês',
        estado: idx > hojeIdx || cedoH ? 'na' : hM <= 0 ? 'falta' : semH > 0 ? 'parcial' : 'ok',
        detalhe: cedoH ? `No último dia do mês · ${resumoH}` : resumoH,
        ir: () => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'timesheet' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); window.scrollTo({ top: 0 }); } };
@@ -2183,7 +2183,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    if (atual) {
      const ivaPend = mesIva && !pi.ivaAntPago && pi.ivaTrimestreAnterior >= 0.5;
      const ok = pi.ssEste.pago && !ivaPend;
-     L.push({ id: 'imp', icon: '🏛️', titulo: 'Pagar impostos', estado: ok ? 'ok' : 'falta',
+     L.push({ id: 'imp', icon: '🏛', titulo: 'Pagar impostos', estado: ok ? 'ok' : 'falta',
        detalhe: [pi.ssEste.pago ? 'SS ✓' : `SS ${fmt(pi.ssEste.valor)} até dia 20`, mesIva ? (pi.ivaAntPago ? 'IVA ✓' : pi.ivaTrimestreAnterior < 0.5 ? 'IVA: só declarar' : `IVA ${fmt(pi.ivaTrimestreAnterior)} até dia 25`) : null].filter(Boolean).join(' · '), ir: () => { setTab('resumo'); setTimeout(() => document.getElementById('cartao-impostos')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); } });
    }
    const ep = estadoMesSel;
@@ -2198,7 +2198,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const abProx = !!(_tp.g_abanca || _tp.g_adiant);
    const cedo = atual && new Date().getDate() < 20;
    const despTudo = cOk && pOk;
-   L.push({ id: 'prep', icon: '🗓️', titulo: `Preparar ${nomeProx}`, estado: cedo ? 'na' : despTudo && abProx ? 'ok' : despTudo || abProx ? 'parcial' : idx > hojeIdx ? 'na' : 'falta',
+   L.push({ id: 'prep', icon: '🗓', titulo: `Preparar ${nomeProx}`, estado: cedo ? 'na' : despTudo && abProx ? 'ok' : despTudo || abProx ? 'parcial' : idx > hojeIdx ? 'na' : 'falta',
      detalhe: cedo ? 'A partir de dia 20: rever despesas e mandar a ABanca' : `Despesas ${despTudo ? '✓' : '✕'} · ABanca ${fmt(guia.valAB)} ${abProx ? '✓' : '✕'}`,
      ir: () => {
        if (!despTudo) { setTab(cOk ? 'pessoais' : 'abanca'); return; }
@@ -2535,13 +2535,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="space-y-2">
            {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
              <div className="text-xs text-amber-400 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-               <p>⚠️ Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
+               <p>⚠ Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
                <button onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }} className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">🔄 Resetar tarefas</button>
              </div>
            )}
            {(tarefasPend.atrasadas || []).length > 0 && (
              <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg border border-orange-500/40 bg-orange-500/10 text-sm">
-               <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠️"/>{(tarefasPend.atrasadas || []).length} {(tarefasPend.atrasadas || []).length === 1 ? 'tarefa' : 'tarefas'} em atraso</span>
+               <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠"/>{(tarefasPend.atrasadas || []).length} {(tarefasPend.atrasadas || []).length === 1 ? 'tarefa' : 'tarefas'} em atraso</span>
                <button onClick={() => { saveUndo(); const novas = {...(G.tarefasConcluidas || {})}; (tarefasPend.atrasadas || []).forEach(t => { novas[t.key] = true; }); uG('tarefasConcluidas', novas); showToast('Todas as atrasadas marcadas como concluídas'); }} className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">✓ Marcar todas feitas</button>
                <button onClick={() => setVerAtrasadas(v => !v)} aria-expanded={verAtrasadas} className="text-xs px-2 py-1 rounded-md bg-orange-500/15 text-orange-400 hover:bg-orange-500/25">{verAtrasadas ? 'Esconder' : 'Ver quais'}</button>
              </div>
@@ -2556,7 +2556,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <span className="w-14 text-xs flex-shrink-0 text-orange-400 font-medium">{t.dia} {t.mesNome?.slice(0,3)}</span>
                  <span className="flex-1 truncate text-orange-300">{descComMes}</span>
                  <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠️<span className="hidden sm:inline"> Atrasada</span></span>
+                 <span className="text-xs text-orange-400 font-bold flex-shrink-0">⚠<span className="hidden sm:inline"> Atrasada</span></span>
                </div>
              );
            })}
@@ -2662,7 +2662,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <Card className="m-mais">
      <h3 className="font-semibold mb-3"><Ico e="📊"/>Distribuição Mensal</h3>
      <div className="flex items-center gap-3 p-2 tile rounded-lg mb-3">
-       <span><Ico e="🏖️" className="ico-solo"/></span>
+       <span><Ico e="🏖" className="ico-solo"/></span>
        <span className="flex-1 text-sm">Férias (fixo)</span>
        <StableInput type="number" className={`w-20 ${inputClass} text-amber-400 font-bold text-right`} initialValue={ferias} onSave={v=>uG('ferias',v)}/>
        <span className="text-slate-400 text-sm">€</span>
@@ -2675,7 +2675,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </div>
      )}
      <div className="space-y-2">
-       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏖️ Total Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,c:'#f59e0b'},{l:`Amortização (${fmtP(alocAmort-alocFerias)})`,v:restante*((alocAmort-alocFerias)/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
+       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏖 Total Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,c:'#f59e0b'},{l:`Amortização (${fmtP(alocAmort-alocFerias)})`,v:restante*((alocAmort-alocFerias)/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
          <div key={k}>
            <div className="flex justify-between mb-1 text-sm"><span className="text-slate-400"><IcoTxt t={i.l}/></span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
            <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c} height="h-1"/>
@@ -2741,7 +2741,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <p className="text-xs text-emerald-400 flex items-center justify-between gap-2"><span>✓ ABanca de {nomeEste} já mandada no fim de {nomeAnt} ({abFeito})</span><span className="whitespace-nowrap">{fmt(ab.valor)}</span></p>
        ) : (
          <div className={`text-xs p-2 rounded-lg border ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/30 bg-amber-500/10'}`}>
-           <p className="text-amber-400">⚠️ A ABanca de {nomeEste} ({fmt(ab.valor)}) devia ter ido no fim de {nomeAnt} e não está marcada.</p>
+           <p className="text-amber-400">⚠ A ABanca de {nomeEste} ({fmt(ab.valor)}) devia ter ido no fim de {nomeAnt} e não está marcada.</p>
            <div className="flex flex-wrap gap-2 mt-1.5">
              <button onClick={() => marcarEste('g_abanca', true)} className="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Já foi, do Activo</button>
              <button onClick={() => marcarEste('g_adiant', true)} className="px-2 py-1 rounded-md bg-slate-500/20 hover:bg-slate-500/30">Já foi, adiantado pela TR</button>
@@ -2786,7 +2786,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
      {ab && (
        <div className="space-y-2 mt-4 pt-3 border-t border-slate-700/40">
-         <p className="text-xs font-medium text-amber-400">🗓️ No fim do mês: preparar {nomeProx} (antes do dia 1, a prestação sai dia 1)</p>
+         <p className="text-xs font-medium text-amber-400">🗓 No fim do mês: preparar {nomeProx} (antes do dia 1, a prestação sai dia 1)</p>
          {tProx.g_abanca
            ? passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]], nota: 'Mandaste do Activo. Desmarca se afinal foi pela Trade Republic.' }, tProx, marcarProx, '')
            : adi && passo({ ...adi, opcional: false, linhas: [[`Despesas do casal de ${nomeProx}`, adi.valor]], nota: `Os clientes só pagam no início de ${nomeProx}: a TR adianta e repões no passo da Trade Republic de ${nomeProx}.` }, tProx, marcarProx, '')}
@@ -2832,7 +2832,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {/* SS: o próximo pagamento */}
      <div className="p-3 tile rounded-xl">
        <div className="flex items-center gap-2 mb-1">
-         <span className="text-blue-400"><Ico e="🏛️" className="ico-solo"/></span>
+         <span className="text-blue-400"><Ico e="🏛" className="ico-solo"/></span>
          <span className="text-xs text-slate-400">SS a pagar em {nm(ss.mes)}</span>
        </div>
        <p className="text-xl font-bold text-blue-400">{fmt(ss.valor)}</p>
@@ -2881,12 +2881,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <span className={receber ? 'text-emerald-400' : 'text-red-400'}>📋</span>
            <span className="text-xs text-slate-400">IRS {anoAtualSistema} · {receber ? 'a receber' : 'a pagar'} em {anoAtualSistema + 1}</span>
          </div>
-         <button onClick={abrirIrsConfig} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 hover:bg-slate-600 text-slate-300" title="Salário da Sara, deduções e coeficiente">⚙️ Ajustar</button>
+         <button onClick={abrirIrsConfig} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 hover:bg-slate-600 text-slate-300" title="Salário da Sara, deduções e coeficiente">⚙ Ajustar</button>
        </div>
        <p className={`text-xl font-bold ${receber ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(pi.irsAPagarReceber))}</p>
        <p className={`${sub} mt-1`}>Imposto {fmt(pi.irsEstimado)} · já retido{pi.porConta > 0 ? ' e pago' : ''} {fmt(pi.irsRetencoes)}</p>
        <p className={sub}>{cfg.conjunto ? 'Em conjunto com a Sara' : 'Declaração separada'} · coeficiente {String(cfg.coef).replace('.', ',')} · {pi.mesesComDados} meses de receitas</p>
-       {pi.faltaSara && <button onClick={abrirIrsConfig} className="text-[10px] text-amber-400 hover:underline text-left">⚠️ Falta o salário da Sara — a conta ainda não está completa</button>}
+       {pi.faltaSara && <button onClick={abrirIrsConfig} className="text-[10px] text-amber-400 hover:underline text-left">⚠ Falta o salário da Sara — a conta ainda não está completa</button>}
      </div>
    </div>
      </>);
@@ -2961,7 +2961,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        { label: '💰 Receitas', atual: totaisAnuais.receitasAnuais, meta: metas.receitas, key: 'receitas', color: '#3b82f6', proj: projecao?.projecao },
        { label: '🏠 Amortização', atual: totaisAnuais.amortAnual, meta: metas.amortizacao, key: 'amortizacao', color: '#10b981', sub: totaisAnuais.dividaInicio && totaisAnuais.dividaAtual ? `${fmt(totaisAnuais.dividaInicio)} → ${fmt(totaisAnuais.dividaAtual)}` : null },
        { label: '📈 Investimentos', atual: totaisAnuais.investimentosAnuais, meta: metas.investimentos, key: 'investimentos', color: '#8b5cf6' },
-       { label: '⏱️ Horas/Mês', atual: (() => {
+       { label: '⏱ Horas/Mês', atual: (() => {
          const horasAno = Object.entries(M).filter(([k]) => k.startsWith(`${ano}-`)).reduce((acc, [, v]) => acc + (v.horasTrabalhadas || 0), 0);
          const mesesComHoras = Object.entries(M).filter(([k, v]) => k.startsWith(`${ano}-`) && v.horasTrabalhadas > 0).length;
          return mesesComHoras > 0 ? horasAno / mesesComHoras : 0;
@@ -3247,7 +3247,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <p className="text-xs text-slate-400 mb-1"><Ico e="📈"/>Taxa de Poupança</p>
            <p className="text-2xl font-bold text-blue-400">{taxaPoupancaAtual.toFixed(1)}%</p>
            <p className="text-xs text-slate-500 mt-1">
-             {taxaPoupancaAtual >= 20 ? '✅ Excelente' : taxaPoupancaAtual >= 10 ? '⚠️ Razoável' : '❌ Baixa'}
+             {taxaPoupancaAtual >= 20 ? '✅ Excelente' : taxaPoupancaAtual >= 10 ? '⚠ Razoável' : '❌ Baixa'}
            </p>
            <p className="text-[10px] text-slate-600 mt-1">(Invest + Amort) / Receitas</p>
          </Card>
@@ -3375,7 +3375,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                    
                    <div className="p-3 tile rounded-lg">
-                     <p className="text-xs text-slate-400">⏱️ Horas Totais</p>
+                     <p className="text-xs text-slate-400">⏱ Horas Totais</p>
                      <p className="text-xl font-bold text-blue-400">{Math.round(projecaoHoras)}h</p>
                      <p className="text-xs text-slate-500">{projecaoDias.toFixed(0)} dias de trabalho</p>
                    </div>
@@ -3596,7 +3596,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div className={`p-3 mb-4 rounded-xl border ${theme === 'light' ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/10 border-blue-500/30'}`}>
              <div className="flex items-center justify-between gap-3 flex-wrap">
                <div className="flex-1 min-w-[200px]">
-                 <p className="text-xs text-slate-400 mb-1">⏱️ Horas trabalhadas este mês</p>
+                 <p className="text-xs text-slate-400 mb-1">⏱ Horas trabalhadas este mês</p>
                  <div className="flex items-center gap-2">
                    <StableInput 
                      type="number" 
@@ -3772,7 +3772,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <Card className="mt-6">
              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
                <div>
-                 <h3 className="font-semibold">⏱️ Horas Trabalhadas ({ano})</h3>
+                 <h3 className="font-semibold">⏱ Horas Trabalhadas ({ano})</h3>
                  <p className="text-xs text-slate-500">
                    Total: {totalHoras}h ({totalDias.toFixed(1)} dias) • Média: {Math.round(mediaHoras)}h ({mediaDias.toFixed(1)} dias)/mês
                  </p>
@@ -3910,7 +3910,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const mod = await carregarTrabalho();
        const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
        setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
-       showToast(`☁️ Recibo no Drive: ${out.pasta}/${out.nome}`);
+       showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
      } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); }
    };
    const guardarFicheiroRecibo = async (k, id, f, rec) => {
@@ -4108,7 +4108,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  
                  {importError && (
                    <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 text-sm">
-                     ⚠️ {importError}
+                     ⚠ {importError}
                    </div>
                  )}
                </>
@@ -4514,7 +4514,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                {editRecibo.ficheiro ? (
                  <div className="flex items-center justify-between gap-2">
                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                     <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼️'}</span>
+                     <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼'}</span>
                      <span className="text-sm text-slate-300 truncate">{editRecibo.ficheiroNome || 'Recibo'}</span>
                    </div>
                    <div className="flex gap-2 flex-shrink-0">
@@ -4590,7 +4590,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {recibosSemSuspeitos.length > 0 && (
    <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-sm">
-     <span className="text-amber-400">⚠️ {recibosSemSuspeitos.length} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} em «SEM Taxas» parece{recibosSemSuspeitos.length === 1 ? '' : 'm'} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} verde{recibosSemSuspeitos.length === 1 ? '' : 's'}</span>
+     <span className="text-amber-400">⚠ {recibosSemSuspeitos.length} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} em «SEM Taxas» parece{recibosSemSuspeitos.length === 1 ? '' : 'm'} recibo{recibosSemSuspeitos.length === 1 ? '' : 's'} verde{recibosSemSuspeitos.length === 1 ? '' : 's'}</span>
      <button onClick={corrigirRecibosSem} className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium">Rever e passar para «COM Taxas»</button>
    </div>
  )}
@@ -4968,7 +4968,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      tabName="invest"
      widgetDefs={{
        disponivel: { name: '💰 Disponível', desc: 'Valor disponível para investir' },
-       sliders: { name: '⚙️ Alocação', desc: 'Sliders de amortização/investimentos' },
+       sliders: { name: '⚙ Alocação', desc: 'Sliders de amortização/investimentos' },
        cartoes: { name: '📊 Cartões', desc: 'Resumo da alocação' },
        investimentos: { name: '📈 Investimentos', desc: 'Lista de investimentos mensais' },
        metas: { name: '🎯 Metas', desc: 'Progresso das metas anuais' }
@@ -4990,7 +4990,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  
  {/* Slider Amortização vs Investimentos */}
  <div className="mb-4">
-   <p className="text-xs text-slate-400 mb-2">🏠 Amortização + 🏖️ Férias vs 📈 Investimentos</p>
+   <p className="text-xs text-slate-400 mb-2">🏠 Amortização + 🏖 Férias vs 📈 Investimentos</p>
    <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 bg-slate-700/30 rounded-xl">
      <span className="text-emerald-400 text-xs font-medium"><Ico e="🏠" className="ico-solo"/></span>
      <SliderWithInput value={alocAmort} onChange={v=>uG('alocAmort',Math.max(v, alocFerias))} min={0} max={100} unit="%" className="flex-1 min-w-0" color="emerald"/>
@@ -5000,9 +5000,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {/* Slider Férias (dentro da Amortização) */}
  <div className="mb-4">
-   <p className="text-xs text-slate-400 mb-2">🏖️ Férias extra (retirado da amortização): {fmtP(alocFerias)} = {fmt(pFerias)}</p>
+   <p className="text-xs text-slate-400 mb-2">🏖 Férias extra (retirado da amortização): {fmtP(alocFerias)} = {fmt(pFerias)}</p>
    <div className="flex flex-wrap items-center gap-2 p-2 sm:p-4 tile rounded-xl">
-     <span className="text-cyan-400 text-xs font-medium"><Ico e="🏖️" className="ico-solo"/></span>
+     <span className="text-cyan-400 text-xs font-medium"><Ico e="🏖" className="ico-solo"/></span>
      <SliderWithInput value={alocFerias} onChange={v=>uG('alocFerias',Math.min(v, alocAmort))} min={0} max={Math.min(alocAmort, 20)} unit="%" className="flex-1 min-w-0" color="cyan"/>
      <span className="text-slate-400 text-xs">máx {Math.min(alocAmort, 20)}%</span>
    </div>
@@ -5015,7 +5015,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <p className="text-xs sm:text-sm text-emerald-400/70">{fmtP(alocAmort-alocFerias)}</p>
  </div>
  <div className="p-2 sm:p-4 tile rounded-xl">
- <p className="text-xs text-slate-400 mb-1"><Ico e="🏖️"/>Férias extra</p>
+ <p className="text-xs text-slate-400 mb-1"><Ico e="🏖"/>Férias extra</p>
  <p className="text-lg sm:text-xl font-bold text-cyan-400">{fmt(pFerias)}</p>
  <p className="text-xs sm:text-sm text-cyan-400/70">{fmtP(alocFerias)}</p>
  </div>
@@ -5030,7 +5030,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {alocFerias > 0 && (
    <div className="mt-4 p-3 tile rounded-xl">
      <div className="flex justify-between items-center">
-       <span className="text-sm text-slate-300">🏖️ Total Férias este mês</span>
+       <span className="text-sm text-slate-300">🏖 Total Férias este mês</span>
        <span className="text-lg font-bold text-amber-400">{fmt(ferias + pFerias)}</span>
      </div>
      <p className="text-xs text-slate-500 mt-1">{fmt(ferias)} (fixo) + {fmt(pFerias)} ({fmtP(alocFerias)} do disponível)</p>
@@ -5041,7 +5041,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="grid grid-cols-3 gap-2 sm:gap-3">
  <Card><p className="text-xs text-slate-400 mb-1"><Ico e="💰"/>Disponível</p><p className="text-lg sm:text-xl font-bold text-purple-400">{fmt(pInv)}</p></Card>
  <Card><p className="text-xs text-slate-400 mb-1"><Ico e="📊"/>Investido</p><p className="text-lg sm:text-xl font-bold text-blue-400">{fmt(totInvSemCredito)}</p></Card>
- <Card className={rest>=0?'':'border-red-500/40'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠️'}</p><p className={`text-lg sm:text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
+ <Card className={rest>=0?'':'border-red-500/40'}><p className="text-xs text-slate-400 mb-1">{rest>=0?'✨ Resta':'⚠'}</p><p className={`text-lg sm:text-xl font-bold ${rest>=0?'text-emerald-400':'text-red-400'}`}>{fmt(Math.abs(rest))}</p></Card>
  </div>
  </div>
  <div className="lg:col-span-3 space-y-6">
@@ -5129,7 +5129,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Despesas" value={fmt(totSaraD)} color="text-orange-400" icon="💸"/>
  <StatCard label="Contrib. Casal" value={fmt(contribSaraAB)} color="text-pink-400" sub={`${fmtP(100-contrib)} - CR - Seg.`} icon="🏠"/>
  <StatCard label="Sobra" value={fmt(sobraSara)} color="text-blue-400" icon="✨"/>
- <StatCard label={restAloc>=0?"Por Alocar":"Excedido"} value={fmt(Math.abs(restAloc))} color={restAloc>=0?"text-purple-400":"text-red-400"} icon={restAloc>=0?"🎯":"⚠️"}/>
+ <StatCard label={restAloc>=0?"Por Alocar":"Excedido"} value={fmt(Math.abs(restAloc))} color={restAloc>=0?"text-purple-400":"text-red-400"} icon={restAloc>=0?"🎯":"⚠"}/>
  </div>
 
  <Card>
@@ -6065,7 +6065,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </p>
          </div>
          <div>
-           <p className="text-slate-500">⚠️ Pior mês</p>
+           <p className="text-slate-500">⚠ Pior mês</p>
            <p className="font-semibold text-red-400">
              {stats.piorMes.variacao < 0 ? fmt(stats.piorMes.variacao) : '-'} 
              {stats.piorMes.label && <span className="text-slate-500"> ({stats.piorMes.label})</span>}
@@ -6364,7 +6364,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="flex gap-1 mb-4">
            {[
              { id: 'projecao', label: '📈 Projeção', desc: 'Juros compostos' },
-             { id: 'amortizar', label: '⚖️ Amortizar vs Investir', desc: '' },
+             { id: 'amortizar', label: '⚖ Amortizar vs Investir', desc: '' },
              { id: 'fire', label: '🔥 FIRE', desc: 'Independência' },
              { id: 'flamingo', label: '🦩 Flamingo', desc: 'Semi-reforma' },
            ].map(t => (
@@ -6544,7 +6544,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </p>
              </div>
 
-             <p className="text-[10px] text-slate-500">⚠️ Simulação simplificada. Não considera impostos sobre mais-valias (~28%), inflação, variação de taxas, ou o benefício fiscal da amortização antecipada.</p>
+             <p className="text-[10px] text-slate-500">⚠ Simulação simplificada. Não considera impostos sobre mais-valias (~28%), inflação, variação de taxas, ou o benefício fiscal da amortização antecipada.</p>
            </div>
          )}
 
@@ -7204,7 +7204,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  onClick={(e) => { e.stopPropagation(); removerCredito(c.id); }}
                  className="text-red-400/50 hover:text-red-400 p-1"
                >
-                 🗑️
+                 🗑
                </button>
              </div>
            </div>
@@ -7341,7 +7341,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <StatCard label="Dívida Atual" value={fmt(dividaAtual)} color="text-red-400" icon="🏠"/>
  <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
  <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
- <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={dataFim ? `Termina: ${fimCredito.toLocaleDateString('pt-PT')}` : ''} icon="⏱️"/>
+ <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={dataFim ? `Termina: ${fimCredito.toLocaleDateString('pt-PT')}` : ''} icon="⏱"/>
  <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${pctCredito}% crédito · ${pctCasa}% casa`} icon="✅"/>
  </div>
 
@@ -7371,7 +7371,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const totalMeses = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.44)));
      const anos = Math.floor(totalMeses / 12);
      const meses = totalMeses % 12;
-     return <p className="text-[11px] text-purple-400 mt-0.5 font-medium">{totalMeses > 0 ? `⏱️ ${anos > 0 ? `${anos}a ` : ''}${meses}m restantes (${totalMeses} meses)` : '✅ Terminado'}</p>;
+     return <p className="text-[11px] text-purple-400 mt-0.5 font-medium">{totalMeses > 0 ? `⏱ ${anos > 0 ? `${anos}a ` : ''}${meses}m restantes (${totalMeses} meses)` : '✅ Terminado'}</p>;
    })()}
  </div>
  <input type="date" className={`w-36 sm:w-40 ${inputClass}`} defaultValue={dataFim} onChange={e => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dataFim', e.target.value) : uC('dataFim',e.target.value)} key={`dataFim-${creditoSelecionado}`}/>
@@ -7565,7 +7565,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  }}
                  className="text-red-400 hover:text-red-300 p-1"
                >
-                 🗑️
+                 🗑
                </button>
              </div>
            </div>
@@ -8169,14 +8169,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-600 rounded-lg transition-colors"
                    title="Editar" aria-label="Editar transação"
                  >
-                   ✏️
+                   ✏
                  </button>
                  <button
                    onClick={() => apagarTransacaoDireto(t)}
                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
                    title="Eliminar" aria-label="Eliminar transação"
                  >
-                   🗑️
+                   🗑
                  </button>
                </div>
              ))}
@@ -8201,10 +8201,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] animate-backdropIn flex items-center justify-center p-4">
            <div className={`${modalBg} ${theme === 'light' ? 'text-slate-900' : 'text-slate-100'} border rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto`}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-               <h3 className="text-lg font-semibold">{editTransacao ? '✏️ Editar Transação' : '➕ Nova Transação'}</h3>
+               <h3 className="text-lg font-semibold">{editTransacao ? '✏ Editar Transação' : '➕ Nova Transação'}</h3>
                <div className="flex items-center gap-2">
                  {editTransacao && (
-                   <button onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg">🗑️</button>
+                   <button onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg">🗑</button>
                  )}
                  <button onClick={() => setShowAddTransacao(false)} className="text-slate-400 hover:text-white">✕</button>
                </div>
@@ -8288,7 +8288,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <div className="p-4 border-t border-slate-700 flex justify-between">
                <div>
                  {editTransacao && (
-                   <Button variant="secondary" onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="text-red-400">🗑️ Eliminar</Button>
+                   <Button variant="secondary" onClick={() => { deleteTransacao(editTransacao.id); setShowAddTransacao(false); }} className="text-red-400">🗑 Eliminar</Button>
                  )}
                </div>
                <div className="flex gap-2">
@@ -8554,7 +8554,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      
      const isMinhas = feriasItem.quem === 'eu';
      const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(feriasItem.quem)) : null;
-     const summary = isMinhas ? '🏖️ Férias' : `✈️ Férias ${cliente?.nome || 'Cliente'}`;
+     const summary = isMinhas ? '🏖 Férias' : `✈ Férias ${cliente?.nome || 'Cliente'}`;
      const colorId = isMinhas ? '7' : '5'; // Ciano para minhas, Amarelo para cliente
      
      const event = {
@@ -8849,7 +8849,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showTrab ? 'bg-violet-500/20 text-violet-400 border border-violet-500/50' : 'text-slate-500 hover:text-slate-300'}`}
                    title="Mostrar/ocultar as listas do Trabalho (ex.: 44 - Mahjong - Oct)"
                  >
-                   🗂️ Trabalho
+                   🗂 Trabalho
                  </button>
                  {planoGuardado && <button onClick={() => setShowPlano(v => !v)} className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showPlano ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'text-slate-500 hover:text-slate-300'}`} title="Mostrar/ocultar o plano do mês">⏱ Plano</button>}
                  <button 
@@ -8857,7 +8857,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    className={`px-2 py-1 text-xs rounded-md transition-all flex items-center gap-1 ${showFeriasFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-slate-500 hover:text-slate-300'}`}
                    title="Mostrar/ocultar férias"
                  >
-                   🏖️ Férias
+                   🏖 Férias
                  </button>
                </div>
                
@@ -9010,7 +9010,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    {feriasHoje.slice(0, maxItems).map(f => {
                      const isMinhas = f.quem === 'eu';
                      const cliente = !isMinhas ? clientes.find(c => c.id === parseInt(f.quem)) : null;
-                     const label = isMinhas ? '🏖️ Minhas férias' : `✈️ ${cliente?.nome || 'Cliente'}`;
+                     const label = isMinhas ? '🏖 Minhas férias' : `✈ ${cliente?.nome || 'Cliente'}`;
                      const cor = isMinhas ? '#06b6d4' : '#f59e0b';
                      return (
                        <div 
@@ -9020,7 +9020,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          style={{ background: `${cor}30`, borderLeft: `2px solid ${cor}` }}
                          title={`${label}${f.notas ? ` - ${f.notas}` : ''}`}
                        >
-                         {isMinhas ? '🏖️' : '✈️'} {isMinhas ? 'Férias' : cliente?.nome}
+                         {isMinhas ? '🏖' : '✈'} {isMinhas ? 'Férias' : cliente?.nome}
                        </div>
                      );
                    })}
@@ -9171,7 +9171,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          return (
            <Card>
              <div className="flex justify-between items-center mb-2">
-               <h3 className="text-lg font-semibold"><Ico e="🏖️"/>Férias</h3>
+               <h3 className="text-lg font-semibold"><Ico e="🏖"/>Férias</h3>
                <button type="button" onClick={() => { setShowAddFerias(true); setEditFerias(null); setNovasFerias({ quem: 'eu', dataInicio: '', dataFim: '', notas: '' }); }} className="text-xs text-cyan-400 hover:text-cyan-300">+ Férias</button>
              </div>
              {feriasLista.length === 0 ? <p className="text-slate-500 text-center py-6 text-sm">Nenhum período de férias registado. As tuas férias contam no plano do mês (não se trabalha nesses dias).</p> : grupos.map(([id, nome, l]) => {
@@ -9195,7 +9195,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddFerias(false); }}>
            <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-md shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-               <h3 className="text-lg font-semibold">{editFerias ? '✏️ Editar Férias' : '🏖️ Adicionar Férias'}</h3>
+               <h3 className="text-lg font-semibold">{editFerias ? '✏ Editar Férias' : '🏖 Adicionar Férias'}</h3>
                <div className="flex items-center gap-2">
                  {editFerias && (
                    <button 
@@ -9203,7 +9203,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
                      title="Eliminar férias"
                    >
-                     🗑️
+                     🗑
                    </button>
                  )}
                  <button onClick={() => setShowAddFerias(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -9213,8 +9213,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div>
                  <label className="text-xs text-slate-400 mb-1 block">Quem está de férias?</label>
                  <Select value={novasFerias.quem} onChange={e => setNovasFerias({ ...novasFerias, quem: e.target.value })} className="w-full">
-                   <option value="eu">🏖️ Eu (minhas férias)</option>
-                   {clientes.map(c => <option key={c.id} value={c.id}>✈️ {c.nome}</option>)}
+                   <option value="eu">🏖 Eu (minhas férias)</option>
+                   {clientes.map(c => <option key={c.id} value={c.id}>✈ {c.nome}</option>)}
                  </Select>
                </div>
                <div className="grid grid-cols-2 gap-3">
@@ -9236,7 +9236,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                {novasFerias.dataInicio && novasFerias.dataFim && (
                  <div className={`p-3 rounded-xl ${novasFerias.quem === 'eu' ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-amber-500/10 border border-amber-500/30'}`}>
                    <p className="text-sm">
-                     {novasFerias.quem === 'eu' ? '🏖️' : '✈️'} 
+                     {novasFerias.quem === 'eu' ? '🏖' : '✈'} 
                      <span className="font-medium ml-1">
                        {novasFerias.quem === 'eu' ? 'Minhas férias' : `Férias de ${clientes.find(c => c.id === parseInt(novasFerias.quem))?.nome || 'Cliente'}`}
                      </span>
@@ -9282,7 +9282,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddProjeto(false); }}>
            <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto`} onMouseDown={e => e.stopPropagation()}>
              <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-               <h3 className="text-lg font-semibold">{editProjeto ? '✏️ Editar Projeto' : '➕ Novo Projeto'}</h3>
+               <h3 className="text-lg font-semibold">{editProjeto ? '✏ Editar Projeto' : '➕ Novo Projeto'}</h3>
                <div className="flex items-center gap-2">
                  {editProjeto && (
                    <button 
@@ -9290,7 +9290,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
                      title="Eliminar projeto"
                    >
-                     🗑️
+                     🗑
                    </button>
                  )}
                  <button onClick={() => setShowAddProjeto(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -9421,7 +9421,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div>
                  {editProjeto && (
                    <Button variant="secondary" onClick={() => { deleteProjeto(editProjeto.id); setShowAddProjeto(false); }} className="text-red-400 hover:text-red-300">
-                     🗑️ Eliminar
+                     🗑 Eliminar
                    </Button>
                  )}
                </div>
@@ -10351,7 +10351,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <>
                  <span className="text-orange-400 font-semibold">{selectedTxs.size} selecionados</span>
                  <button type="button" onClick={() => removeBatch([...selectedTxs])}
-                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ Apagar selecionados</button>
+                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑 Apagar selecionados</button>
                  <button type="button" onClick={() => setSelectedTxs(new Set())}
                    className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">Limpar seleção</button>
                </>
@@ -10362,14 +10362,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <button type="button" onClick={() => setSelectedTxs(new Set(lastImportIds))}
                    className="px-2 py-1 rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30">Selecionar</button>
                  <button type="button" onClick={() => confirmDelete(`Apagar ${lastImportIds.length} registos do último import?`, () => removeBatch(lastImportIds))}
-                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ Apagar último import</button>
+                   className="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑 Apagar último import</button>
                  <button type="button" onClick={() => setLastImportIds([])}
                    className="px-2 py-1 rounded bg-slate-500/20 text-slate-400">✕</button>
                </>
              )}
              {selectedTxs.size === 0 && lastImportIds.length === 0 && extrato.length > 0 && (
                <button type="button" onClick={() => { confirmDelete(`Tens a certeza que queres apagar TODOS os ${extrato.length} registos de TODAS as contas e meses?`, () => { saveUndo(); uG('extrato', []); setSelectedTxs(new Set()); setLastImportIds([]); }, 'Apagar tudo');}}
-                 className="px-2 py-1 rounded bg-red-500/10 text-red-400/70 hover:bg-red-500/20 hover:text-red-400">🗑️ Apagar todos ({extrato.length})</button>
+                 className="px-2 py-1 rounded bg-red-500/10 text-red-400/70 hover:bg-red-500/20 hover:text-red-400">🗑 Apagar todos ({extrato.length})</button>
              )}
            </div>
          )}
@@ -10501,7 +10501,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          <span className="text-[10px] text-orange-400">🔗 Custo real: {fmt(Math.abs(tx.valorReal))} ({tx.reembolsos?.length || 0} reembolso{tx.reembolsos?.length !== 1 ? 's' : ''})</span>
                        )}
                        {tx._usadoComoReembolso && (
-                         <span className="text-[10px] text-orange-400">↩️ Reembolso vinculado</span>
+                         <span className="text-[10px] text-orange-400">↩ Reembolso vinculado</span>
                        )}
                      </div>
                      {/* Conta (colored) */}
@@ -10790,8 +10790,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              const existingGroups = G.orcamentosGrupos || [];
              
              return (<>
-               {!abancaConta && <p className="text-xs text-orange-400 mb-2">⚠️ Conta "ABanca" não encontrada. Adiciona-a nas Contas.</p>}
-               {!activoConta && <p className="text-xs text-orange-400 mb-2">⚠️ Conta "Activo Bank" não encontrada. Adiciona-a nas Contas.</p>}
+               {!abancaConta && <p className="text-xs text-orange-400 mb-2">⚠ Conta "ABanca" não encontrada. Adiciona-a nas Contas.</p>}
+               {!activoConta && <p className="text-xs text-orange-400 mb-2">⚠ Conta "Activo Bank" não encontrada. Adiciona-a nas Contas.</p>}
                
                {/* ABanca groups */}
                {abancaConta && (<>
@@ -11029,7 +11029,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
          {/* Categorias editáveis */}
          <Card>
-           <h4 className="font-semibold mb-3"><Ico e="🏷️"/>Categorias</h4>
+           <h4 className="font-semibold mb-3"><Ico e="🏷"/>Categorias</h4>
            <div className="space-y-1.5">
              {categorias.map((c, i) => (
                <div key={c.id} className={`flex items-center gap-2 p-2 rounded-lg ${theme === 'light' ? 'bg-slate-50 hover:bg-slate-100' : 'bg-slate-800/30 hover:bg-slate-800/50'}`}>
@@ -11328,20 +11328,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const tabs = [
    {id:'resumo',icon:'📊',label:'Dashboard',submenu:[{id:'resumo',icon:'📊',label:'Resumo'},{id:'ano',icon:'🧭',label:'O meu ano'},{id:'performance',icon:'🚀',label:'Performance'},{id:'historico',icon:'📅',label:'Histórico'}]},
    {id:'receitas',icon:'💰',label:'Receitas'},
-   {id:'trabalho',icon:'🗂️',label:'Trabalho'},
+   {id:'trabalho',icon:'🗂',label:'Trabalho'},
    {id:'notas',icon:'📓',label:'Notas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
    {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
-   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛️',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
+   {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
-   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calfin',icon:'🗓️',label:'Calendário'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
+   {id:'planeamento',icon:'📋',label:'Planeamento',submenu:[{id:'calfin',icon:'🗓',label:'Calendário'},{id:'agenda',icon:'📋',label:'Tarefas'}]}
  ];
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
  // Ao voltar a um grupo, abre o último separador que usaste nele.
  const grupoAtivo = tabs.find(t => t.submenu && t.submenu.some(s => s.id === tab)) || null;
  // Telemóvel: 5 secções no menu de baixo (estilo app), cada uma com os seus separadores no topo
- const subInfo = { trabalho: { icon: '🗂️', label: 'Trabalho' }, notas: { icon: '📓', label: 'Notas' }, receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
+ const subInfo = { trabalho: { icon: '🗂', label: 'Trabalho' }, notas: { icon: '📓', label: 'Notas' }, receitas: { icon: '💰', label: 'Receitas' }, abanca: { icon: '🏠', label: 'Casal' }, pessoais: { icon: '👤', label: 'Pessoais' }, sara: { icon: '👩', label: 'Parceiro/a' }, credito: { icon: '🏦', label: 'Crédito' }, vendacasa: { icon: '🏡', label: 'Venda da Casa' } };
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
@@ -11529,11 +11529,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    '<div class="grid">' +
    '<div class="card"><div class="card-label">🏠 Amortização (' + (alocAmort-alocFerias) + '%)</div><div class="card-value green">' + fmt(amortPDF) + '</div></div>' +
    '<div class="card"><div class="card-label">📈 Investimentos (' + (100-alocAmort) + '%)</div><div class="card-value purple">' + fmt(invExtraPDF) + '</div></div>' +
-   '<div class="card"><div class="card-label">🏖️ Férias' + (alocFerias > 0 ? ' (fixo+' + alocFerias + '%)' : '') + '</div><div class="card-value orange">' + fmt(totalFeriasPDF) + '</div></div>' +
+   '<div class="card"><div class="card-label">🏖 Férias' + (alocFerias > 0 ? ' (fixo+' + alocFerias + '%)' : '') + '</div><div class="card-value orange">' + fmt(totalFeriasPDF) + '</div></div>' +
    '<div class="card"><div class="card-label">💰 Portfolio Total</div><div class="card-value blue">' + fmt(portfolio.reduce((a,p)=>a+p.val,0)) + '</div></div>' +
    '</div>' +
    
-   '<h2>⏱️ Horas Trabalhadas</h2>' +
+   '<h2>⏱ Horas Trabalhadas</h2>' +
    '<div class="grid">' +
    '<div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">' + (horasTrabalhadas > 0 ? horasTrabalhadas + 'h' : 'Não registado') + '</div></div>' +
    '<div class="card"><div class="card-label">Dias Trabalhados</div><div class="card-value">' + (horasTrabalhadas > 0 ? diasTrabalhados.toFixed(1) + ' dias' : '-') + '</div></div>' +
@@ -11608,7 +11608,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowShortcuts(false); }}>
        <div className={`${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'} border rounded-2xl w-full max-w-md shadow-2xl animate-modalIn`} onMouseDown={e => e.stopPropagation()}>
          <div className={`p-4 border-b ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} flex justify-between items-center`}>
-           <h3 className="text-lg font-semibold">⌨️ Atalhos de Teclado</h3>
+           <h3 className="text-lg font-semibold">⌨ Atalhos de Teclado</h3>
            <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-slate-300">✕</button>
          </div>
          <div className="p-4 space-y-1 max-h-[60vh] overflow-y-auto">
@@ -12043,7 +12043,7 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  // Função para resetar todos os dados
  const handleResetAll = () => {
-   confirmDelete('⚠️ Isto vai apagar TODOS os teus dados: receitas, investimentos, portfolio, histórico. Tens a certeza?', () => {
+   confirmDelete('⚠ Isto vai apagar TODOS os teus dados: receitas, investimentos, portfolio, histórico. Tens a certeza?', () => {
      // segunda confirmação, só depois de a primeira caixa fechar
      setTimeout(() => confirmDelete('🔴 Última confirmação: queres mesmo apagar tudo?', () => {
        saveUndo();
@@ -12112,10 +12112,10 @@ ${transacoesOrdenadas.map(t => `<tr>
      if (!a.ativo) return;
      
      if (a.tipo === 'despesa' && a.campo === 'despPess' && totPess > a.limite) {
-       alerts.push({...a, msg: `⚠️ ${a.desc}: ${fmt(totPess)} (limite: ${fmt(a.limite)})`, severity: 'warning'});
+       alerts.push({...a, msg: `⚠ ${a.desc}: ${fmt(totPess)} (limite: ${fmt(a.limite)})`, severity: 'warning'});
      }
      if (a.tipo === 'poupanca' && taxaPoupanca < a.limite) {
-       alerts.push({...a, msg: `⚠️ ${a.desc}: ${taxaPoupanca.toFixed(1)}%`, severity: 'warning'});
+       alerts.push({...a, msg: `⚠ ${a.desc}: ${taxaPoupanca.toFixed(1)}%`, severity: 'warning'});
      }
    });
    
@@ -12159,7 +12159,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    
    // ALERTA: Horas acima da meta (work-life balance)
    if (horasEsteMes > (metas.horasMensais || 120) * 1.2) {
-     alerts.push({tipo: 'aviso', msg: `⚠️ Horas acima da meta: ${horasEsteMes}h / ${metas.horasMensais || 120}h (+${(horasEsteMes - (metas.horasMensais || 120))}h)`, severity: 'warning'});
+     alerts.push({tipo: 'aviso', msg: `⚠ Horas acima da meta: ${horasEsteMes}h / ${metas.horasMensais || 120}h (+${(horasEsteMes - (metas.horasMensais || 120))}h)`, severity: 'warning'});
    }
    
    // ALERTA: fim do mês e o Portfolio deste mês ainda não foi atualizado
@@ -12790,7 +12790,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <div class="card"><div class="card-label">Impostos (est.)</div><div class="card-value orange">${fmt(relatorio.impostoEstimado)}</div></div>
      </div>
      
-     <h2>⏱️ Produtividade</h2>
+     <h2>⏱ Produtividade</h2>
      <div class="grid">
        <div class="card"><div class="card-label">Total Horas</div><div class="card-value blue">${relatorio.totalHoras > 0 ? relatorio.totalHoras + 'h' : 'Não registado'}</div>${relatorio.totalHoras > 0 ? `<div class="card-sub">${relatorio.totalDias.toFixed(1)} dias</div>` : ''}</div>
        <div class="card"><div class="card-label">Média por Mês</div><div class="card-value">${relatorio.totalHoras > 0 ? Math.round(relatorio.mediaHorasMes) + 'h' : '-'}</div>${relatorio.totalHoras > 0 ? `<div class="card-sub">${(relatorio.mediaHorasMes / 8).toFixed(1)} dias</div>` : ''}</div>
@@ -12896,7 +12896,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              </select>
            </div>
            <div className="flex gap-2">
-             <button onClick={printRelatorioAnual} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium">🖨️ Exportar PDF</button>
+             <button onClick={printRelatorioAnual} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium">🖨 Exportar PDF</button>
              <button onClick={() => setShowRelatorio(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
            </div>
          </div>
@@ -12932,7 +12932,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            {relatorio.totalHoras > 0 && (
              <div className="bg-gradient-to-r from-blue-500/10 to-emerald-500/10 border border-blue-500/30 rounded-xl p-4">
                <h4 className="font-semibold mb-4 flex items-center gap-2">
-                 <span>⏱️ Produtividade</span>
+                 <span>⏱ Produtividade</span>
                  <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">{relatorio.mesesComHoras} meses com registo</span>
                </h4>
                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -13195,7 +13195,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                {/* Avisos */}
                {alertasAviso.length > 0 && (
                  <div className="space-y-2">
-                   <p className="text-xs text-orange-400 font-medium">⚠️ Atenção</p>
+                   <p className="text-xs text-orange-400 font-medium">⚠ Atenção</p>
                    {alertasAviso.map((a, i) => (
                      <div key={`warning-${i}`} className={`p-3 border rounded-xl ${severityStyles.warning}`}>
                        {a.msg}
@@ -13220,11 +13220,11 @@ ${transacoesOrdenadas.map(t => `<tr>
            )}
            
            <div className="pt-4 border-t border-slate-700">
-             <h4 className="text-sm font-semibold text-slate-400 mb-3"><Ico e="⚙️"/>Configurar alertas</h4>
+             <h4 className="text-sm font-semibold text-slate-400 mb-3"><Ico e="⚙"/>Configurar alertas</h4>
              <div className="space-y-3">
                <div className="p-3 bg-slate-700/30 rounded-lg space-y-2">
                  <p className="text-xs text-slate-500">Que avisos queres ver (os desligados deixam de contar no sino):</p>
-                 {[['tarefas', '📅 Tarefas do mês atrasadas ou para breve'], ['transf', '💸 Transferências e despesas do mês'], ['faturacao', '🧾 Clientes sem faturação há 45+ dias'], ['variacao', '📉 Receitas vs mês anterior (só no fim do mês)'], ['metas', '🎯 Metas do ano (receitas, investimentos)'], ['horas', '⏱️ Horas do mês'], ['portfolio', '📈 Atualizar o Portfolio no fim do mês'], ['orcamento', '🛒 Orçamentos do extrato']].map(([k, nome]) => {
+                 {[['tarefas', '📅 Tarefas do mês atrasadas ou para breve'], ['transf', '💸 Transferências e despesas do mês'], ['faturacao', '🧾 Clientes sem faturação há 45+ dias'], ['variacao', '📉 Receitas vs mês anterior (só no fim do mês)'], ['metas', '🎯 Metas do ano (receitas, investimentos)'], ['horas', '⏱ Horas do mês'], ['portfolio', '📈 Atualizar o Portfolio no fim do mês'], ['orcamento', '🛒 Orçamentos do extrato']].map(([k, nome]) => {
                    const ligado = !(G.alertasDesligados || {})[k];
                    return (
                      <label key={k} className="flex items-center justify-between gap-3 text-sm text-slate-300 cursor-pointer">
@@ -13599,7 +13599,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  <div className={`min-h-screen ${theme === 'light' ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-900' : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white'}`}>
    <header className={`sticky top-0 z-50 backdrop-blur-xl border-b px-3 sm:px-6 py-3 flex items-center gap-2 ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/50'}`}>
      <h1 className="font-bold text-lg flex-1">📓 Notas</h1>
-     <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className={`w-9 h-9 rounded-lg ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mudar tema" title="Mudar tema">{theme === 'light' ? '🌙' : '☀️'}</button>
+     <button onClick={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))} className={`w-9 h-9 rounded-lg ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mudar tema" title="Mudar tema">{theme === 'light' ? '🌙' : '☀'}</button>
      <button onClick={() => { try { localStorage.removeItem('so-notas'); const u = new URL(window.location.href); u.searchParams.delete('notas'); window.history.replaceState(null, '', u.toString()); } catch (e) { /* sem armazenamento */ } setSoNotas(false); setTab('resumo'); }} className={`px-3 py-1.5 text-xs rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>App completa</button>
      <button onClick={onLogout} className={`px-3 py-1.5 text-xs rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Sair</button>
    </header>
@@ -13653,7 +13653,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  <AbaEstavel render={ShortcutsModal} />
  {!isOnline && (
    <div className="fixed top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 text-sm z-[100]">
-     ⚠️ Offline - As alterações serão guardadas quando voltar a ligação
+     ⚠ Offline - As alterações serão guardadas quando voltar a ligação
    </div>
  )}
  <style>{`
@@ -13775,7 +13775,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            'bg-blue-500/90 text-white'
          }`}
        >
-         <span>{t.type === 'success' ? '✅' : t.type === 'warning' ? '⚠️' : t.type === 'error' ? '❌' : 'ℹ️'}</span>
+         <span>{t.type === 'success' ? '✅' : t.type === 'warning' ? '⚠' : t.type === 'error' ? '❌' : 'ℹ'}</span>
          <span>{t.message}</span>
          <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="ml-2 opacity-70 hover:opacity-100">✕</button>
        </div>
@@ -13832,7 +13832,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 {(() => {
                   const claro = theme === 'light';
                   const seta =`w-7 sm:w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors ${claro ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-white/10'}`;
-                  const sel = `h-8 bg-transparent border-0 rounded-lg px-1 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
+                  const sel = `h-8 bg-transparent border-0 rounded-lg px-1 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
                     <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${tab === 'notas' ? 'max-sm:hidden' : ''} ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
@@ -13855,7 +13855,7 @@ ${transacoesOrdenadas.map(t => `<tr>
             {(() => {
               const claro = theme === 'light';
               const ic = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
-              const btn = (ativo, extra = '') => `relative w-7 sm:w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent ${ativo ? (claro ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : claro ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/10'} ${extra}`;
+              const btn = (ativo, extra = '') => `relative w-7 sm:w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent ${ativo ? (claro ? 'bg-blue-100 text-blue-700' : 'bg-white/10 text-blue-300') : claro ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/10'} ${extra}`;
               const sep = <span className={`hidden sm:block w-px h-5 mx-0.5 ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} />;
               const nAlertas = getActiveAlerts().length;
               return (
@@ -13865,8 +13865,6 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg {...ic}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
                 <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Refazer (Ctrl+Y)" aria-label="Refazer"><svg {...ic}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
                 {sep}
-                {/* Telemóvel: o chat com a IA (no computador é o botão redondo "✨ Perguntar") */}
-                <button onClick={() => setChatAberto(true)} className={btn(chatAberto, 'sm:hidden')} title="Perguntar à IA" aria-label="Perguntar à IA"><svg {...ic}><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/><path d="M19 3v4M17 5h4"/></svg></button>
                 {/* Esconder valores (olho) */}
                 <button onClick={() => setPrivado(v => !v)} className={btn(privado)} aria-pressed={privado} title={privado ? 'Mostrar os valores (Ctrl+.)' : 'Esconder os valores (Ctrl+.)'} aria-label={privado ? 'Mostrar os valores' : 'Esconder os valores'}>
                   {privado
@@ -13943,9 +13941,9 @@ ${transacoesOrdenadas.map(t => `<tr>
             }[g.id];
             return (
               <button key={g.id} onClick={ir} aria-label={g.label} aria-current={ativo ? 'page' : undefined}
-                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 rounded-[1.5rem] transition-colors ${destaque ? (ativo ? (theme === 'light' ? 'text-violet-700' : 'text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300') : ativo ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 rounded-[1.5rem] transition-colors ${destaque ? (ativo ? (theme === 'light' ? 'text-blue-700' : 'text-blue-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300') : ativo ? (theme === 'light' ? 'bg-blue-100 text-blue-700' : 'bg-white/10 text-blue-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                 {destaque
-                  ? <span className={`-mt-7 w-[52px] h-[52px] rounded-full inline-flex items-center justify-center text-white shadow-lg ring-4 transition-transform active:scale-95 bg-gradient-to-br from-violet-500 to-blue-600 ${theme === 'light' ? 'ring-white' : 'ring-slate-800'} ${ativo ? 'scale-105' : ''}`}>{icone}</span>
+                  ? <span className={`-mt-7 w-[52px] h-[52px] rounded-full inline-flex items-center justify-center text-white shadow-lg ring-4 transition-transform active:scale-95 bg-gradient-to-br from-blue-500 to-blue-700 ${theme === 'light' ? 'ring-white' : 'ring-slate-800'} ${ativo ? 'scale-105' : ''}`}>{icone}</span>
                   : icone}
                 <span className={`text-[11px] leading-none truncate max-w-full ${ativo ? 'font-semibold' : ''}`}>{g.label}</span>
               </button>
@@ -13960,7 +13958,7 @@ ${transacoesOrdenadas.map(t => `<tr>
               <h3 className="font-semibold"><Ico e="📦"/>Cópias automáticas</h3>
               <button onClick={() => setCopiasLista(null)} aria-label="Fechar" className="text-slate-400 px-2">✕</button>
             </div>
-            <p className="text-xs text-slate-500">A app guarda sozinha uma cópia por semana neste browser (ficam as 6 mais recentes). Para voltar atrás, escolhe uma e confirma em «Importar Dados». Se te enganares, o ↩️ desfaz.</p>
+            <p className="text-xs text-slate-500">A app guarda sozinha uma cópia por semana neste browser (ficam as 6 mais recentes). Para voltar atrás, escolhe uma e confirma em «Importar Dados». Se te enganares, o ↩ desfaz.</p>
             {copiasLista.length === 0 ? <p className="text-sm text-slate-500 py-4 text-center">Ainda não há cópias. A primeira é feita uns segundos depois de abrires a app.</p> : (
               <div className="space-y-2">
                 {copiasLista.map(c => (
@@ -13979,11 +13977,17 @@ ${transacoesOrdenadas.map(t => `<tr>
       <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' || tab === 'notas' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
         {grupoMob && grupoMob.id !== 'notas' && (
           <div className="sm:hidden no-print">
-            <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="text-3xl font-bold tracking-tight">{grupoMob.titulo}</h2>
+              {/* Chat com a IA (no computador é o botão redondo "Perguntar") */}
+              <button onClick={() => setChatAberto(true)} aria-label="Perguntar à IA" className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-medium border ${theme === 'light' ? 'bg-white border-slate-200 text-blue-700' : 'bg-slate-800/70 border-slate-700/60 text-blue-300'}`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/></svg>Perguntar
+              </button>
+            </div>
             <div className="-mx-3 px-3 mb-4 flex gap-2 overflow-x-auto scrollbar-hide">
               {grupoMob.subs.map(id => (
                 <button key={id} onClick={() => setTab(id)} data-pill-ativo={tab === id ? '1' : '0'}
-                  className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === id ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-violet-500/25 text-violet-200') : theme === 'light' ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-800/70 text-slate-400'}`}>
+                  className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === id ? (theme === 'light' ? 'bg-blue-100 text-blue-700' : 'bg-blue-500/25 text-blue-200') : theme === 'light' ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-800/70 text-slate-400'}`}>
                   <Ico e={subInfo[id]?.icon}/>{subInfo[id]?.label}
                 </button>
               ))}
@@ -14191,11 +14195,11 @@ ${transacoesOrdenadas.map(t => `<tr>
          {/* Sidebar tabs - vertical */}
          <div className="flex flex-col gap-0.5 mt-4">
            {[
-             { id: 'settings', icon: '⚙️', label: 'Definições' },
-             { id: 'impostos', icon: '🏛️', label: 'Impostos' },
+             { id: 'settings', icon: '⚙', label: 'Definições' },
+             { id: 'impostos', icon: '🏛', label: 'Impostos' },
              { id: 'clientes', icon: '👥', label: 'Clientes' },
              { id: 'metas', icon: '🎯', label: 'Metas' },
-             { id: 'sobre', icon: 'ℹ️', label: 'Sobre' },
+             { id: 'sobre', icon: 'ℹ', label: 'Sobre' },
            ].map(t => (
              <button key={t.id} onClick={() => setSidebarTab(t.id)}
                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all w-full text-left ${sidebarTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}>
@@ -14258,7 +14262,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                  <span className="text-sm">Tema</span>
                  <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                    className={`px-3 py-1.5 text-xs rounded-lg ${theme === 'light' ? 'bg-slate-200 text-slate-700' : 'bg-slate-700 text-slate-300'}`}>
-                   {theme === 'dark' ? '☀️ Claro' : '🌙 Escuro'}
+                   {theme === 'dark' ? '☀ Claro' : '🌙 Escuro'}
                  </button>
                </div>
              </div>
@@ -14291,7 +14295,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                <div className={`border-t my-2 ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`} />
                <button onClick={() => { setShowShortcuts(true); setShowSidebar(false); }}
                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left ${theme === 'light' ? 'hover:bg-slate-100' : 'hover:bg-slate-700/50'}`}>
-                 <span>⌨️</span> Atalhos de teclado
+                 <span>⌨</span> Atalhos de teclado
                </button>
              </div>
            </div>
@@ -14302,7 +14306,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-red-50' : 'bg-red-900/10'}`}>
                <button onClick={() => { handleResetAll(); setShowSidebar(false); }}
                  className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left text-red-400 hover:bg-red-500/10">
-                 <span>🗑️</span> Apagar todos os dados
+                 <span>🗑</span> Apagar todos os dados
                </button>
                <button onClick={onLogout}
                  className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-left text-red-400 hover:bg-red-500/10">
@@ -14324,7 +14328,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                  {/* SS */}
                  <div>
                    <div className="flex justify-between">
-                     <span className="text-blue-400">🏛️ Segurança Social</span>
+                     <span className="text-blue-400">🏛 Segurança Social</span>
                      <span className="font-bold">{fmt(pi.ssAnual || 0)}/ano</span>
                    </div>
                    <p className="text-[10px] text-slate-500 mt-0.5">Já pago + previsto até Dezembro · próximo mês: {fmt(pi.ssMensal || 0)}</p>
@@ -14388,7 +14392,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                <div className="space-y-1 text-xs">
                  {(G.impostosPagos || []).filter(p => (p.data || '').startsWith(String(anoAtualSistema))).sort((a, b) => (b.data || '').localeCompare(a.data || '')).map(p => (
                    <div key={p.id} className={`flex items-center gap-2 py-1.5 ${theme === 'light' ? 'border-b border-slate-100' : 'border-b border-slate-800'}`}>
-                     <span>{p.tipo === 'SS' ? '🏛️' : p.tipo === 'IVA' ? '💶' : '📋'}</span>
+                     <span>{p.tipo === 'SS' ? '🏛' : p.tipo === 'IVA' ? '💶' : '📋'}</span>
                      <span className="text-slate-500">{p.data}</span>
                      <span className={`px-1.5 py-0.5 rounded ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>{impRefAuto(p)}</span>
                      <span className="flex-1" />
@@ -14468,7 +14472,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                    { key: 'receitas', label: '💰 Receitas', suffix: '€' },
                    { key: 'amortizacao', label: '🏠 Amortização', suffix: '€' },
                    { key: 'investimentos', label: '📈 Investimentos', suffix: '€' },
-                   { key: 'horasMensais', label: '⏱️ Horas/mês', suffix: 'h' },
+                   { key: 'horasMensais', label: '⏱ Horas/mês', suffix: 'h' },
                  ].map(m => {
                    const metasAtual = (() => { try { const raw = G.metas || {}; if (raw[anoAtualSistema]) return raw[anoAtualSistema]; if (raw.default) return raw.default; return raw; } catch { return {}; } })();
                    const val = metasAtual[m.key] || 0;
@@ -14515,7 +14519,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                    </div>
                  </div>
                  <div className="flex items-center justify-between">
-                   <span className="text-sm">🏖️ Reserva férias</span>
+                   <span className="text-sm">🏖 Reserva férias</span>
                    <div className="flex items-center gap-1">
                      <input type="number" defaultValue={G.ferias || 0}
                        className={`w-20 text-right text-sm font-mono px-2 py-1 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
