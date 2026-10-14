@@ -299,7 +299,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
   const hoje = trabDia(new Date().toISOString());
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
   return (
-    <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50/60' : 'border-red-500/30 bg-red-500/5') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
+    <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
         <span className={`block truncate text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`}>{t.nome}</span>
@@ -394,7 +394,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
   const [editar, setEditar] = useState(false);
   const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
-    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50/70 border-red-100' : 'bg-red-500/[0.06] border-red-500/10') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50 border-red-100 shadow-[inset_3px_0_0_0_#ef4444]' : 'bg-red-500/[0.09] border-red-500/10 shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         {onMarcar && (
           <input type="checkbox" checked={marcada} onChange={() => {}} onClick={e => { e.stopPropagation(); onMarcar(t.id, e.shiftKey); }}
@@ -1011,10 +1011,12 @@ const partilharNoTrello = async (t, cartao) => {
 const LinkTrello = ({ t, claro }) => {
   if (!(t.trello && t.trello.url)) return null;
   const partilhado = linkNoTrello(t);
+  const lista = listaDoCartao(t.trello.id);
+  const corL = corListaTrello(lista);
   return (
     <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir o cartão do Trello"
-      title={partilhado ? `No Trello, já com o link do Drive: ${t.trello.nome || ''}` : `No Trello (ainda sem o link do Drive): ${t.trello.nome || ''}`}
-      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
+      title={`${lista ? `Trello: lista "${lista}"` : 'No Trello'}${partilhado ? ' · já com o link do Drive' : ' · ainda sem o link do Drive'}\n${t.trello.nome || ''}`}
+      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md ${corL === 'review' ? 'text-amber-500' : corL === 'ok' ? 'text-emerald-500' : 'text-sky-500'} ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
       <IcoTrello />
       {partilhado && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
     </a>
@@ -2253,6 +2255,20 @@ const chamarTrello = async (acao, dados = {}) => {
   return j;
 };
 const cacheCartoes = new Map(); // quadro → { em, lista }
+// Em que lista do Trello está cada cartão (só para ver — a app não mexe nas listas). Preenchido ao abrir as listas de tarefas.
+const TRELLO_ESTADO = { listas: {}, cartaoLista: {}, cartaoQuadro: {} }; // listas: quadro → { idLista: nome }
+const cacheListas = new Map(); // quadro → { em }
+const listasTrello = async quadro => {
+  const c = cacheListas.get(quadro);
+  if (c && Date.now() - c.em < 10 * 60000) return TRELLO_ESTADO.listas[quadro] || {};
+  const q = await chamarTrello('quadro', { quadro });
+  const m = {}; (q.listas || []).forEach(l => { m[l.id] = l.nome; });
+  TRELLO_ESTADO.listas[quadro] = m; cacheListas.set(quadro, { em: Date.now() });
+  return m;
+};
+const listaDoCartao = id => { const q = TRELLO_ESTADO.cartaoQuadro[id]; const l = TRELLO_ESTADO.cartaoLista[id]; return q && l ? ((TRELLO_ESTADO.listas[q] || {})[l] || null) : null; };
+// Cor da lista: Review → laranja; aprovado/feito → verde; o resto fica azul
+const corListaTrello = nome => (!nome ? null : /review|revis/i.test(nome) ? 'review' : /aprov|approv|done|feito|final|complet|publish|live|entreg/i.test(nome) ? 'ok' : null);
 const cartoesTrello = async (quadro, fresco = false) => {
   const c = cacheCartoes.get(quadro);
   if (!fresco && c && Date.now() - c.em < 120000) return c.lista;
@@ -3344,6 +3360,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <a href={t.trello.url} target="_blank" rel="noopener noreferrer" className={`${btn} !border-blue-500/50 text-blue-400`}>Abrir o cartão ↗</a>
           <span className={`truncate max-w-[60%] ${sub}`} title={t.trello.nome}>{t.trello.nome}</span>
+          {listaDoCartao(t.trello.id) && <span className={`px-1.5 py-px rounded text-[11px] font-medium ${corListaTrello(listaDoCartao(t.trello.id)) === 'review' ? 'bg-amber-500/15 text-amber-500' : corListaTrello(listaDoCartao(t.trello.id)) === 'ok' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-sky-500/15 text-sky-500'}`} title="Lista onde o cartão está no Trello">{listaDoCartao(t.trello.id)}</span>}
           <button type="button" onClick={() => set({ trello: null, trelloSolto: true })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
           {linkNoTrello(t)
             ? <p className="w-full text-[11px] text-emerald-500">✓ O link da pasta do Drive já está neste cartão.</p>
@@ -4685,6 +4702,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const comTrello = tarefas.filter(t => (t.trello && t.trello.id) || cartaoLembrado(t));
   const chaveTrello = comTrello.map(t => t.id + ((t.trello && t.trello.id) || cartaoLembrado(t))).join(',');
   const [focoTic, setFocoTic] = useState(0);
+  const [, setTrelloTic] = useState(0);
   useEffect(() => { const f = () => { cacheCartoes.clear(); setFocoTic(x => x + 1); }; window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, []);
   useEffect(() => {
     if (!comTrello.length) return undefined;
@@ -4694,8 +4712,14 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
       // 1) os cartões abertos dos quadros dos jogos (um pedido por quadro)
       const quadros = [...new Set(comTrello.map(t => { const j = jogoDaTarefa(trab, t); return j && !j.semJogo && j.trello ? j.trello : null; }).filter(Boolean))];
       const abertos = new Map();
-      for (const q of quadros) { try { (await cartoesTrello(q)).forEach(c => abertos.set(c.id, c)); } catch (e) { return; } }
+      for (const q of quadros) {
+        try {
+          (await cartoesTrello(q)).forEach(c => { abertos.set(c.id, c); TRELLO_ESTADO.cartaoLista[c.id] = c.lista; TRELLO_ESTADO.cartaoQuadro[c.id] = q; });
+          await listasTrello(q).catch(() => ({}));
+        } catch (e) { return; }
+      }
       if (!vivo) return;
+      setTrelloTic(x => x + 1);
       // 2) os que não aparecem nos quadros: pergunta ao Trello por cada um (pode ter mudado de quadro)
       const duvidas = [...new Set(comTrello.map(t => ligado(t) || cartaoLembrado(t)).filter(id => id && !abertos.has(id)))];
       const estado = new Map();
