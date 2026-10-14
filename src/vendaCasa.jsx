@@ -611,3 +611,4 @@ const Casamento = ({ G, uG, theme }) => {
 export {
   VendaCasa, CAS_CATS, CasCampo, CasBarra, casCat, Casamento
 };
+export const FICHEIRO_APP = 'vendaCasa';
