@@ -215,19 +215,31 @@ const grafCompacto = v => {
   if (a >= 1000) return s + (a / 1000).toFixed(a >= 1e4 ? 0 : 1).replace('.', ',').replace(/,0$/, '') + 'k';
   return s + Math.round(a);
 };
-const GrafCaixa = ({ x, largura, titulo, linhas }) => (
-  <div className="absolute top-1 z-10 pointer-events-none rounded-lg border px-3 py-2 text-xs shadow-xl min-w-[150px]"
-    style={{ left: Math.max(4, Math.min(x + 14, largura - 190)), background: 'var(--graf-caixa)', borderColor: 'var(--graf-caixa-borda)', color: 'var(--graf-texto)' }}>
-    <p className="mb-1" style={{ color: 'var(--graf-eixo)' }}>{titulo}</p>
-    {linhas.map((l, k) => (
-      <p key={k} className="flex items-center gap-2 leading-5">
-        {l.cor && <span className="inline-block w-3 rounded-full flex-shrink-0" style={{ height: 2, background: l.cor }} />}
-        <span className="font-semibold">{l.valor}</span>
-        {l.nome && <span style={{ color: 'var(--graf-eixo)' }}>{l.nome}</span>}
-      </p>
-    ))}
-  </div>
-);
+// Caixa do gráfico: fica à direita do ponto, ou à esquerda quando não cabe (linhas com "tarefa" mostram o nome de cada tarefa)
+const GrafCaixa = ({ x, largura, titulo, linhas }) => {
+  const larga = linhas.some(l => l.tarefa);
+  const caixaW = larga ? 340 : 190;
+  const aEsquerda = x + 14 + caixaW > largura && x - 14 - caixaW >= 0;
+  const pos = aEsquerda ? { right: Math.max(4, largura - x + 14) } : { left: Math.max(4, Math.min(x + 14, largura - caixaW)) };
+  return (
+    <div className={`absolute top-1 z-10 pointer-events-none rounded-lg border px-3 py-2 text-xs shadow-xl min-w-[150px] ${larga ? 'w-[340px] max-w-[calc(100%-8px)]' : ''}`}
+      style={{ ...pos, background: 'var(--graf-caixa)', borderColor: 'var(--graf-caixa-borda)', color: 'var(--graf-texto)' }}>
+      <p className="mb-1" style={{ color: 'var(--graf-eixo)' }}>{titulo}</p>
+      {linhas.map((l, k) => (l.tarefa ? (
+        <p key={k} className="flex items-baseline gap-2 leading-snug pl-5 py-0.5 text-[11px]">
+          <span className="min-w-0 flex-1 break-words" style={{ color: 'var(--graf-eixo)' }}>{l.nome}</span>
+          {l.valor && <span className="tabular-nums flex-shrink-0">{l.valor}</span>}
+        </p>
+      ) : (
+        <p key={k} className={`flex items-center gap-2 leading-5 ${l.sep ? 'mt-1' : ''}`}>
+          {l.cor && <span className="inline-block w-3 rounded-full flex-shrink-0" style={{ height: 2, background: l.cor }} />}
+          <span className="font-semibold">{l.valor}</span>
+          {l.nome && <span style={{ color: 'var(--graf-eixo)' }}>{l.nome}</span>}
+        </p>
+      )))}
+    </div>
+  );
+};
 // Linhas (uma ou várias séries) com área opcional
 const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fmtEUR.format(v), rotuloFinal = null, aria = 'Gráfico', extraTip = null }) => {
   const [ref, w] = useLargura();
@@ -1698,7 +1710,15 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
                     series={[{ nome: 'nesse dia', cor: '#10b981', valores: porDia }]}
                     referencia={media > 0 ? { valor: Math.round(media), nome: 'média por dia útil' } : null}
                     apagado={fds}
-                    extraTip={i => est.clientes.filter(c => (c.diario[i + 1] || 0) > 0).map(c => ({ cor: corCli(c), valor: f(c.diario[i + 1]), nome: nomeCli(c) }))} />
+                    extraTip={i => est.clientes.filter(c => (c.diario[i + 1] || 0) > 0 || c.tarefas.some(t => Number(String(t.fechada).slice(8, 10)) === i + 1)).flatMap(c => {
+                      // Cada cliente e, por baixo, as tarefas entregues nesse dia
+                      const ts = c.tarefas.filter(t => Number(String(t.fechada).slice(8, 10)) === i + 1).sort((a, b) => (b.valor || 0) - (a.valor || 0));
+                      return [
+                        { cor: corCli(c), valor: f(c.diario[i + 1] || 0), nome: nomeCli(c), sep: true },
+                        ...ts.slice(0, 6).map(t => ({ tarefa: true, nome: t.nome, valor: t.valor ? f(t.valor) : (t.nosDias ? 'à diária' : '') })),
+                        ...(ts.length > 6 ? [{ tarefa: true, nome: `+ ${ts.length - 6} tarefa${ts.length - 6 === 1 ? '' : 's'}`, valor: '' }] : []),
+                      ];
+                    })} />
                 </div>
               );
             })()}
