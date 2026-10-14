@@ -302,7 +302,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
     <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
-        <span className={`block truncate text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`}>{t.nome}</span>
+        <NomeTarefa t={t} cu={cu} claro={claro} prefixo={etiquetaTipo(t, cu) ? 'sm:hidden' : 'sempre'} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
       <LinkDrive t={t} claro={claro} />
@@ -384,7 +384,40 @@ const EtiquetaTipo = ({ t, cu, claro, className = '', maxw = 'max-w-[45%]' }) =>
     : { background: `hsla(${h}, 70%, 45%, .12)`, color: `hsl(${h} 62% 62%)`, boxShadow: `inset 0 0 0 1px hsla(${h}, 70%, 50%, .22)` };
   return <span className={cls} style={est} title={txt}>{txt}</span>;
 };
-const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true, marcada = false, algumaMarcada = false, onMarcar }) => {
+// Nome da tarefa partido: "1x Variation + 1x Iteration - Monthly Earnings V4 - Surprise Intro"
+// → { prefixo: '1x Variation + 1x Iteration', conceito: 'Monthly Earnings', versao: 'V4', variacao: 'Surprise Intro' }
+const partesNomeTarefa = (nome, cu) => {
+  const s = String(nome || '').trim();
+  const segs = s.split(/\s[-–—]\s/).map(x => x.trim()).filter(Boolean);
+  let prefixo = '';
+  if (segs.length > 1 && (/^\d+\s*[x×]\s/i.test(segs[0]) || /^extra work$/i.test(segs[0]) || ehRotuloTipo(segs[0], cu))) prefixo = segs.shift();
+  else if (segs.length === 1 && (/^\d+\s*[x×]\s/i.test(segs[0]) || ehRotuloTipo(segs[0], cu))) return { prefixo: segs[0], conceito: '', versao: '', variacao: '' };
+  let conceito = segs.shift() || '';
+  let versao = '';
+  const m = /^(.*?)\s+(V\d+(?:\s*[+&/,]\s*V?\d+)*)$/i.exec(conceito);
+  if (m && m[1].trim()) { conceito = m[1].trim(); versao = m[2].toUpperCase().replace(/\s+/g, ''); }
+  else if (/^V\d+$/i.test(conceito) && segs.length) { versao = conceito.toUpperCase(); conceito = segs.shift(); }
+  return { prefixo, conceito, versao, variacao: segs.join(' - ') };
+};
+// Mostra o nome com o conceito em destaque, a versão numa etiqueta e a variação mais apagada.
+// prefixo: 'sempre' | 'nunca' | 'semTipo' (só aparece quando não há etiqueta de tipo ao lado) | classes CSS (ex.: 'sm:hidden')
+const NomeTarefa = ({ t, cu, claro, prefixo = 'semTipo', quebra = false, className = '' }) => {
+  const p = partesNomeTarefa(t.nome, cu);
+  const feito = t.estado === 'feito';
+  const fraco = claro ? 'text-slate-500' : 'text-slate-400';
+  const mostrarPref = p.prefixo && (prefixo === 'sempre' || (prefixo === 'semTipo' && !etiquetaTipo(t, cu)) || (prefixo !== 'nunca' && prefixo !== 'semTipo' && prefixo !== 'sempre'));
+  const clsPref = prefixo !== 'nunca' && prefixo !== 'semTipo' && prefixo !== 'sempre' ? prefixo : '';
+  const chip = `inline-block align-[1px] ml-1.5 px-1 rounded text-[10.5px] leading-[16px] font-semibold tabular-nums ${claro ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/25'} ${feito ? 'opacity-60' : ''}`;
+  return (
+    <span className={`block ${quebra ? 'break-words' : 'truncate'} ${className}`} title={t.nome}>
+      {mostrarPref && <span className={`${clsPref} text-[11px] font-normal ${fraco} mr-1.5`}>{p.prefixo}</span>}
+      {p.conceito ? <span className={`font-medium ${feito ? fraco : ''}`}>{p.conceito}</span> : !mostrarPref && <span className={`font-medium ${feito ? fraco : ''}`}>{p.prefixo || t.nome}</span>}
+      {p.versao && <span className={chip}>{p.versao}</span>}
+      {p.variacao && <span className={`font-normal ${fraco}`}><span className="mx-1.5 opacity-60" aria-hidden="true">·</span>{p.variacao}</span>}
+    </span>
+  );
+};
+const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true, marcada = false, algumaMarcada = false, onMarcar }) => {
   const claro = useClaro(theme);
   const corre = (t.tempos || []).some(x => !x.fim);
   const v = trabValor(t, cu, clientes);
@@ -408,7 +441,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
         ) : (
           <>
             <button type="button" onClick={() => onAbrir(t.id)} className="min-w-0 text-left">
-              <span className={`block truncate font-medium ${t.estado === 'feito' ? (claro ? 'text-slate-500' : 'text-slate-400') : ''}`} title={t.nome}>{t.nome}</span>
+              <NomeTarefa t={t} cu={cu} claro={claro} />
               {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
             </button>
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 hidden group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
@@ -3457,6 +3490,115 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     </div>
   );
 };
+// ── Versões deste conceito (desta e de outras tarefas, e as que só estão no Drive), com os nomes dos ficheiros ──
+const formatoDoNomeF = n => { const m = /_(\d+)X(\d+)(?:_|\.|$)/i.exec(String(n || '')); return m ? `${m[1]}:${m[2]}` : ''; };
+const versoesDoConceito = (trab, t, conceitoSlug) => {
+  const j = jogoDaTarefa(trab, t);
+  if (!j || !conceitoSlug) return [];
+  const tipo = tipoFicheiro(t);
+  const out = [];
+  (trab.tarefas || []).forEach(x => {
+    const jx = jogoDaTarefa(trab, x);
+    if (!jx || (j.id ? jx.id !== j.id : slugF(jx.nome) !== slugF(j.nome)) || tipoFicheiro(x) !== tipo) return;
+    versoesDrive(x.drive).forEach(d => {
+      if (slugF(d.conceito || (x.ficheiros || {}).conceito || conceitoDoNome(x.nome)) !== conceitoSlug) return;
+      const v = versaoDaPasta(d);
+      if (!v) return;
+      out.push({ v, pastaId: d.pastaId, tarefa: x, propria: x.id === t.id, variacao: campoVersao(x.ficheiros || {}, v, 'variacao', x) || '', em: d.em, url: d.url, ficheiros: (d.enviados || []).map(e => ({ nome: e.nome, formato: e.formato || formatoDoNomeF(e.nome) })) });
+    });
+  });
+  return out;
+};
+const cacheVersoesD = {};
+const versoesComFicheirosNoDrive = async (token, raiz, conceito) => {
+  const k = raiz + '|' + conceito;
+  const c = cacheVersoesD[k];
+  if (c && Date.now() - c.em < 5 * 60000) return c.lista;
+  const fs = await conceitosNoDrive(token, raiz);
+  const pc = fs.find(x => slugF(x.name) === slugF(conceito));
+  let lista = [];
+  if (pc) {
+    const subs = await filhosDrive(token, pc.id, true);
+    const re = new RegExp(`^${slugF(conceito)}_V(\\d+)(?:_(.+))?$`);
+    lista = (await Promise.all(subs.map(async s => {
+      const m = re.exec(slugF(s.name));
+      if (!m) return null;
+      const fich = await filhosDrive(token, s.id, false).catch(() => []);
+      return { v: Number(m[1]), pastaId: s.id, variacao: m[2] ? emTitulo(m[2].toLowerCase().replace(/_/g, ' ')) : '', url: s.webViewLink || `https://drive.google.com/drive/folders/${s.id}`, ficheiros: fich.map(f => ({ nome: f.name, formato: formatoDoNomeF(f.name) })).sort((a, b) => a.nome.localeCompare(b.nome)) };
+    }))).filter(Boolean);
+  }
+  cacheVersoesD[k] = { lista, em: Date.now() };
+  return lista;
+};
+const VersoesConceito = ({ t, trab, conceito, raizD, contaD, claro, sub, mostrarDrive }) => {
+  const [aberto, setAberto] = useState(() => { try { return localStorage.getItem('trab-versoes-abertas') === '1'; } catch (e) { return false; } });
+  const [doDrive, setDoDrive] = useState(null); // { conceito, lista }
+  const [aVer, setAVer] = useState(false);
+  const [semAcesso, setSemAcesso] = useState(false);
+  const [copiado, setCopiado] = useState('');
+  useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
+  const locais = versoesDoConceito(trab, t, conceito);
+  const carregar = async pedir => {
+    if (!raizD || !conceito || aVer) return;
+    const tk = tokenGuardadoDe(contaD) || (pedir || ligadoSempre(contaD || '_') ? await tokenDrive(contaD).catch(() => null) : null);
+    if (!tk) { setSemAcesso(true); return; }
+    setSemAcesso(false); setAVer(true);
+    try { const lista = await versoesComFicheirosNoDrive(tk, raizD, conceito); setDoDrive({ conceito, lista }); } catch (e) { /* sem acesso */ }
+    setAVer(false);
+  };
+  useEffect(() => { if (aberto && mostrarDrive && (!doDrive || doDrive.conceito !== conceito)) carregar(false); }, [aberto, conceito, raizD]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Junta: o Drive manda nos nomes (estão como lá ficaram); a app junta a tarefa e a data
+  const drv = doDrive && doDrive.conceito === conceito ? doDrive.lista : [];
+  const porV = new Map();
+  locais.forEach(l => { if (!porV.has(l.v)) porV.set(l.v, []); porV.get(l.v).push({ ...l }); });
+  drv.forEach(d => {
+    const lst = porV.get(d.v) || [];
+    const igual = lst.find(l => l.pastaId === d.pastaId) || (lst.length === 1 && !lst[0].pastaId ? lst[0] : null);
+    if (igual) { if (d.ficheiros.length) igual.ficheiros = d.ficheiros; if (!igual.url) igual.url = d.url; }
+    else { lst.push({ ...d, soDrive: true }); porV.set(d.v, lst); }
+  });
+  const linhas = [...porV.values()].flat().sort((a, b) => a.v - b.v);
+  const nums = [...new Set(linhas.map(l => l.v))];
+  if (!linhas.length && !(mostrarDrive && raizD)) return null;
+  const alternar = () => { const n = !aberto; setAberto(n); try { localStorage.setItem('trab-versoes-abertas', n ? '1' : '0'); } catch (e) { /* */ } };
+  const btnCopiar = (txt, k, rot = 'Copiar') => <button type="button" onClick={() => { copiar(txt); setCopiado(k); }} className={`shrink-0 px-1.5 py-px text-[10.5px] rounded border ${copiado === k ? 'border-emerald-400 text-emerald-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{copiado === k ? '✓' : rot}</button>;
+  return (
+    <div className="-mt-1">
+      <button type="button" onClick={alternar} aria-expanded={aberto} className={`inline-flex items-center gap-1.5 text-[11px] ${sub} hover:text-blue-400`}>
+        <svg width="9" height="9" viewBox="0 0 12 12" className="shrink-0 transition-transform" style={{ transform: aberto ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        {nums.length ? <>Versões deste conceito: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>{nums.map(n => `V${n}`).join(' · ')}</b></> : 'Versões deste conceito no Drive'}
+      </button>
+      {aberto && (
+        <div className={`mt-1.5 rounded-lg border divide-y ${claro ? 'border-slate-200 divide-slate-100 bg-slate-50/60' : 'border-white/[0.07] divide-white/[0.05] bg-white/[0.02]'}`}>
+          {linhas.map((l, i) => (
+            <div key={(l.pastaId || '') + l.v + i} className="px-2.5 py-2 space-y-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`shrink-0 px-1 rounded text-[10.5px] leading-[16px] font-semibold tabular-nums ${claro ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/25'}`}>V{l.v}</span>
+                <span className="min-w-0 truncate text-xs font-medium" title={l.variacao || 'sem variação'}>{l.variacao || <span className={`font-normal ${sub}`}>sem variação</span>}</span>
+                <span className={`min-w-0 truncate text-[11px] ${sub}`} title={l.tarefa ? l.tarefa.nome : ''}>{[l.em ? dataCurta(l.em) : '', l.propria ? 'esta tarefa' : l.tarefa ? `outra tarefa: ${l.tarefa.nome}` : l.soDrive ? 'só no Drive' : ''].filter(Boolean).join(' · ')}</span>
+                <span className="flex-1" />
+                {l.ficheiros.length > 1 && btnCopiar(l.ficheiros.map(f => f.nome).join('\n'), i + ':todos', 'Copiar todos')}
+                {l.url && <a href={urlAbrir(l.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`shrink-0 text-[11px] ${sub} hover:text-blue-400`} title="Abrir a pasta no Drive">Drive ↗</a>}
+              </div>
+              {l.ficheiros.length ? l.ficheiros.map((f, k) => (
+                <div key={f.nome + k} className="group/f flex items-center gap-2 pl-0.5">
+                  <span className={`w-8 shrink-0 text-[10.5px] ${sub}`}>{f.formato || '—'}</span>
+                  <code className={`flex-1 min-w-0 break-all leading-snug text-[11px] ${claro ? 'text-slate-600' : 'text-slate-300'}`}>{f.nome}</code>
+                  <span className="opacity-0 group-hover/f:opacity-100 focus-within:opacity-100">{btnCopiar(f.nome, i + ':' + k)}</span>
+                </div>
+              )) : <p className={`text-[11px] ${sub}`}>Sem ficheiros guardados.</p>}
+            </div>
+          ))}
+          {mostrarDrive && raizD && (aVer || semAcesso || !linhas.length) && (
+            <p className={`px-2.5 py-2 text-[11px] ${sub}`}>
+              {aVer ? 'A ver o Drive…' : semAcesso ? <button type="button" onClick={() => carregar(true)} className="text-blue-400 hover:text-blue-300">Ver também as que estão no Drive</button> : 'Ainda não há versões deste conceito.'}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caixa }) => {
   const fx = t.ficheiros || {};
   // Versão do lote de exports que estás a preparar (V2, V3…): os nomes lá em cima mostram essa
@@ -3605,6 +3747,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
           </p>
         );
       })()}
+      {r.conceito && <VersoesConceito key={t.id} t={t} trab={trab} conceito={r.conceito} raizD={raizD} contaD={contaD} claro={claro} sub={sub} mostrarDrive={!!(raizD && conceitosD && !conceitoNovo)} />}
       {(() => {
         // A versão que estás a preparar (em cima) + as que já foram enviadas com esta tarefa (ficam guardadas, por baixo)
         const blocos = [];
@@ -4990,7 +5133,7 @@ const Timesheet = ({ trab, mudar, clientes, theme, onAbrir }) => {
                   <div className={`sticky left-0 z-[2] flex items-start gap-1.5 px-2 py-1.5 min-w-0 ${fundoFixo}`}>
                     <button type="button" onClick={() => setAbertas({ ...abertas, [t.id]: !aberta })} className={`mt-0.5 w-5 h-5 shrink-0 text-[10px] ${sub} transition-transform`} style={{ transform: aberta ? 'rotate(90deg)' : 'none' }} aria-label={aberta ? 'Esconder registos' : 'Ver registos'}>▶</button>
                     <div className="min-w-0">
-                      <button type="button" onClick={() => onAbrir(t.id)} className="text-sm font-medium text-left hover:underline break-words">{t.nome}</button>
+                      <button type="button" onClick={() => onAbrir(t.id)} className="text-sm text-left hover:underline"><NomeTarefa t={t} cu={TRAB_ATUAL.cu} claro={claro} prefixo="sempre" quebra /></button>
                       <p className={`flex items-center gap-1.5 text-[11px] ${sub} min-w-0`}><IcoEstado id={e.id} cor={e.cor} size={11} /><span className="shrink-0">{e.nome}</span><span>·</span><span className="truncate" title={caminhoTxt(t)}>{caminhoTxt(t)}</span></p>
                     </div>
                   </div>
@@ -5767,4 +5910,3 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
 };
 
 export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
-export const FICHEIRO_APP = 'trabalho';
