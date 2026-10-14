@@ -344,7 +344,7 @@ const useLargo = (q = '(min-width: 900px)') => {
 };
 // Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
 // Nome · Tipo · ícones (anexo, notas, Trello, Drive, spreadsheet) · Estado · Quem faz · Prioridade · Criada · Tempo · Prazo · Terminada · Valor
-const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_130px_96px_92px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
+const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_130px_96px_100px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
 const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_100px_130px_96px_88px_64px_88px_48px_60px] items-center gap-x-2.5';
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
@@ -1135,7 +1135,7 @@ const QuemFaz = ({ t, mudar, claro, editavel = true, className = '' }) => {
     return (
       <span className={`group/qf inline-flex items-center gap-0.5 min-w-0 max-w-full ${className}`}>
         <span className="min-w-0 inline-flex">{chip}</span>
-        <span className={`relative shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md opacity-0 group-hover/qf:opacity-100 focus-within:opacity-100 ${claro ? 'text-slate-400 hover:bg-slate-200/70' : 'text-slate-500 hover:bg-white/10'}`} title="Mudar quem faz">
+        <span className={`relative shrink-0 w-0 overflow-hidden group-hover/qf:w-5 focus-within:w-5 h-5 inline-flex items-center justify-center rounded-md ${claro ? 'text-slate-400 hover:bg-slate-200/70' : 'text-slate-500 hover:bg-white/10'}`} title="Mudar quem faz">
           <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           {escolher}
         </span>
@@ -1898,6 +1898,83 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
   );
 };
 
+// ── Estatísticas de um freelancer (na página dele) ──
+const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const EstatFreelancer = ({ tarefas, trab, cu, clientes, ano, claro }) => {
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const forte = claro ? 'text-slate-800' : 'text-slate-100';
+  const cartao = `rounded-xl border p-3 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const entregues = tarefas.filter(t => trabEntrega(t));
+  const doAno = entregues.filter(t => trabEntrega(t).startsWith(`${ano}-`));
+  const custo = t => Number(t.custoOutsourcing) || 0;
+  const pago = doAno.reduce((a, t) => a + custo(t), 0);
+  const faturado = doAno.reduce((a, t) => a + trabValor(t, cu, clientes), 0);
+  const margem = faturado - pago;
+  // A tempo: entregue (review/feito) até ao prazo
+  const comPrazo = entregues.filter(t => t.prazo);
+  const aTempo = comPrazo.filter(t => trabEntrega(t) <= t.prazo).length;
+  // Dias desde que a tarefa foi criada até ir para review
+  const dias = entregues.map(t => { const a = Date.parse(t.criada), b = Date.parse(t.review || t.feita); return a && b && b >= a ? (b - a) / 86400000 : null; }).filter(x => x != null);
+  const mediaDias = dias.length ? dias.reduce((a, x) => a + x, 0) / dias.length : null;
+  const porMes = MESES_CURTOS.map((m, i) => { const k = `${ano}-${String(i + 1).padStart(2, '0')}`; const ts = doAno.filter(t => trabEntrega(t).startsWith(k)); const pg = ts.reduce((a, t) => a + custo(t), 0); return { m, n: ts.length, pago: pg, margem: ts.reduce((a, t) => a + trabValor(t, cu, clientes), 0) - pg }; });
+  const maxMes = Math.max(1, ...porMes.map(x => x.pago + Math.max(0, x.margem)));
+  const agrupar = chave => { const o = {}; entregues.forEach(t => { const k = chave(t) || '—'; const x = o[k] || (o[k] = { k, n: 0, pago: 0, fat: 0 }); x.n++; x.pago += custo(t); x.fat += trabValor(t, cu, clientes); }); return Object.values(o).sort((a, b) => b.n - a.n).slice(0, 8); };
+  const porTipo = agrupar(t => etiquetaTipo(t, cu));
+  const porJogo = agrupar(t => { const j = jogoDaTarefa(trab, t); return j ? j.nome : ''; });
+  const kpi = (rot, val, extra, cor) => (
+    <div className={cartao}>
+      <p className={`text-[11px] ${sub}`}>{rot}</p>
+      <p className={`text-lg font-semibold tabular-nums ${cor || forte}`}>{val}</p>
+      {extra && <p className={`text-[11px] ${sub}`}>{extra}</p>}
+    </div>
+  );
+  const lista = (titulo, linhas) => (
+    <div className={cartao}>
+      <p className="text-sm font-medium mb-2">{titulo}</p>
+      {!linhas.length ? <p className={`text-xs ${sub}`}>Ainda sem entregas.</p> : (
+        <div className="space-y-1">
+          {linhas.map(x => (
+            <div key={x.k} className="grid grid-cols-[minmax(0,1fr)_36px_72px_64px] items-center gap-2 text-xs">
+              <span className="truncate" title={x.k}>{x.k}</span>
+              <span className={`text-right tabular-nums ${sub}`}>{x.n}×</span>
+              <span className="text-right tabular-nums text-red-400" title="Pago">{eur(x.pago)}</span>
+              <span className={`text-right tabular-nums ${x.fat - x.pago >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}`} title="Margem">{x.fat ? `${Math.round((x.fat - x.pago) / x.fat * 100)}%` : '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpi(`Entregues em ${ano}`, doAno.length, `${entregues.length} no total`)}
+        {kpi(`Pago em ${ano}`, eur(pago), doAno.length ? `média ${eur(pago / doAno.length)} por tarefa` : null, 'text-red-400')}
+        {kpi(`Margem em ${ano}`, eur(margem), faturado ? `${Math.round(margem / faturado * 100)}% do que faturaste` : null, margem >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400')}
+        {kpi('Entregas a tempo', comPrazo.length ? `${Math.round(aTempo / comPrazo.length * 100)}%` : '—', `${comPrazo.length ? `${aTempo} de ${comPrazo.length} com prazo` : 'sem prazos'}${mediaDias != null ? ` · ${mediaDias < 1 ? '<1' : Math.round(mediaDias)} dia${Math.round(mediaDias) === 1 ? '' : 's'} em média` : ''}`)}
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+        <div className={cartao}>
+          <div className="flex items-center justify-between mb-2"><p className="text-sm font-medium">Por mês ({ano})</p><span className={`text-[11px] ${sub}`}><span className="inline-block w-2 h-2 rounded-sm bg-red-400/80 mr-1" />pago <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/80 ml-2 mr-1" />margem</span></div>
+          <div className="flex items-stretch gap-1 h-28">
+            {porMes.map(x => (
+              <div key={x.m} className="flex-1 h-full flex flex-col items-center gap-1 min-w-0" title={`${x.m}: ${x.n} tarefa${x.n === 1 ? '' : 's'} · pago ${eur(x.pago)} · margem ${eur(x.margem)}`}>
+                <div className="w-full flex-1 min-h-0 flex flex-col justify-end">
+                  {x.margem > 0 && <div className="w-full rounded-t-sm bg-emerald-500/80" style={{ height: `${x.margem / maxMes * 100}%` }} />}
+                  {x.pago > 0 && <div className={`w-full bg-red-400/80 ${x.margem > 0 ? '' : 'rounded-t-sm'}`} style={{ height: `${x.pago / maxMes * 100}%` }} />}
+                </div>
+                <span className={`text-[10px] ${x.n ? forte : sub}`}>{x.m}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {lista('Por tipo', porTipo)}
+        {lista('Por jogo', porJogo)}
+      </div>
+    </div>
+  );
+};
+
 // ── Nomes dos ficheiros: JOGO_TIPO_CONCEITO_V4_VARIAÇÃO_4X5_59S_071026 ──
 const TIPO_FICHEIRO = { video: 'VID', variacao: 'VID', iteracao: 'VID', hook: 'VID', aso: 'VID', ai_clip: 'VID', video3d: 'VID', banner: 'BAN', banner_var: 'BAN', icone: 'ICO', feature: 'FG', screenshots: 'SS' };
 const slugF = x => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -2377,8 +2454,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const versaoDe = v => versaoConfirmada(v) || '1'; // sem versão em lado nenhum: V1 (o Drive confirma ao enviar)
   const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(campoVersao(fx, versaoDe(v), 'variacao', t))].filter(Boolean).join('_');
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
-  const durDe = (item, v = verSug) => campoVersao(fx, versaoDe(v), 'duracao') || (item.meta && item.meta.dur ? Math.round(item.meta.dur) : null);
+  // Duração: a que escreveste para esta versão; senão a do próprio vídeo; só no fim a de outra versão
+  const durPropria = vv => { const pv = fx.porVersao && fx.porVersao[String(vv)]; return pv && pv.duracao !== undefined ? pv.duracao : undefined; };
+  const durDe = (item, v = verSug) => { const vv = versaoDe(v); const pr = durPropria(vv); if (pr) return pr; const m = item.meta && item.meta.dur ? Math.round(item.meta.dur) : null; return m || campoVersao(fx, vv, 'duracao') || null; };
   const nomeDe = item => (item.handle ? item.handle.name : item.file ? item.file.name : '');
+  const vLoteAtual = versaoDe(verSug);
+  const dursLote = [...new Set(lista.map(x => (x.meta && x.meta.dur ? Math.round(x.meta.dur) : null)).filter(Boolean))];
+  useEffect(() => {
+    if (!lista.length || versoesTarefa.includes(Number(vLoteAtual)) || durPropria(vLoteAtual) || dursLote.length !== 1) return;
+    set({ ficheiros: fxComVersao(fx, t, vLoteAtual, { duracao: dursLote[0] }) });
+  }, [lista.length, vLoteAtual, dursLote.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const nomeFinal = (item, v = verSug) => { const ext = (/\.[a-z0-9]{2,4}$/i.exec(nomeDe(item)) || ['.mp4'])[0].toLowerCase(); const d = durDe(item, v); return [r.cod, r.tipo, baseDe(v), item.formato ? item.formato.replace(':', 'X') : 'FORMATO', d ? `${d}S` : '', r.ddmmyy].filter(Boolean).join('_') + ext; };
   // Adivinhar a versão pelas pastas que já estão no Drive (CONCEITO_V1, _V2…): vídeo novo → a seguinte; variação/iteração → a última
   const novoVideo = trabPecas(t).some(p => ['video', 'video3d', 'ai_clip', 'aso'].includes(p.tipo));
@@ -2909,8 +2994,8 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         <div className="text-[11px] -mt-1">
           {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver conceitos no Drive'}</button>
             : conceitoNovo ? (
-              <span className="text-amber-500">⚠ Conceito novo no Drive (V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
-            ) : conceitoAtual ? <span className="text-emerald-500">✓ Já existe no Drive</span>
+              <span className="text-amber-500">⚠ Este conceito ainda não tem pasta no Drive (vai ser criada, V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
+            ) : conceitoAtual ? <span className="text-emerald-500" title="A pasta deste conceito já existe no Drive do jogo — as versões novas ficam dentro dela">✓ A pasta do conceito já existe no Drive</span>
             : <span className={sub}>{conceitosD.length} conceitos no Drive — escolhe da lista ao escrever</span>}
         </div>
       )}
@@ -4619,11 +4704,13 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           {freeSel && !procura.trim() && (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setSel({ tipo: 'freelancers', abrir: freeSel.id })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Ficha e preços</button>
-              {freeSel.email && <a href={`mailto:${freeSel.email}`} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Enviar email</a>}
+              {freeSel.email && <a href={`https://mail.google.com/mail/?${trab.contaGoogle ? `authuser=${encodeURIComponent(trab.contaGoogle)}&` : ''}view=cm&fs=1&to=${encodeURIComponent(freeSel.email)}`} target="_blank" rel="noopener noreferrer" className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`} title={`Escrever a ${freeSel.email} no Gmail`}>Enviar email</a>}
+              {freeSel.email && <button type="button" onClick={() => { copiar(freeSel.email); if (showToast) showToast('Email copiado'); }} className={`px-2 py-1 text-xs rounded-lg ${sub} hover:text-blue-400`} title="Copiar o email">{freeSel.email}</button>}
               {freeSel.faz && <span className={`text-xs ${sub}`}>Faz: {freeSel.faz}</span>}
               {!tarefas.length && <span className={`text-xs ${sub}`}>Ainda não tem tarefas. Escolhe-a em "Quem faz" numa tarefa.</span>}
             </div>
           )}
+          {freeSel && !procura.trim() && tarefas.length > 0 && <EstatFreelancer tarefas={tarefas} trab={trab} cu={cu} clientes={clientes} ano={ano} claro={claro} />}
           {sel.tipo === 'freelancers' && !procura.trim() && <Freelancers key={sel.abrir || '-'} abrirId={sel.abrir} onVer={id => NAV_FREE.abrir(id)} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} />}
           {sel.tipo === 'tipos' && !procura.trim() && <TiposTarefa cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} onPrecos={onPrecos} onCu={onCu} />}
           {sel.tipo === 'clientes' && !procura.trim() && <ListaClientes clientes={clientes} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} theme={theme}
