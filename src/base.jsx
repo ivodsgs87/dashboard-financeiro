@@ -1943,22 +1943,78 @@ const trabParar = trab => ({
 });
 // Cronómetro a correr, mostrado no topo da app (atualiza só ele, uma vez por segundo)
 const trabRelogio = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
-const CronoTopo = ({ trab, onParar, onAbrir, theme }) => {
+// Parar o cronómetro numa hora concreta (quando ficou ligado sem querer)
+const trabPararEm = (trab, iso) => ({
+  ...trab, tarefas: ((trab && trab.tarefas) || []).map(t => ((t.tempos || []).some(x => !x.fim) ? { ...t, tempos: t.tempos.map(x => (x.fim ? x : { ...x, fim: Date.parse(iso) > Date.parse(x.ini) ? iso : new Date().toISOString() })) } : t)),
+});
+const CRONO_LONGO_H = 4; // a partir de quantas horas seguidas pergunta se te esqueceste
+const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
   const corre = trabACorrer(trab);
   const [, setTic] = useState(0);
+  const [aberto, setAberto] = useState(false);
+  const [horaFim, setHoraFim] = useState('');
+  const ref = useRef(null);
+  const refCaixa = useRef(null);
+  const [pos, setPos] = useState(null);
+  const medir = () => { if (ref.current) { const r = ref.current.getBoundingClientRect(); setPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) }); } };
+  useEffect(() => { if (!aberto) return undefined; medir(); window.addEventListener('resize', medir); window.addEventListener('scroll', medir, true); return () => { window.removeEventListener('resize', medir); window.removeEventListener('scroll', medir, true); }; }, [aberto]);
   useEffect(() => { if (!corre) return undefined; const i = setInterval(() => setTic(x => x + 1), 1000); return () => clearInterval(i); }, [!!corre]);
+  const ms = corre ? trabMsTempo(corre.tempo) : 0;
+  const ini = corre ? Date.parse(corre.tempo.ini) : 0;
+  const passouMeiaNoite = corre ? new Date(ini).toDateString() !== new Date().toDateString() : false;
+  const longo = !!corre && (ms >= CRONO_LONGO_H * 3600000 || passouMeiaNoite);
+  // "Continuar" cala o aviso por 2 horas (fica lembrado neste browser)
+  const chave = corre ? `crono-ok-${corre.tempo.id || corre.tempo.ini}` : '';
+  const calado = (() => { try { return Number(localStorage.getItem(chave) || 0) > Date.now(); } catch (e) { return false; } })();
+  const avisar = longo && !calado;
+  useEffect(() => { if (avisar) { setAberto(true); const d = new Date(Math.min(Date.now(), ini + 2 * 3600000)); setHoraFim(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`); } }, [avisar]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = e => { if (ref.current && !ref.current.contains(e.target) && !(refCaixa.current && refCaixa.current.contains(e.target))) setAberto(false); };
+    document.addEventListener('mousedown', fora);
+    return () => document.removeEventListener('mousedown', fora);
+  }, [aberto]);
   if (!corre) return null;
   const claro = theme === 'light';
+  const hhmm = t => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const pararAs = () => {
+    if (!horaFim || !onPararEm) return;
+    // A hora escolhida é no dia em que começou (ou no seguinte, se for antes da hora de início)
+    const [h, m] = horaFim.split(':').map(Number);
+    const d = new Date(ini); d.setHours(h, m, 0, 0);
+    if (d.getTime() <= ini) d.setDate(d.getDate() + 1);
+    if (d.getTime() > Date.now()) { onParar(); setAberto(false); return; }
+    onPararEm(d.toISOString()); setAberto(false);
+  };
+  const continuar = () => { try { localStorage.setItem(chave, String(Date.now() + 2 * 3600000)); } catch (e) { /* sem armazenamento */ } setAberto(false); };
   return (
-    <div className={`flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full border text-xs ${claro ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-500/30 bg-blue-500/10 text-blue-300'}`}>
-      <button type="button" onClick={onAbrir} className="flex items-center gap-1.5 min-w-0" title={corre.tarefa.nome}>
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        <span className="font-semibold tabular-nums">{trabRelogio(trabMsTempo(corre.tempo))}</span>
-        <span className="hidden md:inline max-w-[140px] truncate">{corre.tarefa.nome}</span>
-      </button>
-      <button type="button" onClick={onParar} className={`w-6 h-6 inline-flex items-center justify-center rounded-full ${claro ? 'hover:bg-blue-100' : 'hover:bg-white/10'}`} title="Parar o cronómetro" aria-label="Parar o cronómetro">
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
-      </button>
+    <div ref={ref} className="relative">
+      <div className={`flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full border text-xs ${longo ? (claro ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-amber-500/40 bg-amber-500/10 text-amber-300') : claro ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-500/30 bg-blue-500/10 text-blue-300'}`}>
+        <button type="button" onClick={() => (longo ? setAberto(!aberto) : onAbrir())} className="flex items-center gap-1.5 min-w-0" title={longo ? 'Cronómetro ligado há muito tempo — esqueceste-te?' : corre.tarefa.nome}>
+          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${longo ? 'bg-amber-400' : 'bg-red-500'}`} />
+          <span className="font-semibold tabular-nums">{trabRelogio(ms)}</span>
+          <span className="hidden md:inline max-w-[140px] truncate">{corre.tarefa.nome}</span>
+        </button>
+        <button type="button" onClick={onParar} className={`w-6 h-6 inline-flex items-center justify-center rounded-full ${claro ? 'hover:bg-blue-100' : 'hover:bg-white/10'}`} title="Parar o cronómetro" aria-label="Parar o cronómetro">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
+        </button>
+      </div>
+      {aberto && longo && pos && createPortal(
+        <div ref={refCaixa} role="dialog" aria-label="Cronómetro ligado há muito tempo" style={{ position: 'fixed', top: pos.top, right: pos.right }} className={`z-[100] w-72 max-w-[calc(100vw-16px)] rounded-xl border p-3 shadow-2xl text-xs ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+          <p className="text-sm font-semibold">Esqueceste-te do cronómetro?</p>
+          <p className={`mt-1 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Está ligado há <b className={claro ? 'text-slate-800' : 'text-slate-100'}>{trabRelogio(ms)}</b> (desde {passouMeiaNoite ? `${new Date(ini).getDate()}/${new Date(ini).getMonth() + 1} às ` : ''}{hhmm(ini)}) em “{corre.tarefa.nome}”.</p>
+          <div className="mt-3 flex items-center gap-2">
+            <span>Parei às</span>
+            <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Hora a que paraste" />
+            <button type="button" onClick={pararAs} disabled={!horaFim} className="ml-auto px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-40">Acertar</button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <button type="button" onClick={() => { onParar(); setAberto(false); }} className={`px-2.5 py-1 rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Parar agora</button>
+            <button type="button" onClick={continuar} className={`px-2.5 py-1 rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/5'}`}>Continuar a contar</button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -2073,8 +2129,22 @@ const AbaEstavel = ({ render }) => render();
 // Separadores que vêm num ficheiro à parte (só se descarregam quando são precisos).
 // Se o ficheiro falhar (p.ex. a app foi atualizada enquanto estava aberta), recarrega
 // a página uma vez; se voltar a falhar, mostra um aviso em vez de um ecrã em branco.
-const lazySeparador = (carregar, nome) => React.lazy(() => carregar()
-  .then(m => { try { sessionStorage.removeItem('app-recarregada'); } catch (e) { /* sem acesso */ } return { default: m[nome] }; })
+// Ficheiro errado/antigo no GitHub (ex.: o base.jsx carregado com o nome trabalho.jsx): em vez de um erro sem explicação, diz qual é
+const AvisoFicheiro = ({ esperado, real, nome }) => (
+  <div className="max-w-xl mx-auto my-12 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm text-slate-500">
+    <p className="text-base font-semibold text-amber-500">O ficheiro <code>src/{esperado}.jsx</code> no GitHub não é o certo</p>
+    <p className="mt-2">{real && real !== esperado
+      ? <>Tem lá dentro o conteúdo do <b>{real}.jsx</b>. Volta a carregar no GitHub o <b>{esperado}.jsx</b> (confirma o nome do ficheiro que escolhes no PC).</>
+      : <>É uma versão antiga (falta-lhe “{nome}”). Carrega no GitHub o <b>{esperado}.jsx</b> mais recente que o Claude te mandou.</>}</p>
+    <p className="mt-2 text-xs">Os teus dados estão guardados — isto é só o código da app. Depois de a Vercel publicar, faz Ctrl+Shift+R.</p>
+  </div>
+);
+const lazySeparador = (carregar, nome, ficheiro) => React.lazy(() => carregar()
+  .then(m => {
+    try { sessionStorage.removeItem('app-recarregada'); } catch (e) { /* sem acesso */ }
+    if (typeof m[nome] !== 'function' && typeof m[nome] !== 'object') return { default: () => <AvisoFicheiro esperado={ficheiro || nome} real={m.FICHEIRO_APP} nome={nome} /> };
+    return { default: m[nome] };
+  })
   .catch(() => {
     let ja = null;
     try { ja = sessionStorage.getItem('app-recarregada'); sessionStorage.setItem('app-recarregada', '1'); } catch (e) { ja = '1'; }
@@ -2184,7 +2254,9 @@ export {
   cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
   trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
   pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, horasTipicas, estimarHorasTarefa,
-  ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, CronoTopo,
-  MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar, Row, AbaEstavel,
-  lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm,
+  CRONO_LONGO_H, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar,
+  Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
+  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
+export const FICHEIRO_APP = 'base';
