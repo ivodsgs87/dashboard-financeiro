@@ -695,7 +695,7 @@ const NumIn = ({ valor, onGravar, className, placeholder, title, decimal = true 
 // Quantidade com setas ▲▼ (para não teres de escrever)
 const QtdIn = ({ valor, onGravar, className, claro, rotulo }) => {
   const v = Number(valor) || 0;
-  const seta = `flex-1 flex items-center justify-center text-[9px] leading-none rounded ${claro ? 'text-slate-500 hover:bg-slate-200 hover:text-slate-900' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`;
+  const seta = `flex-1 flex items-center justify-center text-[10px] leading-none rounded ${claro ? 'text-slate-500 hover:bg-slate-200 hover:text-slate-900' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`;
   return (
     <div className="flex items-stretch gap-1 min-w-0">
       <input key={String(valor ?? '')} defaultValue={v || ''} placeholder="0" inputMode="numeric" aria-label={rotulo ? `Quantidade de ${rotulo}` : 'Quantidade'}
@@ -3348,7 +3348,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             {n.meses12.map((v, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${meses[i]}: ${eur(v)}`}>
                 <div className="w-full rounded-sm" style={{ height: `${Math.max(v ? 4 : 2, (v / maxMes) * 52)}px`, background: v ? (c.cor || '#3b82f6') : (claro ? '#e2e8f0' : '#334155') }} />
-                <span className={`text-[9px] ${sub}`}>{meses[i].charAt(0)}</span>
+                <span className={`text-[10px] ${sub}`}>{meses[i].charAt(0)}</span>
               </div>
             ))}
           </div>
