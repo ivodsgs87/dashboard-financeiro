@@ -2,7 +2,7 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, confirmarIdentidade, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
@@ -1487,7 +1487,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const reemb = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
    const out = [];
    Object.entries(M || {}).forEach(([k, v]) => (v && v.regSem || []).forEach(r => {
-     if (r && !ok.has(`${k}|${r.id}`) && !reemb.has(r.cid) && (r.ficheiro || r.valIliq != null || r.pais)) out.push({ k, r });
+     if (r && !ok.has(`${k}|${r.id}`) && !reemb.has(r.cid) && (r.ficheiro || r.ficheiroUrl || r.valIliq != null || r.pais)) out.push({ k, r });
    }));
    const idx = k => { const [y, m] = k.split('-').map(Number); return y * 12 + m; };
    return out.sort((x, y) => idx(y.k) - idx(x.k));
@@ -4360,8 +4360,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        taxaIva: editRecibo.taxaIva != null ? editRecibo.taxaIva : 23,
        retIRS: editRecibo.retIRS || 0,
        pais: editRecibo.pais || 'PT',
-       // Ficheiro do recibo (base64)
+       // Ficheiro do recibo: no Storage (ficheiroUrl); "ficheiro" só existe nos recibos antigos em base64
        ficheiro: editRecibo.ficheiro || null,
+       ficheiroUrl: editRecibo.ficheiroUrl || null,
+       ficheiroCaminho: editRecibo.ficheiroCaminho || null,
        ficheiroNome: editRecibo.ficheiroNome || null,
        ficheiroTipo: editRecibo.ficheiroTipo || null,
        emitidoPorSara: editRecibo.emitidoPorSara || false,
@@ -4375,24 +4377,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const handleReciboFileUpload = async (e) => {
      const file = e.target.files?.[0];
      if (!file) return;
-     
-     // Verificar tamanho (max 5MB)
-     if (file.size > 5 * 1024 * 1024) {
-       showToast('Ficheiro demasiado grande. Máximo 5MB.', 'error');
-       return;
+     if (file.size > 20 * 1024 * 1024) { showToast('Ficheiro demasiado grande. Máximo 20 MB.', 'error'); return; }
+     // Vai para o armazenamento de ficheiros (Storage) — não fica dentro dos dados, que têm limite de 1 MB
+     if (!(user && user.uid) || typeof enviarAnexo !== 'function') { showToast('O armazenamento de ficheiros não está disponível.', 'error'); return; }
+     try {
+       showToast('A enviar o ficheiro…', 'info');
+       const r0 = await enviarAnexo(user.uid, `recibos/${mesKey}/${editRecibo.id ?? Date.now()}-${String(file.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, file);
+       setEditRecibo(er => ({ ...er, ficheiro: null, ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: file.name, ficheiroTipo: file.type }));
+       showToast('✓ Ficheiro guardado');
+     } catch (err) {
+       console.error('Recibo → Storage:', err);
+       showToast('Não consegui guardar o ficheiro (armazenamento de ficheiros). Tenta outra vez.', 'error');
      }
-     
-     // Converter para base64
-     const reader = new FileReader();
-     reader.onload = () => {
-       setEditRecibo({
-         ...editRecibo,
-         ficheiro: reader.result,
-         ficheiroNome: file.name,
-         ficheiroTipo: file.type
-       });
-     };
-     reader.readAsDataURL(file);
    };
    
    // Função para abrir o ficheiro do recibo
@@ -4589,7 +4585,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              {/* Secção de Ficheiro do Recibo */}
              <div className="p-3 bg-slate-700/30 rounded-xl">
                <label className="text-xs text-slate-400 mb-2 block">📎 Ficheiro do Recibo</label>
-               {editRecibo.ficheiro ? (
+               {(editRecibo.ficheiro || editRecibo.ficheiroUrl) ? (
                  <div className="flex items-center justify-between gap-2">
                    <div className="flex items-center gap-2 flex-1 min-w-0">
                      <span className="text-2xl">{editRecibo.ficheiroTipo?.includes('pdf') ? '📄' : '🖼'}</span>
@@ -4597,13 +4593,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    </div>
                    <div className="flex gap-2 flex-shrink-0">
                      <button
-                       onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
+                       onClick={() => abrirFicheiroRecibo(editRecibo.ficheiro || editRecibo.ficheiroUrl, editRecibo.ficheiroNome, editRecibo.ficheiroTipo)}
                        className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30"
                      >
                        Abrir
                      </button>
                      <button
-                       onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroNome: null, ficheiroTipo: null})}
+                       onClick={() => setEditRecibo({...editRecibo, ficheiro: null, ficheiroUrl: null, ficheiroCaminho: null, ficheiroNome: null, ficheiroTipo: null})}
                        className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm hover:bg-red-500/30"
                      >
                        Remover
@@ -4728,7 +4724,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            📎
          </button>
        )}
-       <button onClick={() => openReciboModal(r, 'com')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
+       <button onClick={() => openReciboModal(r, 'com')} className={`${(r.ficheiro || r.ficheiroUrl) ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={(r.ficheiro || r.ficheiroUrl) ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
    )}
@@ -4768,7 +4764,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            📎
          </button>
        )}
-       <button onClick={() => openReciboModal(r, 'sem')} className={`${r.ficheiro ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={r.ficheiro ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
+       <button onClick={() => openReciboModal(r, 'sem')} className={`${(r.ficheiro || r.ficheiroUrl) ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={(r.ficheiro || r.ficheiroUrl) ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
    )}
@@ -12128,17 +12124,56 @@ ${transacoesOrdenadas.map(t => `<tr>
    setExporting(false);
  };
 
+   // PDFs de recibos antigos guardados DENTRO dos dados (base64) → passam para o armazenamento de ficheiros (Storage).
+   // Libertam o documento principal (limite de 1 MB). O recibo continua a abrir igual.
+   const [moverFich, setMoverFich] = useState(null); // { feitos, total, erros, fim }
+   const ficheirosNosDados = () => {
+     const out = [];
+     Object.entries(M).forEach(([k, md]) => ['regCom', 'regSem'].forEach(campo => ((md && md[campo]) || []).forEach(r => {
+       if (r && typeof r.ficheiro === 'string' && r.ficheiro.startsWith('data:')) out.push({ k, campo, id: r.id, dados: r.ficheiro, nome: r.ficheiroNome || 'recibo.pdf', tipo: r.ficheiroTipo || (r.ficheiro.slice(5, r.ficheiro.indexOf(';')) || 'application/pdf') });
+     })));
+     return out;
+   };
+   const moverFicheirosParaStorage = async () => {
+     if (!(user && user.uid) || typeof enviarAnexo !== 'function') { showToast('O armazenamento de ficheiros não está disponível.', 'error'); return; }
+     const lista = ficheirosNosDados();
+     if (!lista.length) return;
+     let feitos = 0, erros = 0;
+     setMoverFich({ feitos, total: lista.length, erros });
+     for (const it of lista) {
+       try {
+         const bin = atob(it.dados.split(',')[1] || '');
+         const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+         const f = new File([u8], it.nome, { type: it.tipo });
+         const r0 = await enviarAnexo(user.uid, `recibos/${it.k}/${it.id}-${String(it.nome).replace(/[^\w.\-]+/g, '_')}`, f);
+         setM(p => { const md = p[it.k] || {}; return { ...p, [it.k]: { ...md, [it.campo]: (md[it.campo] || []).map(x => (x.id === it.id && x.ficheiro === it.dados ? { ...x, ficheiro: null, ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: it.nome, ficheiroTipo: it.tipo } : x)) } }; });
+         feitos++;
+       } catch (e) { console.error('Mover recibo para o Storage:', e); erros++; }
+       setMoverFich({ feitos, total: lista.length, erros });
+     }
+     setMoverFich({ feitos, total: lista.length, erros, fim: true });
+     showToast(erros ? `Movi ${feitos} ficheiros; ${erros} falharam (ficam onde estavam).` : `✓ ${feitos} ficheiros movidos — o documento principal ficou mais leve.`, erros ? 'error' : 'success');
+   };
  // Função para resetar todos os dados
- const handleResetAll = () => {
-   confirmDelete('⚠ Isto vai apagar TODOS os teus dados: receitas, investimentos, portfolio, histórico. Tens a certeza?', () => {
-     // segunda confirmação, só depois de a primeira caixa fechar
-     setTimeout(() => confirmDelete('🔴 Última confirmação: queres mesmo apagar tudo?', () => {
-       saveUndo();
-       setG(defG);
-       setM({});
-       showToast('Todos os dados foram repostos nos valores iniciais. Podes desfazer com o botão de voltar atrás.');
-     }, 'Apagar tudo'), 0);
-   }, 'Continuar');
+ // Apagar tudo: escreve APAGAR e confirma com a palavra-passe da conta Google
+ const [apagarTudo, setApagarTudo] = useState(null); // { texto, erro, aConfirmar }
+ const handleResetAll = () => setApagarTudo({ texto: '', erro: '', aConfirmar: false });
+ const confirmarApagarTudo = async () => {
+   if (!apagarTudo || apagarTudo.texto.trim().toUpperCase() !== 'APAGAR') return;
+   setApagarTudo(a => ({ ...a, aConfirmar: true, erro: '' }));
+   try {
+     if (typeof confirmarIdentidade !== 'function') throw new Error('sem verificação');
+     await confirmarIdentidade();
+   } catch (e) {
+     const cancelado = /popup-closed|cancelled|user-cancelled/.test(String((e && e.code) || e));
+     setApagarTudo(a => ({ ...a, aConfirmar: false, erro: cancelado ? 'Cancelado — nada foi apagado.' : 'Não consegui confirmar a tua conta — nada foi apagado.' }));
+     return;
+   }
+   saveUndo();
+   setG(defG);
+   setM({});
+   setApagarTudo(null);
+   showToast('Todos os dados foram repostos nos valores iniciais. Podes desfazer com o botão de voltar atrás.');
  };
 
  // ========== NOVAS FUNCIONALIDADES ==========
@@ -14673,6 +14708,22 @@ ${transacoesOrdenadas.map(t => `<tr>
                    <pre className={`p-2 rounded text-[10px] overflow-x-auto ${claroS ? 'bg-white' : 'bg-slate-900'}`}>{'match /users/{uid}/trabalho/{doc} {\n  allow read, write: if request.auth != null && request.auth.uid == uid;\n}'}</pre>
                  </div>
                )}
+               {(() => {
+                 const lista = ficheirosNosDados();
+                 if (!lista.length && !(moverFich && moverFich.fim)) return null;
+                 const tam = lista.reduce((a, it) => a + it.dados.length, 0);
+                 return (
+                   <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-2.5 text-[11px] space-y-1.5">
+                     {lista.length > 0 ? <>
+                       <p><b>{lista.length === 1 ? '1 PDF de recibo' : `${lista.length} PDFs de recibos`}</b> {lista.length === 1 ? 'está guardado' : 'estão guardados'} dentro dos dados principais (≈ {kb(tam)}). Posso passá-los para o armazenamento de ficheiros — continuam a abrir igual e libertam esse espaço.</p>
+                       <button type="button" disabled={!!(moverFich && !moverFich.fim)} onClick={moverFicheirosParaStorage} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">
+                         {moverFich && !moverFich.fim ? `A mover… ${moverFich.feitos}/${moverFich.total}` : 'Mover para o armazenamento de ficheiros'}
+                       </button>
+                     </> : <p className="text-emerald-500">✓ Os PDFs dos recibos já estão no armazenamento de ficheiros.</p>}
+                     {moverFich && moverFich.erros > 0 && <p className="text-red-400">{moverFich.erros} não passaram (ficam onde estavam) — tenta outra vez.</p>}
+                   </div>
+                 );
+               })()}
                {maiores.length > 0 && <p className="text-[11px] text-slate-500">Mais pesado nos dados principais: {maiores.map(([k, b]) => `${k} (${kb(b)})`).join(' · ')}</p>}
              </div>
            );
@@ -14694,6 +14745,23 @@ ${transacoesOrdenadas.map(t => `<tr>
    </div>
  )}
 
+ {apagarTudo && (
+   <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: theme === 'light' ? 'rgba(15,23,42,.35)' : 'rgba(0,0,0,.6)' }} onMouseDown={e => { if (e.target === e.currentTarget && !apagarTudo.aConfirmar) setApagarTudo(null); }}>
+     <form role="alertdialog" aria-modal="true" onSubmit={e => { e.preventDefault(); confirmarApagarTudo(); }} className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${theme === 'light' ? 'bg-white border-red-200 text-slate-800' : 'bg-slate-800 border-red-500/40 text-slate-100'}`}>
+       <p className="text-base font-semibold text-red-500">Apagar todos os dados?</p>
+       <p className={`mt-2 text-sm ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>Apaga receitas, despesas, investimentos, portfolio e histórico. O Trabalho e as Notas não são apagados.</p>
+       <label className="block mt-4 text-xs font-medium">Para confirmar, escreve <b>APAGAR</b>:</label>
+       <input autoFocus value={apagarTudo.texto} onChange={e => setApagarTudo(a => ({ ...a, texto: e.target.value }))} onKeyDown={e => { if (e.key === 'Escape' && !apagarTudo.aConfirmar) setApagarTudo(null); }} disabled={apagarTudo.aConfirmar}
+         className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/40 ${theme === 'light' ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Escreve APAGAR" />
+       <p className={`mt-2 text-xs ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Depois a Google pede a palavra-passe da tua conta ({user && user.email}).</p>
+       {apagarTudo.erro && <p className="mt-2 text-xs text-amber-500">{apagarTudo.erro}</p>}
+       <div className="mt-4 flex justify-end gap-2">
+         <button type="button" disabled={apagarTudo.aConfirmar} onClick={() => setApagarTudo(null)} className={`px-3 py-1.5 text-sm rounded-lg border ${theme === 'light' ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Cancelar</button>
+         <button type="submit" disabled={apagarTudo.aConfirmar || apagarTudo.texto.trim().toUpperCase() !== 'APAGAR'} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-40">{apagarTudo.aConfirmar ? 'A confirmar…' : 'Confirmar com a conta Google'}</button>
+       </div>
+     </form>
+   </div>
+ )}
  </div>
  </TemaCtx.Provider>
  );
