@@ -780,7 +780,7 @@ const ESCALOES_IRS = [
   { limite: Infinity, taxa: 0.48 }
 ];
 const DEDUCAO_CATA = 4587.09; // dedução específica da categoria A (trabalho por conta de outrem), 2026
-const IRS_CFG_PADRAO = { conjunto: true, coef: 0.35, saraBruto: 0, saraRetencao: 0, deducoes: 500 };
+const IRS_CFG_PADRAO = { conjunto: true, coef: 0.75, saraBruto: 0, saraRetencao: 0, deducoes: 500 };
 // Taxa de retenção na fonte habitual (art. 101.º CIRS): 23% nas atividades da tabela do art. 151.º
 // (coeficiente 0,75); 11,5% nas outras prestações de serviços (coeficiente 0,35)
 // Mês ("AAAA-M") de uma data de recibo "AAAA-MM-DD"; null se a data não for válida
@@ -1098,7 +1098,8 @@ const impCalc = (G, M, hoje = new Date()) => {
   const mesD = i => M[`${Math.floor(i / 12)}-${(i % 12) + 1}`] || {};
   const rv = r => impNum(r && r.valIliq != null && r.valIliq !== '' ? r.valIliq : r && r.val);
   const naoTrab = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
-  const declSS = i => (mesD(i).regCom || []).filter(r => !r.emitidoPorSara && !naoTrab.has(r.cid)).reduce((a, r) => a + rv(r), 0);
+  // Clientes estrangeiros ("Sem taxas") contam igual para a SS e o IRS — só não têm retenção nem IVA
+  const declSS = i => [...(mesD(i).regCom || []), ...(mesD(i).regSem || [])].filter(r => !r.emitidoPorSara && !naoTrab.has(r.cid)).reduce((a, r) => a + rv(r), 0);
   const ivaMes = i => (mesD(i).regCom || []).reduce((a, r) => a + impNum(r.iva), 0);
   const pagos = (G.impostosPagos || []).map(p => {
     const d = String((p && p.data) || ''); const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
@@ -1152,8 +1153,8 @@ const impCalc = (G, M, hoje = new Date()) => {
   let recAte = 0, retAte = 0, ultimo = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0, totalIVA = 0;
   for (let m = 1; m <= 12; m++) {
     const d = M[`${ano}-${m}`] || {};
-    // Só os recibos verdes ("COM Taxas") entram no IRS: é o que as Finanças conhecem
-    const regs = (d.regCom || []).filter(x => !naoTrabalho.has(x.cid));
+    // Todos os recibos entram no IRS: os de clientes estrangeiros ("Sem taxas") contam igual, só não têm retenção
+    const regs = [...(d.regCom || []), ...(d.regSem || [])].filter(x => !naoTrabalho.has(x.cid));
     const r = regs.reduce((a, x) => a + rv(x), 0);
     if (r > 0) ultimo = m;
     recAte += r;
@@ -1180,7 +1181,7 @@ const impCalc = (G, M, hoje = new Date()) => {
   // Quanto custam, em impostos, os teus próprios recibos (sem os da Sara): o IRS a mais que causam
   // na declaração conjunta + a Segurança Social (70% × 21,4%). Serve para afinar a % de reserva.
   let proprioAte = 0;
-  for (let m = 1; m <= 12; m++) ((M[`${ano}-${m}`] || {}).regCom || []).forEach(x => { if (!x.emitidoPorSara && !naoTrabalho.has(x.cid)) proprioAte += rv(x); });
+  for (let m = 1; m <= 12; m++) { const dm = M[`${ano}-${m}`] || {}; [...(dm.regCom || []), ...(dm.regSem || [])].forEach(x => { if (!x.emitidoPorSara && !naoTrabalho.has(x.cid)) proprioAte += rv(x); }); }
   const proprioAnual = projeta(proprioAte);
   const semProprios = Math.max(0, (recAnual - proprioAnual) * coef + rendA);
   const irsSemProprios = Math.max(0, impIRSEscaloes(semProprios / q) * q - impNum(cfg.deducoes));
@@ -1359,7 +1360,7 @@ const mapearCategoriaBilance = (desc, cat) => {
 // Estimativa de impostos de um recibo isolado, à margem (regime simplificado).
 // coef: coeficiente do simplificado (0,35 outras prestações / 0,75 art. 151.º)
 // taxaMarg: taxa marginal de IRS em % · comSS: se conta para a Segurança Social
-const estimarImpostosRecibo = ({ valIliq = 0, retIRS = 0, coef = 0.35, taxaMarg = 43.1, comSS = false }) => {
+const estimarImpostosRecibo = ({ valIliq = 0, retIRS = 0, coef = 0.75, taxaMarg = 43.1, comSS = false }) => {
   const bruto = parseFloat(valIliq) || 0;
   const jaRetido = parseFloat(retIRS) || 0;
   const baseIrs = bruto * coef;
