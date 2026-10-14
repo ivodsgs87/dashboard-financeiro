@@ -306,6 +306,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
           {t.notas && String(t.notas).trim() && <span title="Tem notas"><IcoT n="nota" className="w-3.5 h-3.5" /></span>}
         </span>
       )}
+      {(t.freelancerId || t.outsourcing) && <QuemFaz t={t} claro={claro} editavel={false} className="shrink-0 max-w-[110px]" />}
       <EtiquetaTipo t={t} cu={cu} claro={claro} className="hidden sm:inline-block" />
       {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataCurta(t.prazo)}</span>}
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
@@ -340,8 +341,8 @@ const useLargo = (q = '(min-width: 900px)') => {
   return l;
 };
 // Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
-const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_92px_96px_108px_84px_96px_84px] items-center gap-x-3';
-const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_84px_108px_76px_80px] items-center gap-x-3';
+const COLS = 'grid grid-cols-[minmax(0,1fr)_132px_112px_92px_96px_108px_84px_96px_84px] items-center gap-x-3';
+const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_124px_104px_84px_108px_76px_80px] items-center gap-x-3';
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
   const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
@@ -409,6 +410,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
         )}
       </div>
       <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
+      <div className="min-w-0"><QuemFaz t={t} mudar={mudar} claro={claro} /></div>
       <div>
         {(() => { const pr = PRIORIDADES.find(x => x[0] === t.prioridade); return (
           <select value={t.prioridade || ''} onChange={e => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, prioridade: e.target.value || null })))} aria-label="Prioridade"
@@ -510,7 +512,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Estado</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                    <span>Nome</span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -974,6 +976,39 @@ const slideDoLink = url => { const m = /[#&?]slide=id\.([\w-]+)/.exec(url || '')
 // Conta Google com que os links do Google abrem (?authuser=…). O browser tem de ter essa conta com sessão iniciada.
 // Preenchido pelo Trabalho em cada render: conta geral + conta própria de cada cliente.
 const CONTA_LINKS = { padrao: '', porCliente: {} };
+// Freelancers (preenchido pelo Trabalho em cada render) — para mostrar e mudar "quem faz" nas listas
+const FREE = { lista: [] };
+const FREE_CORES = ['#ec4899', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#f43f5e', '#6366f1', '#84cc16', '#0ea5e9', '#d946ef'];
+const corFreelancer = f => { if (!f) return '#94a3b8'; if (f.cor) return f.cor; const i = FREE.lista.findIndex(x => x.id === f.id); return FREE_CORES[(i < 0 ? 0 : i) % FREE_CORES.length]; };
+// Pôr a tarefa a ser feita por um freelancer (ou por ti): o custo vem da tabela de preços dele, se houver
+const opAtribuir = (trab, tid, fid) => ({ ...trab, tarefas: (trab.tarefas || []).map(t => {
+  if (t.id !== tid) return t;
+  const f = (trab.freelancers || []).find(x => x.id === fid);
+  if (!f) return { ...t, freelancerId: null, outsourcing: '', custoOutsourcing: null };
+  const c = custoFreelancer(f, t);
+  return { ...t, freelancerId: f.id, outsourcing: f.nome, ...(c != null ? { custoOutsourcing: c } : {}) };
+}) });
+// "Quem faz": etiqueta com a cor da pessoa; na tabela dá para mudar ali mesmo
+const QuemFaz = ({ t, mudar, claro, editavel = true, className = '' }) => {
+  const f = FREE.lista.find(x => x.id === t.freelancerId);
+  const nome = f ? f.nome : (t.outsourcing || '');
+  const cor = f ? corFreelancer(f) : '#94a3b8';
+  const chip = nome
+    ? <span className="inline-flex items-center gap-1.5 max-w-full px-2 py-0.5 rounded-full text-[11px] font-semibold truncate" style={{ background: `${cor}26`, color: cor }}><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cor }} /><span className="truncate">{nome}</span></span>
+    : <span className={`text-[12px] px-1.5 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>Eu</span>;
+  if (!editavel || !mudar || !FREE.lista.length) return <span className={`inline-flex min-w-0 ${className}`} title={nome ? `Feita por ${nome}` : 'Feita por ti'}>{chip}</span>;
+  return (
+    <span className={`relative inline-flex min-w-0 max-w-full rounded-md ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'} ${className}`} title={nome ? `Feita por ${nome} (mudar)` : 'Feita por ti (mudar)'}>
+      {chip}
+      <select value={t.freelancerId || ''} onChange={e => mudar(tr => opAtribuir(tr, t.id, e.target.value || null))} aria-label="Quem faz" className="absolute inset-0 w-full opacity-0 cursor-pointer">
+        <option value="">Eu (ninguém)</option>
+        {FREE.lista.filter(x => x.estado !== 'antigo' || x.id === t.freelancerId).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+      </select>
+    </span>
+  );
+};
+// Reserva para impostos (%) das Definições — para mostrar a margem depois de impostos nas tarefas subcontratadas
+const RESERVA = { taxa: null };
 const contaDe = cid => String((cid != null && CONTA_LINKS.porCliente[String(cid)]) || CONTA_LINKS.padrao || '').trim();
 const comConta = (url, cid) => {
   const conta = contaDe(cid);
@@ -1512,6 +1547,15 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </div>
             {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
             {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
+            {custo > 0 && RESERVA.taxa != null && (() => {
+              // Nos recibos verdes o imposto é sobre o valor todo da tarefa: o que pagas ao freelancer não o reduz
+              const imp = v * RESERVA.taxa / 100; const liq = v - custo - imp;
+              return (
+                <p className="text-sm" title={`Imposto calculado sobre os ${eur(v)} da tarefa (o que pagas ao freelancer não baixa o imposto nos recibos verdes)`}>
+                  Depois de impostos: <strong className={liq >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(liq)}</strong> <span className={sub}>({v ? Math.round(liq / v * 100) : 0}%) · reserva de {String(RESERVA.taxa).replace('.', ',')}% = {eur(imp)}</span>
+                </p>
+              );
+            })()}
           </div>
 
           {/* Tempo */}
@@ -1661,6 +1705,7 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
             <div key={f.id} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'} ${f.estado === 'antigo' ? 'opacity-60' : ''}`}>
               <button type="button" onClick={() => setAberto(ab ? null : f.id)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
                 <span className={`text-[10px] ${sub} transition-transform`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }}>▶</span>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corFreelancer(f) }} />
                 <span className="font-semibold text-sm">{f.nome}</span>
                 <span className={`text-xs ${sub}`}>{tipos.filter(x => pr[x.id] != null && pr[x.id] !== '').slice(0, 4).map(x => `${x.curto || x.nome} ${eur(pr[x.id])}${x.id === 'hora' ? '/h' : ''}`).join(' · ') || 'sem preços'}</span>
                 <span className="flex-1" />
@@ -1675,6 +1720,10 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
                     <Campo rot="IBAN"><TxtIn valor={f.iban} onGravar={v => set({ iban: v })} placeholder="PT50…" className={ic} /></Campo>
                     <Campo rot="Faz (ex.: vídeo, 3D, banners)" largo><TxtIn valor={f.faz} onGravar={v => set({ faz: v })} className={ic} /></Campo>
                     <Campo rot="Notas" largo><TxtIn valor={f.notas} onGravar={v => set({ notas: v })} placeholder="prazos, como prefere receber briefings…" className={ic} /></Campo>
+                    <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2">
+                      <span className={`text-xs mr-1 ${sub}`}>Cor</span>
+                      {FREE_CORES.map(c => <button key={c} type="button" onClick={() => set({ cor: c })} aria-label={`Cor ${c}`} className={`w-5 h-5 rounded-full ${corFreelancer(f) === c ? 'ring-2 ring-offset-2 ' + (claro ? 'ring-slate-400 ring-offset-white' : 'ring-white/70 ring-offset-slate-900') : ''}`} style={{ background: c }} />)}
+                    </div>
                     <div className="flex items-center gap-3 sm:col-span-2">
                       {[['ativo', 'Ativo'], ['antigo', 'Já não trabalha comigo']].map(([k, n]) => <button key={k} type="button" onClick={() => set({ estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(f.estado || 'ativo') === k ? 'border-blue-400 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 text-slate-600' : 'border-slate-700 text-slate-300'}`}>{n}</button>)}
                       <span className="flex-1" />
@@ -2094,7 +2143,11 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   // Versão: a que escreveste; senão a da última vez que esta tarefa foi enviada; senão a adivinhada pelo Drive
   // Versão da última vez que ESTA tarefa foi enviada — só conta se for o mesmo conceito
   const versaoAnterior = (() => { if (!t.drive || (t.drive.conceito && slugF(t.drive.conceito) !== slugF(r.conceito))) return null; const m = /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
-  const versaoConfirmada = v => String(fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
+  // Tarefa com várias peças (ex.: vídeo novo + iteração): cada lote de exports pode ter a sua versão (V1, V2…)
+  const [versaoLote, setVersaoLote] = useState(null);
+  const pecasN = trabPecas(t).reduce((a, p) => a + (Number(p.n) || 1), 0);
+  const versoesTarefa = [...new Set([t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(Boolean).map(d => Number(d.versao || (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1])).filter(n => n > 0))].sort((a, b) => a - b);
+  const versaoConfirmada = v => String(versaoLote || fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
   const versaoDe = v => versaoConfirmada(v) || '1'; // sem versão em lado nenhum: V1 (o Drive confirma ao enviar)
   const baseDe = v => [r.conceito, versaoDe(v) ? `V${versaoDe(v)}` : '', slugF(fx.variacao)].filter(Boolean).join('_');
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
@@ -2125,6 +2178,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     const novos = [];
     const arr = Array.from(fs || []);
     for (let i = 0; i < arr.length; i++) { const f = arr[i]; if (!f) continue; const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, handle: handles[i] || null, nomeAntigo: f.name, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
+    if (!lista.length && !versaoLote && pecasN > 1 && versoesTarefa.length && versoesTarefa.length < pecasN) setVersaoLote(String(Math.max(...versoesTarefa) + 1));
     setLista(l => [...l, ...novos]);
     // Se já tens sessão na Google, a versão aparece logo
     const tk = tokenGuardado();
@@ -2275,7 +2329,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   const versaoEscolhida = Number(versaoDe(verSug));
   const infoAtual = infoVersao && infoVersao.conceito === r.conceito ? infoVersao : null;
   const proximaVersao = infoAtual && infoAtual.versoes.length ? infoAtual.versoes[infoAtual.versoes.length - 1] + 1 : 1;
-  const versaoOcupada = !!(novoVideo && infoAtual && infoAtual.versoes.includes(versaoEscolhida) && String(versaoAnterior || '') !== String(versaoEscolhida));
+  const versaoOcupada = !!(novoVideo && infoAtual && infoAtual.versoes.includes(versaoEscolhida) && String(versaoAnterior || '') !== String(versaoEscolhida) && !versoesTarefa.includes(versaoEscolhida));
   const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada;
   const enviar = async () => {
     if (!pronto || aEnviar) return;
@@ -2293,13 +2347,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         else throw e;
       }
       // Versão: escrita, da última vez, ou adivinhada agora pelo Drive
-      let v = fx.versao || versaoAnterior || verSug;
+      let v = versaoLote || fx.versao || versaoAnterior || verSug;
       if (!v) { setMsg('A ver as versões que já estão no Drive…'); v = await adivinharVersao(token); setVerSug(v); }
       else if (novoVideo) {
         // Confirma no Drive que esta versão ainda não existe (um vídeo novo nunca vai para a pasta de outro)
         const info = await versoesNoDrive(token, raiz, r.conceito);
         setInfoVersao({ ...info, conceito: r.conceito });
-        if (info.versoes.includes(Number(v)) && String(versaoAnterior || '') !== String(v)) {
+        if (info.versoes.includes(Number(v)) && String(versaoAnterior || '') !== String(v) && !versoesTarefa.includes(Number(v))) {
           const prox = info.versoes[info.versoes.length - 1] + 1;
           throw new Error(`A V${v} já existe no Drive. Um vídeo novo tem de ser a V${prox} — carrega em "Usar V${prox}".`);
         }
@@ -2322,7 +2376,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         } catch (e) { mudarItem(item.id, { estado: 'erro', erro: String(e.message || e) }); }
       }
       const url = pVersao.webViewLink || `https://drive.google.com/drive/folders/${pVersao.id}`;
-      const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, conceito: pConceito.name, nomeBase: [r.cod, r.tipo, baseDe(v)].filter(Boolean).join('_'), enviados, em: new Date().toISOString() };
+      // As pastas de outras versões já enviadas por esta tarefa ficam guardadas (ex.: V1 do vídeo novo + V2 da iteração)
+      const antes = [t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(d => d && d.pastaId && d.pastaId !== pVersao.id).map(({ anteriores, ...d }) => d);
+      const reg = { pastaId: pVersao.id, url, pasta: pVersao.name || nomeVersao, versao: String(v), conceito: pConceito.name, nomeBase: [r.cod, r.tipo, baseDe(v)].filter(Boolean).join('_'), enviados, em: new Date().toISOString(), ...(antes.length ? { anteriores: antes.slice(0, 10) } : {}) };
       setRenomeados(paraRenomear.length ? paraRenomear : null);
       setResultado(reg);
       const durs = lista.map(durDe).filter(Boolean);
@@ -2338,7 +2394,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         setResultado({ ...reg });
       }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
-      if (enviados.length === lista.length) setLista([]);
+      if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); }
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setAEnviar(false);
   };
@@ -2367,6 +2423,22 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             <span className="text-[11px]">ou carrega para escolher</span>
             <input ref={inRef} type="file" multiple accept="video/*,image/*" className="hidden" onChange={e => { juntar(e.target.files); e.target.value = ''; }} />
           </div>
+          {lista.length > 0 && (pecasN > 1 || versoesTarefa.length > 0) && (() => {
+            const atual = Number(versaoDe(verSug));
+            const opcoes = [...new Set([...versoesTarefa, atual, (versoesTarefa.length ? Math.max(...versoesTarefa) : atual) + (versoesTarefa.length ? 1 : 0)])].filter(n => n > 0).sort((a, b) => a - b);
+            return (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className={sub}>Versão destes ficheiros:</span>
+                {opcoes.map(n => (
+                  <button key={n} type="button" disabled={aEnviar} onClick={() => setVersaoLote(String(n))}
+                    className={`px-2 py-0.5 rounded-md border font-medium ${atual === n ? 'border-blue-500 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>
+                    V{n}{versoesTarefa.includes(n) ? <span className={`ml-1 font-normal ${sub}`}>já enviada</span> : ''}
+                  </button>
+                ))}
+                {pecasN > 1 && <span className={`text-[10px] ${sub}`}>· esta tarefa tem {pecasN} peças: cada uma vai para a sua pasta</span>}
+              </div>
+            );
+          })()}
           {lista.length > 0 && (
             <div className="space-y-1.5">
               {lista.map(item => (
@@ -2435,7 +2507,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
           )}
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive</a>
+              <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive{resultado.anteriores && resultado.anteriores.length ? ` (${resultado.versao ? `V${resultado.versao}` : resultado.pasta})` : ''}</a>
+              {(resultado.anteriores || []).map(d => <a key={d.pastaId} href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn} title={d.pasta}>📁 {d.versao ? `V${d.versao}` : (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || ['', ''])[1] ? `V${(/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1]}` : d.pasta}</a>)}
               <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
               {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
@@ -3753,11 +3826,13 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onIrMes }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onIrMes, taxaReserva }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
   // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
+  FREE.lista = trab.freelancers || [];
+  RESERVA.taxa = Number.isFinite(Number(taxaReserva)) ? Number(taxaReserva) : null;
   CONTA_LINKS.padrao = trab.contaGoogle || '';
   CONTA_LINKS.porCliente = {};
   (clientesIn || []).forEach(c => { if (c && c.contaGoogle) CONTA_LINKS.porCliente[String(c.id)] = c.contaGoogle; });
