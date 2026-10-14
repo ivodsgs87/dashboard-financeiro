@@ -502,7 +502,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
 };
 
 // ── Uma página aberta: título, data, editor; grava sozinha ──
-const PaginaAberta = ({ onPlanearCompras, historicoCompras, meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade, ouvirPagina, partilhada }) => {
+const PaginaAberta = ({ focar, onPlanearCompras, historicoCompras, meta, seccao, claro, sub, onVoltar, lerPagina, guardarPagina, mudarIndice, entidades, onIrEntidade, enviarImagem, chave, pedirDesbloquear, showToast, menuItens, onAtividade, ouvirPagina, partilhada }) => {
   const [conteudo, setConteudo] = useState(undefined); // undefined = a carregar; null = erro
   const [estado, setEstado] = useState('');
   const protegida = !!(seccao && seccao.protegida);
@@ -601,7 +601,7 @@ const PaginaAberta = ({ onPlanearCompras, historicoCompras, meta, seccao, claro,
       ) : conteudo === undefined ? <p className={`py-10 text-center text-sm ${sub}`}>A abrir…</p>
         : conteudo === null ? <p className="py-10 text-center text-sm text-red-400">Não consegui abrir esta página.</p> : (
           <>
-            <input key={meta.id + 't'} defaultValue={tituloRef.current || ''} placeholder={senha ? 'Nome (ex.: Gmail, Millennium, Wi-Fi de casa)' : 'Título'}
+            <input key={meta.id + 't'} autoFocus={!!focar && !senha && !tituloRef.current} defaultValue={tituloRef.current || ''} placeholder={senha ? 'Nome (ex.: Gmail, Millennium, Wi-Fi de casa)' : 'Título'}
               onChange={e => { tituloRef.current = e.target.value; tituloMexido.current = true; agendar(); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const ed = e.currentTarget.parentElement.querySelector('.nota-ed'); if (ed) ed.focus(); } }}
               className={`w-full bg-transparent text-2xl sm:text-3xl font-semibold outline-none border-b pb-1 ${claro ? 'border-slate-200 placeholder-slate-300' : 'border-slate-700 placeholder-slate-600'}`} />
             <p className={`mt-1.5 text-xs ${sub}`}>{dataLonga(meta.criada)} · {horaTxt(meta.criada)}{meta.editada && meta.editada !== meta.criada ? ` · editada ${haQuanto(meta.editada)}` : ''}</p>
@@ -1492,6 +1492,13 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const chaveAtual = chave;
   const [titulosC, setTitulosC] = useState({});
   const [larguraTelemovel, setLarguraTelemovel] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
+  const [comMenuBaixo, setComMenuBaixo] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640); // telemóvel: há o menu fixo em baixo
+  const focarNova = useRef(null);
+  // Carregar outra vez em "Notas" no menu de baixo: volta ao início das notas
+  useEffect(() => {
+    const f = () => { setVista('arvore'); setProcura(''); setFiltro(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    window.addEventListener('notas-inicio', f); return () => window.removeEventListener('notas-inicio', f);
+  }, []);
   // As colunas da esquerda ficam presas logo abaixo da barra de cima da app (e não por baixo dela)
   const [topo, setTopo] = useState(16);
   useEffect(() => {
@@ -1501,7 +1508,8 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
     return () => { clearTimeout(t); window.removeEventListener('resize', medir); };
   }, []);
   const ultimaAtividade = useRef(Date.now());
-  useEffect(() => { const r = () => setLarguraTelemovel(window.innerWidth < 1024); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  useEffect(() => { const r = () => { setLarguraTelemovel(window.innerWidth < 1024); setComMenuBaixo(window.innerWidth < 640); }; window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  useEffect(() => { if (pagId !== focarNova.current) focarNova.current = null; }, [pagId]);
   useEffect(() => { try { if (secId) localStorage.setItem('notas-sec', secId); if (pagId) localStorage.setItem('notas-pag', pagId); else localStorage.removeItem('notas-pag'); } catch (e) { /* sem armazenamento */ } }, [secId, pagId]);
   const alternarCaderno = id => setFechados(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('notas-fechados', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
 
@@ -1596,14 +1604,17 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
     let html = valorDe(m.html) || '';
     let titulo = valorDe(m.titulo) || '';
     if (sobre) { html = `<p>${tagHtml(sobre.tipo, sobre.id, sobre.nome)}&nbsp;</p><p><br></p>`; titulo = `${sobre.nome} — ${dataLonga(agora())}`; }
-    if (pronto) { html = limparHtml(pronto.html || ''); titulo = pronto.titulo || ''; }
+    const comConteudo = !!(pronto && (pronto.html != null || pronto.titulo != null)); // { sid } sozinho só escolhe a secção
+    if (comConteudo) { html = limparHtml(pronto.html || ''); titulo = pronto.titulo || ''; }
     const protegida = !!(secDe(sid) && secDe(sid).protegida);
-    const meta = { id, seccaoId: sid, ...(m.tipo && !pronto && !sobre ? { tipo: m.tipo } : {}), titulo: protegida ? '' : titulo, criada: agora(), editada: agora(), txt: protegida ? '' : textoDe(html).slice(0, 600), tags: protegida ? [] : tagsDe(html) };
+    const meta = { id, seccaoId: sid, ...(m.tipo && !comConteudo && !sobre ? { tipo: m.tipo } : {}), titulo: protegida ? '' : titulo, criada: agora(), editada: agora(), txt: protegida ? '' : textoDe(html).slice(0, 600), tags: protegida ? [] : tagsDe(html) };
     try {
       if (protegida) { meta.tituloC = await cifrar(chave, titulo); await guardarPagina(id, { cifrado: await cifrar(chave, JSON.stringify({ html })), editada: agora() }); }
       else await guardarPagina(id, { html, editada: agora() }, sid);
     } catch (e) { console.error('Nota:', e); if (showToast) showToast('Não consegui criar a página.', 'error'); return; }
     mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), meta] }));
+    focarNova.current = id;
+    if (!protegida) { try { localStorage.setItem('notas-ult-sec', sid); } catch (e) { /* sem armazenamento */ } }
     setSecId(sid); setFiltro(null); setProcura(''); setPagId(id); setVista('pagina'); setCofreModal(true);
     if (protegida) setTitulosC(t => ({ ...t, [id]: titulo }));
   };
@@ -1894,13 +1905,14 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const painel = `rounded-2xl border ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`;
 
   // Coluna 1: procura, atalhos, cadernos e secções
-  const arvore = (
-    <div className={`${painel} p-2 lg:p-3 space-y-3`}>
+  const procuraEl = (
       <div className="relative">
         <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${sub}`}><Ic n="procurar" /></span>
-        <input value={procura} onChange={e => { setProcura(e.target.value); if (e.target.value) setVista('paginas'); }} placeholder="Procurar nas notas…"
-          className={`w-full rounded-lg border pl-8 pr-3 py-2 text-base lg:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-700'}`} />
+        <input value={procura} onChange={e => { setProcura(e.target.value); if (e.target.value && !larguraTelemovel) setVista('paginas'); }} placeholder="Procurar nas notas…" type="search" enterKeyHint="search"
+          className={`w-full rounded-lg border pl-8 pr-3 py-2 text-base lg:text-sm outline-none focus:ring-2 focus:ring-blue-500 ${larguraTelemovel ? 'rounded-xl py-2.5' : ''} ${claro ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-700'}`} />
       </div>
+  );
+  const atalhosEl = (
       <div className="space-y-0.5">
         <button type="button" onClick={() => { setFiltro('recentes'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'recentes')}><Ic n="relogio" className={`w-4 h-4 ${sub}`} /> Recentes</button>
         <button type="button" onClick={() => { setFiltro('favoritos'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'favoritos')}><Ic n="estrela" className={`w-4 h-4 ${sub}`} /> Favoritos <span className={`ml-auto text-xs ${sub}`}>{(ix.paginas || []).filter(p => p.fav).length || ''}</span></button>
@@ -1926,6 +1938,8 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
           );
         })()}
       </div>
+  );
+  const cadernosEl = (
       <div>
         <div className="flex items-center justify-between px-2 mb-1">
           <p className={`text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Cadernos</p>
@@ -1980,6 +1994,8 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
           );
         })}
       </div>
+  );
+  const rodapeEl = (<>
       {chave && <button type="button" onClick={trancar} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-lg border border-amber-400/40 text-amber-400 hover:bg-amber-400/10"><Ic n="cadeado" className="w-3.5 h-3.5" /> Trancar as notas protegidas</button>}
       {chave && ix.cofre && (bioReg
         ? <button type="button" onClick={desligarBio} className={`w-full text-[11px] ${sub} hover:text-red-400`}>✓ Abre com biometria neste dispositivo · desligar</button>
@@ -1989,8 +2005,130 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
         : <button type="button" onClick={() => setAtivar2fa(true)} className={`w-full text-[11px] ${sub} hover:text-blue-400`}>+ Pedir também um código do telemóvel para abrir</button>)}
       {partilha && partilha.erro && (ix.cadernos || []).some(c => c.partilhado) && <p className="px-2 text-[11px] text-amber-400">Os cadernos partilhados não estão a atualizar (regras da Firebase).</p>}
       {modo === 'g' && <p className="px-2 text-[11px] text-amber-400">As notas estão a gravar no documento principal (falta a regra do Firestore). Funciona, mas o espaço é limitado.</p>}
+  </>);
+  const arvore = (
+    <div className={`${painel} p-2 lg:p-3 space-y-3`}>
+      {procuraEl}
+      {atalhosEl}
+      {cadernosEl}
+      {rodapeEl}
     </div>
   );
+
+  // ── Telemóvel: ecrã de entrada das notas (o que mais se usa logo à mão) ──
+  const porEditada = (a, b) => String(b.editada || b.criada).localeCompare(String(a.editada || a.criada));
+  const secRapida = (() => {
+    const livre = s => s && !s.protegida;
+    let u = null; try { u = secDe(localStorage.getItem('notas-ult-sec')); } catch (e) { /* sem armazenamento */ }
+    if (livre(u)) return u;
+    if (livre(secao)) return secao;
+    return seccoes.find(s => livre(s) && /^geral$/i.test(s.nome)) || seccoes.find(livre) || null;
+  })();
+  const notaRapida = () => (secRapida ? novaPagina('branco', null, null, { sid: secRapida.id, titulo: '', html: '' }) : novaPagina('branco'));
+  const ultCompras = (ix.paginas || []).filter(p => !p.tituloC && ehCompras(p)).sort(porEditada)[0] || null;
+  const secCofre = seccoes.find(s => s.protegida && !(((ix.cadernos || []).find(c => c.id === s.cadernoId)) || {}).partilhado) || null;
+  const recentesM = (ix.paginas || []).filter(p => !p.tituloC && p.tipo !== 'senha').sort(porEditada);
+  const favsM = (ix.paginas || []).filter(p => p.fav && !(p.tipo === 'senha' && !chave)).sort(porEditada);
+  const abrirDaHome = p => { setFiltro(null); setSecId(p.seccaoId); setPagId(p.id); setVista('pagina'); setCofreModal(true); };
+  const tile = `rounded-2xl border text-left active:scale-[0.98] transition-transform ${claro ? 'bg-white border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`;
+  const tituloSecM = t => <p className={`px-1 mb-2 text-xs font-semibold uppercase tracking-wide ${sub}`}>{t}</p>;
+  const inicioMovel = (
+    <div className="space-y-5">
+      <div className="flex items-end justify-between gap-3">
+        <h2 className="text-3xl font-bold tracking-tight">Notas</h2>
+        <span className={`text-xs pb-1.5 ${sub}`}>{(ix.paginas || []).length} página{(ix.paginas || []).length === 1 ? '' : 's'}</span>
+      </div>
+      {procuraEl}
+      {q ? (
+        <div>
+          {tituloSecM(`${lista.length} resultado${lista.length === 1 ? '' : 's'}`)}
+          <div className={`${painel} p-1.5 space-y-0.5`}>
+            {lista.map(p => { const s = secDe(p.seccaoId); return (
+              <button key={p.id} type="button" onClick={() => abrirPagina(p)} className={`w-full text-left px-3 py-2.5 rounded-xl ${claro ? 'active:bg-slate-100' : 'active:bg-white/5'}`}>
+                <span className="flex items-center gap-2"><span className="w-1 h-4 rounded-full shrink-0" style={{ background: s ? s.cor : '#94a3b8' }} /><span className="text-[15px] font-medium truncate">{tituloDe(p)}</span></span>
+                <span className={`block text-xs truncate mt-0.5 ${sub}`}>{s ? `${s.nome} · ` : ''}{haQuanto(p.editada || p.criada)}{p.txt ? ` · ${p.txt.slice(0, 80)}` : ''}</span>
+              </button>
+            ); })}
+            {!lista.length && <p className={`px-2 py-6 text-center text-sm ${sub}`}>Nada encontrado.</p>}
+          </div>
+        </div>
+      ) : (<>
+        <div className="space-y-2">
+          <button type="button" onClick={notaRapida} className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-white shadow-lg shadow-blue-600/20 bg-gradient-to-br from-violet-500 to-blue-600 active:scale-[0.99] transition-transform">
+            <span className="w-10 h-10 rounded-xl bg-white/20 inline-flex items-center justify-center shrink-0"><Ic n="editar" className="w-5 h-5" /></span>
+            <span className="min-w-0 text-left"><span className="block font-semibold">Nova nota</span><span className="block text-xs text-white/80 truncate">{secRapida ? `em ${secRapida.nome}` : 'Escreve já, organizas depois'}</span></span>
+            <Ic n="mais" className="w-5 h-5 ml-auto shrink-0" />
+          </button>
+          <div className={`grid gap-2 ${secCofre ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <button type="button" onClick={() => (ultCompras ? abrirDaHome(ultCompras) : novaPagina('compras', null, null, secRapida ? { sid: secRapida.id } : null))} className={`${tile} px-3 py-3`}>
+              <span className="text-xl leading-none" aria-hidden="true">🛒</span>
+              <span className="block text-sm font-medium mt-1.5">Compras</span>
+              <span className={`block text-[11px] truncate ${sub}`}>{ultCompras ? haQuanto(ultCompras.editada || ultCompras.criada) : 'Lista nova'}</span>
+            </button>
+            <button type="button" onClick={() => novaPagina('todo', null, null, secRapida ? { sid: secRapida.id } : null)} className={`${tile} px-3 py-3`}>
+              <span className="text-xl leading-none" aria-hidden="true">✅</span>
+              <span className="block text-sm font-medium mt-1.5">Tarefas</span>
+              <span className={`block text-[11px] truncate ${sub}`}>Lista com visto</span>
+            </button>
+            {secCofre && (
+              <button type="button" onClick={() => abrirSeccao(secCofre)} className={`${tile} px-3 py-3`}>
+                <span className="text-xl leading-none" aria-hidden="true">🔐</span>
+                <span className="block text-sm font-medium mt-1.5">{secCofre.nome}</span>
+                <span className={`block text-[11px] truncate ${chave ? 'text-emerald-500' : sub}`}>{chave ? 'Aberto' : 'Trancado'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+        {favsM.length > 0 && (
+          <div>
+            {tituloSecM('Favoritos')}
+            <div className="-mx-3 px-3 flex gap-2 overflow-x-auto scrollbar-hide" data-sem-swipe="1">
+              {favsM.map(p => { const s = secDe(p.seccaoId); return (
+                <button key={p.id} type="button" onClick={() => abrirDaHome(p)} className={`shrink-0 max-w-[60vw] inline-flex items-center gap-2 pl-2.5 pr-3.5 py-2 rounded-full border text-sm ${claro ? 'bg-white border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
+                  <span className="text-amber-400 text-xs" aria-hidden="true">★</span>
+                  <span className="truncate">{tituloDe(p)}</span>
+                  {p.tituloC && !chave ? <Ic n="cadeado" className="w-3 h-3 text-amber-400 shrink-0" /> : <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s ? s.cor : '#94a3b8' }} />}
+                </button>
+              ); })}
+            </div>
+          </div>
+        )}
+        {recentesM.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between">
+              {tituloSecM('Recentes')}
+              {recentesM.length > 6 && <button type="button" onClick={() => { setFiltro('recentes'); setProcura(''); setVista('paginas'); }} className="mb-2 px-1 text-xs font-medium text-blue-500">Ver todas</button>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {recentesM.slice(0, 6).map(p => { const s = secDe(p.seccaoId); return (
+                <button key={p.id} type="button" onClick={() => abrirDaHome(p)} className={`${tile} relative overflow-hidden p-3 pl-3.5 min-h-[104px] flex flex-col`}>
+                  <span className="absolute left-0 inset-y-0 w-1" style={{ background: s ? s.cor : '#94a3b8' }} />
+                  <span className="text-sm font-semibold leading-snug line-clamp-2 break-words">{p.fav && <span className="text-amber-400 mr-1">★</span>}{tituloDe(p)}</span>
+                  {p.txt && <span className={`mt-1 text-xs leading-snug line-clamp-2 break-words ${sub}`}>{p.txt.slice(0, 140)}</span>}
+                  <span className={`mt-auto pt-2 text-[11px] truncate w-full ${sub}`}>{s ? `${s.nome} · ` : ''}{haQuanto(p.editada || p.criada)}</span>
+                </button>
+              ); })}
+            </div>
+          </div>
+        )}
+        <div>
+          <div className={`${painel} p-2 space-y-3`}>
+            {cadernosEl}
+            {rodapeEl}
+          </div>
+        </div>
+      </>)}
+    </div>
+  );
+  // Botão redondo "+" (nota nova) por cima do menu de baixo
+  const fabNotas = larguraTelemovel && vista === 'paginas' && !emGrelha ? (
+    <button type="button" aria-label="Nova nota" title="Nova nota"
+      onClick={() => (vista === 'paginas' && secao && !mostrarSeccao ? (secao.protegida && !chave ? pedirDesbloquear(k => novaPagina('branco', null, k)) : novaPagina('branco')) : notaRapida())}
+      className="fixed right-4 z-40 w-14 h-14 rounded-full shadow-xl text-white inline-flex items-center justify-center bg-gradient-to-br from-violet-500 to-blue-600 active:scale-95 transition-transform no-print"
+      style={{ bottom: comMenuBaixo ? 'calc(max(0.6rem, env(safe-area-inset-bottom)) + 96px)' : '1.5rem' }}>
+      <Ic n="editar" className="w-6 h-6" />
+    </button>
+  ) : null;
 
   const temSenhasSec = !!(secao && secao.protegida && (ix.paginas || []).some(p => p.seccaoId === secao.id && p.tipo === 'senha'));
   const menuCofre = temSenhasSec ? ['-',
@@ -2054,7 +2192,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   ] : null;
   const editor = pagina ? (
     <div className={`${painel} px-4 sm:px-6 py-3 sm:py-4 min-h-[60vh]`}>
-      <PaginaAberta key={pagina.id + (chave ? 'k' : '')} meta={pagina} seccao={secPagina} claro={claro} sub={sub}
+      <PaginaAberta key={pagina.id + (chave ? 'k' : '')} focar={focarNova.current === pagina.id} meta={pagina} seccao={secPagina} claro={claro} sub={sub}
         onVoltar={() => setVista('paginas')} lerPagina={lerPagina} guardarPagina={guardarPagina} mudarIndice={mudarIndice}
         entidades={entidades} onIrEntidade={onIrEntidade} enviarImagem={enviarImagem} chave={secPagina && secPagina.protegida ? chave : null}
         pedirDesbloquear={() => pedirDesbloquear()} showToast={showToast} menuItens={menuPagina}
@@ -2120,7 +2258,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
       <style>{CSS_NOTAS}</style>
       {larguraTelemovel ? (
         <div className="pb-24">
-          {vista === 'arvore' && arvore}
+          {vista === 'arvore' && inicioMovel}
           {vista === 'paginas' && (grelha || paginas)}
           {vista === 'pagina' && (pagina ? editor : (grelha || paginas))}
         </div>
@@ -2139,6 +2277,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
         )
       )}
       {modalCofre}
+      {fabNotas}
       {pedir && <Pedir key={pedir.titulo} {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
       {planear && <PlanearCompras itens={planear.itens} titulo={planear.titulo} claro={claro} sub={sub} perguntarIA={perguntarIA} onFechar={() => setPlanear(null)}
         onGuardar={async (tit, html) => { const sid = planear.sid; setPlanear(null); await novaPagina('branco', null, null, { titulo: tit, html, sid }); if (showToast) showToast('Plano guardado numa página nova.'); }} />}
