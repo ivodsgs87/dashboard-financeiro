@@ -915,7 +915,27 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 // Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
 const IcoTrello = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>;
 // O link da pasta do Drive já foi juntado a este cartão do Trello?
-const linkNoTrello = t => !!(t.trello && t.trello.id && t.drive && t.drive.trello && t.drive.trello.ok && (!t.drive.trello.cartao || t.drive.trello.cartao === t.trello.id));
+// Todas as versões enviadas para o Drive (V1, V2…) com os links ainda por juntar a este cartão
+const versoesDrive = d => (d ? [d, ...(d.anteriores || [])] : []).filter(x => x && x.url && (x.enviados || []).length);
+const porPartilhar = (t, cartao) => versoesDrive(t.drive).filter(d => !(d.trello && d.trello.ok && d.trello.cartao === cartao));
+const linkNoTrello = t => !!(t.trello && t.trello.id && versoesDrive(t.drive).length && !porPartilhar(t, t.trello.id).length);
+// Junta ao cartão o link de cada versão que ainda lá não está (como anexo); devolve o Drive já marcado
+const partilharNoTrello = async (t, cartao) => {
+  const pend = porPartilhar(t, cartao).sort((a, b) => versaoDaPasta(a) - versaoDaPasta(b));
+  const feitos = new Set(); let erro = null;
+  for (const d of pend) {
+    const nome = d.nomeBase || d.pasta || 'Drive';
+    try {
+      // Só como anexo (fica em "Anexos" e aparece na atividade) — comentário + anexo parecia repetido
+      await chamarTrello('anexar', { cartao, url: d.url, nome });
+      feitos.add(d.pastaId || d.pasta);
+    } catch (e) { erro = String(e.message || e); break; }
+  }
+  const em = new Date().toISOString();
+  const marca = d => (feitos.has(d.pastaId || d.pasta) ? { ...d, trello: { ok: true, em, cartao } } : d);
+  const drive = t.drive ? { ...marca(t.drive), ...(t.drive.anteriores ? { anteriores: t.drive.anteriores.map(marca) } : {}) } : t.drive;
+  return { drive, n: feitos.size, erro };
+};
 // Já está no Trello: ícone azul (abre o cartão); com o visto verde quando o link do Drive já lá está
 const LinkTrello = ({ t, claro }) => {
   if (!(t.trello && t.trello.url)) return null;
@@ -948,7 +968,11 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
   const trab = TRAB_ATUAL.trab;
   const jogo = trab ? jogoDaTarefa(trab, t) : null;
   if (!jogo || jogo.semJogo || !jogo.trello) return null;
-  const ligar = c => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome } })));
+  const ligar = c => {
+    mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome } })));
+    // A tarefa já tinha versões no Drive: junta logo esses links ao cartão
+    if (porPartilhar(t, c.id).length) partilharNoTrello(t, c.id).then(r => { if (r.n) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, drive: r.drive }))); });
+  };
   const abrir = async () => {
     setAberto(true); setMsg(''); setParecidos(null);
     try { const cs = await cartoesTrello(jogo.trello); setParecidos(parecidosTrello(cs, t.nome)); }
@@ -1832,6 +1856,11 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
   };
   return (
     <div className="space-y-3">
+      <div className={`flex flex-wrap items-center gap-2 text-xs ${sub}`}>
+        <span>Emails aos freelancers saem da conta</span>
+        <TxtIn type="email" valor={trab.contaEmailFree} onGravar={v => mudar(tr => ({ ...tr, contaEmailFree: v }))} placeholder="o-teu@gmail.com" className={`${inputClass} !w-60 text-sm py-1.5`} />
+        <span className="text-[11px]">(o Gmail abre com esta conta — tem de ter sessão iniciada neste browser)</span>
+      </div>
       <form onSubmit={e => { e.preventDefault(); if (nome.trim()) { mudar(tr => opNovoFreelancer(tr, nome.trim())); setNome(''); } }} className="flex flex-wrap gap-2">
         <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do freelancer" className={`${inputClass} !w-56 text-sm py-1.5`} />
         <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Freelancer</button>
@@ -2710,12 +2739,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       // Trello: junta o link da pasta ao cartão desta tarefa (não mexe na lista do cartão)
       if (t.trello && t.trello.id && enviados.length) {
         setMsg('A juntar o link ao cartão do Trello…');
-        try {
-          await chamarTrello('comentar', { cartao: t.trello.id, texto: `${reg.nomeBase}\n${url}` });
-          await chamarTrello('anexar', { cartao: t.trello.id, url, nome: reg.nomeBase || reg.pasta });
-          reg.trello = { ok: true, em: new Date().toISOString(), cartao: t.trello.id };
-        } catch (e) { reg.trello = { erro: String(e.message || e) }; }
-        set({ drive: reg }); setResultado({ ...reg });
+        // Esta versão e as anteriores que ainda não estejam no cartão (ex.: a V1 enviada antes de haver cartão)
+        const res = await partilharNoTrello({ ...t, drive: reg }, t.trello.id);
+        const novo = res.drive;
+        if (res.erro && !(novo.trello && novo.trello.ok && novo.trello.cartao === t.trello.id)) novo.trello = { erro: res.erro };
+        Object.assign(reg, novo);
+        set({ drive: novo }); setResultado({ ...novo, trelloN: res.n });
       }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
       if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); }
@@ -2829,7 +2858,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                 : `Não consegui escrever na spreadsheet: ${resultado.folha.erro}`}
             </p>
           )}
-          {resultado && resultado.trello && <p className={`text-xs ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? '✓ Link da pasta juntado ao cartão do Trello' : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</p>}
+          {resultado && resultado.trello && <p className={`text-xs ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? (resultado.trelloN > 1 ? `✓ ${resultado.trelloN} links (esta versão e as anteriores) juntados ao cartão do Trello` : '✓ Link da pasta juntado ao cartão do Trello') : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</p>}
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive{resultado.anteriores && resultado.anteriores.length ? ` (${resultado.versao ? `V${resultado.versao}` : resultado.pasta})` : ''}</a>
@@ -3159,19 +3188,17 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
       const r = await criarCartaoTrello(jogo, nome.trim() || t.nome);
       set({ trello: { id: r.id, url: r.url, nome: r.nome } });
       setMsg(r.jaExistia ? '✓ Já havia um cartão com este nome — liguei a esse.' : `✓ Cartão criado em "${jogo.trelloLista.nome}".`);
+      if (porPartilhar(t, r.id).length) { setOcupado(false); await partilharDrive(r.id); }
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupado(false);
   };
-  const partilharDrive = async () => {
-    const d = t.drive; if (!d || !d.url || !t.trello) return;
-    setOcupado(true); setMsg('');
-    try {
-      const nomeB = d.nomeBase || d.pasta || 'Drive';
-      await chamarTrello('comentar', { cartao: t.trello.id, texto: `${nomeB}\n${d.url}` });
-      await chamarTrello('anexar', { cartao: t.trello.id, url: d.url, nome: nomeB });
-      set({ drive: { ...d, trello: { ok: true, em: new Date().toISOString(), cartao: t.trello.id } } });
-      setMsg('✓ Link do Drive juntado ao cartão.');
-    } catch (e) { setMsg(`⚠ ${e.message || e}`); }
+  // Junta ao cartão os links das versões já enviadas que ainda lá não estão
+  const partilharDrive = async (cartao = t.trello && t.trello.id) => {
+    if (!cartao || !porPartilhar(t, cartao).length) return;
+    setOcupado(true);
+    const r = await partilharNoTrello(t, cartao);
+    if (r.n) set({ drive: r.drive });
+    setMsg(r.erro ? `⚠ ${r.erro}` : `✓ ${r.n === 1 ? 'Link do Drive juntado' : `${r.n} links do Drive juntados`} ao cartão.`);
     setOcupado(false);
   };
   return (
@@ -3184,8 +3211,8 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
           <button type="button" onClick={() => set({ trello: null })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
           {linkNoTrello(t)
             ? <p className="w-full text-[11px] text-emerald-500">✓ O link da pasta do Drive já está neste cartão.</p>
-            : t.drive && t.drive.url
-              ? <p className={`w-full text-[11px] ${sub}`}>O link do Drive ainda não está no cartão. <button type="button" disabled={ocupado} onClick={partilharDrive} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{ocupado ? 'A juntar…' : 'Juntar agora'}</button></p>
+            : versoesDrive(t.drive).length
+              ? <p className={`w-full text-[11px] ${sub}`}>{(() => { const pend = porPartilhar(t, t.trello.id); return pend.length === versoesDrive(t.drive).length ? 'O link do Drive ainda não está no cartão.' : `Falta juntar ${pend.map(d => `V${versaoDaPasta(d)}`).join(', ')} ao cartão.`; })()} <button type="button" disabled={ocupado} onClick={() => partilharDrive()} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{ocupado ? 'A juntar…' : 'Juntar agora'}</button></p>
               : <p className={`w-full text-[11px] ${sub}`}>Quando enviares para o Drive, a app junta o link da pasta a este cartão.</p>}
         </div>
       ) : (
@@ -3201,7 +3228,7 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
               {parecidos.map(c => (
                 <div key={c.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
                   <a href={c.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate hover:text-blue-400" title={c.nome}>{c.nome}</a>
-                  <button type="button" onClick={() => { set({ trello: { id: c.id, url: c.url, nome: c.nome } }); setParecidos(null); setMsg('✓ Ligado.'); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
+                  <button type="button" onClick={() => { set({ trello: { id: c.id, url: c.url, nome: c.nome } }); setParecidos(null); setMsg('✓ Ligado.'); partilharDrive(c.id); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
                 </div>
               ))}
             </div>
@@ -4704,7 +4731,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           {freeSel && !procura.trim() && (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setSel({ tipo: 'freelancers', abrir: freeSel.id })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Ficha e preços</button>
-              {freeSel.email && <a href={`https://mail.google.com/mail/?${trab.contaGoogle ? `authuser=${encodeURIComponent(trab.contaGoogle)}&` : ''}view=cm&fs=1&to=${encodeURIComponent(freeSel.email)}`} target="_blank" rel="noopener noreferrer" className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`} title={`Escrever a ${freeSel.email} no Gmail`}>Enviar email</a>}
+              {freeSel.email && <a href={`https://mail.google.com/mail/?${(trab.contaEmailFree || trab.contaGoogle) ? `authuser=${encodeURIComponent(trab.contaEmailFree || trab.contaGoogle)}&` : ''}view=cm&fs=1&to=${encodeURIComponent(freeSel.email)}`} target="_blank" rel="noopener noreferrer" className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`} title={`Escrever a ${freeSel.email} no Gmail${trab.contaEmailFree ? ` (com ${trab.contaEmailFree})` : ' — escolhe a conta em Freelancers'}`}>Enviar email</a>}
               {freeSel.email && <button type="button" onClick={() => { copiar(freeSel.email); if (showToast) showToast('Email copiado'); }} className={`px-2 py-1 text-xs rounded-lg ${sub} hover:text-blue-400`} title="Copiar o email">{freeSel.email}</button>}
               {freeSel.faz && <span className={`text-xs ${sub}`}>Faz: {freeSel.faz}</span>}
               {!tarefas.length && <span className={`text-xs ${sub}`}>Ainda não tem tarefas. Escolhe-a em "Quem faz" numa tarefa.</span>}
