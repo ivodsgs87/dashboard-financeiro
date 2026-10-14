@@ -122,10 +122,10 @@ const VendaCasa = ({ G, uG, theme }) => {
   const marcarCPCV = (k, v) => { const c = { ...(G.tarefasConcluidas || {}) }; if (v) c[k] = true; else delete c[k]; uG('tarefasConcluidas', c); };
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto">
+    <div className="space-y-4 max-w-5xl xl:max-w-none mx-auto pag-2col">
 
       {/* Resumo topo */}
-      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card} col-toda`}>
         <h3 className="text-lg font-semibold mb-3"><Ico e="🏠"/>Venda da Casa</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
@@ -343,7 +343,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       </div>
 
       {/* Movimentos */}
-      <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card} col-toda`}>
         <h3 className="text-lg font-semibold mb-1"><Ico e="💸"/>Movimentos</h3>
         <p className={`text-xs mb-3 ${sub}`}>Parqueado = só mudou de sítio · Gasto = saiu de vez · Investido = aplicado</p>
 
