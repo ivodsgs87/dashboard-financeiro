@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, writeBatch } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, reauthenticateWithPopup } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCAyPVtpdIYSqx2JcLfCgIPbSKme68lQxM",
@@ -31,6 +31,15 @@ export const signInWithGoogle = async () => {
 };
 
 export const getAccessToken = () => accessToken;
+
+// Pede outra vez a conta Google (para ações perigosas, como apagar todos os dados)
+export const confirmarIdentidade = async () => {
+  if (!auth.currentUser) throw new Error('Sem sessão.');
+  const p = new GoogleAuthProvider();
+  p.setCustomParameters({ prompt: 'login', login_hint: auth.currentUser.email || '' });
+  await reauthenticateWithPopup(auth.currentUser, p);
+  return true;
+};
 
 export const logOut = () => {
   accessToken = null;
