@@ -2816,8 +2816,9 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
   const setF = patch => set({ ficheiros: { ...fx, ...patch } });
   const setFV = patch => set({ ficheiros: fxComVersao(fx, t, r.vNum, patch) });
-  const [nomesFechados, setNomesFechados] = useState(() => { try { return localStorage.getItem('trab-nomes-fechados') === '1'; } catch (e) { return false; } });
-  const alternarNomes = () => setNomesFechados(v => { try { localStorage.setItem('trab-nomes-fechados', v ? '0' : '1'); } catch (e) { /* */ } return !v; });
+  const [nomesFechados] = useState(() => { try { return localStorage.getItem('trab-nomes-fechados') === '1'; } catch (e) { return false; } });
+  const [blocosAbertos, setBlocosAbertos] = useState({});
+  useEffect(() => { setBlocosAbertos({}); }, [t.id]);
   const ic = `${inputClass} text-sm py-1.5`;
   // Conceitos que já estão no Drive deste jogo: sugere-os ao escrever e avisa se o nome é novo (evita gralhas → V1 por engano)
   const jogoD = r.jogo && !r.jogo.semJogo ? r.jogo : null;
@@ -2913,23 +2914,43 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
             : <span className={sub}>{conceitosD.length} conceitos no Drive — escolhe da lista ao escrever</span>}
         </div>
       )}
-      {!r.ficheiros.length ? <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p> : (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={alternarNomes} aria-expanded={!nomesFechados} title={nomesFechados ? 'Mostrar os nomes dos vídeos' : 'Esconder os nomes dos vídeos'} className={`flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-              <span className={`shrink-0 text-[9px] ${sub} transition-transform`} style={{ transform: nomesFechados ? 'none' : 'rotate(90deg)' }}>▶</span>
-              <span className={`shrink-0 ${sub}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span>
-              <code className="flex-1 min-w-0 truncate text-xs" title={r.pasta}>{r.pasta}</code>
-              {nomesFechados && <span className={`shrink-0 text-[11px] ${sub}`}>{r.ficheiros.length} vídeo{r.ficheiros.length === 1 ? '' : 's'}</span>}
-            </button>
-            {botaoCopiar(r.pasta.split(' / ').pop(), 'pasta')}
+      {(() => {
+        // A versão que estás a preparar (em cima) + as que já foram enviadas com esta tarefa (ficam guardadas, por baixo)
+        const blocos = [];
+        if (!vEnviada && r.ficheiros.length) blocos.push({ k: 'atual', v: Number(r.vNum), pasta: r.pasta, ficheiros: r.ficheiros, atual: true });
+        [t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(d => d && (d.enviados || []).length)
+          .map(d => ({ k: d.pastaId || d.pasta, v: versaoDaPasta(d), pasta: [d.conceito, d.pasta].filter(Boolean).join(' / '), ficheiros: d.enviados.map(e => ({ formato: e.formato, nome: e.nome })), url: d.url }))
+          .sort((x, y) => y.v - x.v).forEach(x => { if (!blocos.some(b => b.k === x.k)) blocos.push(x); });
+        if (!blocos.length) return <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p>;
+        const abertoDe = b => (blocosAbertos[b.k] != null ? blocosAbertos[b.k] : b.atual ? !nomesFechados : vEnviada && String(b.v) === String(r.vNum));
+        const alternarBloco = b => { const novo = !abertoDe(b); setBlocosAbertos(o => ({ ...o, [b.k]: novo })); if (b.atual) { try { localStorage.setItem('trab-nomes-fechados', novo ? '0' : '1'); } catch (e) { /* */ } } };
+        return (
+          <div className="space-y-2">
+            {blocos.map(b => {
+              const ab = abertoDe(b);
+              return (
+                <div key={b.k} className={`space-y-1.5 ${b.atual ? '' : `rounded-lg border px-2 py-1.5 ${claro ? 'border-slate-200 bg-slate-50/60' : 'border-white/[0.06] bg-white/[0.02]'}`}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => alternarBloco(b)} aria-expanded={ab} title={ab ? 'Esconder os nomes' : 'Mostrar os nomes'} className={`flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+                      <svg width="10" height="10" viewBox="0 0 12 12" className={`shrink-0 transition-transform ${sub}`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <span className={`shrink-0 ${b.atual ? sub : 'text-emerald-500'}`}><IcoT n="pasta" className="w-3.5 h-3.5" /></span>
+                      <code className="flex-1 min-w-0 truncate text-xs" title={b.pasta}>{b.pasta}</code>
+                      <span className={`shrink-0 text-[10px] px-1.5 py-px rounded ${b.atual ? 'bg-blue-500/15 text-blue-400' : 'bg-emerald-500/15 text-emerald-500'}`}>{b.atual ? `V${b.v} · nova` : `V${b.v} · enviada`}</span>
+                      {!ab && <span className={`shrink-0 text-[11px] ${sub}`}>{b.ficheiros.length} vídeo{b.ficheiros.length === 1 ? '' : 's'}</span>}
+                    </button>
+                    {b.url && <a href={urlAbrir(b.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`shrink-0 px-2 py-1 text-[11px] rounded-md border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`} title="Abrir a pasta no Drive">Drive ↗</a>}
+                    {botaoCopiar(b.pasta.split(' / ').pop(), b.k + ':pasta')}
+                  </div>
+                  {ab && b.ficheiros.map((f, i) => (
+                    <div key={(f.formato || '') + i} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 break-all leading-snug text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, b.k + ':' + i)}</div>
+                  ))}
+                  {ab && b.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(b.ficheiros.map(f => f.nome).join('\n'), b.k + ':todos')}</div>}
+                </div>
+              );
+            })}
           </div>
-          {!nomesFechados && r.ficheiros.map(f => (
-            <div key={f.formato} className="flex items-center gap-2"><span className={`text-xs w-9 shrink-0 ${sub}`}>{f.formato}</span><code className="flex-1 min-w-0 break-all leading-snug text-xs" title={f.nome}>{f.nome}</code>{botaoCopiar(f.nome, f.formato)}</div>
-          ))}
-          {!nomesFechados && r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
-        </div>
-      )}
+        );
+      })()}
       <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} versaoLote={versaoLote} setVersaoLote={setVersaoLote} />
       <TrelloTarefa t={t} trab={trab} set={set} claro={claro} sub={sub} />
     </div>
