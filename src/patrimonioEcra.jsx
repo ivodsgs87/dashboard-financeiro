@@ -983,3 +983,4 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 export {
   patFmtK, PatLinhas, PatChart, Patrimonio
 };
+export const FICHEIRO_APP = 'patrimonioEcra';
