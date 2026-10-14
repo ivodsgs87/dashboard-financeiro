@@ -1,4 +1,4 @@
-// Separador "Venda da Casa". Só é descarregado quando se abre o separador.
+// Separadores "Venda da Casa" e "Casamento". Só são descarregados quando se abrem.
 import React, { useState } from 'react';
 import {
   meses, Ico, _fmtEUR, VC_DEFAULT, VC_DIAS_SEMANA, vcPrazosCPCV
@@ -410,6 +410,204 @@ const VendaCasa = ({ G, uG, theme }) => {
   );
 };
 
+// ── Tab "Casamento": o que já se gastou, onde e quanto falta pagar ──
+const CAS_CATS = [
+  ['espaco', 'Espaço / Quinta', '#8b5cf6'], ['catering', 'Catering', '#f59e0b'], ['bebidas', 'Bebidas', '#f97316'], ['bolo', 'Bolo', '#ec4899'],
+  ['foto', 'Fotografia', '#06b6d4'], ['video', 'Vídeo', '#0ea5e9'], ['musica', 'Música / DJ', '#6366f1'], ['flores', 'Decoração / Flores', '#10b981'],
+  ['vestido', 'Vestido', '#f43f5e'], ['fato', 'Fato', '#64748b'], ['aliancas', 'Alianças', '#eab308'], ['beleza', 'Cabelo / Maquilhagem', '#d946ef'],
+  ['convites', 'Convites / Papelaria', '#84cc16'], ['cerimonia', 'Igreja / Registo', '#14b8a6'], ['transporte', 'Transporte', '#a3a3a3'],
+  ['lembrancas', 'Lembranças', '#fb7185'], ['lua', 'Lua de mel', '#22d3ee'], ['outros', 'Outros', '#94a3b8'],
+];
+// (fora do componente para os campos não serem recriados a cada letra)
+const CasCampo = ({ rot, sub, children, className = '' }) => <label className={`flex flex-col gap-1 min-w-0 ${className}`}><span className={`text-xs ${sub}`}>{rot}</span>{children}</label>;
+const CasBarra = ({ pct, cor, claro }) => <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}><div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: cor }} /></div>;
+const casCat = id => CAS_CATS.find(c => c[0] === id) || CAS_CATS[CAS_CATS.length - 1];
+
+const Casamento = ({ G, uG, theme }) => {
+  const cs = G.casamento || {};
+  const set = patch => uG('casamento', { ...cs, ...patch });
+  const desp = cs.despesas || [];
+  const n = v => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) ? x : 0; };
+  const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
+  const claro = theme === 'light';
+  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
+  const inp = claro
+    ? 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full'
+    : 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const line = claro ? 'border-slate-200' : 'border-slate-700/50';
+  const contas = (G.contas || []).map(c => c.nome).filter(Boolean);
+
+  const vazio = { desc: '', fornecedor: '', cat: 'espaco', total: '', pago: '', data: '', conta: '' };
+  const [novo, setNovo] = useState(vazio);
+  const [filtro, setFiltro] = useState(null); // categoria
+  const [abertoId, setAbertoId] = useState(null);
+
+  // ── Contas ──
+  const orc = n(cs.orcamento);
+  const totalCompromisso = desp.reduce((a, d) => a + n(d.total), 0);
+  const totalPago = desp.reduce((a, d) => a + Math.min(n(d.pago), n(d.total) || n(d.pago)), 0);
+  const faltaPagar = Math.max(0, totalCompromisso - totalPago);
+  const livre = orc - totalCompromisso;
+  let dias = null;
+  if (cs.data) { const d = new Date(cs.data); const h = new Date(); h.setHours(0, 0, 0, 0); if (!isNaN(d)) dias = Math.round((d - h) / 86400000); }
+
+  const porCat = CAS_CATS.map(([id, nome, cor]) => {
+    const ds = desp.filter(d => (d.cat || 'outros') === id);
+    return { id, nome, cor, total: ds.reduce((a, d) => a + n(d.total), 0), pago: ds.reduce((a, d) => a + n(d.pago), 0), n: ds.length };
+  }).filter(c => c.n > 0).sort((a, b) => b.total - a.total);
+  const porForn = {};
+  desp.forEach(d => { const k = (d.fornecedor || '').trim() || '(sem fornecedor)'; porForn[k] = (porForn[k] || 0) + n(d.pago); });
+  const fornecedores = Object.entries(porForn).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const porConta = {};
+  desp.forEach(d => { if (n(d.pago) > 0) { const k = (d.conta || '').trim() || '(não indicado)'; porConta[k] = (porConta[k] || 0) + n(d.pago); } });
+  const contasPag = Object.entries(porConta).sort((a, b) => b[1] - a[1]);
+
+  const juntar = () => {
+    if (!novo.desc.trim() && !novo.total && !novo.pago) return;
+    const d = { id: Date.now() + Math.random(), desc: novo.desc.trim() || casCat(novo.cat)[1], fornecedor: novo.fornecedor.trim(), cat: novo.cat, total: n(novo.total || novo.pago), pago: n(novo.pago), data: novo.data || new Date().toISOString().slice(0, 10), conta: novo.conta.trim() };
+    set({ despesas: [...desp, d] });
+    setNovo({ ...vazio, cat: novo.cat, conta: novo.conta });
+  };
+  const mudar = (id, patch) => set({ despesas: desp.map(d => (d.id === id ? { ...d, ...patch } : d)) });
+  const apagar = d => { if (window.confirm(`Apagar "${d.desc}"?`)) set({ despesas: desp.filter(x => x.id !== d.id) }); };
+  const lista = desp.filter(d => !filtro || (d.cat || 'outros') === filtro).slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
+
+
+  return (
+    <div className="space-y-4 max-w-5xl xl:max-w-none mx-auto pag-2col">
+      {/* Resumo */}
+      <div className={`rounded-2xl border p-4 sm:p-5 ${card} col-toda`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <h3 className="text-lg font-semibold"><Ico e="💍"/>Casamento</h3>
+          <div className="flex flex-wrap items-end gap-3">
+            <CasCampo sub={sub} rot="Data do casamento"><input type="date" key={'d' + (cs.data || '')} defaultValue={cs.data || ''} onBlur={e => { if (e.target.value !== (cs.data || '')) set({ data: e.target.value }); }} className={`${inp} !w-40`} /></CasCampo>
+            <CasCampo sub={sub} rot="Orçamento total"><div className="relative"><input type="number" inputMode="decimal" key={'o' + (cs.orcamento ?? '')} defaultValue={cs.orcamento ?? ''} placeholder="ex.: 25000" onBlur={e => { if (e.target.value !== String(cs.orcamento ?? '')) set({ orcamento: e.target.value === '' ? null : n(e.target.value) }); }} className={`${inp} !w-36 pr-6`} /><span className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs ${sub}`}>€</span></div></CasCampo>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div><p className={`text-xs ${sub}`}>Já pago</p><p className="text-xl font-bold text-emerald-400">{f(totalPago)}</p><p className={`text-xs ${sub}`}>{desp.filter(d => n(d.pago) > 0).length} pagamento{desp.filter(d => n(d.pago) > 0).length === 1 ? '' : 's'}</p></div>
+          <div><p className={`text-xs ${sub}`}>Falta pagar</p><p className="text-xl font-bold text-amber-400">{f(faltaPagar)}</p><p className={`text-xs ${sub}`}>do que já está contratado</p></div>
+          <div><p className={`text-xs ${sub}`}>Total contratado</p><p className="text-xl font-bold">{f(totalCompromisso)}</p><p className={`text-xs ${sub}`}>{orc > 0 ? `${Math.round(totalCompromisso / orc * 100)}% do orçamento` : 'põe o orçamento ao lado'}</p></div>
+          <div><p className={`text-xs ${sub}`}>{orc > 0 ? (livre >= 0 ? 'Ainda livre no orçamento' : 'Acima do orçamento') : 'Faltam'}</p>
+            {orc > 0 ? <p className={`text-xl font-bold ${livre >= 0 ? 'text-blue-400' : 'text-red-400'}`}>{f(Math.abs(livre))}</p> : <p className="text-xl font-bold">{dias != null ? `${Math.max(0, dias)} dias` : '—'}</p>}
+            <p className={`text-xs ${sub}`}>{orc > 0 && dias != null ? (dias >= 0 ? `faltam ${dias} dias` : 'já foi 🎉') : orc > 0 ? '' : 'põe a data ao lado'}</p></div>
+        </div>
+        {orc > 0 && (
+          <div className="mt-4 space-y-1">
+            <div className={`relative h-2.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}>
+              <div className="absolute inset-y-0 left-0 bg-amber-400/60" style={{ width: `${Math.min(100, totalCompromisso / orc * 100)}%` }} />
+              <div className="absolute inset-y-0 left-0 bg-emerald-500" style={{ width: `${Math.min(100, totalPago / orc * 100)}%` }} />
+            </div>
+            <p className={`text-[11px] ${sub}`}><span className="text-emerald-400">■</span> pago · <span className="text-amber-400">■</span> contratado, por pagar · resto: livre</p>
+          </div>
+        )}
+      </div>
+
+      {/* Esquerda: despesas */}
+      <div className="space-y-4 min-w-0">
+        <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+          <h3 className="text-lg font-semibold mb-1"><Ico e="🧾"/>Despesas</h3>
+          <p className={`text-xs mb-3 ${sub}`}>Põe o valor total contratado e o que já pagaste (ex.: sinal). Assim vês sempre o que falta.</p>
+          <div className={`rounded-xl border p-3 space-y-2 ${line}`}>
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+              <input value={novo.desc} onChange={e => setNovo({ ...novo, desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') juntar(); }} placeholder="O quê (ex.: sinal da quinta)" className={`${inp} col-span-2 sm:col-span-3`} />
+              <input value={novo.fornecedor} onChange={e => setNovo({ ...novo, fornecedor: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') juntar(); }} placeholder="Onde / fornecedor" list="cas-forn" className={`${inp} col-span-2 sm:col-span-3`} />
+              <select value={novo.cat} onChange={e => setNovo({ ...novo, cat: e.target.value })} className={`${inp} col-span-2 sm:col-span-2`} aria-label="Categoria">{CAS_CATS.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}</select>
+              <input type="number" inputMode="decimal" value={novo.total} onChange={e => setNovo({ ...novo, total: e.target.value })} placeholder="Total €" className={inp} title="Valor total contratado" />
+              <input type="number" inputMode="decimal" value={novo.pago} onChange={e => setNovo({ ...novo, pago: e.target.value })} placeholder="Pago €" className={inp} title="Quanto já pagaste" />
+              <input type="date" value={novo.data} onChange={e => setNovo({ ...novo, data: e.target.value })} className={inp} aria-label="Data" />
+              <input value={novo.conta} onChange={e => setNovo({ ...novo, conta: e.target.value })} placeholder="Pago de (conta)" list="cas-contas" className={inp} />
+            </div>
+            <div className="flex justify-end"><button type="button" onClick={juntar} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white">+ Juntar despesa</button></div>
+            <datalist id="cas-forn">{[...new Set(desp.map(d => d.fornecedor).filter(Boolean))].map(x => <option key={x} value={x} />)}</datalist>
+            <datalist id="cas-contas">{[...new Set([...contas, ...desp.map(d => d.conta).filter(Boolean)])].map(x => <option key={x} value={x} />)}</datalist>
+          </div>
+          {porCat.length > 1 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              <button type="button" onClick={() => setFiltro(null)} className={`px-2.5 py-1 rounded-full text-xs border ${!filtro ? 'border-blue-500 bg-blue-500/15 text-blue-400' : line}`}>Todas</button>
+              {porCat.map(c => <button key={c.id} type="button" onClick={() => setFiltro(filtro === c.id ? null : c.id)} className={`px-2.5 py-1 rounded-full text-xs border ${filtro === c.id ? 'border-blue-500 bg-blue-500/15 text-blue-400' : line}`}><span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: c.cor }} />{c.nome}</button>)}
+            </div>
+          )}
+          <div className="mt-3 space-y-1.5">
+            {!lista.length && <p className={`text-sm text-center py-6 ${sub}`}>Ainda sem despesas. Junta a primeira acima.</p>}
+            {lista.map(d => {
+              const c = casCat(d.cat); const tot = n(d.total); const pg = n(d.pago); const falta = Math.max(0, tot - pg);
+              const ab = abertoId === d.id;
+              return (
+                <div key={d.id} className={`rounded-xl ${claro ? 'bg-slate-50' : 'bg-slate-700/25'}`}>
+                  <button type="button" onClick={() => setAbertoId(ab ? null : d.id)} className="w-full flex items-center gap-3 px-3 py-2 text-left">
+                    <span className="w-1 self-stretch rounded-full shrink-0" style={{ background: c[2] }} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium truncate">{d.desc}</span>
+                      <span className={`block text-xs truncate ${sub}`}>{[d.fornecedor, c[1], d.data ? new Date(d.data + 'T12:00').toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' }) : '', d.conta ? `de ${d.conta}` : ''].filter(Boolean).join(' · ')}</span>
+                    </span>
+                    <span className="text-right shrink-0">
+                      <span className="block text-sm font-semibold tabular-nums">{f(pg)}{tot > pg ? <span className={`font-normal ${sub}`}> / {f(tot)}</span> : ''}</span>
+                      <span className={`block text-[11px] ${falta > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{falta > 0 ? `falta ${f(falta)}` : '✓ pago'}</span>
+                    </span>
+                  </button>
+                  {ab && (
+                    <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 px-3 pb-3 pt-2 border-t ${line}`}>
+                      <CasCampo sub={sub} rot="O quê" className="col-span-2"><input key={'a' + d.desc} defaultValue={d.desc} onBlur={e => e.target.value.trim() && e.target.value !== d.desc && mudar(d.id, { desc: e.target.value.trim() })} className={inp} /></CasCampo>
+                      <CasCampo sub={sub} rot="Onde / fornecedor" className="col-span-2"><input key={'b' + d.fornecedor} defaultValue={d.fornecedor || ''} list="cas-forn" onBlur={e => e.target.value !== (d.fornecedor || '') && mudar(d.id, { fornecedor: e.target.value.trim() })} className={inp} /></CasCampo>
+                      <CasCampo sub={sub} rot="Categoria"><select value={d.cat || 'outros'} onChange={e => mudar(d.id, { cat: e.target.value })} className={inp}>{CAS_CATS.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}</select></CasCampo>
+                      <CasCampo sub={sub} rot="Total contratado"><input type="number" inputMode="decimal" key={'t' + d.total} defaultValue={d.total ?? ''} onBlur={e => n(e.target.value) !== tot && mudar(d.id, { total: n(e.target.value) })} className={inp} /></CasCampo>
+                      <CasCampo sub={sub} rot="Já pago"><input type="number" inputMode="decimal" key={'p' + d.pago} defaultValue={d.pago ?? ''} onBlur={e => n(e.target.value) !== pg && mudar(d.id, { pago: n(e.target.value) })} className={inp} /></CasCampo>
+                      <CasCampo sub={sub} rot="Data"><input type="date" key={'d' + d.data} defaultValue={d.data || ''} onBlur={e => e.target.value !== (d.data || '') && mudar(d.id, { data: e.target.value })} className={inp} /></CasCampo>
+                      <CasCampo sub={sub} rot="Pago de (conta)" className="col-span-2"><input key={'c' + d.conta} defaultValue={d.conta || ''} list="cas-contas" onBlur={e => e.target.value !== (d.conta || '') && mudar(d.id, { conta: e.target.value.trim() })} className={inp} /></CasCampo>
+                      <div className="col-span-2 flex items-end justify-end gap-2">
+                        {falta > 0 && <button type="button" onClick={() => mudar(d.id, { pago: tot })} className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">Marcar como pago</button>}
+                        <button type="button" onClick={() => apagar(d)} className="px-2.5 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-500/10">Apagar</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Direita: onde foi o dinheiro */}
+      <div className="space-y-4 min-w-0">
+        <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+          <h3 className="text-lg font-semibold mb-3"><Ico e="📊"/>Por categoria</h3>
+          {!porCat.length ? <p className={`text-sm ${sub}`}>Aparece aqui quando juntares despesas.</p> : (
+            <div className="space-y-2.5">
+              {porCat.map(c => (
+                <button key={c.id} type="button" onClick={() => setFiltro(filtro === c.id ? null : c.id)} className="w-full text-left space-y-1">
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.cor }} /><span className="truncate">{c.nome}</span></span>
+                    <span className="tabular-nums shrink-0"><b>{f(c.pago)}</b>{c.total > c.pago ? <span className={sub}> / {f(c.total)}</span> : ''}</span>
+                  </div>
+                  <CasBarra claro={claro} pct={totalCompromisso ? c.total / totalCompromisso * 100 : 0} cor={c.cor} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
+          <h3 className="text-lg font-semibold mb-3"><Ico e="📍"/>Onde foi o dinheiro</h3>
+          {!fornecedores.length ? <p className={`text-sm ${sub}`}>Os fornecedores a quem já pagaste aparecem aqui.</p> : (
+            <div className={`divide-y ${claro ? 'divide-slate-200' : 'divide-slate-700/50'}`}>
+              {fornecedores.map(([k, v]) => <div key={k} className="flex items-center justify-between gap-3 py-1.5 text-sm"><span className="truncate">{k}</span><span className="tabular-nums font-medium">{f(v)}</span></div>)}
+            </div>
+          )}
+          {contasPag.length > 0 && (
+            <>
+              <p className={`text-xs font-semibold uppercase tracking-wide mt-4 mb-1 ${sub}`}>Pago de que conta</p>
+              <div className={`divide-y ${claro ? 'divide-slate-200' : 'divide-slate-700/50'}`}>
+                {contasPag.map(([k, v]) => <div key={k} className="flex items-center justify-between gap-3 py-1.5 text-sm"><span className="truncate">{k}</span><span className="tabular-nums font-medium">{f(v)}</span></div>)}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export {
-  VendaCasa
+  VendaCasa, CAS_CATS, CasCampo, CasBarra, casCat, Casamento
 };
