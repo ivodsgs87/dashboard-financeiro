@@ -302,7 +302,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
     <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
-        <NomeTarefa t={t} cu={cu} claro={claro} prefixo={etiquetaTipo(t, cu) ? 'sm:hidden' : 'sempre'} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
+        <NomeTarefa t={t} cu={cu} claro={claro} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
       <LinkDrive t={t} claro={claro} />
@@ -391,7 +391,12 @@ const partesNomeTarefa = (nome, cu) => {
   const segs = s.split(/\s[-–—]\s/).map(x => x.trim()).filter(Boolean);
   let prefixo = '';
   if (segs.length > 1 && (/^\d+\s*[x×]\s/i.test(segs[0]) || /^extra work$/i.test(segs[0]) || ehRotuloTipo(segs[0], cu))) prefixo = segs.shift();
-  else if (segs.length === 1 && (/^\d+\s*[x×]\s/i.test(segs[0]) || ehRotuloTipo(segs[0], cu))) return { prefixo: segs[0], conceito: '', versao: '', variacao: '' };
+  else if (segs.length === 1 && /^\d+\s*[x×]\s/i.test(segs[0])) {
+    // "1x New Video- Nurse IQ Interview" (hífen colado): parte no primeiro hífen
+    const m = /^(.+?)\s*[-–—]\s*(.+)$/.exec(segs[0]);
+    if (!m) return { prefixo: '', conceito: segs[0], versao: '', variacao: '' };
+    prefixo = m[1].trim(); segs[0] = m[2].trim();
+  }
   let conceito = segs.shift() || '';
   let versao = '';
   const m = /^(.*?)\s+(V\d+(?:\s*[+&/,]\s*V?\d+)*)$/i.exec(conceito);
@@ -401,7 +406,7 @@ const partesNomeTarefa = (nome, cu) => {
 };
 // Mostra o nome com o conceito em destaque, a versão numa etiqueta e a variação mais apagada.
 // prefixo: 'sempre' | 'nunca' | 'semTipo' (só aparece quando não há etiqueta de tipo ao lado) | classes CSS (ex.: 'sm:hidden')
-const NomeTarefa = ({ t, cu, claro, prefixo = 'semTipo', quebra = false, className = '' }) => {
+const NomeTarefa = ({ t, cu, claro, prefixo = 'sempre', quebra = false, className = '' }) => {
   const p = partesNomeTarefa(t.nome, cu);
   const feito = t.estado === 'feito';
   const fraco = claro ? 'text-slate-500' : 'text-slate-400';
@@ -410,7 +415,7 @@ const NomeTarefa = ({ t, cu, claro, prefixo = 'semTipo', quebra = false, classNa
   const chip = `inline-block align-[1px] ml-1.5 px-1 rounded text-[10.5px] leading-[16px] font-semibold tabular-nums ${claro ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/25'} ${feito ? 'opacity-60' : ''}`;
   return (
     <span className={`block ${quebra ? 'break-words' : 'truncate'} ${className}`} title={t.nome}>
-      {mostrarPref && <span className={`${clsPref} text-[11px] font-normal ${fraco} mr-1.5`}>{p.prefixo}</span>}
+      {mostrarPref && <span className={`${clsPref} text-[11.5px] font-medium tabular-nums ${claro ? 'text-teal-700/80' : 'text-teal-300/70'} mr-1.5`}>{p.prefixo}</span>}
       {p.conceito ? <span className={`font-medium ${feito ? fraco : ''}`}>{p.conceito}</span> : !mostrarPref && <span className={`font-medium ${feito ? fraco : ''}`}>{p.prefixo || t.nome}</span>}
       {p.versao && <span className={chip}>{p.versao}</span>}
       {p.variacao && <span className={`font-normal ${fraco}`}><span className="mx-1.5 opacity-60" aria-hidden="true">·</span>{p.variacao}</span>}
@@ -3774,7 +3779,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
           </p>
         );
       })()}
-      {r.conceito && <VersoesConceito key={t.id} t={t} trab={trab} conceito={r.conceito} raizD={raizD} contaD={contaD} claro={claro} sub={sub} mostrarDrive={!!(raizD && conceitosD && !conceitoNovo)} />}
+      {r.conceito && <VersoesConceito key={t.id} t={t} trab={trab} conceito={r.conceito} raizD={raizD} contaD={contaD} claro={claro} sub={sub} mostrarDrive={!!(raizD && !(conceitosD && conceitoNovo))} />}
       {(() => {
         // A versão que estás a preparar (em cima) + as que já foram enviadas com esta tarefa (ficam guardadas, por baixo)
         const blocos = [];
@@ -5937,3 +5942,4 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
 };
 
 export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
+export const FICHEIRO_APP = 'trabalho';
