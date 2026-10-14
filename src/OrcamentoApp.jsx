@@ -1388,13 +1388,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        { k: 'saraBruto', label: 'Salário bruto da Sara no ano, com subsídios (€)', tipo: 'number', valor: c.saraBruto ? String(c.saraBruto) : '' },
        { k: 'saraRetencao', label: 'IRS retido no salário da Sara no ano (€)', tipo: 'number', valor: c.saraRetencao ? String(c.saraRetencao) : '' },
        { k: 'deducoes', label: 'Deduções à coleta (€): filhos, saúde, educação, renda… (na nota de liquidação)', tipo: 'number', valor: String(c.deducoes ?? '') },
-       { k: 'coef', label: 'Coeficiente do regime simplificado (0,35 para «outras prestações de serviços»)', tipo: 'number', valor: String(G.coefSimpl ?? 0.35) }
+       { k: 'coef', label: 'Coeficiente do regime simplificado (0,75: a tua atividade, CAE 59120, está na tabela do art. 151.º — confirmado pelo contabilista em Out/2026)', tipo: 'number', valor: String(G.coefSimpl ?? 0.75) }
      ],
      botao: 'Guardar',
      onOk: v => {
        uG('irsConfig', { conjunto: (v.conj || []).includes('c'), saraBruto: txNumero(v.saraBruto), saraRetencao: txNumero(v.saraRetencao), deducoes: txNumero(v.deducoes) });
        const cf = txNumero(v.coef);
-       if (cf > 0 && cf !== (G.coefSimpl ?? 0.35)) uG('coefSimpl', cf);
+       if (cf > 0 && cf !== (G.coefSimpl ?? 0.75)) uG('coefSimpl', cf);
      }
    });
  };
@@ -4182,7 +4182,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const _comSS = true;
                      const est = estimarImpostosRecibo({
                        valIliq: _ili, retIRS: _ret,
-                       coef: G.coefSimpl ?? 0.35,
+                       coef: G.coefSimpl ?? 0.75,
                        taxaMarg: G.irsMarginal ?? 43.1,
                        comSS: _comSS
                      });
@@ -4202,7 +4202,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                          <div className="p-3 tile rounded-lg space-y-1.5">
                            <p className="text-xs text-amber-400 font-medium">📊 Estimativa de impostos deste recibo</p>
                            <div className="flex justify-between text-xs">
-                             <span className="text-slate-400">Base tributável ({((G.coefSimpl ?? 0.35)*100).toFixed(0)}% de {fmt(_ili)})</span>
+                             <span className="text-slate-400">Base tributável ({((G.coefSimpl ?? 0.75)*100).toFixed(0)}% de {fmt(_ili)})</span>
                              <span>{fmt(est.baseIrs)}</span>
                            </div>
                            <div className="flex justify-between text-xs">
@@ -4363,7 +4363,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const np = rc.pais;
                      const isSara = editRecibo.emitidoPorSara || false;
                      const newTaxaIva = isSara ? 0 : (np === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23)) : 0);
-                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.35)) : 0);
+                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.75)) : 0);
                      setEditRecibo({...editRecibo, cid, pais: np, taxaIva: newTaxaIva, iva: (editRecibo.valIliq || 0) * newTaxaIva / 100, taxaRetIRS: newTaxaRet, retIRS: (editRecibo.valIliq || 0) * newTaxaRet / 100});
                    }}
                    
@@ -4381,7 +4381,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const isSara = editRecibo.emitidoPorSara || false;
                      const newTaxaIva = isSara ? 0 : (np === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0);
                      const newIva = (editRecibo.valIliq || 0) * newTaxaIva / 100;
-                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.35) : 0);
+                     const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.75) : 0);
                      const newRetIRS = (editRecibo.valIliq || 0) * newTaxaRet / 100;
                      setEditRecibo({...editRecibo, pais: np, taxaIva: newTaxaIva, iva: newIva, taxaRetIRS: newTaxaRet, retIRS: newRetIRS});
                    }}
@@ -4400,7 +4400,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onChange={e => {
                      const isSara = e.target.checked;
                      const pais = editRecibo.pais || 'PT';
-                     const taxaRet = isSara ? (pais === 'PT' ? 11.5 : 0) : (pais === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.35) : 0);
+                     const taxaRet = isSara ? (pais === 'PT' ? 11.5 : 0) : (pais === 'PT' ? retencaoPadrao(G.coefSimpl ?? 0.75) : 0);
                      const retIRS = (editRecibo.valIliq || 0) * taxaRet / 100;
                      setEditRecibo({...editRecibo, emitidoPorSara: isSara, taxaIva: isSara ? 0 : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23), iva: isSara ? 0 : editRecibo.iva, taxaRetIRS: taxaRet, retIRS});
                    }}
@@ -4447,7 +4447,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                      const pais = editRecibo.pais || 'PT';
                      const taxaIva = pais === 'PT' ? (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23) : 0;
                      const iva = val * taxaIva / 100;
-                     const retIRS = pais === 'PT' ? val * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)) / 100 : 0; // retenção na fonte (art. 101.º CIRS)
+                     const retIRS = pais === 'PT' ? val * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.75)) / 100 : 0; // retenção na fonte (art. 101.º CIRS)
                      setEditRecibo({...editRecibo, valIliq: val, iva, retIRS, val: val});
                    }}
                    
@@ -4499,7 +4499,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    disabled={(editRecibo.pais || 'PT') !== 'PT'}
                  />
                  {(editRecibo.pais || 'PT') === 'PT' && editRecibo.valIliq > 0 && (
-                   <p className="text-[10px] text-slate-500 mt-1">Sugestão {editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)}%: {fmt((editRecibo.valIliq || 0) * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.35)) / 100)}</p>
+                   <p className="text-[10px] text-slate-500 mt-1">Sugestão {editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.75)}%: {fmt((editRecibo.valIliq || 0) * (editRecibo.emitidoPorSara ? (editRecibo.taxaRetIRS ?? 11.5) : retencaoPadrao(G.coefSimpl ?? 0.75)) / 100)}</p>
                  )}
                </div>
              </div>
@@ -4629,7 +4629,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {(() => {
-         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
+         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.75, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · SS ≈ ${fmt(_e.ss)} · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
@@ -4670,7 +4670,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
        <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
        {(() => {
-         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.35, taxaMarg: G.irsMarginal ?? 43.1, comSS: false });
+         const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.75, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · sem SS · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
         {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
@@ -4722,7 +4722,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <span className="text-slate-300">Estimativa:</span>
  <label className="flex items-center gap-1.5">
    <span className="text-slate-400">Coef.</span>
-   <Select value={G.coefSimpl ?? 0.35} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
+   <Select value={G.coefSimpl ?? 0.75} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
      <option value={0.35}>0,35</option>
      <option value={0.75}>0,75</option>
    </Select>
@@ -14016,7 +14016,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      const pais = rc.pais || 'PT';
      const lista = (rc.regime || (pais === 'Fora UE' ? 'sem' : 'com')) === 'sem' ? 'regSem' : 'regCom';
      const taxaIva = pais === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : 23) : 0;
-     const taxaRet = pais === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.35)) : 0;
+     const taxaRet = pais === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.75)) : 0;
      const ili = Math.round((Number(valor) || 0) * 100) / 100;
      const id = Date.now();
      const novo = { id, cid: c.id ?? cid, desc: `Invoice #${numero} — ${meses[(mesFatura || 1) - 1]}`, val: ili, valIliq: ili, iva: Math.round(ili * taxaIva) / 100, taxaIva, retIRS: Math.round(ili * taxaRet) / 100, taxaRetIRS: taxaRet, pais, faturaId, ...(pdf ? { ficheiroUrl: pdf.url, ficheiroCaminho: pdf.caminho, ficheiroNome: pdf.nome, ficheiroTipo: 'application/pdf' } : {}), data: new Date().toISOString().slice(0, 10) };
