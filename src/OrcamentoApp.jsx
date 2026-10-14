@@ -2,7 +2,7 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
+import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
@@ -16,7 +16,8 @@ import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos
+  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos,
+  dividirTrabalho, juntarTrabalho, semCarimbo
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -544,18 +545,54 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const gTrabRef = useRef(null);
   const trabSujo = useRef(false);
   const trabTimer = useRef(null);
+  // Como o Trabalho está guardado: 'anos' (um documento por ano) ou 'simples' (tudo num documento, se as regras não deixarem ler a coleção)
+  const [trabArmazem, setTrabArmazem] = useState('anos');
+  const trabArmazemRef = useRef('anos'); trabArmazemRef.current = trabArmazem;
+  const trabEscrito = useRef({}); // id do documento → conteúdo gravado (para só regravar os anos que mudaram)
+  const trabAnos = useRef([]);
+  const migrandoTrab = useRef(false);
+  const migracaoFalhou = useRef(false);
   useEffect(() => {
     const uid = user && user.uid;
     if (!uid || typeof ouvirTrabalho !== 'function') { setTrabModo('g'); return undefined; }
     let vivo = true;
     let parar = null;
+    // Modo antigo (um só documento): se as regras do Firestore não deixarem ler a coleção toda
+    const ouvirSimples = () => {
+      setTrabArmazem('simples'); trabArmazemRef.current = 'simples';
+      try {
+        parar = ouvirTrabalho(uid, (dados, pendente) => {
+          if (!vivo || pendente || trabSujo.current) return;
+          setTrabDoc(dados ? { ...TRAB_VAZIO, ...dados } : null);
+          setTrabModo('doc');
+        }, () => { if (vivo) setTrabModo('g'); });
+      } catch (e) { setTrabModo('g'); }
+    };
+    if (typeof ouvirTrabalhoAnos !== 'function') { ouvirSimples(); return () => { vivo = false; if (parar) parar(); }; }
     try {
-      parar = ouvirTrabalho(uid, (dados, pendente) => {
+      parar = ouvirTrabalhoAnos(uid, (docs, pendente) => {
         if (!vivo || pendente || trabSujo.current) return;
-        setTrabDoc(dados ? { ...TRAB_VAZIO, ...dados } : null);
+        const { trab, migrar, anos } = juntarTrabalho(docs);
+        trabAnos.current = anos.map(k => k.slice(8));
+        const esc = {}; Object.entries(docs).forEach(([k, v]) => { if (k === 'dados' || /^tarefas-\d{4}$/.test(k)) esc[k] = semCarimbo(v); });
+        trabEscrito.current = esc;
+        setTrabDoc(trab ? { ...TRAB_VAZIO, ...trab } : null);
+        if (!migracaoFalhou.current) { setTrabArmazem('anos'); trabArmazemRef.current = 'anos'; }
         setTrabModo('doc');
-      }, () => { if (vivo) setTrabModo('g'); });
-    } catch (e) { setTrabModo('g'); }
+        // Primeira vez (ou depois de um dispositivo com a app antiga): passa para um documento por ano, com cópia de segurança
+        if (migrar && trab && !migrandoTrab.current && !migracaoFalhou.current) {
+          migrandoTrab.current = true;
+          const agora = new Date().toISOString();
+          const novos = dividirTrabalho(trab, trabAnos.current);
+          Object.values(novos).forEach(d => { d.atualizado = agora; });
+          if (docs.dados && (docs.dados.tarefas || []).length && !docs['copia-antes-dos-anos']) novos['copia-antes-dos-anos'] = { ...docs.dados, copiaFeita: agora };
+          guardarTrabalhoDocs(uid, JSON.parse(JSON.stringify(novos)))
+            .then(() => { console.info('Trabalho: passado para um documento por ano'); })
+            .catch(e => { console.error('Trabalho: não consegui passar para documentos por ano — continua num documento só', e); migracaoFalhou.current = true; setTrabArmazem('simples'); trabArmazemRef.current = 'simples'; })
+            .finally(() => { migrandoTrab.current = false; });
+        }
+      }, () => { if (vivo) { if (parar) { try { parar(); } catch (e) { /* */ } } ouvirSimples(); } });
+    } catch (e) { ouvirSimples(); }
     return () => { vivo = false; if (parar) parar(); };
   }, [user && user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
   const trabalho = trabModo === 'doc' ? (trabDoc || G.trabalho || TRAB_VAZIO) : (G.trabalho || TRAB_VAZIO);
@@ -614,6 +651,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     trabTimer.current = setTimeout(() => {
       const uid = user && user.uid;
       const limpo = JSON.parse(JSON.stringify({ ...trabDocRef.current, atualizado: new Date().toISOString() }));
+      if (trabArmazemRef.current === 'anos') {
+        // Só regrava a base e os anos que mudaram (normalmente só o ano atual)
+        const docs = dividirTrabalho(limpo, trabAnos.current);
+        const mudados = {};
+        Object.entries(docs).forEach(([k, v]) => { const j = semCarimbo(v); if (trabEscrito.current[k] !== j) { mudados[k] = { ...v, atualizado: limpo.atualizado }; } });
+        if (!Object.keys(mudados).length) { trabSujo.current = false; return; }
+        guardarTrabalhoDocs(uid, mudados).then(() => {
+          Object.entries(mudados).forEach(([k, v]) => { trabEscrito.current[k] = semCarimbo(v); });
+          trabAnos.current = [...new Set([...trabAnos.current, ...Object.keys(docs).filter(k => k.startsWith('tarefas-')).map(k => k.slice(8))])];
+          trabSujo.current = false;
+        }).catch(err => {
+          console.error('Trabalho: não consegui gravar por anos — passo a gravar num documento só', err);
+          migracaoFalhou.current = true; setTrabArmazem('simples'); trabArmazemRef.current = 'simples';
+          guardarTrabalho(uid, limpo).then(() => { trabSujo.current = false; }).catch(() => { trabSujo.current = false; setG(p => ({ ...p, trabalho: limpo })); setTrabModo('g'); });
+        });
+        return;
+      }
       guardarTrabalho(uid, limpo).then(() => { trabSujo.current = false; }).catch(err => {
         trabSujo.current = false;
         console.error('Trabalho: não consegui gravar à parte', err);
@@ -14582,7 +14636,13 @@ ${transacoesOrdenadas.map(t => `<tr>
            const LIM = 1048576;
            const docs = [
              { nome: 'Dados principais', sub: 'receitas, despesas, investimentos, definições…', b: bytes({ g: G, m: M }) },
-             ...(trabModo === 'doc' ? [{ nome: 'Trabalho', sub: `${(trabalho.tarefas || []).length} tarefas, ${(trabalho.pastas || []).length} pastas`, b: bytes(trabalho) }] : []),
+             ...(trabModo === 'doc' && trabArmazem === 'anos' ? (() => {
+               const partes = dividirTrabalho(trabalho);
+               return [
+                 { nome: 'Trabalho — base', sub: `${(trabalho.pastas || []).length} pastas, jogos, freelancers, clientes`, b: bytes(partes.dados) },
+                 ...Object.keys(partes).filter(k => k.startsWith('tarefas-')).sort().reverse().map(k => ({ nome: `Tarefas de ${k.slice(8)}`, sub: `${partes[k].tarefas.length} tarefas`, b: bytes(partes[k]) })),
+               ];
+             })() : trabModo === 'doc' ? [{ nome: 'Trabalho', sub: `${(trabalho.tarefas || []).length} tarefas, ${(trabalho.pastas || []).length} pastas — tudo num documento`, b: bytes(trabalho) }] : []),
              ...(notasModo === 'doc' ? [{ nome: 'Notas (índice)', sub: 'as páginas ficam à parte e não contam aqui', b: bytes(notasIndice) }] : []),
            ];
            const kb = b => `${Math.round(b / 1024).toLocaleString('pt-PT')} KB`;
@@ -14606,6 +14666,13 @@ ${transacoesOrdenadas.map(t => `<tr>
                    </div>
                  );
                })}
+               {trabModo === 'doc' && trabArmazem === 'simples' && (
+                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] space-y-1.5">
+                   <p className="text-amber-500 font-medium">O Trabalho ainda está num documento só.</p>
+                   <p className="text-slate-500">Para passar a um documento por ano, as regras do Firestore têm de deixar ler a pasta "trabalho" toda. Na consola da Firebase → Firestore → Regras, confirma que tens isto dentro de <code>match /databases/{'{database}'}/documents</code>:</p>
+                   <pre className={`p-2 rounded text-[10px] overflow-x-auto ${claroS ? 'bg-white' : 'bg-slate-900'}`}>{'match /users/{uid}/trabalho/{doc} {\n  allow read, write: if request.auth != null && request.auth.uid == uid;\n}'}</pre>
+                 </div>
+               )}
                {maiores.length > 0 && <p className="text-[11px] text-slate-500">Mais pesado nos dados principais: {maiores.map(([k, b]) => `${k} (${kb(b)})`).join(' · ')}</p>}
              </div>
            );
