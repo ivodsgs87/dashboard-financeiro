@@ -3024,10 +3024,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         const nome = nomeFinal(item, v);
         const ex = existentes.find(f => f.name === nome && !usados.has(f.id)) || (substituir ? existentes.find(f => !usados.has(f.id) && chaveF(f.name) === chaveF(nome)) : null);
         if (ex) usados.add(ex.id);
-        mudarItem(item.id, { estado: 'a enviar', prog: 0 });
+        // O ficheiro ainda está lá? (se a pasta do projeto mudou de nome depois de o arrastares, o browser perde-o)
+        let ficheiro = item.file;
+        try { await ficheiro.slice(0, 1).arrayBuffer(); } catch (e) {
+          try { ficheiro = item.handle ? await item.handle.getFile() : null; if (ficheiro) await ficheiro.slice(0, 1).arrayBuffer(); } catch (e2) { ficheiro = null; }
+        }
+        if (!ficheiro) { mudarItem(item.id, { estado: 'erro', erro: 'Já não encontro este ficheiro no PC (a pasta ou o nome mudaram depois de o arrastares). Tira-o (✕) e arrasta-o outra vez.' }); continue; }
+        mudarItem(item.id, { estado: 'a enviar', prog: 0, file: ficheiro });
         setMsg(`A enviar ${nome}…`);
         try {
-          const res = await enviarParaDrive(token, { file: item.file, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
+          const res = await enviarParaDrive(token, { file: ficheiro, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
           mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex }); if (ex) nSubst++;
           enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
           if (item.handle && !item.renomeado && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
@@ -3204,7 +3210,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   {historico.length > 0 && !aEnviar && <button type="button" onClick={desfazerNomes} className={btn} title={historico.map(x => `${x.depois} → ${x.antes}`).join('\n')}>↩ Nomes anteriores ({historico.length})</button>}
                   {renomeados && renomeados.length > 0 && <button type="button" onClick={() => renomearNoPc(renomeados)} className={`${btn} !border-emerald-500/50 text-emerald-500`}>✏ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`}</button>}
                   {pedirPasta && <button type="button" onClick={escolherEContinuar} className={`${btn} !border-amber-500/50 text-amber-500`}>📁 Escolher a pasta dos exports</button>}
-                  {!pastaProj && nomeProjetoTarefa(trab, t) && <button type="button" onClick={() => setPastaProj({ novo: nomeProjetoTarefa(trab, t) })} className={btn} title="Mudar o nome da pasta do projeto, do .aep e do collect (@Source) — faz o lançador do After Effects">📁 Nome da pasta e do projeto</button>}
+                  {!pastaProj && nomeProjetoTarefa(trab, t) && <button type="button" disabled={lista.some(x => x.estado !== 'feito')} onClick={() => setPastaProj({ novo: nomeProjetoTarefa(trab, t) })} className={`${btn} disabled:opacity-40`} title={lista.some(x => x.estado !== 'feito') ? 'Envia primeiro os ficheiros para o Drive — se a pasta mudar de nome antes, o browser perde-os' : 'Mudar o nome da pasta do projeto, do .aep e do collect (@Source) — faz o lançador do After Effects'}>📁 Nome da pasta e do projeto</button>}
                   {pastaProj && (
                     <div className={`w-full rounded-lg border p-2 space-y-1.5 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/50'}`}>
                       <p>Mudar a <b>pasta do projeto</b>, o <b>.aep</b> e o <b>collect</b> da @Source para:</p>
