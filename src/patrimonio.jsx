@@ -1135,7 +1135,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
           ) : <p className={`text-sm ${sub}`}>Define metas no Resumo para as veres aqui.</p>}
         </AnoCaixa>
         <AnoCaixa>
-          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🏛️"/>Património</h3><AnoVer onIr={onIr} tab="patrimonio" /></div>
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🏛"/>Património</h3><AnoVer onIr={onIr} tab="patrimonio" /></div>
           {pFim ? (
             <div className="space-y-3 text-sm">
               <div>
@@ -1210,8 +1210,11 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
 };
 
 const CSS_BASE = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-body, button, input, select, textarea { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Emoji:wght@400..700&display=swap');
+/* Emojis da app em versão "de linha", de uma só cor (seguem a cor do texto), como os ícones — em vez dos coloridos */
+body, button, input, select, textarea { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Emoji', sans-serif; }
+/* O que tu escreves nas notas mantém os emojis a cores */
+.emoji-cor, .emoji-cor * { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; }
 body { font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 .text-\\[8px\\], .text-\\[9px\\] { font-size: 10.5px !important; line-height: 1.3 !important; }
 .text-\\[10px\\], .text-\\[11px\\] { font-size: 12px !important; line-height: 1.35 !important; }
@@ -1226,6 +1229,10 @@ html[data-tema="claro"] .text-orange-400 { color: #ea580c; } html[data-tema="cla
 html[data-tema="claro"] .text-violet-400 { color: #7c3aed; } html[data-tema="claro"] .text-purple-400 { color: #9333ea; }
 html[data-tema="claro"] .text-blue-400 { color: #2563eb; } html[data-tema="claro"] .text-cyan-400 { color: #0891b2; }
 html[data-tema="claro"] .text-pink-400 { color: #db2777; } html[data-tema="claro"] .text-teal-400 { color: #0d9488; }
+/* Os tons -300 (feitos para o tema escuro) também ficavam quase invisíveis no branco */
+html[data-tema="claro"] .text-amber-300, html[data-tema="claro"] .text-yellow-300 { color: #b45309; } html[data-tema="claro"] .text-emerald-300, html[data-tema="claro"] .text-green-300 { color: #047857; }
+html[data-tema="claro"] .text-blue-300, html[data-tema="claro"] .text-sky-300 { color: #1d4ed8; } html[data-tema="claro"] .text-red-300 { color: #b91c1c; } html[data-tema="claro"] .text-orange-300 { color: #c2410c; }
+html[data-tema="claro"] .text-purple-300 { color: #7e22ce; } html[data-tema="claro"] .text-violet-300 { color: #6d28d9; } html[data-tema="claro"] .text-cyan-300 { color: #0e7490; } html[data-tema="claro"] .text-pink-300 { color: #be185d; }
 .ico { width: 1.05em; height: 1.05em; display: inline-block; vertical-align: -0.16em; margin-right: .45em; flex-shrink: 0; opacity: .85; }
 .ico-nav { margin-right: .35em; }
 .ico-solo { margin-right: 0; }
