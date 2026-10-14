@@ -24,6 +24,7 @@ import {
 const carregarVendaCasa = () => import('./vendaCasa');
 const carregarPatrimonio = () => import('./patrimonioEcra');
 const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa');
+const Casamento = lazySeparador(carregarVendaCasa, 'Casamento');
 const carregarTrabalho = () => import('./trabalho');
 const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho');
 const carregarNotas = () => import('./notas');
@@ -11340,7 +11341,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {id:'trabalho',icon:'🗂',label:'Trabalho'},
    {id:'notas',icon:'📓',label:'Notas'},
    {id:'despesas',icon:'💳',label:'Despesas',submenu:[{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'}]},
-   {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
+   {id:'financas',icon:'🏦',label:'Finanças',submenu:[{id:'credito',icon:'🏦',label:'Crédito'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'casamento',icon:'💍',label:'Casamento'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'sep1',separator:true},
    {id:'investimentos',icon:'📈',label:'Investimentos',submenu:[{id:'invest',icon:'📈',label:'Alocação'},{id:'portfolio',icon:'💎',label:'Portfolio'},{id:'patrimonio',icon:'🏛',label:'Património'},{id:'transacoes',icon:'📝',label:'Transações'}]},
    {id:'sep2',separator:true},
@@ -11356,7 +11357,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
    { id: 'notas', label: 'Notas', titulo: 'Notas', subs: ['notas'] },
-   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'credito', 'vendacasa'] },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'credito', 'vendacasa', 'casamento'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
@@ -14024,11 +14025,12 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='transacoes' && <AbaEstavel key="transacoes" render={Transacoes} />}
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
+ {tab==='casamento' && <Suspense fallback={<SeparadorCarregar/>}><Casamento G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
-{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
+{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
    recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
