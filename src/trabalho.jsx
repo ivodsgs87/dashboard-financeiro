@@ -301,6 +301,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
       </button>
       <LinkDrive t={t} claro={claro} />
       <BotaoTrello t={t} mudar={mudar} claro={claro} alinhar="dir" />
+      <LinkFolha t={t} claro={claro} />
       {((t.anexos || []).length > 0 || (t.notas && String(t.notas).trim())) && (
         <span className={`shrink-0 inline-flex items-center gap-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
           {(t.anexos || []).length > 0 && <span title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" /></span>}
@@ -342,9 +343,9 @@ const useLargo = (q = '(min-width: 900px)') => {
   return l;
 };
 // Colunas da tabela: em ecrãs médios saem "Criada" e "Terminada" para o nome ter espaço
-// Nome · Tipo · ícones (anexo, notas, Trello, Drive) · Estado · Quem faz · Prioridade · Criada · Tempo · Prazo · Terminada · Valor
-const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_104px_96px_92px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
-const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_100px_104px_96px_88px_64px_88px_48px_60px] items-center gap-x-2.5';
+// Nome · Tipo · ícones (anexo, notas, Trello, Drive, spreadsheet) · Estado · Quem faz · Prioridade · Criada · Tempo · Prazo · Terminada · Valor
+const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_130px_96px_92px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
+const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_100px_130px_96px_88px_64px_88px_48px_60px] items-center gap-x-2.5';
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
   const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
@@ -408,11 +409,12 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
         )}
       </div>
       <div className="min-w-0 flex"><EtiquetaTipo t={t} cu={cu} claro={claro} maxw="max-w-full" /></div>
-      <div className="grid grid-cols-[repeat(4,26px)] items-center justify-items-center">
+      <div className="grid grid-cols-[repeat(5,26px)] items-center justify-items-center">
         <span className="inline-flex">{(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}</span>
         <span className="inline-flex">{t.notas && String(t.notas).trim() && <button type="button" onClick={e => { e.stopPropagation(); onAbrir(t.id); }} className={`inline-flex items-center px-1 h-5 rounded ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} title={`Notas: ${String(t.notas).slice(0, 300)}`} aria-label="Ver as notas da tarefa"><IcoT n="nota" className="w-3.5 h-3.5" /></button>}</span>
         <span className="inline-flex"><BotaoTrello t={t} mudar={mudar} claro={claro} /></span>
         <span className="inline-flex"><LinkDrive t={t} claro={claro} /></span>
+        <span className="inline-flex"><LinkFolha t={t} claro={claro} /></span>
       </div>
       <div><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
       <div className="min-w-0"><QuemFaz t={t} mudar={mudar} claro={claro} /></div>
@@ -517,7 +519,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Tipo</span><span className="grid grid-cols-[repeat(4,26px)] justify-items-center" aria-hidden="true"><IcoA n="clip" className="w-3 h-3 opacity-70" /><IcoT n="nota" className="w-3 h-3 opacity-70" /><IcoTrello s={11} /><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8l6 10-4 7H6l-4-7z" /></svg></span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
+                    <span>Nome</span><span>Tipo</span><span className="grid grid-cols-[repeat(5,26px)] justify-items-center" aria-hidden="true"><IcoA n="clip" className="w-3 h-3 opacity-70" /><IcoT n="nota" className="w-3 h-3 opacity-70" /><IcoTrello s={11} /><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8l6 10-4 7H6l-4-7z" /></svg><IcoFolha s={11} /></span><span>Estado</span><span>Quem faz</span><span>Prioridade</span>{cheio && <span>Criada</span>}<span>Tempo</span><span>Prazo</span>{cheio && <span>Terminada</span>}<span className="text-right">Valor</span>
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -912,14 +914,21 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
 // Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
 const IcoTrello = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>;
-// Já está no Trello: ícone azul com um visto (abre o cartão)
-const LinkTrello = ({ t, claro }) => (t.trello && t.trello.url ? (
-  <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={`Enviado para o Trello: ${t.trello.nome || ''} (abrir o cartão)`} aria-label="Abrir o cartão do Trello"
-    className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
-    <IcoTrello />
-    <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
-  </a>
-) : null);
+// O link da pasta do Drive já foi juntado a este cartão do Trello?
+const linkNoTrello = t => !!(t.trello && t.trello.id && t.drive && t.drive.trello && t.drive.trello.ok && (!t.drive.trello.cartao || t.drive.trello.cartao === t.trello.id));
+// Já está no Trello: ícone azul (abre o cartão); com o visto verde quando o link do Drive já lá está
+const LinkTrello = ({ t, claro }) => {
+  if (!(t.trello && t.trello.url)) return null;
+  const partilhado = linkNoTrello(t);
+  return (
+    <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir o cartão do Trello"
+      title={partilhado ? `No Trello, já com o link do Drive: ${t.trello.nome || ''}` : `No Trello (ainda sem o link do Drive): ${t.trello.nome || ''}`}
+      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
+      <IcoTrello />
+      {partilhado && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+    </a>
+  );
+};
 // Atalho na lista: tarefa de um jogo com quadro do Trello mas ainda sem cartão → ícone cinzento para enviar
 const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
   const [aberto, setAberto] = useState(false);
@@ -984,6 +993,26 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
         </span>
       )}
     </span>
+  );
+};
+const IcoFolha = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>;
+// Spreadsheet do jogo: verde com visto quando o nome já lá foi posto (abre nessa linha); cinzento quando ainda não
+const LinkFolha = ({ t, claro }) => {
+  const trab = TRAB_ATUAL.trab;
+  const jogo = trab ? jogoDaTarefa(trab, t) : null;
+  if (!jogo || jogo.semJogo || !jogo.sheet) return null;
+  const folha = t.drive && t.drive.folha;
+  const ok = !!(folha && folha.ok);
+  if (!ok && t.estado === 'feito') return null;
+  const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1];
+  const url = ok && id && folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${folha.gid}&range=A${folha.linha}` : jogo.sheet;
+  return (
+    <a href={urlAbrir(url, t.cid)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir a spreadsheet"
+      title={ok ? `Já está na spreadsheet${folha.tab ? ` (${folha.tab}, linha ${folha.linha})` : ''}` : 'Ainda não está na spreadsheet — abrir a spreadsheet do jogo'}
+      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md ${ok ? 'text-emerald-500' : claro ? 'text-slate-300 hover:text-emerald-600' : 'text-slate-600 hover:text-emerald-400'} ${claro ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/10'}`}>
+      <IcoFolha />
+      {ok && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+    </a>
   );
 };
 const LinkDrive = ({ t, claro }) => {
@@ -1932,14 +1961,14 @@ const fxComVersao = (fx, t, v, patch) => {
   });
   return { ...fx, ...patch, porVersao: pv };
 };
-const nomesFicheiros = (trab, t) => {
+const nomesFicheiros = (trab, t, vForcada) => {
   const fx = t.ficheiros || {};
   const jogo = jogoDaTarefa(trab, t);
   const cod = slugF((jogo && jogo.codigo) || (jogo ? iniciaisJogo(jogo.nome) : '')) || 'JOGO';
   const tipoP = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro');
   const tipo = slugF(fx.tipo) || (tipoP ? (TIPO_FICHEIRO[tipoP.tipo] || slugF(tipoP.tipo).slice(0, 3)) : 'VID');
   const conceito = slugF(fx.conceito || conceitoDoNome(t.nome));
-  const vNum = String(fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || '1').replace(/^v/i, '');
+  const vNum = String(vForcada || fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || '1').replace(/^v/i, '');
   const versao = `V${vNum}`; // sem versão: V1
   const variacao = slugF(campoVersao(fx, vNum, 'variacao', t));
   const duracaoV = campoVersao(fx, vNum, 'duracao');
@@ -2200,7 +2229,7 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) 
   const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${f.title}'!A:A`)}`);
   const linhas = vals.values || [];
   const ja = linhas.findIndex(l => String((l && l[0]) || '').trim().toUpperCase() === String(nome).toUpperCase());
-  if (ja >= 0) return { ok: true, linha: ja + 1, tab: f.title, jaExistia: true };
+  if (ja >= 0) return { ok: true, linha: ja + 1, tab: f.title, gid: f.sheetId, jaExistia: true };
   const linha = linhas.length; // 0-based: a seguir à última preenchida
   // A linha nova fica igual à de cima (formato e as caixinhas das networks, por marcar) e depois leva o nome com o link
   const nCols = Math.min(26, Number(f.gridProperties && f.gridProperties.columnCount) || 10);
@@ -2212,7 +2241,7 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) 
     rows: [{ values: [{ userEnteredValue: { stringValue: nome }, textFormatRuns: [{ startIndex: 0, format: { link: { uri: link } } }] }] }],
     fields: 'userEnteredValue,textFormatRuns',
   } }] }) });
-  return { ok: true, linha: linha + 1, tab: f.title };
+  return { ok: true, linha: linha + 1, tab: f.title, gid: f.sheetId };
 };
 // Pasta de exports no PC (para mudar o nome dos ficheiros): guardada no browser (IndexedDB) para não perguntar sempre
 let usarPastaExports = false;
@@ -2284,7 +2313,7 @@ const renomearEm = async ({ dir, nome }, novo) => {
 const cacheEnvio = new Map();
 const cacheHist = new Map();
 const assinaturaLista = l => JSON.stringify(l.map(x => [x.id, x.formato, x.renomeado, x.nomeAntigo, x.handle ? x.handle.name : x.file && x.file.name]));
-const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
+const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLote, setVersaoLote }) => {
   const [lista, setLista] = useState(() => cacheEnvio.get(t.id) || []); // { id, file, meta, formato, estado, prog, erro }
   const [aEnviar, setAEnviar] = useState(false);
   const [msg, setMsg] = useState('');
@@ -2342,7 +2371,6 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
   // Versão da última vez que ESTA tarefa foi enviada — só conta se for o mesmo conceito
   const versaoAnterior = (() => { if (!t.drive || (t.drive.conceito && slugF(t.drive.conceito) !== slugF(r.conceito))) return null; const m = /_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')); return m ? m[1] : null; })();
   // Tarefa com várias peças (ex.: vídeo novo + iteração): cada lote de exports pode ter a sua versão (V1, V2…)
-  const [versaoLote, setVersaoLote] = useState(null);
   const pecasN = trabPecas(t).reduce((a, p) => a + (Number(p.n) || 1), 0);
   const versoesTarefa = [...new Set([t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(Boolean).map(d => Number(d.versao || (/_V(\d+)(?:_|$)/.exec(String(d.pasta || '')) || [])[1])).filter(n => n > 0))].sort((a, b) => a - b);
   const versaoConfirmada = v => String(versaoLote || fx.versao || v || versaoAnterior || '').replace(/^v/i, '');
@@ -2376,7 +2404,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
     const novos = [];
     const arr = Array.from(fs || []);
     for (let i = 0; i < arr.length; i++) { const f = arr[i]; if (!f) continue; const meta = await lerVideo(f); novos.push({ id: Math.random().toString(36).slice(2), file: f, handle: handles[i] || null, nomeAntigo: f.name, meta, formato: formatoDoFicheiro(f.name, meta), estado: 'pronto', prog: 0 }); }
-    if (!lista.length && !versaoLote && pecasN > 1 && versoesTarefa.length && versoesTarefa.length < pecasN) setVersaoLote(String(Math.max(...versoesTarefa) + 1));
+    if (!lista.length && versoesTarefa.length) { const atualV = Number(versaoLote || fx.versao || versaoAnterior || 0); if (!atualV || versoesTarefa.includes(atualV)) setVersaoLote(String(Math.max(...versoesTarefa) + 1)); }
     setLista(l => [...l, ...novos]);
     // Se já tens sessão na Google, a versão aparece logo
     const tk = tokenGuardado();
@@ -2600,7 +2628,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         try {
           await chamarTrello('comentar', { cartao: t.trello.id, texto: `${reg.nomeBase}\n${url}` });
           await chamarTrello('anexar', { cartao: t.trello.id, url, nome: reg.nomeBase || reg.pasta });
-          reg.trello = { ok: true, em: new Date().toISOString() };
+          reg.trello = { ok: true, em: new Date().toISOString(), cartao: t.trello.id };
         } catch (e) { reg.trello = { erro: String(e.message || e) }; }
         set({ drive: reg }); setResultado({ ...reg });
       }
@@ -2641,8 +2669,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className={sub}>Versão destes ficheiros:</span>
                 {opcoes.map(n => (
-                  <button key={n} type="button" disabled={aEnviar} onClick={() => setVersaoLote(String(n))}
-                    className={`px-2 py-0.5 rounded-md border font-medium ${atual === n ? 'border-blue-500 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>
+                  <button key={n} type="button" disabled={aEnviar || (versoesTarefa.includes(n) && atual !== n)} onClick={() => setVersaoLote(String(n))} title={versoesTarefa.includes(n) ? `A V${n} já foi enviada` : `Estes ficheiros são a V${n}`}
+                    className={`px-2 py-0.5 rounded-md border font-medium disabled:cursor-not-allowed ${atual === n ? 'border-blue-500 bg-blue-500/15 text-blue-400' : versoesTarefa.includes(n) ? (claro ? 'border-slate-200 text-slate-400' : 'border-slate-700 text-slate-500') : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>
                     V{n}{versoesTarefa.includes(n) ? <span className={`ml-1 font-normal ${sub}`}>já enviada</span> : ''}
                   </button>
                 ))}
@@ -2768,7 +2796,22 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
 };
 const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caixa }) => {
   const fx = t.ficheiros || {};
-  const r = nomesFicheiros(trab, t);
+  // Versão do lote de exports que estás a preparar (V2, V3…): os nomes lá em cima mostram essa
+  const [versaoLote, setVersaoLote] = useState(null);
+  useEffect(() => { setVersaoLote(null); }, [t.id]);
+  const r = nomesFicheiros(trab, t, versaoLote);
+  const enviadas = versoesEnviadas(t);
+  const vEnviada = enviadas.includes(Number(r.vNum));
+  const proximaV = enviadas.length ? Math.max(...enviadas) + 1 : 1;
+  const [avisoV, setAvisoV] = useState('');
+  const [tentV, setTentV] = useState(0);
+  const gravarVersao = txt => {
+    const n = String(txt || '').replace(/^v/i, '').trim();
+    setAvisoV('');
+    if (n && enviadas.includes(Number(n)) && String(n) !== String(r.vNum)) { setAvisoV(`A V${n} já foi enviada — os ficheiros novos são a V${proximaV} (ou outra que ainda não exista).`); setTentV(x => x + 1); return; }
+    setF({ versao: n });
+    if (versaoLote) setVersaoLote(n || null);
+  };
   const [copiado, setCopiado] = useState('');
   useEffect(() => { if (!copiado) return undefined; const i = setTimeout(() => setCopiado(''), 1400); return () => clearTimeout(i); }, [copiado]);
   const setF = patch => set({ ficheiros: { ...fx, ...patch } });
@@ -2850,12 +2893,17 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
             )}
           </div>
         </label>
-        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn valor={fx.versao} onGravar={v => setF({ versao: v.replace(/^v/i, '') })} placeholder="ex.: 4" className={ic} /></label>
-        <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span><TxtIn key={'var' + r.vNum} valor={campoVersao(fx, r.vNum, 'variacao', t)} onGravar={v => setFV({ variacao: v })} placeholder="ex.: Reaction" className={ic} /></label>
-        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span><NumIn key={'dur' + r.vNum} valor={campoVersao(fx, r.vNum, 'duracao') ?? null} placeholder="59" decimal={false} onGravar={v => setFV({ duracao: v })} className={ic} /></label>
+        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn key={'ver' + tentV} valor={versaoLote || fx.versao} onGravar={gravarVersao} placeholder="ex.: 4" className={ic} /></label>
+        <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span>{vEnviada ? <input key={'var' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'variacao', t) || ''} placeholder="—" title={`A V${r.vNum} já foi enviada: a variação fica como foi`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <TxtIn key={'var' + r.vNum} valor={campoVersao(fx, r.vNum, 'variacao', t)} onGravar={v => setFV({ variacao: v })} placeholder="ex.: Reaction" className={ic} />}</label>
+        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span>{vEnviada ? <input key={'dur' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'duracao') ?? ''} placeholder="—" title={`A V${r.vNum} já foi enviada`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <NumIn key={'dur' + r.vNum} valor={campoVersao(fx, r.vNum, 'duracao') ?? null} placeholder="59" decimal={false} onGravar={v => setFV({ duracao: v })} className={ic} />}</label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Tipo</span><TxtIn valor={fx.tipo} onGravar={v => setF({ tipo: v })} placeholder={r.tipo} className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-2 min-w-0"><span className={lab}>Data</span><input key={t.id + 'fd' + (fx.data || '')} type="date" defaultValue={fx.data || r.dia} onBlur={e => { if (e.target.value && e.target.value !== (fx.data || r.dia)) setF({ data: e.target.value }); }} className={ic} /></label>
       </div>
+      {(avisoV || vEnviada) && (
+        <p className={`text-[11px] -mt-1 ${avisoV ? 'text-amber-500' : sub}`}>
+          {avisoV || <>A V{r.vNum} já foi enviada — estes são os nomes dela. Para ficheiros novos <button type="button" onClick={() => { setF({ versao: String(proximaV) }); setAvisoV(''); }} className="text-blue-400 hover:text-blue-300">passa para a V{proximaV}</button>.</>}
+        </p>
+      )}
       {raizD && (
         <div className="text-[11px] -mt-1">
           {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver conceitos no Drive'}</button>
@@ -2882,7 +2930,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
           {!nomesFechados && r.ficheiros.length > 1 && <div className="flex justify-end">{botaoCopiar(r.ficheiros.map(f => f.nome).join('\n'), 'todos')}</div>}
         </div>
       )}
-      <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} />
+      <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} versaoLote={versaoLote} setVersaoLote={setVersaoLote} />
       <TrelloTarefa t={t} trab={trab} set={set} claro={claro} sub={sub} />
     </div>
   );
@@ -3008,6 +3056,18 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupado(false);
   };
+  const partilharDrive = async () => {
+    const d = t.drive; if (!d || !d.url || !t.trello) return;
+    setOcupado(true); setMsg('');
+    try {
+      const nomeB = d.nomeBase || d.pasta || 'Drive';
+      await chamarTrello('comentar', { cartao: t.trello.id, texto: `${nomeB}\n${d.url}` });
+      await chamarTrello('anexar', { cartao: t.trello.id, url: d.url, nome: nomeB });
+      set({ drive: { ...d, trello: { ok: true, em: new Date().toISOString(), cartao: t.trello.id } } });
+      setMsg('✓ Link do Drive juntado ao cartão.');
+    } catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setOcupado(false);
+  };
   return (
     <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
       <p className="text-sm font-medium">Trello <span className={`text-xs font-normal ${sub}`}>· {jogo.trelloNome || 'quadro do jogo'}</span></p>
@@ -3016,7 +3076,11 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
           <a href={t.trello.url} target="_blank" rel="noopener noreferrer" className={`${btn} !border-blue-500/50 text-blue-400`}>Abrir o cartão ↗</a>
           <span className={`truncate max-w-[60%] ${sub}`} title={t.trello.nome}>{t.trello.nome}</span>
           <button type="button" onClick={() => set({ trello: null })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
-          <p className={`w-full text-[11px] ${sub}`}>Quando enviares para o Drive, a app junta o link da pasta a este cartão.</p>
+          {linkNoTrello(t)
+            ? <p className="w-full text-[11px] text-emerald-500">✓ O link da pasta do Drive já está neste cartão.</p>
+            : t.drive && t.drive.url
+              ? <p className={`w-full text-[11px] ${sub}`}>O link do Drive ainda não está no cartão. <button type="button" disabled={ocupado} onClick={partilharDrive} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{ocupado ? 'A juntar…' : 'Juntar agora'}</button></p>
+              : <p className={`w-full text-[11px] ${sub}`}>Quando enviares para o Drive, a app junta o link da pasta a este cartão.</p>}
         </div>
       ) : (
         <>
@@ -4202,6 +4266,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const setTarefaAbertaRef = useRef(null); setTarefaAbertaRef.current = setTarefaAberta;
   const [procura, setProcura] = useState('');
   const [arvoreMob, setArvoreMob] = useState(false);
+  const [secFechadas, setSecFechadas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-sec-fechadas')) || []); } catch (e) { return new Set(); } });
+  const alternarSecao = id => setSecFechadas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-sec-fechadas', JSON.stringify([...n])); } catch (e) { /* */ } return n; });
   const [semArvore, setSemArvore] = useState(() => { try { return localStorage.getItem('trab-sem-arvore') === '1'; } catch (e) { return false; } });
   const alternarArvore = () => setSemArvore(v => { try { localStorage.setItem('trab-sem-arvore', v ? '0' : '1'); } catch (e) { /* sem armazenamento */ } return !v; });
   const ficheiroRef = useRef(null);
@@ -4291,6 +4357,12 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
 
   const tarefaSel = (trab.tarefas || []).find(t => t.id === tarefaAberta);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const seta = fechada => <svg width="10" height="10" viewBox="0 0 12 12" className={`shrink-0 transition-transform ${sub}`} style={{ transform: fechada ? 'none' : 'rotate(90deg)' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  const cabSecao = (id, txt, extra = '') => (
+    <button type="button" onClick={() => alternarSecao(id)} aria-expanded={!secFechadas.has(id)} className={`w-full flex items-center gap-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-left rounded-md ${sub} ${claro ? 'hover:text-slate-700' : 'hover:text-slate-200'} ${extra}`}>
+      {seta(secFechadas.has(id))}{txt}
+    </button>
+  );
 
   const arvore = (
     <div className="space-y-3">
@@ -4310,10 +4382,13 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           <IcoT n="pessoas" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Clientes
         </button>
       )}
-      <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'freelancers' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-        <IcoT n="freelancer" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Freelancers
-      </button>
-      {(trab.freelancers || []).filter(f => f.estado !== 'antigo').sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(f => {
+      <div className={`flex items-center rounded-lg !mt-0.5 ${sel.tipo === 'freelancers' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+        <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-sm text-left">
+          <IcoT n="freelancer" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Freelancers
+        </button>
+        {(trab.freelancers || []).some(f => f.estado !== 'antigo') && <button type="button" onClick={() => alternarSecao('freelancers')} aria-expanded={!secFechadas.has('freelancers')} title={secFechadas.has('freelancers') ? 'Mostrar os freelancers' : 'Esconder os freelancers'} className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-md ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`}>{seta(secFechadas.has('freelancers'))}</button>}
+      </div>
+      {!secFechadas.has('freelancers') && (trab.freelancers || []).filter(f => f.estado !== 'antigo').sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(f => {
         const n = tarefasDoFreelancer(trab, f).filter(t => t.estado !== 'feito').length;
         const ativo = sel.tipo === 'freelancer' && sel.id === f.id;
         return (
@@ -4331,8 +4406,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
       )}
       {(trab.favoritos || []).length > 0 && (
         <div>
-          <p className={`px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Favoritos</p>
-          {(trab.favoritos || []).map(id => (trab.pastas || []).find(p => p.id === id)).filter(Boolean).map(p => {
+          {cabSecao('favoritos', 'Favoritos', 'mb-1')}
+          {!secFechadas.has('favoritos') && (trab.favoritos || []).map(id => (trab.pastas || []).find(p => p.id === id)).filter(Boolean).map(p => {
             const ativo = sel.tipo === 'pasta' && sel.id === p.id;
             const n = contar(p.id);
             return (
@@ -4348,8 +4423,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           })}
         </div>
       )}
-      <p className={`px-2 -mb-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>Clientes</p>
-      {clientes.filter(c => c.estado !== 'antigo' || (sel.tipo === 'cliente' && String(sel.id) === String(c.id)) || (pasta && String(pasta.cid) === String(c.id))).map(c => {
+      {cabSecao('clientes', 'Clientes', '-mb-1')}
+      {!secFechadas.has('clientes') && clientes.filter(c => c.estado !== 'antigo' || (sel.tipo === 'cliente' && String(sel.id) === String(c.id)) || (pasta && String(pasta.cid) === String(c.id))).map(c => {
         const raiz = filhasDe(trab, null, c.id);
         const ativo = sel.tipo === 'cliente' && String(sel.id) === String(c.id);
         const fechado = abertas.has('cli-fechado:' + c.id);
