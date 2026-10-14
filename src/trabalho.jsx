@@ -458,7 +458,41 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
   const [novaEm, setNovaEm] = useState(null);
   const [txt, setTxt] = useState('');
   const nomePasta = t => (mostrarPasta ? caminho(trab, t.pastaId).map(p => p.nome).slice(-2).join(' / ') : '');
-  const grupos = ORDEM_GRUPOS.map(id => ({ ...TRAB_ESTADOS.find(e => e.id === id), lista: tarefas.filter(t => t.estado === id) })).filter(g => g.lista.length || (onCriarNoEstado && g.id === 'todo'));
+  // Ordenar por coluna (carrega no título; outra vez inverte; à terceira volta ao normal) — sempre dentro de cada estado
+  const [ordem, setOrdemEstado] = useState(() => { try { return JSON.parse(localStorage.getItem('trab-ordem')) || null; } catch (e) { return null; } });
+  const setOrdem = o => { setOrdemEstado(o); try { localStorage.setItem('trab-ordem', JSON.stringify(o)); } catch (e) { /* sem armazenamento */ } };
+  const clicarOrdem = col => setOrdem(!ordem || ordem.col !== col ? { col, dir: 1 } : ordem.dir === 1 ? { col, dir: -1 } : null);
+  const chaveOrdem = {
+    nome: t => String(t.nome || '').toLowerCase(),
+    tipo: t => (etiquetaTipo(t, cu) || '').toLowerCase(),
+    quem: t => { const f = FREE.lista.find(x => x.id === t.freelancerId); return (f ? f.nome : t.outsourcing || '').toLowerCase(); },
+    prio: t => { const i = PRIORIDADES.findIndex(x => x[0] === t.prioridade); return i < 0 ? null : i; },
+    criada: t => t.criada || null,
+    tempo: t => trabHoras(t) || null,
+    prazo: t => t.prazo || null,
+    feita: t => t.feita || t.review || null,
+    valor: t => trabValor(t, cu, clientes) || null,
+  };
+  const ordenar = lista => {
+    if (!ordem || !chaveOrdem[ordem.col]) return lista;
+    const k = chaveOrdem[ordem.col];
+    return lista.map(t => [t, k(t)]).sort((a, b) => {
+      const x = a[1], y = b[1];
+      const vx = x == null || x === '', vy = y == null || y === '';
+      if (vx || vy) return vx === vy ? 0 : vx ? 1 : -1; // vazios sempre no fim
+      return (x < y ? -1 : x > y ? 1 : 0) * ordem.dir;
+    }).map(a => a[0]);
+  };
+  const grupos = ORDEM_GRUPOS.map(id => ({ ...TRAB_ESTADOS.find(e => e.id === id), lista: ordenar(tarefas.filter(t => t.estado === id)) })).filter(g => g.lista.length || (onCriarNoEstado && g.id === 'todo'));
+  const cabOrdem = (col, txt, alinhar = '') => {
+    const ativo = ordem && ordem.col === col;
+    return (
+      <button type="button" onClick={() => clicarOrdem(col)} title={`Ordenar por ${txt.toLowerCase()}`}
+        className={`flex items-center min-w-0 ${alinhar === 'centro' ? 'justify-center' : alinhar === 'dir' ? 'justify-end' : 'justify-start'} ${ativo ? 'text-blue-400' : ''} hover:text-blue-400`}>
+        <span className="relative whitespace-nowrap">{txt}{ativo && <span className={`absolute top-1/2 -translate-y-1/2 text-[8px] ${alinhar === 'dir' ? 'right-full mr-0.5' : 'left-full ml-0.5'}`}>{ordem.dir === -1 ? '▼' : '▲'}</span>}</span>
+      </button>
+    );
+  };
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const criar = id => { if (txt.trim()) { onCriarNoEstado(txt, id); setTxt(''); } };
   // Seleção de várias tarefas (para mudar o prazo, o estado ou a prioridade de uma vez)
@@ -535,7 +569,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
                   <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    <span>Nome</span><span>Tipo</span>{(() => {
+                    {cabOrdem('nome', 'Nome')}{cabOrdem('tipo', 'Tipo')}{(() => {
                       // Só mostra o ícone de cada coluna quando alguma tarefa deste grupo o pode ter (ex.: jogos sem Trello não mostram o do Trello)
                       const jg = x => (trab ? jogoDaTarefa(trab, x) : null);
                       const tem = {
@@ -554,7 +588,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                           <span>{tem.folha && <IcoFolha s={11} />}</span>
                         </span>
                       );
-                    })()}<span className="text-center">Estado</span><span className="text-center">Quem faz</span><span className="text-center">Prioridade</span>{cheio && <span className="text-center">Criada</span>}<span>Tempo</span><span className="text-center">Prazo</span>{cheio && <span className="text-center">Terminada</span>}<span className="text-right">Valor</span>
+                    })()}<span className="text-center">Estado</span>{cabOrdem('quem', 'Quem faz', 'centro')}{cabOrdem('prio', 'Prioridade', 'centro')}{cheio && cabOrdem('criada', 'Criada', 'centro')}{cabOrdem('tempo', 'Tempo')}{cabOrdem('prazo', 'Prazo', 'centro')}{cheio && cabOrdem('feita', 'Terminada', 'centro')}{cabOrdem('valor', 'Valor', 'dir')}
                   </div>
                 )}
                 {g.lista.map(t => (largo
