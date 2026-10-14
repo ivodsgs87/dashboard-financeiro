@@ -1299,6 +1299,36 @@ const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
     : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
         className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">🔒 Manter sempre ligado</button>;
 };
+// ── Trabalho guardado por anos: um documento base (pastas, jogos, freelancers…) e um por ano com as tarefas ──
+// Cada tarefa fica no ano em que foi criada (não muda de ano). Assim nenhum documento chega ao limite de 1 MB.
+const anoDaTarefa = t => { const a = String((t && t.criada) || '').slice(0, 4); return /^\d{4}$/.test(a) ? a : String(new Date().getFullYear()); };
+const dividirTrabalho = (trab, anosAntes = []) => {
+  const porAno = {};
+  ((trab && trab.tarefas) || []).forEach(t => { const a = anoDaTarefa(t); (porAno[a] = porAno[a] || []).push(t); });
+  anosAntes.forEach(a => { if (!porAno[a]) porAno[a] = []; }); // anos que ficaram vazios também se gravam (vazios)
+  const { tarefas, ...resto } = trab || {};
+  const docs = { dados: { ...resto, versaoArmazem: 2, anosTarefas: Object.keys(porAno).filter(a => porAno[a].length).sort() } };
+  Object.entries(porAno).forEach(([a, ts]) => { docs[`tarefas-${a}`] = { ano: Number(a), tarefas: ts }; });
+  return docs;
+};
+// Junta o que vem da base de dados; diz também se é preciso passar (ou voltar a passar) para o formato por anos
+const juntarTrabalho = docs => {
+  const base = docs.dados || null;
+  const chavesAnos = Object.keys(docs).filter(k => /^tarefas-\d{4}$/.test(k)).sort();
+  const dosAnos = chavesAnos.flatMap(k => (docs[k] && docs[k].tarefas) || []);
+  const { tarefas: tarefasBase, versaoArmazem, anosTarefas, ...resto } = base || {};
+  if (base && versaoArmazem === 2) return { trab: { ...resto, tarefas: dosAnos }, migrar: false, anos: chavesAnos };
+  // Formato antigo (tudo num documento) — ou um dispositivo com a app antiga voltou a gravar assim
+  if (base && (tarefasBase || []).length) {
+    if (!chavesAnos.length) return { trab: { ...resto, tarefas: tarefasBase }, migrar: true, anos: chavesAnos };
+    // Já estava por anos e um dispositivo antigo gravou tudo na base: junta as duas (a da base ganha nas tarefas repetidas), sem perder nenhuma
+    const m = new Map(dosAnos.map(t => [t.id, t])); tarefasBase.forEach(t => m.set(t.id, t));
+    return { trab: { ...resto, tarefas: [...m.values()] }, migrar: true, anos: chavesAnos };
+  }
+  if (chavesAnos.length) return { trab: { ...resto, tarefas: dosAnos }, migrar: true, anos: chavesAnos };
+  return { trab: base ? { ...resto, tarefas: [] } : null, migrar: false, anos: [] };
+};
+const semCarimbo = o => JSON.stringify(o, (k, v) => (k === 'atualizado' ? undefined : v));
 
 export {
   PedirDados, txNumero, txR2, txParseCSV, txEhDegiro, txLerDegiro, TX_MESES, txEhTradeRepublic,
@@ -1310,6 +1340,6 @@ export {
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
   ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
-  LigacaoDriveRecibos
+  LigacaoDriveRecibos, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
