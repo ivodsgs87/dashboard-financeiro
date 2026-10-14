@@ -2293,3 +2293,4 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
 
 export default Notas;
 export { Notas, tagsDe, NOTAS_VAZIO };
+export const FICHEIRO_APP = 'notas';
