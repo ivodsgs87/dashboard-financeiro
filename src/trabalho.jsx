@@ -3072,7 +3072,28 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     } catch (e) { setMsg(`⚠ Não consegui apagar: ${e.message || e}`); }
     setAApagar(null); setOcupadoDrive(false);
   };
-  const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
+  // Todos os tamanhos desta pasta de uma vez (vão para o lixo do Drive; a pasta fica)
+  const apagarTodosNoDrive = async () => {
+    const fs = noDrive || [];
+    if (!fs.length) return;
+    if (aApagar !== '*') { setAApagar('*'); return; }
+    setOcupadoDrive(true);
+    const foram = [];
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      for (const f of fs) {
+        try { await driveApi(tk, `${DRV}/${f.id}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); foram.push(f); } catch (e) { /* segue para o próximo */ }
+      }
+    } catch (e) { setMsg(`⚠ Não consegui apagar: ${e.message || e}`); }
+    if (foram.length) {
+      const ids = new Set(foram.map(f => f.id)), nomes = new Set(foram.map(f => f.name));
+      setNoDrive(l => (l || []).filter(x => !ids.has(x.id)));
+      mudarRegisto((verPasta || resultado).pastaId, x => ({ ...x, enviados: (x.enviados || []).filter(e => !ids.has(e.id) && !nomes.has(e.nome)) }));
+      setMsg(foram.length === fs.length ? `🗑 Os ${foram.length} ficheiros foram para o lixo do Drive (dá para recuperar lá durante 30 dias).` : `⚠ Só consegui apagar ${foram.length} de ${fs.length} ficheiros.`);
+    }
+    setAApagar(null); setOcupadoDrive(false);
+  };
+  const mudarItem =(id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
   // Vídeo novo com uma versão que já existe no Drive (e que não é a desta tarefa): não deixa avançar
   // "Esta entrega é…": nova versão ou substituir uma enviada (é o que decide a versão dos ficheiros)
@@ -3455,6 +3476,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             <div className={`rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
               <div className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
                 <span className="font-medium flex-1 min-w-0 truncate">No Drive · {(verPasta || resultado || {}).pasta}</span>
+                {noDrive.length > 1 && (aApagar === '*' ? (
+                  <>
+                    <button type="button" disabled={ocupadoDrive} onClick={apagarTodosNoDrive} className="shrink-0 px-2 py-0.5 rounded-md bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">{ocupadoDrive ? 'A apagar…' : `Apagar os ${noDrive.length}`}</button>
+                    <button type="button" onClick={() => setAApagar(null)} className={`shrink-0 ${sub} hover:text-blue-400`}>Não</button>
+                  </>
+                ) : <button type="button" disabled={ocupadoDrive} onClick={apagarTodosNoDrive} className={`shrink-0 px-2 py-0.5 rounded-md border ${claro ? 'border-slate-200 text-slate-600' : 'border-slate-700 text-slate-300'} hover:text-red-400 hover:border-red-400/50`} title="Manda todos os tamanhos desta versão para o lixo do Drive">Apagar todos</button>)}
                 <button type="button" disabled={ocupadoDrive} onClick={() => verDrive(verPasta)} className={`${sub} hover:text-blue-400`} title="Atualizar">↻</button>
                 <button type="button" onClick={() => { setNoDrive(null); setAApagar(null); }} className={`w-6 h-6 rounded-md ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`} aria-label="Fechar a lista do Drive">✕</button>
               </div>
