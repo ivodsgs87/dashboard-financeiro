@@ -2477,6 +2477,23 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) 
   } }] }) });
   return { ok: true, linha: linha + 1, tab: f.title, gid: f.sheetId };
 };
+// Tira da spreadsheet as linhas com estes nomes (coluna A da tab do jogo) — para refazer pela ordem certa
+const tirarDaSpreadsheet = async (token, sheetUrl, nomes, nomesJogo = []) => {
+  const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
+  if (!id) return { erro: 'O link da spreadsheet não parece certo.' };
+  const ss = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title,gridProperties)`);
+  const folhas = (ss.sheets || []).map(x => x.properties);
+  const gid = Number((/[#&?]gid=(\d+)/.exec(String(sheetUrl)) || [])[1] ?? NaN);
+  const GENERICAS = /^(battle|game|games|the|creative|tracker|mobile|clash|world|super)$/i;
+  const palavras = [...new Set(nomesJogo.flatMap(n => String(n || '').split(/[^A-Za-zÀ-ÿ0-9]+/)).filter(w => w.length >= 4 && !GENERICAS.test(w)).map(w => w.toLowerCase()))];
+  const f = (palavras.length ? folhas.find(x => palavras.some(w => x.title.toLowerCase().includes(w))) : null) || folhas.find(x => x.sheetId === gid) || (folhas.length === 1 ? folhas[0] : null);
+  if (!f) return { erro: 'Não sei qual é a tab deste jogo na spreadsheet.' };
+  const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${f.title}'!A:A`)}`);
+  const alvo = new Set(nomes.filter(Boolean).map(n => String(n).trim().toUpperCase()));
+  const linhas = (vals.values || []).map((l, i) => (alvo.has(String((l && l[0]) || '').trim().toUpperCase()) ? i : -1)).filter(i => i > 0).sort((a, b) => b - a);
+  if (linhas.length) await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: linhas.map(i => ({ deleteDimension: { range: { sheetId: f.sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } })) }) });
+  return { ok: true, apagadas: linhas.length, tab: f.title };
+};
 // Tab do jogo numa spreadsheet: pelo nome (ex.: "Sniper Creative tracker"), senão a do link (gid), senão a única
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
 const tabDoJogo = (folhas, sheetUrl, nomesJogo) => {
@@ -2591,6 +2608,58 @@ const procurarNaPasta = async (raiz, h) => {
 };
 // NUNCA escreve por cima de outro ficheiro: se o nome novo já existir na pasta, pára e avisa.
 // Só apaga o original depois de confirmar que a cópia com o nome novo ficou com o mesmo tamanho.
+// ── Pasta do projeto no PC (a de cima da @Exports): nome "Conceito_V1_V2", ou "Conceito_V1_Variação" se só tiver uma versão ──
+const RAIZ_TRABALHO = 'raiz-trabalho';
+const ehPastaExports = n => /^@?\s*exports?$/i.test(String(n || '').trim());
+const palavrasTitulo = x => { const txt = String(x || '').trim(); const tudoMaiusc = txt === txt.toUpperCase(); return txt.split(/[^A-Za-zÀ-ÿ0-9]+/).filter(Boolean).map(w => (!tudoMaiusc && w.length <= 4 && w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())).join('_'); };
+const nomePastaProjeto = (conceito, versoes, variacaoDe) => {
+  const c = palavrasTitulo(conceito); if (!c) return '';
+  const vs = [...new Set(versoes)].filter(n => n > 0).sort((a, b) => a - b);
+  if (!vs.length) return c;
+  if (vs.length > 1) return `${c}_${vs.map(v => `V${v}`).join('_')}`;
+  const va = palavrasTitulo(variacaoDe(vs[0]) || '');
+  return [c, `V${vs[0]}`, va].filter(Boolean).join('_');
+};
+// Versões que estão na pasta dos exports para este conceito (pelos nomes dos ficheiros: …_CONCEITO_V2_…)
+const versoesNaPasta = async (dir, conceito) => {
+  const c = slugF(conceito); const out = new Set();
+  try { for await (const [nome, e] of dir.entries()) { if (e.kind !== 'file') continue; const k = slugF(nome); if (c && !k.includes(c)) continue; const m = new RegExp(`${c}_V(\\d+)(?:_|$)`).exec(k) || /_V(\d+)(?:_|$)/.exec(k); if (m) out.add(Number(m[1])); } } catch (e) { /* sem acesso */ }
+  return [...out];
+};
+// Onde está a pasta do projeto, a partir da pasta onde a app encontrou os exports (precisa da pasta-mãe dos trabalhos, ex.: WORK)
+const acharPastaProjeto = async (dirExports, pedir) => {
+  const raiz = await idbLer(RAIZ_TRABALHO);
+  if (!raiz) return { semRaiz: true };
+  if (!(await permissaoPasta(raiz, pedir))) return { semRaiz: true, raiz };
+  let caminho = null; try { caminho = await raiz.resolve(dirExports); } catch (e) { caminho = null; }
+  if (!caminho) return { foraDaRaiz: true, raiz };
+  const iProj = caminho.length && ehPastaExports(caminho[caminho.length - 1]) ? caminho.length - 2 : caminho.length - 1;
+  if (iProj < 1) return { foraDaRaiz: true, raiz }; // nunca a própria pasta-mãe nem a do cliente
+  return { raiz, caminho, iProj, nome: caminho[iProj] };
+};
+const mudarNomePastaProjeto = async ({ raiz, caminho, iProj }, novo) => {
+  let pai = raiz;
+  for (const c of caminho.slice(0, iProj)) pai = await pai.getDirectoryHandle(c);
+  const proj = await pai.getDirectoryHandle(caminho[iProj]);
+  if (slugF(novo) !== slugF(caminho[iProj])) {
+    let existe = false;
+    try { await pai.getDirectoryHandle(novo); existe = true; } catch (e) { /* não existe */ }
+    try { await pai.getFileHandle(novo); existe = true; } catch (e) { /* não existe */ }
+    if (existe) { const er = new Error(`já existe uma pasta "${novo}" ao lado — não mexi em nada`); er.name = 'JaExiste'; throw er; }
+  }
+  if (typeof proj.move !== 'function') { const er = new Error('este Chrome não deixa mudar o nome de pastas'); er.name = 'NotSupportedError'; throw er; }
+  await proj.move(novo);
+  const nova = await pai.getDirectoryHandle(novo);
+  let exportsNovo = nova;
+  for (const c of caminho.slice(iProj + 1)) exportsNovo = await exportsNovo.getDirectoryHandle(c);
+  return { nova, exportsNovo };
+};
+const esquecerPasta = async dir => {
+  const l = (await pastasConhecidas()).filter(x => x && x.dir);
+  const fica = [];
+  for (const x of l) { let igual = false; try { igual = await x.dir.isSameEntry(dir); } catch (e) { /* */ } if (!igual) fica.push(x); }
+  await idbGravar('exports-lista', fica);
+};
 const renomearEm = async ({ dir, nome }, novo) => {
   if (nome === novo) return dir.getFileHandle(nome);
   let existe = false;
@@ -2761,7 +2830,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               if (onde) break;
             }
           }
-          if (onde) { a.handleNovo = await renomearEm(onde, a.novo); feito = true; await lembrarPasta(onde.dir, chaves); }
+          if (onde) { a.handleNovo = await renomearEm(onde, a.novo); a.pastaDir = onde.dir; feito = true; await lembrarPasta(onde.dir, chaves); }
           else faltam.push(a);
         } catch (e) { erros.push(e && e.name === 'SecurityError' ? 'clica outra vez (o browser pediu um clique novo)' : String((e && e.message) || e)); }
       }
@@ -2786,7 +2855,48 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         set({ formatos: [...new Set([...(t.formatos || []), ...its.map(x => x.formato).filter(Boolean)])], ficheiros: { ...fx2, ...(!fx.versao ? { versao: vR } : {}) } });
       }
     }
-    return { ok, erros, faltam };
+    return { ok, erros, faltam, pastaDir: (alvos.find(a => a.feito && a.pastaDir) || {}).pastaDir || null, desfazer };
+  };
+  // Depois de mudar os nomes: propõe também o nome da pasta do projeto (Conceito_V1_V2)
+  const [pastaProj, setPastaProj] = useState(null); // { dirExports, info, novo, atual, estado, erro }
+  const proporPastaProjeto = async (dirExports, pedir = false) => {
+    if (!dirExports || !r.conceito) return;
+    const info = await acharPastaProjeto(dirExports, pedir);
+    if (!info.caminho) { setPastaProj({ dirExports, info, estado: info.foraDaRaiz ? 'fora' : 'semRaiz' }); return; }
+    const vs = await versoesNaPasta(dirExports, r.conceito);
+    const novo = nomePastaProjeto(r.conceito, vs.length ? vs : [Number(versaoDe(verSug))], v => campoVersao(fx, v, 'variacao', t));
+    if (!novo || novo === info.nome) { setPastaProj(null); return; }
+    setPastaProj({ dirExports, info, novo, atual: info.nome, parecido: conceitoParecido(info.nome, r.conceito), estado: 'propor' });
+  };
+  const darAcessoRaiz = async () => {
+    if (!pastaProj) return;
+    try {
+      if (!window.showDirectoryPicker) throw new Error('este browser não deixa (usa o Chrome)');
+      const d = await window.showDirectoryPicker({ id: 'raiz-trabalho', mode: 'readwrite' });
+      await idbGravar(RAIZ_TRABALHO, d);
+      await proporPastaProjeto(pastaProj.dirExports, true);
+    } catch (e) { if (!(e && e.name === 'AbortError')) setPastaProj(p => ({ ...p, erro: String(e.message || e) })); }
+  };
+  const mudarPastaAgora = async () => {
+    if (!pastaProj || !pastaProj.info || !pastaProj.novo) return;
+    const novo = pastaProj.novo.trim().replace(/[\/:*?"<>|]+/g, '_');
+    if (!novo) return;
+    setPastaProj(p => ({ ...p, estado: 'a mudar', erro: '' }));
+    try {
+      if (!(await permissaoPasta(pastaProj.info.raiz, true))) throw new Error('sem autorização para a pasta dos trabalhos');
+      const { exportsNovo } = await mudarNomePastaProjeto(pastaProj.info, novo);
+      await esquecerPasta(pastaProj.dirExports);
+      await lembrarPasta(exportsNovo, chaves);
+      setPastaProj({ estado: 'feito', atual: pastaProj.atual, novo });
+    } catch (e) {
+      const n = e && e.name;
+      const erro = n === 'JaExiste' ? e.message
+        : n === 'NoModificationAllowedError' || n === 'InvalidModificationError' ? 'o Windows não deixou — fecha o projeto no After Effects (e a pasta no Explorador) e tenta outra vez'
+        : n === 'NotSupportedError' || n === 'TypeError' ? 'o teu Chrome não deixa mudar o nome de pastas — copiei o nome novo: na pasta, carrega F2 e cola (Ctrl+V)'
+        : String((e && e.message) || e);
+      if (n === 'NotSupportedError' || n === 'TypeError') { try { await navigator.clipboard.writeText(novo); } catch (x) { /* sem acesso */ } }
+      setPastaProj(p => ({ ...p, estado: 'propor', erro }));
+    }
   };
   const desfazerNomes = async () => {
     const alvos = historico.map(x => ({ id: x.itemId && lista.some(y => y.id === x.itemId) ? x.itemId : null, handle: x.handle, novo: x.antes }));
@@ -2796,8 +2906,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     setMsg(ok ? `↩ ${ok} ficheiro${ok === 1 ? '' : 's'} com o nome anterior outra vez${faltam.length ? ` · ${faltam.length} não encontrei` : ''}` : `⚠ Não consegui voltar ao nome anterior: ${erros[0] || (faltam.length ? 'não encontrei os ficheiros nas pastas que conheço' : 'sem autorização')}.`);
   };
   const [pedirPasta, setPedirPasta] = useState(null); // { alvos, depois } quando não encontrou os ficheiros
-  const fimRenomear = ({ ok, erros, faltam }, alvos, depois) => {
+  const fimRenomear = ({ ok, erros, faltam, pastaDir }, alvos, depois) => {
     setPedirPasta(faltam.length ? { alvos: faltam, depois } : null);
+    if (ok && pastaDir) proporPastaProjeto(pastaDir).catch(() => {});
     if (depois && ok && !faltam.length) setRenomeados(null);
     const pl = n => (n === 1 ? '' : 's');
     setMsg(faltam.length
@@ -2845,6 +2956,55 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     try { const tk = tokenGuardado() || await tokenDrive(conta); folha = await juntarNaSpreadsheet(tk, jogo.sheet, resultado.nomeBase, resultado.url, [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); }
     catch (e) { folha = { erro: String(e.message || e) }; }
     const reg = { ...resultado, folha }; setResultado(reg); set({ drive: reg }); setMsg('');
+    setOcupadoDrive(false);
+  };
+  // Anular o envio de uma versão (ex.: foi para a V3 por engano): ficheiros e pasta para o lixo do Drive,
+  // tira a linha da spreadsheet e a tarefa deixa de ter essa versão (o número fica livre outra vez)
+  const [anular, setAnular] = useState(null); // pastaId à espera de confirmação
+  const anularEnvio = async d => {
+    if (!d || !d.pastaId) return;
+    if (anular !== d.pastaId) { setAnular(d.pastaId); return; }
+    setOcupadoDrive(true); setMsg(`A anular o envio da V${versaoDaPasta(d) || '?'}…`);
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      const fs = await filhosDrive(tk, d.pastaId, false);
+      for (const f of fs) await driveApi(tk, `${DRV}/${f.id}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+      const subs = await filhosDrive(tk, d.pastaId, true);
+      if (!subs.length) await driveApi(tk, `${DRV}/${d.pastaId}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+      let folhaTxt = '';
+      if (jogo.sheet && d.nomeBase) { try { const tr = await tirarDaSpreadsheet(tk, jogo.sheet, [d.nomeBase], [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); if (tr.apagadas) folhaTxt = ' e a linha da spreadsheet'; } catch (e) { /* fica */ } }
+      const todas = [resultado, ...((resultado && resultado.anteriores) || [])].filter(x => x && x.pastaId && x.pastaId !== d.pastaId).map(({ anteriores, ...x }) => x);
+      todas.sort((x, y) => String(y.em || '').localeCompare(String(x.em || '')));
+      const reg = todas.length ? { ...todas[0], ...(todas.length > 1 ? { anteriores: todas.slice(1) } : {}) } : null;
+      const v = versaoDaPasta(d);
+      const fx0 = t.ficheiros || {};
+      const fichNovo = String(fx0.versao || '') === String(v) && reg ? { ...fx0, versao: String(versaoDaPasta(reg) || '') } : fx0;
+      setResultado(reg); set({ drive: reg, link: reg ? reg.url : '', ficheiros: fichNovo });
+      if (infoVersao) setInfoVersao(null);
+      setMsg(`↩ Envio da V${v || '?'} anulado: ${fs.length} ficheiro${fs.length === 1 ? '' : 's'}${subs.length ? '' : ' e a pasta'} no lixo do Drive${folhaTxt}. ${t.trello && t.trello.id ? 'O link no cartão do Trello fica — apaga-o lá se quiseres. ' : ''}Para voltar aos nomes antigos no PC usa "Voltar ao nome anterior".`);
+    } catch (e) { setMsg(`⚠ Não consegui anular: ${e.message || e}`); }
+    setAnular(null); setOcupadoDrive(false);
+  };
+  // Spreadsheet com todas as versões desta tarefa, pela ordem (V1, V2…): tira as linhas que lá estejam e volta a juntá-las
+  const [tirarFolha, setTirarFolha] = useState(false);
+  const versoesFolha = () => (resultado ? [resultado, ...(resultado.anteriores || [])] : []).filter(d => d && d.url && d.nomeBase).sort((x, y) => versaoDaPasta(x) - versaoDaPasta(y));
+  const refazerFolha = async soTirar => {
+    const vs = versoesFolha();
+    if (!vs.length || !jogo || !jogo.sheet) return;
+    setOcupadoDrive(true); setMsg(soTirar ? 'A tirar da spreadsheet…' : 'A pôr na spreadsheet pela ordem das versões…');
+    const nomesJ = [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])];
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      const tirou = await tirarDaSpreadsheet(tk, jogo.sheet, vs.map(d => d.nomeBase), nomesJ);
+      if (tirou.erro) throw new Error(tirou.erro);
+      const folhas = {};
+      if (!soTirar) for (const d of vs) folhas[d.nomeBase] = await juntarNaSpreadsheet(tk, jogo.sheet, d.nomeBase, d.url, nomesJ);
+      const comFolha = d => (d && d.nomeBase && vs.includes(d) ? { ...d, folha: soTirar ? null : folhas[d.nomeBase] } : d);
+      const reg = { ...comFolha(resultado), ...(resultado.anteriores ? { anteriores: resultado.anteriores.map(comFolha) } : {}) };
+      setResultado(reg); set({ drive: reg });
+      setMsg(soTirar ? `✓ Tirei ${tirou.apagadas} linha${tirou.apagadas === 1 ? '' : 's'} da spreadsheet (${tirou.tab}).` : `✓ Na spreadsheet pela ordem: ${vs.map(d => `V${versaoDaPasta(d) || '?'}`).join(', ')} (${tirou.tab}).`);
+    } catch (e) { setMsg(`⚠ Spreadsheet: ${e.message || e}`); }
+    setTirarFolha(false);
     setOcupadoDrive(false);
   };
   const apagarNoDrive = async f => {
@@ -2902,6 +3062,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       const existentes = await filhosDrive(token, pVersao.id, false);
       const enviados = [];
       const paraRenomear = [];
+      let nSubst = 0;
       for (const item of lista) {
         const nome = nomeFinal(item, v);
         const ex = existentes.find(f => f.name === nome);
@@ -2909,7 +3070,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         setMsg(`A enviar ${nome}…`);
         try {
           const res = await enviarParaDrive(token, { file: item.file, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
-          mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex });
+          mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex }); if (ex) nSubst++;
           enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
           if (item.handle && !item.renomeado && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
         } catch (e) { mudarItem(item.id, { estado: 'erro', erro: String(e.message || e) }); }
@@ -2943,7 +3104,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         Object.assign(reg, novo);
         set({ drive: novo }); setResultado({ ...novo, trelloN: res.n });
       }
-      setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
+      setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive${nSubst ? ` (${nSubst === enviados.length ? 'todos substituídos' : `${nSubst} substituído${nSubst === 1 ? '' : 's'}`} — o link é o mesmo)` : ''}` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
       if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); }
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setAEnviar(false);
@@ -3008,13 +3169,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               ))}
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
+              {(() => { const vA = Number(versaoLote || fx.versao || versaoAnterior || verSug); return vA && versoesTarefa.includes(vA) ? <p className="text-xs text-sky-400">↻ A V{vA} já foi enviada: os ficheiros com o mesmo nome são <b>substituídos</b> no Drive (o link, a linha da spreadsheet e o Trello ficam iguais).</p> : null; })()}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="flex-1" />
                 {comHandle.length > 0 ? (
                   <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0 || versaoOcupada} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏ Renomear no PC'}</button>
                 ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
-                <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
+                <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : versoesTarefa.includes(Number(versaoLote || fx.versao || versaoAnterior || verSug)) ? `Substituir ${lista.length} na V${Number(versaoLote || fx.versao || versaoAnterior || verSug)}` : `Enviar ${lista.length} para o Drive`}</button>
               </div>
             </div>
           )}
@@ -3042,6 +3204,31 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               <span className={`${sub} truncate max-w-full`}>ex.: {historico[0].antes}</span>
             </div>
           )}
+          {pastaProj && (
+            <div className={`rounded-lg border p-2.5 text-xs space-y-1.5 ${pastaProj.estado === 'feito' ? 'border-emerald-500/40 bg-emerald-500/10' : claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/50'}`}>
+              {pastaProj.estado === 'feito' ? <p className="text-emerald-500">✓ Pasta do projeto: <b>{pastaProj.atual}</b> → <b>{pastaProj.novo}</b></p>
+                : pastaProj.estado === 'semRaiz' || pastaProj.estado === 'fora' ? (
+                  <>
+                    <p>📁 Para mudar também o nome da <b>pasta do projeto</b>, dá acesso uma vez à pasta onde tens os trabalhos (ex.: <b>WORK</b>).{pastaProj.estado === 'fora' ? ' A que deste não tem esta pasta dos exports lá dentro.' : ''}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={darAcessoRaiz} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Escolher a pasta dos trabalhos</button>
+                      <button type="button" onClick={() => setPastaProj(null)} className={`px-2.5 py-1 rounded-lg ${sub}`}>Agora não</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p>📁 Pasta do projeto: <b className="break-all">{pastaProj.atual}</b> →</p>
+                    <input value={pastaProj.novo} onChange={e => setPastaProj(p => ({ ...p, novo: e.target.value }))} aria-label="Nome novo da pasta do projeto" className={`${inputClass} text-xs py-1 font-mono`} />
+                    {!pastaProj.parecido && <p className="text-amber-500">⚠ O nome atual não se parece com este conceito — confirma que é a pasta certa.</p>}
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" disabled={pastaProj.estado === 'a mudar'} onClick={mudarPastaAgora} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">{pastaProj.estado === 'a mudar' ? 'A mudar…' : 'Mudar o nome da pasta'}</button>
+                      <button type="button" onClick={() => setPastaProj(null)} className={`px-2.5 py-1 rounded-lg ${sub}`}>Deixar como está</button>
+                    </div>
+                  </>
+                )}
+              {pastaProj.erro && <p className="text-red-400">⚠ {pastaProj.erro}</p>}
+            </div>
+          )}
           {pedirPasta && (
             <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
           )}
@@ -3059,10 +3246,25 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {[resultado, ...(resultado.anteriores || [])].filter(d => d && d.url).sort((x, y) => versaoDaPasta(x) - versaoDaPasta(y)).map(d => (
-                <a key={d.pastaId || d.url} href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
+                <span key={d.pastaId || d.url} className="inline-flex items-center">
+                  <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`${btn} ${d.pastaId ? '!rounded-r-none' : ''}`} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
+                  {d.pastaId && <button type="button" disabled={ocupadoDrive} onClick={() => anularEnvio(d)} onBlur={() => setTimeout(() => setAnular(a => (a === d.pastaId ? null : a)), 200)}
+                    className={`${btn} !rounded-l-none -ml-px disabled:opacity-50 ${anular === d.pastaId ? '!border-red-500/60 text-red-400' : sub}`} title={`Anular o envio da ${versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : 'pasta'}: ficheiros e pasta para o lixo do Drive, tira a linha da spreadsheet e liberta o número`}>
+                    {anular === d.pastaId ? `Anular V${versaoDaPasta(d) || ''}?` : '✕'}</button>}
+                </span>
               ))}
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
-              {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
+              {jogo.sheet && versoesFolha().length > 0 && (() => {
+                const vs = versoesFolha(); const faltam = vs.filter(d => !(d.folha && d.folha.ok)); const algumaLa = vs.some(d => d.folha && d.folha.ok);
+                return <>
+                  {(faltam.length > 0 && algumaLa) || (vs.length > 1 && faltam.length > 0) ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(false)} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`} title="Tira as linhas desta tarefa e volta a pô-las pela ordem das versões">📊 Pôr {vs.map(d => `V${versaoDaPasta(d) || '?'}`).join(' e ')} na spreadsheet</button>
+                    : algumaLa ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(false)} className={`${btn} disabled:opacity-50`} title="Tira as linhas desta tarefa e volta a pô-las pela ordem das versões (as caixinhas das networks dessas linhas ficam por marcar)">↺ Refazer na spreadsheet</button> : null}
+                  {(tirarFolha
+                    ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(true)} className={`${btn} !border-red-500/50 text-red-400 disabled:opacity-50`}>Confirmar: tirar {vs.map(d => `V${versaoDaPasta(d) || '?'}`).join(' e ')} da spreadsheet</button>
+                    : <button type="button" disabled={ocupadoDrive} onClick={() => setTirarFolha(true)} className={`${btn} disabled:opacity-50`} title="Apaga as linhas desta tarefa na spreadsheet">✕ Tirar da spreadsheet</button>)}
+                </>;
+              })()}
+              {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && versoesFolha().length <= 1 && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
               {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂 Ver / apagar ficheiros no Drive'}</button>}
             </div>
           )}
@@ -3240,7 +3442,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
       {versaoMudada && <p className="-mt-1 text-[11px] text-amber-500">⚠ {versaoMudada}</p>}
       {(avisoV || vEnviada) && (
         <p className={`text-[11px] -mt-1 ${avisoV ? 'text-amber-500' : sub}`}>
-          {avisoV || <>A V{r.vNum} já foi enviada — estes são os nomes dela. Para ficheiros novos <button type="button" onClick={() => { setF({ versao: String(proximaV) }); setAvisoV(''); }} className="text-blue-400 hover:text-blue-300">passa para a V{proximaV}</button>.</>}
+          {avisoV || <>A V{r.vNum} já foi enviada — estes são os nomes dela. <b>Para substituir</b> (ex.: depois de feedback), arrasta os exports novos lá em baixo: trocam os ficheiros da V{r.vNum} no Drive. Só se for outro vídeo/variação é que <button type="button" onClick={() => { setF({ versao: String(proximaV) }); setAvisoV(''); }} className="text-blue-400 hover:text-blue-300">passas para a V{proximaV}</button>.</>}
         </p>
       )}
       {raizD && (
@@ -3296,13 +3498,14 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
 };
 
 // ── Criar uma spreadsheet (tracker) para vários jogos de uma vez ──
-const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => {
+const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar, estudioInicial = '' }) => {
   const modelos = jogos.filter(j => /docs\.google\.com\/spreadsheets\/d\//.test(String(j.sheet || '')));
   // Estúdios (ex.: Bear Hug, Hyp Games): escolhem os jogos de uma vez; o nome fica guardado em cada jogo
   const estudios = [...new Set(jogos.map(j => String(j.estudio || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt'));
-  const [sel, setSel] = useState(() => new Set());
-  const [estudio, setEstudio] = useState('');
-  const [titulo, setTitulo] = useState('Creative tracker');
+  const doEstudio = e => jogos.filter(j => e && String(j.estudio || '').trim().toLowerCase() === e.trim().toLowerCase());
+  const [sel, setSel] = useState(() => new Set(doEstudio(estudioInicial).filter(j => !j.sheet).map(j => j.id)));
+  const [estudio, setEstudio] = useState(estudioInicial);
+  const [titulo, setTitulo] = useState(estudioInicial ? `${estudioInicial} — Creative tracker` : 'Creative tracker');
   const [tituloMexido, setTituloMexido] = useState(false);
   const escolherEstudio = e => {
     setEstudio(e);
@@ -3393,7 +3596,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [nome, setNome] = useState('');
   const [corAberta, setCorAberta] = useState(null);
-  const [novaFolha, setNovaFolha] = useState(false);
+  const [novaFolha, setNovaFolha] = useState(false); // false | true | 'Nome do estúdio'
   const jogos = (trab.jogos || []).filter(j => String(j.cid) === String(cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt'));
   const listas = (trab.pastas || []).filter(p => String(p.cid) === String(cid));
   const semJogo = listas.filter(p => !p.jogoId && !p.mesNum && ehListaDeJogo(p.nome) && !listas.some(f => f.paiId === p.id));
@@ -3416,46 +3619,74 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
         {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
         {jogos.length > 0 && !novaFolha && <button type="button" onClick={() => setNovaFolha(true)} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoFolha s={13} /> Criar spreadsheet para vários jogos</button>}
       </div>
-      {novaFolha && <CriarFolha cid={cid} jogos={jogos} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} onFechar={() => setNovaFolha(false)} />}
+      {novaFolha && <CriarFolha key={String(novaFolha)} cid={cid} jogos={jogos} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} estudioInicial={typeof novaFolha === 'string' ? novaFolha : ''} onFechar={() => setNovaFolha(false)} />}
       {!jogos.length && <p className={`text-sm ${sub}`}>Ainda não há jogos. Cria um, ou deteta-os pelos nomes das listas (ex.: "44 - Mahjong - Oct" → Mahjong).</p>}
-      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-        {jogos.map(j => {
-          const st = stats(j);
-          const set = patch => mudar(tr => opJogo(tr, j.id, patch));
-          return (
-            <div key={j.id} className={`rounded-xl border p-3 space-y-2.5 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`} style={{ borderLeft: `4px solid ${j.cor}` }}>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setCorAberta(corAberta === j.id ? null : j.id)} className="w-6 h-6 rounded-md shrink-0 ring-1 ring-black/10" style={{ background: j.cor }} aria-label={`Cor de ${j.nome}`} title="Mudar a cor" />
-                <TxtIn valor={j.nome} onGravar={v => v && set({ nome: v })} className={`${inputClass} text-sm py-1 font-semibold`} />
-                <button type="button" onClick={() => { if (window.confirm(`Apagar o jogo "${j.nome}"? As listas e as tarefas ficam como estão.`)) mudar(tr => opApagarJogo(tr, j.id)); }} className={`shrink-0 text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${j.nome}`}>✕</button>
+      {jogos.length > 0 && (() => {
+        // Uma linha por jogo, agrupados por estúdio (desliza para o lado em ecrãs pequenos)
+        const COLS = 'grid grid-cols-[210px_120px_84px_170px_120px_190px_190px_190px_220px_150px_150px_24px] gap-2 items-start';
+        const cab = ['Jogo', 'Estúdio', 'Código', 'Outros nomes', 'Nome na fatura', 'Drive — vídeos', 'Drive — statics', 'Spreadsheet', 'Trello', 'Este ano', 'Notas', ''];
+        const grupos = {};
+        jogos.forEach(j => { const e = String(j.estudio || '').trim(); (grupos[e] = grupos[e] || []).push(j); });
+        const nomesG = Object.keys(grupos).sort((x, y) => (!x) - (!y) || x.localeCompare(y, 'pt'));
+        const celula = (rot, el) => <label className="block min-w-0"><span className="sr-only">{rot}</span>{el}</label>;
+        const fundo = claro ? 'bg-white' : 'bg-slate-900';
+        return (
+          <div className={`rounded-xl border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/40'}`}>
+            <div className="min-w-max">
+              <div className={`${COLS} px-3 py-2 text-[11px] uppercase tracking-wide border-b ${sub} ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+                {cab.map((c, i) => <span key={i} className={i === 0 ? `sticky left-0 z-10 ${fundo}` : ''}>{c}</span>)}
               </div>
-              {corAberta === j.id && (
-                <div className="flex flex-wrap gap-1.5">{CORES_JOGO.map(c => <button key={c} type="button" onClick={() => { set({ cor: c }); setCorAberta(null); }} className={`w-6 h-6 rounded-md ${j.cor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`} style={{ background: c }} aria-label={`Cor ${c}`} />)}</div>
-              )}
-              <p className={`text-xs ${sub}`}>{st.listas} lista{st.listas === 1 ? '' : 's'} · {st.tarefas} tarefa{st.tarefas === 1 ? '' : 's'} · <span className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(st.valor)}</span> em {ano}</p>
-              <div className="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
-                <Campo rot="Outros nomes (vírgulas)"><TxtIn valor={(j.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Win Money Mahjong" className={ic} /></Campo>
-                <Campo rot="Nome na fatura"><TxtIn valor={j.nomeFatura} onGravar={v => set({ nomeFatura: v })} placeholder={j.nome} className={ic} /></Campo>
-                <Campo rot="Código"><TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="ex.: MJ" className={ic} /></Campo>
-                <Campo rot="Estúdio"><TxtIn valor={j.estudio} onGravar={v => set({ estudio: v.trim() })} placeholder="ex.: Bear Hug" className={ic} /></Campo>
-              </div>
-              <Campo rot="Pasta do Drive — vídeos"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
-              <Campo rot="Pasta do Drive — banners / statics"><div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="https://drive.google.com/… (opcional)" className={ic} />{link(j.driveStatics)}</div></Campo>
-              <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
-              {j.sheet && j.trello ? <p className={`text-[11px] ${sub}`}>Trello escondido neste jogo (tem spreadsheet). <button type="button" onClick={() => set({ trello: '', trelloLista: null })} className="text-blue-400 hover:text-blue-300">Tirar o quadro</button></p>
-                : <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} />}
-              {onAbrirNota && <div className={`pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}><p className={`text-xs mb-0.5 ${sub}`}>Notas</p><NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} /></div>}
+              {nomesG.map(e => (
+                <div key={e || '_'}>
+                  <div className={`flex items-center gap-2 px-3 py-2 ${claro ? 'bg-slate-50' : 'bg-white/[0.03]'}`}>
+                    <span className={`sticky left-3 text-sm font-semibold ${e ? '' : sub}`}>{e || 'Sem estúdio'}</span>
+                    <span className={`text-xs ${sub}`}>{grupos[e].length} jogo{grupos[e].length === 1 ? '' : 's'}</span>
+                    {e && grupos[e].some(j => !j.sheet) && <button type="button" onClick={() => setNovaFolha(e)} className="sticky left-48 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoFolha s={12} /> Criar spreadsheet para {e}</button>}
+                  </div>
+                  {grupos[e].map(j => {
+                    const st = stats(j);
+                    const set = patch => mudar(tr => opJogo(tr, j.id, patch));
+                    return (
+                      <div key={j.id} className={`border-t ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+                        <div className={`${COLS} px-3 py-2`}>
+                          <div className={`sticky left-0 z-10 flex items-center gap-2 ${fundo}`}>
+                            <button type="button" onClick={() => setCorAberta(corAberta === j.id ? null : j.id)} className="w-5 h-5 rounded-md shrink-0 ring-1 ring-black/10" style={{ background: j.cor }} aria-label={`Cor de ${j.nome}`} title="Mudar a cor" />
+                            <TxtIn valor={j.nome} onGravar={v => v && set({ nome: v })} className={`${ic} font-semibold`} />
+                          </div>
+                          {celula('Estúdio', <TxtIn valor={j.estudio} onGravar={v => set({ estudio: v.trim() })} placeholder="estúdio" list={`estudios-${cid}`} className={ic} />)}
+                          {celula('Código', <TxtIn valor={j.codigo} onGravar={v => set({ codigo: v })} placeholder="código" className={ic} />)}
+                          {celula('Outros nomes (vírgulas)', <TxtIn valor={(j.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="outros nomes, vírgulas" className={ic} />)}
+                          {celula('Nome na fatura', <TxtIn valor={j.nomeFatura} onGravar={v => set({ nomeFatura: v })} placeholder={j.nome} className={ic} />)}
+                          {celula('Pasta do Drive — vídeos', <div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="drive.google.com/…" className={ic} />{link(j.drive)}</div>)}
+                          {celula('Pasta do Drive — banners / statics', <div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="(opcional)" className={ic} />{link(j.driveStatics)}</div>)}
+                          {celula('Spreadsheet', <div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div>)}
+                          {j.sheet && j.trello ? <p className={`text-[11px] leading-snug pt-1 ${sub}`}>Escondido (tem spreadsheet). <button type="button" onClick={() => set({ trello: '', trelloLista: null })} className="text-blue-400 hover:text-blue-300">Tirar</button></p>
+                            : j.sheet ? <span className={`text-[11px] pt-1.5 ${sub}`}>— (usa a spreadsheet)</span>
+                            : <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} semRotulo />}
+                          <p className={`text-xs leading-snug pt-1 ${sub}`}>{st.listas} lista{st.listas === 1 ? '' : 's'} · {st.tarefas} tarefa{st.tarefas === 1 ? '' : 's'}<br /><span className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(st.valor)}</span> em {ano}</p>
+                          <div className="min-w-0">{onAbrirNota && <NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} />}</div>
+                          <button type="button" onClick={() => { if (window.confirm(`Apagar o jogo "${j.nome}"? As listas e as tarefas ficam como estão.`)) mudar(tr => opApagarJogo(tr, j.id)); }} className={`pt-1.5 text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${j.nome}`}>✕</button>
+                        </div>
+                        {corAberta === j.id && (
+                          <div className="sticky left-0 flex flex-wrap gap-1.5 px-3 pb-2 pl-10">{CORES_JOGO.map(c => <button key={c} type="button" onClick={() => { set({ cor: c }); setCorAberta(null); }} className={`w-6 h-6 rounded-md ${j.cor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`} style={{ background: c }} aria-label={`Cor ${c}`} />)}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+            <datalist id={`estudios-${cid}`}>{[...new Set(jogos.map(j => String(j.estudio || '').trim()).filter(Boolean))].map(e => <option key={e} value={e} />)}</datalist>
+          </div>
+        );
+      })()}
       <p className={`text-[11px] ${sub}`}>As listas novas com o nome do jogo (ex.: "45 - Mahjong - Nov") ligam-se sozinhas e ficam com a cor dele. O código, a pasta do Drive e a spreadsheet vão servir para dar nome aos ficheiros e fazer o upload automático mais tarde.</p>
     </div>
   );
 };
 
 // Trello do jogo: o quadro e a lista onde a app cria os cartões novos
-const TrelloJogo = ({ j, set, ic, sub, claro, link }) => {
+const TrelloJogo = ({ j, set, ic, sub, claro, link, semRotulo }) => {
   const [listas, setListas] = useState(null);
   const [msg, setMsg] = useState('');
   const carregar = async () => {
@@ -3465,7 +3696,7 @@ const TrelloJogo = ({ j, set, ic, sub, claro, link }) => {
   };
   return (
     <div className="space-y-1.5">
-      <Campo rot="Quadro do Trello (opcional)"><div className="flex items-center"><TxtIn valor={j.trello} onGravar={v => { set({ trello: v, trelloLista: v ? j.trelloLista : null }); setListas(null); setMsg(''); }} placeholder="https://trello.com/b/…" className={ic} />{link(j.trello)}</div></Campo>
+      <Campo rot="Quadro do Trello (opcional)" escondido={semRotulo}><div className="flex items-center"><TxtIn valor={j.trello} onGravar={v => { set({ trello: v, trelloLista: v ? j.trelloLista : null }); setListas(null); setMsg(''); }} placeholder="https://trello.com/b/…" className={ic} />{link(j.trello)}</div></Campo>
       {j.trello && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={sub}>Cartões novos vão para:</span>
@@ -4255,8 +4486,8 @@ const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
   Object.keys(f).map(Number).sort((a, b) => b - a).some(a => { const i = (f[a] || []).map((v, k) => (v ? k : -1)).filter(k => k >= 0).pop(); if (i != null && i >= 0) { ultimo = `${meses[i]} ${a}`; return true; } return false; });
   return { meses12, fatAno, fatAnt, horasAno, emCurso, porEntregar, entregueMes, ultimo, eurHora: horasAno > 0 ? fatAno / horasAno : 0 };
 };
-const Campo = ({ rot, children, largo }) => (
-  <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-400">{rot}</span>{children}</label>
+const Campo = ({ rot, children, largo, escondido }) => (
+  <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className={escondido ? 'sr-only' : 'text-xs text-slate-400'}>{rot}</span>{children}</label>
 );
 const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text', list, onFocus, onInput }) => (
   <input key={String(valor ?? '')} type={type} defaultValue={valor ?? ''} placeholder={placeholder} className={className} list={list} onFocus={onFocus} onInput={onInput}
