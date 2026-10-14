@@ -2114,16 +2114,18 @@ const fxComVersao = (fx, t, v, patch) => {
   return { ...fx, ...patch, porVersao: pv };
 };
 // Versões deste conceito já usadas por OUTRAS tarefas do mesmo jogo (enviadas ou já com versão escrita) — nunca se repete conceito + versão
+const tipoFicheiro = t => { const fx = t.ficheiros || {}; const tipoP = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro'); return slugF(fx.tipo) || (tipoP ? (TIPO_FICHEIRO[tipoP.tipo] || slugF(tipoP.tipo).slice(0, 3)) : 'VID'); };
 const versoesDeOutras = (trab, t, conceitoSlug) => {
   const j = jogoDaTarefa(trab, t);
   if (!j || !conceitoSlug) return [];
+  const tipo = tipoFicheiro(t); // vídeos e banners têm nomes diferentes (VID / BAN…), por isso contam à parte
   const out = new Set();
   (trab.tarefas || []).forEach(x => {
     if (x.id === t.id) return;
     const jx = jogoDaTarefa(trab, x);
     if (!jx || (j.id ? jx.id !== j.id : slugF(jx.nome) !== slugF(j.nome))) return;
     const fx = x.ficheiros || {};
-    if (slugF(fx.conceito || conceitoDoNome(x.nome)) !== conceitoSlug) return;
+    if (slugF(fx.conceito || conceitoDoNome(x.nome)) !== conceitoSlug || tipoFicheiro(x) !== tipo) return;
     versoesEnviadas(x).forEach(n => out.add(n));
     if (Number(fx.versao) > 0) out.add(Number(fx.versao));
   });
@@ -2134,7 +2136,7 @@ const nomesFicheiros = (trab, t, vForcada) => {
   const jogo = jogoDaTarefa(trab, t);
   const cod = slugF((jogo && jogo.codigo) || (jogo ? iniciaisJogo(jogo.nome) : '')) || 'JOGO';
   const tipoP = trabPecas(t).find(p => p.tipo !== 'extra' && p.tipo !== 'outro');
-  const tipo = slugF(fx.tipo) || (tipoP ? (TIPO_FICHEIRO[tipoP.tipo] || slugF(tipoP.tipo).slice(0, 3)) : 'VID');
+  const tipo = tipoFicheiro(t);
   const conceito = slugF(fx.conceito || conceitoDoNome(t.nome));
   const vNum = String(vForcada || fx.versao || (t.drive && (/_V(\d+)(?:_|$)/.exec(String(t.drive.pasta || '')) || [])[1]) || (() => { const o = versoesDeOutras(trab, t, conceito); return o.length ? Math.max(...o) + 1 : 1; })()).replace(/^v/i, ''); // sem versão: a seguinte às das outras tarefas deste conceito (ou V1)
   const versao = `V${vNum}`; // sem versão: V1
@@ -2994,6 +2996,27 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   const proximaV = enviadas.length ? Math.max(...enviadas) + 1 : 1;
   const [avisoV, setAvisoV] = useState('');
   const [tentV, setTentV] = useState(0);
+  // Conceito + versão nunca se repetem: se a versão já existe (no Drive ou noutra tarefa deste conceito), passa sozinha para a seguinte livre
+  const [versaoMudada, setVersaoMudada] = useState('');
+  const infoV = infoVersao && infoVersao.conceito === r.conceito ? infoVersao : null;
+  const noDriveV = infoV ? infoV.versoes : [];
+  const outrasV = versoesDeOutras(trab, t, r.conceito);
+  const vAtualN = Number(r.vNum);
+  const ocupadaV = !!r.conceito && !enviadas.includes(vAtualN) && (noDriveV.includes(vAtualN) || outrasV.includes(vAtualN));
+  const livreV = Math.max(0, ...noDriveV, ...outrasV, ...enviadas) + 1;
+  useEffect(() => { setVersaoMudada(''); }, [t.id, r.conceito]);
+  // A versão fica guardada na tarefa logo que há conceito: assim esse número fica reservado para ela (as outras passam à seguinte)
+  useEffect(() => {
+    if (ocupadaV || fx.versao || versaoLote || !r.conceito || enviadas.length) return;
+    setF({ versao: String(r.vNum) });
+  }, [r.conceito, r.vNum, fx.versao, ocupadaV]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ocupadaV) return;
+    setVersaoMudada(`Já existe um ${r.conceito}_V${vAtualN} ${noDriveV.includes(vAtualN) ? 'no Drive' : 'noutra tarefa'} (é de outro vídeo) — passei esta para a V${livreV}.`);
+    setF({ versao: String(livreV) });
+    if (versaoLote) setVersaoLote(String(livreV));
+    setTentV(x => x + 1);
+  }, [ocupadaV, vAtualN, r.conceito, livreV]); // eslint-disable-line react-hooks/exhaustive-deps
   const gravarVersao = txt => {
     const n = String(txt || '').replace(/^v/i, '').trim();
     setAvisoV('');
@@ -3083,27 +3106,13 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
             )}
           </div>
         </label>
-        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn key={'ver' + tentV} valor={versaoLote || fx.versao} onGravar={gravarVersao} placeholder="ex.: 4" className={ic} /></label>
+        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn key={'ver' + tentV + r.vNum} valor={versaoLote || fx.versao || r.vNum} onGravar={gravarVersao} placeholder="ex.: 4" className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span>{vEnviada ? <input key={'var' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'variacao', t) || ''} placeholder="—" title={`A V${r.vNum} já foi enviada: a variação fica como foi`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <TxtIn key={'var' + r.vNum} valor={campoVersao(fx, r.vNum, 'variacao', t)} onGravar={v => setFV({ variacao: v })} placeholder="ex.: Reaction" className={ic} />}</label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span>{vEnviada ? <input key={'dur' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'duracao') ?? ''} placeholder="—" title={`A V${r.vNum} já foi enviada`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <NumIn key={'dur' + r.vNum} valor={campoVersao(fx, r.vNum, 'duracao') ?? null} placeholder="59" decimal={false} onGravar={v => setFV({ duracao: v })} className={ic} />}</label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Tipo</span><TxtIn valor={fx.tipo} onGravar={v => setF({ tipo: v })} placeholder={r.tipo} className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-2 min-w-0"><span className={lab}>Data</span><input key={t.id + 'fd' + (fx.data || '')} type="date" defaultValue={fx.data || r.dia} onBlur={e => { if (e.target.value && e.target.value !== (fx.data || r.dia)) setF({ data: e.target.value }); }} className={ic} /></label>
       </div>
-      {(() => {
-        // A versão escrita já existe no Drive e não é desta tarefa → é de outro vídeo
-        const info = infoVersao && infoVersao.conceito === r.conceito ? infoVersao : null;
-        const v = Number(r.vNum);
-        const noDrive = info ? info.versoes : [];
-        const outras = versoesDeOutras(trab, t, r.conceito);
-        if (enviadas.includes(v) || !(noDrive.includes(v) || outras.includes(v))) return null;
-        const prox = Math.max(...noDrive, ...outras, ...enviadas, 0) + 1;
-        return (
-          <div className="-mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-500">
-            <span>⚠ Já existe um {r.conceito}_V{v} {noDrive.includes(v) ? 'no Drive' : 'noutra tarefa'} (é de outro vídeo) — esta deve ser a <b>V{prox}</b>.</span>
-            <button type="button" onClick={() => { setF({ versao: String(prox) }); if (versaoLote) setVersaoLote(String(prox)); }} className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-medium">Usar V{prox}</button>
-          </div>
-        );
-      })()}
+      {versaoMudada && <p className="-mt-1 text-[11px] text-amber-500">⚠ {versaoMudada}</p>}
       {(avisoV || vEnviada) && (
         <p className={`text-[11px] -mt-1 ${avisoV ? 'text-amber-500' : sub}`}>
           {avisoV || <>A V{r.vNum} já foi enviada — estes são os nomes dela. Para ficheiros novos <button type="button" onClick={() => { setF({ versao: String(proximaV) }); setAvisoV(''); }} className="text-blue-400 hover:text-blue-300">passa para a V{proximaV}</button>.</>}
