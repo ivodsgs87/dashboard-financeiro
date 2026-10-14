@@ -3079,7 +3079,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
      <div>
        <h3 className="font-semibold"><Ico e="💎"/>Património Líquido</h3>
-       <p className="text-xs text-slate-500">{patRotulo(patUlt.idx)} · <button onClick={() => setTab('patrimonio')} className="text-blue-400 hover:text-blue-300">ver detalhe →</button></p>
+       <p className="text-xs text-slate-500">{patRotulo(patUlt.idx)} · <button onClick={() => setTab('patrimonio')} className="text-blue-400 hover:text-blue-300">Ver detalhe →</button></p>
      </div>
      {patUlt.imoveis < 0.5 && patUlt.dividas > 0.5 ? <button onClick={() => setTab('patrimonio')} className="text-sm text-slate-500 hover:text-blue-400 text-right">Falta o valor dos imóveis para o total →</button> : <span className={`text-2xl font-bold ${patUlt.total < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{fmt(patUlt.total)}</span>}
    </div>
@@ -9408,7 +9408,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                            <span className="text-slate-500">{ligada.n} tarefa{ligada.n === 1 ? '' : 's'}{ligada.abertas ? ` · ${ligada.abertas} por acabar` : ' · tudo entregue'}</span>
                            <span className="flex-1" />
                            <button type="button" onClick={() => { setShowAddProjeto(false); abrirPastaTrab(ligada.pastaId); }} className="text-blue-400 hover:underline">Abrir a lista</button>
-                           <button type="button" onClick={() => setNovoProjeto({ ...novoProjeto, pastaId: null })} className="text-slate-500 hover:text-red-400">desligar</button>
+                           <button type="button" onClick={() => setNovoProjeto({ ...novoProjeto, pastaId: null })} className="text-slate-500 hover:text-red-400">Desligar</button>
                          </div>
                        )}
                      </div>
