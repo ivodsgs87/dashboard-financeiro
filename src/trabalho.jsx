@@ -2748,7 +2748,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const nomeBase = [r.cod, r.tipo, baseDe(verSug)].filter(Boolean).join('_');
   // Duração: a que escreveste para esta versão; senão a do próprio vídeo; só no fim a de outra versão
   const durPropria = vv => { const pv = fx.porVersao && fx.porVersao[String(vv)]; return pv && pv.duracao !== undefined ? pv.duracao : undefined; };
-  const durDe = (item, v = verSug) => { const vv = versaoDe(v); const pr = durPropria(vv); if (pr) return pr; const m = item.meta && item.meta.dur ? Math.round(item.meta.dur) : null; return m || campoVersao(fx, vv, 'duracao') || null; };
+  const durDe = (item, v = verSug) => { const vv = versaoDe(v); const mdur = item.meta && item.meta.dur ? Math.round(item.meta.dur) : null;
+    if (mdur && versoesTarefa.includes(Number(vv))) return mdur; // a substituir: a duração é a do vídeo novo
+    const pr = durPropria(vv); if (pr) return pr; const m = item.meta && item.meta.dur ? Math.round(item.meta.dur) : null; return m || campoVersao(fx, vv, 'duracao') || null; };
   const nomeDe = item => (item.handle ? item.handle.name : item.file ? item.file.name : '');
   const vLoteAtual = versaoDe(verSug);
   const dursLote = [...new Set(lista.map(x => (x.meta && x.meta.dur ? Math.round(x.meta.dur) : null)).filter(Boolean))];
@@ -2784,8 +2786,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     // Ficheiros que já têm o nome de uma versão enviada (ex.: …_UGC_SIGNS_V2_…, exportados de novo depois de feedback): são para substituir essa versão
     const cS = slugF(r.conceito);
     const vsNomes = [...new Set(novos.map(x => { const k = slugF(x.file.name); const m = cS && k.includes(cS) ? new RegExp(`${cS}_V(\\d+)(?:_|$)`).exec(k) : null; return m ? Number(m[1]) : null; }))];
-    if (!lista.length && vsNomes.length === 1 && vsNomes[0] && versoesTarefa.includes(vsNomes[0])) setVersaoLote(String(vsNomes[0]));
-    else if (!lista.length && versoesTarefa.length) { const atualV = Number(versaoLote || fx.versao || versaoAnterior || 0); if (!atualV || versoesTarefa.includes(atualV)) setVersaoLote(String(Math.max(...versoesTarefa) + 1)); }
+    if (!lista.length && vsNomes.length === 1 && vsNomes[0] && versoesTarefa.includes(vsNomes[0])) { setVersaoLote(String(vsNomes[0])); setEscolha({ tipo: 'substituir', v: vsNomes[0], porque: `os ficheiros já têm o nome da V${vsNomes[0]} — parece uma correção` }); }
+    else if (!lista.length && versoesTarefa.length) {
+      const atualV = Number(versaoLote || fx.versao || versaoAnterior || 0);
+      const nova = Math.max(...versoesTarefa, ...(((infoVersao && infoVersao.conceito === r.conceito && infoVersao.versoes) || [])), ...versoesDeOutras(trab, t, r.conceito)) + 1;
+      if (!atualV || versoesTarefa.includes(atualV)) setVersaoLote(String(nova));
+      setEscolha({ tipo: 'nova', v: !atualV || versoesTarefa.includes(atualV) ? nova : atualV, porque: 'os ficheiros não têm o nome de nenhuma versão enviada — parece outro vídeo ou variação' });
+    }
     setLista(l => [...l, ...novos]);
     // Se já tens sessão na Google, a versão aparece logo
     const tk = tokenGuardado();
@@ -2916,10 +2923,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     const alvos = itens.map(it => ({ handle: it.handle, novo: it.nomeNovo }));
     fimRenomear(await renomearFicheiros(alvos), alvos, true);
   };
-  const verDrive = async () => {
-    if (!resultado || !resultado.pastaId) return;
-    setOcupadoDrive(true);
-    try { const tk = tokenGuardado() || await tokenDrive(conta); const fs = await filhosDrive(tk, resultado.pastaId, false); setNoDrive(fs.sort((a, b) => a.name.localeCompare(b.name))); }
+  const [menuEntrega, setMenuEntrega] = useState(null); // pastaId com o ⋯ aberto
+  const [nomesEntrega, setNomesEntrega] = useState(null); // pastaId com os nomes à vista
+  const [verPasta, setVerPasta] = useState(null); // registo da versão cuja pasta estás a ver
+  const verDrive = async (d0) => {
+    const d = d0 || resultado;
+    if (!d || !d.pastaId) return;
+    setOcupadoDrive(true); setVerPasta(d);
+    try { const tk = tokenGuardado() || await tokenDrive(conta); const fs = await filhosDrive(tk, d.pastaId, false); setNoDrive(fs.sort((a, b) => a.name.localeCompare(b.name))); }
     catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupadoDrive(false);
   };
@@ -3023,8 +3034,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       const tk = tokenGuardado() || await tokenDrive(conta);
       await driveApi(tk, `${DRV}/${f.id}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
       setNoDrive(l => (l || []).filter(x => x.id !== f.id));
-      const reg = { ...resultado, enviados: (resultado.enviados || []).filter(x => x.id !== f.id && x.nome !== f.name) };
-      setResultado(reg); set({ drive: reg });
+      mudarRegisto((verPasta || resultado).pastaId, x => ({ ...x, enviados: (x.enviados || []).filter(e => e.id !== f.id && e.nome !== f.name) }));
       setMsg(`🗑 ${f.name} foi para o lixo do Drive (dá para recuperar lá durante 30 dias).`);
     } catch (e) { setMsg(`⚠ Não consegui apagar: ${e.message || e}`); }
     setAApagar(null); setOcupadoDrive(false);
@@ -3032,14 +3042,73 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const mudarItem = (id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
   // Vídeo novo com uma versão que já existe no Drive (e que não é a desta tarefa): não deixa avançar
+  // "Esta entrega é…": nova versão ou substituir uma enviada (é o que decide a versão dos ficheiros)
+  const [escolha, setEscolha] = useState(null); // { tipo: 'nova'|'substituir', v, porque }
+  // Registos das versões enviadas por esta tarefa
+  const regVersoes = () => (resultado ? [resultado, ...(resultado.anteriores || [])] : []).filter(d => d && d.url);
+  const mudarRegisto = (pastaId, fn) => {
+    if (!resultado) return;
+    const m = d => (d && d.pastaId === pastaId ? fn(d) : d);
+    const reg = { ...m(resultado), ...(resultado.anteriores ? { anteriores: resultado.anteriores.map(m) } : {}) };
+    setResultado(reg); set({ drive: reg });
+  };
+  const nomesJogo = () => [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])];
+  // Spreadsheet de uma versão: juntar ou tirar
+  const folhaVersao = async (d, tirar) => {
+    if (!d || !jogo || !jogo.sheet || !d.nomeBase) return;
+    setOcupadoDrive(true); setMsg(tirar ? 'A tirar da spreadsheet…' : 'A juntar à spreadsheet…');
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      if (tirar) {
+        const tr = await tirarDaSpreadsheet(tk, jogo.sheet, [d.nomeBase], nomesJogo());
+        if (tr.erro) throw new Error(tr.erro);
+        mudarRegisto(d.pastaId, x => ({ ...x, folha: null }));
+        setMsg(`✓ V${versaoDaPasta(d) || '?'} tirada da spreadsheet (${tr.apagadas} linha${tr.apagadas === 1 ? '' : 's'}).`);
+      } else {
+        const folha = await juntarNaSpreadsheet(tk, jogo.sheet, d.nomeBase, d.url, nomesJogo());
+        mudarRegisto(d.pastaId, x => ({ ...x, folha }));
+        setMsg(folha && folha.ok ? `✓ V${versaoDaPasta(d) || '?'} na spreadsheet (${folha.tab}, linha ${folha.linha}).` : `⚠ Spreadsheet: ${(folha && folha.erro) || 'não consegui'}`);
+      }
+    } catch (e) { setMsg(`⚠ Spreadsheet: ${e.message || e}`); }
+    setOcupadoDrive(false);
+  };
+  // Voltar à versão anterior dos ficheiros (o Drive guarda as versões antigas de cada ficheiro durante uns 30 dias)
+  const [restaurar, setRestaurar] = useState(null); // pastaId à espera de confirmação
+  const restaurarVersao = async d => {
+    if (!d || !d.pastaId) return;
+    if (restaurar !== d.pastaId) { setRestaurar(d.pastaId); return; }
+    setRestaurar(null); setOcupadoDrive(true); setMsg('A procurar as versões anteriores no Drive…');
+    let ok = 0, sem = 0; const nomes = {};
+    try {
+      const tk = tokenGuardado() || await tokenDrive(conta);
+      const fs = await filhosDrive(tk, d.pastaId, false);
+      for (const f of fs) {
+        const rv = await driveApi(tk, `${DRV}/${f.id}/revisions?fields=revisions(id,modifiedTime,originalFilename,mimeType)&pageSize=200`);
+        const revs = rv.revisions || [];
+        if (revs.length < 2) { sem++; continue; }
+        const ant = revs[revs.length - 2];
+        setMsg(`A recuperar ${ant.originalFilename || f.name}…`);
+        const resp = await fetch(`${DRV}/${f.id}/revisions/${ant.id}?alt=media`, { headers: { Authorization: `Bearer ${tk}` } });
+        if (!resp.ok) { sem++; continue; }
+        const blob = await resp.blob();
+        const nome = ant.originalFilename || f.name;
+        await enviarParaDrive(tk, { file: new File([blob], nome, { type: ant.mimeType || blob.type || 'video/mp4' }), nome, idExistente: f.id });
+        if (nome !== f.name) nomes[f.name] = nome;
+        ok++;
+      }
+      if (Object.keys(nomes).length) mudarRegisto(d.pastaId, x => ({ ...x, enviados: (x.enviados || []).map(e => (nomes[e.nome] ? { ...e, nome: nomes[e.nome] } : e)) }));
+      setMsg(ok ? `✓ V${versaoDaPasta(d) || '?'}: ${ok} ficheiro${ok === 1 ? '' : 's'} de volta à versão anterior${sem ? ` · ${sem} sem versão anterior no Drive` : ''}.` : '⚠ O Drive não tem versões anteriores destes ficheiros (só existem depois de uma substituição, e duram cerca de 30 dias).');
+    } catch (e) { setMsg(`⚠ Não consegui recuperar: ${e.message || e}`); }
+    setOcupadoDrive(false);
+  };
   const versaoEscolhida = Number(versaoDe(verSug));
   const infoAtual = infoVersao && infoVersao.conceito === r.conceito ? infoVersao : null;
   const outrasV = versoesDeOutras(trab, t, r.conceito);
   const proximaVersao = Math.max(0, ...((infoAtual && infoAtual.versoes) || []), ...outrasV, ...versoesTarefa) + 1;
   const versaoOcupada = !!(novoVideo && ((infoAtual && infoAtual.versoes.includes(versaoEscolhida)) || outrasV.includes(versaoEscolhida)) && String(versaoAnterior || '') !== String(versaoEscolhida) && !versoesTarefa.includes(versaoEscolhida));
   const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada;
-  const enviar = async () => {
-    if (!pronto || aEnviar) return;
+  const enviar = async (subst = {}, opcoes = {}) => {
+    if (!pronto || aEnviar) return null;
     setAEnviar(true); setMsg('A entrar na Google…');
     try {
       let token;
@@ -3076,7 +3145,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       const enviados = [];
       const paraRenomear = [];
       let nSubst = 0;
-      for (const item of lista) {
+      for (const item0 of lista) {
+        const item = subst[item0.id] ? { ...item0, ...subst[item0.id] } : item0; // ficheiro acabado de renomear no PC
         const nome = nomeFinal(item, v);
         const ex = existentes.find(f => f.name === nome && !usados.has(f.id)) || (substituir ? existentes.find(f => !usados.has(f.id) && chaveF(f.name) === chaveF(nome)) : null);
         if (ex) usados.add(ex.id);
@@ -3103,13 +3173,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       setResultado(reg);
       const durs = lista.map(x => durDe(x, v)).filter(Boolean);
       const formatos = [...new Set([...(t.formatos || []), ...lista.map(x => x.formato)])];
-      const durV = campoVersao(fx, String(v), 'duracao') || (durs.length ? durs[0] : null);
+      const durV = (versoesTarefa.includes(Number(v)) && durs.length ? durs[0] : null) || campoVersao(fx, String(v), 'duracao') || (durs.length ? durs[0] : null);
       const fxEnv = { ...fxComVersao(fx, t, v, { variacao: campoVersao(fx, String(v), 'variacao', t) ?? '', duracao: durV ?? null }), versao: String(v) };
       const nomeEnv = r.conceito ? nomeBaseTarefa({ ...t, ficheiros: fxEnv }, v, true) : '';
       set({ drive: reg, link: url, formatos, ficheiros: fxEnv, ...(nomeEnv && nomeEnv !== t.nome ? { nome: nomeEnv } : {}) });
       // Spreadsheet do jogo: se for uma Google Sheet, junta a linha sozinha (nome com o link da pasta)
       let folha = null;
-      if (jogo.sheet && enviados.length) {
+      if (opcoes.juntarFolha && jogo.sheet && enviados.length) { // só quando escolhes "Juntar à spreadsheet"
         setMsg('A juntar à spreadsheet…');
         try { folha = await juntarNaSpreadsheet(token, jogo.sheet, reg.nomeBase, url, [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])]); } catch (e) { folha = { erro: String(e.message || e) }; }
         reg.folha = folha;
@@ -3127,9 +3197,31 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         set({ drive: novo }); setResultado({ ...novo, trelloN: res.n });
       }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive${nSubst ? ` (${nSubst === enviados.length ? 'todos substituídos' : `${nSubst} substituído${nSubst === 1 ? '' : 's'}`} — o link é o mesmo)` : ''}` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
-      if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); }
+      if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); setEscolha(null); }
+      setAEnviar(false);
+      return reg;
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setAEnviar(false);
+    return null;
+  };
+  // Um só botão: muda o nome no PC (se escolheste) e envia; a spreadsheet só se marcaste a caixa
+  const [mudarNoPc, setMudarNoPc] = useState(true);
+  const [juntarAFolha, setJuntarAFolha] = useState(false);
+  const renomearEEnviar = async () => {
+    const subst = {};
+    const porMudar = mudarNoPc ? comHandle.filter(x => !x.renomeado && x.handle && x.handle.name !== nomeFinal(x)) : [];
+    if (porMudar.length) {
+      if (!temVersao && raiz && r.conceito) {
+        try { const tk = tokenGuardado() || await tokenDrive(conta); const v = await adivinharVersao(tk); setVerSug(v); setMsg(`Versão confirmada no Drive: V${v}. Carrega outra vez no botão.`); } catch (e) { setMsg(`⚠ ${e.message || e}`); }
+        return; // o browser pede um clique novo para deixar mexer nos ficheiros
+      }
+      const alvos = porMudar.map(it => ({ id: it.id, handle: it.handle, novo: nomeFinal(it) }));
+      const res = await renomearFicheiros(alvos);
+      fimRenomear(res, alvos, false);
+      for (const a of alvos) if (a.feito && a.handleNovo) { try { subst[a.id] = { handle: a.handleNovo, file: await a.handleNovo.getFile(), renomeado: true }; } catch (e) { /* fica o que estava */ } }
+      if (res.faltam.length || res.erros.length) return; // primeiro resolve os nomes (a mensagem diz o quê)
+    }
+    await enviar(subst, { juntarFolha: juntarAFolha && !!(jogo && jogo.sheet) });
   };
   const btn = `px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`;
   if (!jogo) return null;
@@ -3156,24 +3248,43 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             <span className="text-[11px]">ou carrega para escolher</span>
             <input ref={inRef} type="file" multiple accept="video/*,image/*" className="hidden" onChange={e => { juntar(e.target.files); e.target.value = ''; }} />
           </div>
-          {lista.length > 0 && (pecasN > 1 || versoesTarefa.length > 0) && (() => {
+          {lista.length > 0 && (() => {
+            // "Esta entrega é…": nova versão ou substituir uma que já foi enviada
             const atual = Number(versaoDe(verSug));
-            const opcoes = [...new Set([...versoesTarefa, atual, (versoesTarefa.length ? Math.max(...versoesTarefa) : atual) + (versoesTarefa.length ? 1 : 0)])].filter(n => n > 0).sort((a, b) => a - b);
+            const subst = versoesTarefa.includes(atual);
+            const nova = versoesTarefa.length ? (subst ? Math.max(...versoesTarefa, ...((infoAtual && infoAtual.versoes) || []), ...outrasV) + 1 : atual) : atual;
+            const vSub = subst ? atual : (escolha && escolha.tipo === 'substituir' ? escolha.v : Math.max(0, ...versoesTarefa));
+            const cartao = (on, cor) => `text-left p-3 rounded-xl border-2 flex flex-col gap-1 disabled:opacity-50 ${on ? (cor === 'amber' ? 'border-amber-500 bg-amber-500/10' : 'border-blue-500 bg-blue-500/10') : claro ? 'border-slate-200 hover:bg-slate-50' : 'border-slate-700 hover:bg-white/[0.03]'}`;
+            const bola = (on, cor) => <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${on ? (cor === 'amber' ? 'border-4 border-amber-500 bg-white' : 'border-4 border-blue-500 bg-white') : `border-2 ${claro ? 'border-slate-300' : 'border-slate-500'}`}`} />;
+            if (!versoesTarefa.length) return <p className={`text-xs ${sub}`}>Esta entrega é a <b className={claro ? 'text-slate-800' : 'text-slate-100'}>V{atual}</b> (a primeira desta tarefa){pecasN > 1 ? ` · esta tarefa tem ${pecasN} peças: cada uma vai para a sua pasta` : ''}.</p>;
             return (
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className={sub}>Versão destes ficheiros:</span>
-                {opcoes.map(n => (
-                  <button key={n} type="button" disabled={aEnviar} onClick={() => setVersaoLote(String(n))} title={versoesTarefa.includes(n) ? `A V${n} já foi enviada — escolhe-a para substituir os ficheiros dela no Drive (o link fica igual)` : `Estes ficheiros são a V${n}`}
-                    className={`px-2 py-0.5 rounded-md border font-medium disabled:cursor-not-allowed ${atual === n ? 'border-blue-500 bg-blue-500/15 text-blue-400' : versoesTarefa.includes(n) ? (claro ? 'border-slate-200 text-slate-400' : 'border-slate-700 text-slate-500') : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>
-                    V{n}{versoesTarefa.includes(n) ? <span className={`ml-1 font-normal ${atual === n ? '' : sub}`}>{atual === n ? '· substituir' : 'já enviada'}</span> : ''}
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium">Esta entrega é…</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button type="button" disabled={aEnviar} onClick={() => { setVersaoLote(String(nova)); setEscolha({ tipo: 'nova', v: nova }); }} className={cartao(!subst)} aria-pressed={!subst}>
+                    <span className="flex items-center gap-2 text-sm font-semibold">{bola(!subst)}Nova versão · V{nova}</span>
+                    <span className={`text-[11px] leading-snug ${sub}`}>Outro vídeo ou outra variação.</span>
                   </button>
-                ))}
-                {pecasN > 1 && <span className={`text-[10px] ${sub}`}>· esta tarefa tem {pecasN} peças: cada uma vai para a sua pasta</span>}
+                  <div className={cartao(subst, 'amber')}>
+                    <button type="button" disabled={aEnviar} onClick={() => { setVersaoLote(String(vSub)); setEscolha({ tipo: 'substituir', v: vSub }); }} className="text-left flex flex-col gap-1" aria-pressed={subst}>
+                      <span className="flex items-center gap-2 text-sm font-semibold">{bola(subst, 'amber')}Substituir a V{vSub}</span>
+                      <span className={`text-[11px] leading-snug ${sub}`}>Correção depois de feedback. O link do Drive, a linha da spreadsheet e o Trello ficam iguais.</span>
+                    </button>
+                    {versoesTarefa.length > 1 && (
+                      <select value={String(vSub)} disabled={aEnviar} onChange={e => { setVersaoLote(e.target.value); setEscolha({ tipo: 'substituir', v: Number(e.target.value) }); }} className={`${inputClass} !w-auto text-xs py-1 mt-1`} aria-label="Versão a substituir">
+                        {versoesTarefa.slice().reverse().map(n => <option key={n} value={n}>V{n}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </div>
+                {escolha && escolha.porque && <p className={`text-[11px] ${sub}`}>Sugestão da app: <b>{escolha.tipo === 'substituir' ? `substituir a V${escolha.v}` : 'nova versão'}</b> — {escolha.porque}.</p>}
+                {pecasN > 1 && <p className={`text-[10px] ${sub}`}>Esta tarefa tem {pecasN} peças: cada uma vai para a sua pasta.</p>}
               </div>
             );
           })()}
           {lista.length > 0 && (
             <div className="space-y-1.5">
+              <p className={`text-[11px] uppercase tracking-wide ${sub}`}>{versoesTarefa.includes(Number(versaoDe(verSug))) ? `O que troca na V${versaoDe(verSug)}` : 'Nomes que vão ficar'}</p>
               {lista.map(item => (
                 <div key={item.id} className="text-xs space-y-1">
                   <div className="flex items-center gap-2">
@@ -3191,104 +3302,127 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               ))}
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
-              {(() => { const vA = Number(versaoLote || fx.versao || versaoAnterior || verSug); return vA && versoesTarefa.includes(vA) ? <p className="text-xs text-sky-400">↻ A V{vA} já foi enviada: os ficheiros com o mesmo nome são <b>substituídos</b> no Drive (o link, a linha da spreadsheet e o Trello ficam iguais).</p> : null; })()}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="flex-1" />
+              <div className={`rounded-lg border p-2.5 space-y-1.5 text-xs ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/40'}`}>
                 {comHandle.length > 0 ? (
-                  <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0 || versaoOcupada} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏ Renomear no PC'}</button>
-                ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
-                <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : versoesTarefa.includes(Number(versaoLote || fx.versao || versaoAnterior || verSug)) ? `Substituir ${lista.length} na V${Number(versaoLote || fx.versao || versaoAnterior || verSug)}` : `Enviar ${lista.length} para o Drive`}</button>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={mudarNoPc} onChange={e => setMudarNoPc(e.target.checked)} disabled={aEnviar} className="accent-blue-500" /> Mudar também o nome dos ficheiros no PC</label>
+                ) : <p className={sub} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Para mudar o nome no PC, arrasta os ficheiros do Explorador.</p>}
+                {jogo.sheet && <label className="flex items-center gap-2"><input type="checkbox" checked={juntarAFolha} onChange={e => setJuntarAFolha(e.target.checked)} disabled={aEnviar} className="accent-blue-500" /> Juntar à spreadsheet</label>}
+                {r.conceito && <p className={sub}>A tarefa passa a chamar-se <b className={claro ? 'text-slate-700' : 'text-slate-200'}>{nomeBaseTarefa({ ...t, ficheiros: { ...fx, versao: String(versaoDe(verSug)) } }, versaoDe(verSug), true)}</b>.</p>}
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                {(() => { const vA = Number(versaoDe(verSug)); const sub2 = versoesTarefa.includes(vA); const vaiMudar = mudarNoPc && comHandle.some(x => !x.renomeado && x.handle && x.handle.name !== nomeFinal(x));
+                  return <button type="button" disabled={!pronto || aEnviar} onClick={renomearEEnviar} className={`px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40 ${sub2 ? 'bg-amber-600 hover:bg-amber-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{aEnviar ? 'A enviar…' : sub2 ? `${vaiMudar ? 'Renomear e substituir' : 'Substituir'} ${lista.length} na V${vA}` : `${vaiMudar ? 'Renomear e enviar' : 'Enviar'} V${vA}`}</button>; })()}
               </div>
             </div>
           )}
           {versaoOcupada && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-amber-500">
               <span>⚠ Já existe um {r.conceito}_V{versaoEscolhida} (é de outro vídeo). Esta tem de ser a <b>V{proximaVersao}</b>.</span>
-              <button type="button" onClick={() => { set({ ficheiros: { ...fx, versao: String(proximaVersao) } }); setVerSug(String(proximaVersao)); }} className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-medium">Usar V{proximaVersao}</button>
+              <button type="button" onClick={() => { set({ ficheiros: { ...fx, versao: String(proximaVersao) } }); setVerSug(String(proximaVersao)); if (versaoLote) setVersaoLote(String(proximaVersao)); }} className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-medium">Usar V{proximaVersao}</button>
             </div>
-          )}
-          {r.conceito && (infoVersao && infoVersao.conceito === r.conceito ? (
-            <p className={`text-[11px] ${sub}`}>{infoVersao.existe
-              ? <>No Drive: {infoVersao.versoes.length ? <b>{infoVersao.versoes.map(v => `V${v}`).join(', ')}</b> : 'só a pasta'}{!fx.versao && !versaoAnterior ? <> → esta: <b>V{versaoDe(verSug)}</b></> : null}</>
-              : <>Conceito novo no Drive → <b>V1</b></>}</p>
-          ) : raiz ? <button type="button" onClick={verVersoes} className="text-[11px] text-blue-400 hover:text-blue-300 text-left">🔎 Ver versões no Drive</button> : null)}
-          {lista.length > 0 && !fx.versao && !(infoVersao && infoVersao.conceito === r.conceito) && (
-            <p className={`text-[11px] ${sub}`}>Versão: <b>V{versaoDe(verSug)}</b> {versaoAnterior ? '(a da última vez)' : verSug ? '(pelo Drive: a seguinte às que já lá estão)' : '(por agora — ao enviar a app confirma no Drive se já há outras)'} · para outra, escreve-a em "Versão" acima.</p>
           )}
           {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
           {semAcesso.length > 0 && (
             <button type="button" onClick={darAcesso} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/15 border border-blue-500/50 text-blue-400 hover:bg-blue-500/25">🔓 Voltar a abrir os {semAcesso.length} ficheiro{semAcesso.length === 1 ? '' : 's'} (o browser pede autorização depois de recarregar)</button>
           )}
-          {/* Depois de enviar: três linhas — Drive, Spreadsheet e PC */}
-          {((resultado && resultado.url) || historico.length > 0 || pastaProj || pedirPasta || (renomeados && renomeados.length > 0)) && (() => {
-            const linha = (rot, conteudo) => (
-              <div className="flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-3 px-3 py-2">
-                <span className={`sm:w-[84px] shrink-0 sm:pt-1 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>{rot}</span>
-                <div className="flex-1 min-w-0 flex flex-wrap items-center gap-1.5">{conteudo}</div>
-              </div>
-            );
-            const versoes = resultado && resultado.url ? [resultado, ...(resultado.anteriores || [])].filter(d => d && d.url).sort((x, y) => versaoDaPasta(x) - versaoDaPasta(y)) : [];
-            const vs = versoesFolha(); const faltam = vs.filter(d => !(d.folha && d.folha.ok)); const algumaLa = vs.some(d => d.folha && d.folha.ok);
-            const nomesV = vs.map(d => `V${versaoDaPasta(d) || '?'}`).join(' e ');
+          {pedirPasta && (
+            <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
+          )}
+          {renomeados && renomeados.length > 0 && (
+            <button type="button" onClick={() => renomearNoPc(renomeados)} className={`${btn} !border-emerald-500/50 text-emerald-500`}>✏ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`} no PC</button>
+          )}
+          {/* Entregas: uma linha por versão enviada, com tudo o resto no ⋯ */}
+          {regVersoes().length > 0 && (() => {
+            const vs = regVersoes().slice().sort((x, y) => versaoDaPasta(y) - versaoDaPasta(x));
+            const item = 'w-full text-left px-2 py-1.5 rounded-md text-xs disabled:opacity-40 ' + (claro ? 'hover:bg-slate-100' : 'hover:bg-white/10');
+            const grupo = txt => <p className={`px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide ${sub}`}>{txt}</p>;
             return (
-              <div className={`rounded-lg border divide-y text-xs ${claro ? 'border-slate-200 divide-slate-100' : 'border-slate-700/70 divide-slate-700/60'}`}>
-                {versoes.length > 0 && linha('Drive', <>
-                  {versoes.map(d => (
-                    <span key={d.pastaId || d.url} className="inline-flex items-center">
-                      <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`${btn} ${d.pastaId ? '!rounded-r-none' : ''}`} title={`Abrir a pasta ${d.pasta || ''} no Drive`}>📁 {versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : (d.pasta || 'Pasta')}</a>
-                      {d.pastaId && <button type="button" disabled={ocupadoDrive} onClick={() => anularEnvio(d)} onBlur={() => setTimeout(() => setAnular(a => (a === d.pastaId ? null : a)), 200)}
-                        className={`${btn} !rounded-l-none -ml-px disabled:opacity-50 ${anular === d.pastaId ? '!border-red-500/60 text-red-400' : sub}`} title={`Anular o envio da ${versaoDaPasta(d) ? `V${versaoDaPasta(d)}` : 'pasta'}: os ficheiros que esta tarefa enviou vão para o lixo do Drive (os de outras tarefas ficam), tira a linha da spreadsheet e liberta o número`}>
-                        {anular === d.pastaId ? `Anular V${versaoDaPasta(d) || ''} (apaga no Drive)` : '✕'}</button>}
-                      {anular === d.pastaId && <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => esquecerVersao(d)} className={`${btn} ml-1`} title="Só desliga esta versão desta tarefa — o Drive e a spreadsheet ficam como estão (ex.: veio de outra tarefa ao duplicar)">Só tirar daqui</button>}
-                    </span>
-                  ))}
-                  {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂 Ver ficheiros'}</button>}
-                  {resultado.trello && <span className={`w-full ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? (resultado.trelloN > 1 ? `✓ ${resultado.trelloN} links juntados ao cartão do Trello` : '✓ Link juntado ao cartão do Trello') : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</span>}
-                </>)}
-                {jogo.sheet && versoes.length > 0 && linha('Spreadsheet', <>
-                  <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir ↗</a>
-                  {vs.length > 0 && ((faltam.length > 0 && (algumaLa || vs.length > 1))
-                    ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(false)} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`} title="Tira as linhas desta tarefa e volta a pô-las pela ordem das versões">📊 Pôr {nomesV}</button>
-                    : algumaLa ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(false)} className={`${btn} disabled:opacity-50`} title="Tira as linhas desta tarefa e volta a pô-las pela ordem das versões (as caixinhas das networks dessas linhas ficam por marcar)">↺ Refazer</button> : null)}
-                  {resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && vs.length <= 1 && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar</button>}
-                  {vs.length > 0 && (tirarFolha
-                    ? <button type="button" disabled={ocupadoDrive} onClick={() => refazerFolha(true)} className={`${btn} !border-red-500/50 text-red-400 disabled:opacity-50`}>Confirmar: tirar {nomesV}</button>
-                    : <button type="button" disabled={ocupadoDrive} onClick={() => setTirarFolha(true)} className={`${btn} disabled:opacity-50`} title="Apaga as linhas desta tarefa na spreadsheet">✕ Tirar</button>)}
-                  {resultado.folha && (
-                    <span className={`w-full ${resultado.folha.ok ? 'text-emerald-500' : resultado.folha.xlsx ? 'text-amber-500' : 'text-red-400'}`}>
-                      {resultado.folha.ok ? `✓ ${resultado.folha.jaExistia ? 'Já estava' : 'Está'} na tab ${resultado.folha.tab}, linha ${resultado.folha.linha}`
-                        : resultado.folha.xlsx ? `O link de spreadsheet deste jogo ainda aponta para o ficheiro Excel${resultado.folha.nomeFicheiro ? ` "${resultado.folha.nomeFicheiro}"` : ''} — a Google não deixa as apps escreverem nele. Se já tens a versão Google Sheets, cola o link novo em cliente → Jogos → ${jogo.nome} → Spreadsheet e carrega em "Juntar".`
-                        : `Não consegui escrever na spreadsheet: ${resultado.folha.erro}`}
-                    </span>
-                  )}
-                </>)}
-                {linha('No PC', <>
-                  {historico.length > 0 && !aEnviar && <button type="button" onClick={desfazerNomes} className={btn} title={historico.map(x => `${x.depois} → ${x.antes}`).join('\n')}>↩ Nomes anteriores ({historico.length})</button>}
-                  {renomeados && renomeados.length > 0 && <button type="button" onClick={() => renomearNoPc(renomeados)} className={`${btn} !border-emerald-500/50 text-emerald-500`}>✏ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`}</button>}
-                  {pedirPasta && <button type="button" onClick={escolherEContinuar} className={`${btn} !border-amber-500/50 text-amber-500`}>📁 Escolher a pasta dos exports</button>}
-                  {!pastaProj && nomeProjetoTarefa(trab, t) && <button type="button" disabled={lista.some(x => x.estado !== 'feito')} onClick={() => setPastaProj({ novo: nomeProjetoTarefa(trab, t) })} className={`${btn} disabled:opacity-40`} title={lista.some(x => x.estado !== 'feito') ? 'Envia primeiro os ficheiros para o Drive — se a pasta mudar de nome antes, o browser perde-os' : 'Mudar o nome da pasta do projeto, do .aep e do collect (@Source) — faz o lançador do After Effects'}>📁 Nome da pasta e do projeto</button>}
-                  {pastaProj && (
-                    <div className={`w-full rounded-lg border p-2 space-y-1.5 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/50'}`}>
-                      <p>Mudar a <b>pasta do projeto</b>, o <b>.aep</b> e o <b>collect</b> da @Source para:</p>
-                      <input value={pastaProj.novo} onChange={e => setPastaProj(p => ({ ...p, novo: e.target.value }))} aria-label="Nome novo da pasta e do projeto" className={`${inputClass} text-xs py-1 font-mono`} />
-                      <div className="flex flex-wrap items-center gap-2">
-                        <a href={linkAERenomear(trab, t, null, pastaProj.novo.trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Mudar no PC</a>
-                        <button type="button" onClick={() => setPastaProj(null)} className={`px-2.5 py-1 rounded-lg ${sub}`}>Agora não</button>
-                        <span className={sub}>Fecha antes o projeto no After Effects. Mostra-te o que vai mudar antes de mexer.</span>
+              <div className="space-y-2 pt-1">
+                <p className="text-sm font-medium">Entregas desta tarefa</p>
+                {vs.map(d => {
+                  const v = versaoDaPasta(d);
+                  const varia = campoVersao(t.ficheiros || {}, v, 'variacao', t) || '';
+                  const naFolha = d.folha && d.folha.ok;
+                  const aberto = menuEntrega === d.pastaId;
+                  const nomesAb = nomesEntrega === d.pastaId;
+                  const linkFolha = naFolha && jogo.sheet ? (() => { const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1]; return id && d.folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${d.folha.gid}&range=A${d.folha.linha}` : jogo.sheet; })() : null;
+                  return (
+                    <div key={d.pastaId || d.url} className={`rounded-xl border ${aberto ? 'border-blue-500/60' : claro ? 'border-slate-200' : 'border-slate-700/70'} ${claro ? 'bg-white' : 'bg-slate-900/30'}`}>
+                      <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
+                        <span className={`shrink-0 inline-flex items-center justify-center min-w-[2.25rem] h-7 px-1.5 rounded-md text-sm font-semibold ${claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/15 text-blue-300'}`}>{v ? `V${v}` : '—'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" title={d.pasta}>{varia ? emTitulo(varia) : (d.pasta || '')}</p>
+                          <p className={`text-[11px] ${sub}`}>{d.em ? new Date(d.em).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) : ''}{(d.enviados || []).length ? ` · ${d.enviados.length} ficheiro${d.enviados.length === 1 ? '' : 's'}` : ''}{jogo.sheet ? <> · {naFolha ? <span className="text-emerald-500">✓ spreadsheet, linha {d.folha.linha}</span> : <span className="text-amber-500">não está na spreadsheet</span>}</> : null}</p>
+                        </div>
+                        <button type="button" onClick={() => setMenuEntrega(aberto ? null : d.pastaId)} aria-expanded={aberto} aria-label={`Mais opções da ${v ? `V${v}` : 'versão'}`} className={`shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-lg border ${aberto ? 'border-blue-500 text-blue-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>
+                        </button>
                       </div>
+                      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2.5 sm:pl-[3.6rem] text-xs">
+                        <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Drive ↗</a>
+                        {jogo.sheet && (naFolha ? <a href={urlAbrir(linkFolha, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Spreadsheet ↗</a>
+                          : <button type="button" disabled={ocupadoDrive || !d.nomeBase} onClick={() => folhaVersao(d, false)} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-40`}>Juntar à spreadsheet</button>)}
+                        {(d.enviados || []).length > 0 && <button type="button" onClick={() => setNomesEntrega(nomesAb ? null : d.pastaId)} className={btn} aria-expanded={nomesAb}>{nomesAb ? 'Esconder nomes' : 'Nomes'}</button>}
+                      </div>
+                      {nomesAb && (
+                        <div className="px-3 pb-2.5 sm:pl-[3.6rem] space-y-1">
+                          {(d.enviados || []).map((e, i) => <div key={i} className="flex items-center gap-2 text-xs"><span className={`w-9 shrink-0 ${sub}`}>{e.formato}</span><code className="flex-1 min-w-0 break-all leading-snug">{e.nome}</code><button type="button" onClick={() => { copiar(e.nome); setMsg(`✓ Copiado: ${e.nome}`); }} className={btn}>Copiar</button></div>)}
+                        </div>
+                      )}
+                      {aberto && (
+                        <div role="menu" className={`mx-3 mb-3 rounded-lg border p-2 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/70'}`}>
+                          <div>
+                            {grupo('Drive')}
+                            <button type="button" role="menuitem" disabled={aEnviar} onClick={() => { setVersaoLote(String(v)); setEscolha({ tipo: 'substituir', v }); setMenuEntrega(null); setMsg(`Arrasta os exports novos da V${v} para a caixa lá em cima: trocam os ficheiros dela no Drive.`); if (inRef.current && inRef.current.parentElement) inRef.current.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className={item}>Substituir ficheiros</button>
+                            <button type="button" role="menuitem" disabled={ocupadoDrive} onClick={() => { verDrive(d); setMenuEntrega(null); }} className={item}>Ver / apagar ficheiros</button>
+                            <button type="button" role="menuitem" disabled={ocupadoDrive} onClick={() => restaurarVersao(d)} onBlur={() => setTimeout(() => setRestaurar(x => (x === d.pastaId ? null : x)), 200)} className={`${item} ${restaurar === d.pastaId ? 'text-amber-500 font-medium' : ''}`}>{restaurar === d.pastaId ? 'Confirmar: voltar à versão anterior' : 'Voltar à versão anterior'}</button>
+                          </div>
+                          {jogo.sheet && (
+                            <div>
+                              {grupo('Spreadsheet')}
+                              <button type="button" role="menuitem" disabled={ocupadoDrive || naFolha || !d.nomeBase} onClick={() => folhaVersao(d, false)} className={item}>Juntar</button>
+                              <button type="button" role="menuitem" disabled={ocupadoDrive || versoesFolha().length < 1} onClick={() => refazerFolha(false)} className={item} title="Tira as linhas desta tarefa e volta a pô-las pela ordem das versões">Refazer pela ordem</button>
+                              <button type="button" role="menuitem" disabled={ocupadoDrive || !d.nomeBase} onClick={() => folhaVersao(d, true)} className={item}>Tirar</button>
+                            </div>
+                          )}
+                          {historico.length > 0 && (
+                            <div className={`sm:col-span-1 border-t pt-1.5 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+                              {grupo('No PC')}
+                              <button type="button" role="menuitem" disabled={aEnviar} onClick={() => { setMenuEntrega(null); desfazerNomes(); }} className={item} title={historico.map(x => `${x.depois} → ${x.antes}`).join('\n')}>Voltar aos nomes anteriores ({historico.length})</button>
+                            </div>
+                          )}
+                          <div className={`border-t pt-1.5 ${claro ? 'border-slate-200' : 'border-slate-700'} ${historico.length > 0 ? '' : 'sm:col-span-2'}`}>
+                            {grupo('Desfazer')}
+                            <button type="button" role="menuitem" disabled={ocupadoDrive} onClick={() => anularEnvio(d)} onBlur={() => setTimeout(() => setAnular(a => (a === d.pastaId ? null : a)), 200)} className={`${item} ${anular === d.pastaId ? 'text-red-400 font-medium' : 'text-red-400'}`} title="Os ficheiros que esta tarefa enviou vão para o lixo do Drive (os de outras tarefas ficam), sai da spreadsheet e o número fica livre">{anular === d.pastaId ? `Confirmar: anular a V${v || ''}` : 'Anular o envio (lixo do Drive)'}</button>
+                            <button type="button" role="menuitem" onClick={() => { esquecerVersao(d); setMenuEntrega(null); }} className={item} title="Só desliga esta versão desta tarefa — o Drive e a spreadsheet ficam como estão">Só tirar desta tarefa</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {historico.length > 0 && !pastaProj && <span className={`w-full truncate ${sub}`}>Nomes anteriores, ex.: {historico[0].antes}</span>}
-                </>)}
+                  );
+                })}
+                {resultado && resultado.trello && <p className={`text-xs ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? (resultado.trelloN > 1 ? `✓ ${resultado.trelloN} links juntados ao cartão do Trello` : '✓ Link juntado ao cartão do Trello') : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</p>}
+                {/* Pasta e projeto no PC: no fim, quando tudo estiver enviado */}
+                {nomeProjetoTarefa(trab, t) && (
+                  <div className={`rounded-xl border p-3 space-y-2 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/70 bg-slate-800/40'}`}>
+                    <p className="text-sm font-medium">Pasta e projeto no PC</p>
+                    <p className={`text-[11px] ${sub}`}>Muda o nome da pasta do projeto, do .aep e do collect da @Source. Fecha antes o projeto no After Effects — o lançador mostra-te o que vai mudar antes de mexer.</p>
+                    <div className="flex items-center gap-2">
+                      <input value={pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)} onChange={e => setPastaProj({ novo: e.target.value })} aria-label="Nome novo da pasta e do projeto" className={`${inputClass} flex-1 min-w-0 text-xs py-1.5 font-mono`} />
+                      {lista.some(x => x.estado !== 'feito')
+                        ? <span className={`shrink-0 text-[11px] ${sub}`} title="Envia primeiro — se a pasta mudar de nome antes, o browser perde os ficheiros">Envia primeiro</span>
+                        : <a href={linkAERenomear(trab, t, null, (pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)).trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className={`${btn} shrink-0`}>Mudar no PC</a>}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
           {noDrive && (
             <div className={`rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
               <div className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
-                <span className="font-medium flex-1 min-w-0 truncate">No Drive · {resultado && resultado.pasta}</span>
-                <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${sub} hover:text-blue-400`} title="Atualizar">↻</button>
+                <span className="font-medium flex-1 min-w-0 truncate">No Drive · {(verPasta || resultado || {}).pasta}</span>
+                <button type="button" disabled={ocupadoDrive} onClick={() => verDrive(verPasta)} className={`${sub} hover:text-blue-400`} title="Atualizar">↻</button>
                 <button type="button" onClick={() => { setNoDrive(null); setAApagar(null); }} className={`w-6 h-6 rounded-md ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`} aria-label="Fechar a lista do Drive">✕</button>
               </div>
               {!noDrive.length ? <p className={`px-3 py-2 text-xs ${sub}`}>A pasta está vazia.</p> : (
@@ -3334,6 +3468,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   const vEnviada = enviadas.includes(Number(r.vNum));
   const proximaV = enviadas.length ? Math.max(...enviadas) + 1 : 1;
   const [avisoV, setAvisoV] = useState('');
+  const [mudarV, setMudarV] = useState(false);
   const [tentV, setTentV] = useState(0);
   // Conceito + versão nunca se repetem: se a versão já existe (no Drive ou noutra tarefa deste conceito), passa sozinha para a seguinte livre
   const [versaoMudada, setVersaoMudada] = useState('');
@@ -3449,35 +3584,33 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
             )}
           </div>
         </label>
-        <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span><TxtIn key={'ver' + tentV + r.vNum} valor={versaoLote || fx.versao || r.vNum} onGravar={gravarVersao} placeholder="ex.: 4" className={ic} /></label>
+        <div className="flex flex-col gap-1 min-w-0"><span className={lab}>Versão</span>
+          {mudarV ? <TxtIn key={'ver' + tentV + r.vNum} valor={versaoLote || fx.versao || r.vNum} onGravar={v => { gravarVersao(v); setMudarV(false); }} placeholder="ex.: 4" className={ic} />
+            : <button type="button" onClick={() => setMudarV(true)} title="A versão decide-se ao enviar (nova ou substituir). Carrega só se precisares de a mudar à mão." className={`${ic} text-left font-semibold`}>V{versaoLote || fx.versao || r.vNum}</button>}
+        </div>
         <label className="flex flex-col gap-1 col-span-1 sm:col-span-2 min-w-0"><span className={lab}>Variação</span>{vEnviada ? <input key={'var' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'variacao', t) || ''} placeholder="—" title={`A V${r.vNum} já foi enviada: a variação fica como foi`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <TxtIn key={'var' + r.vNum} valor={campoVersao(fx, r.vNum, 'variacao', t)} onGravar={v => setFV({ variacao: v })} placeholder="ex.: Reaction" className={ic} />}</label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Duração (s)</span>{vEnviada ? <input key={'dur' + r.vNum} disabled value={campoVersao(fx, r.vNum, 'duracao') ?? ''} placeholder="—" title={`A V${r.vNum} já foi enviada`} className={`${ic} opacity-60 cursor-not-allowed`} /> : <NumIn key={'dur' + r.vNum} valor={campoVersao(fx, r.vNum, 'duracao') ?? null} placeholder="59" decimal={false} onGravar={v => setFV({ duracao: v })} className={ic} />}</label>
         <label className="flex flex-col gap-1 min-w-0"><span className={lab}>Tipo</span><TxtIn valor={fx.tipo} onGravar={v => setF({ tipo: v })} placeholder={r.tipo} className={ic} /></label>
         <label className="flex flex-col gap-1 col-span-2 min-w-0"><span className={lab}>Data</span><input key={t.id + 'fd' + (fx.data || '')} type="date" defaultValue={fx.data || r.dia} onBlur={e => { if (e.target.value && e.target.value !== (fx.data || r.dia)) setF({ data: e.target.value }); }} className={ic} /></label>
       </div>
-      {versaoMudada && <p className="-mt-1 text-[11px] text-amber-500">⚠ {versaoMudada}</p>}
-      {(avisoV || vEnviada) && (
-        <p className={`text-[11px] -mt-1 ${avisoV ? 'text-amber-500' : sub}`}>
-          {avisoV || <>A V{r.vNum} já foi enviada — estes são os nomes dela. <b>Para substituir</b> (ex.: depois de feedback), arrasta os exports novos lá em baixo: trocam os ficheiros da V{r.vNum} no Drive. Só se for outro vídeo/variação é que <button type="button" onClick={() => { setF({ versao: String(proximaV) }); setAvisoV(''); }} className="text-blue-400 hover:text-blue-300">passas para a V{proximaV}</button>.</>}
-        </p>
-      )}
-      {raizD && (
-        <div className="text-[11px] -mt-1">
-          {!conceitosD ? <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : '🔎 Ver conceitos no Drive'}</button>
-            : conceitoNovo ? (
-              <span className="text-amber-500">⚠ Este conceito ainda não tem pasta no Drive (vai ser criada, V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</span>
-            ) : conceitoAtual ? <span className="text-emerald-500" title="A pasta deste conceito já existe no Drive do jogo — as versões novas ficam dentro dela">✓ A pasta do conceito já existe no Drive</span>
-            : <span className={sub}>{conceitosD.length} conceitos no Drive — escolhe da lista ao escrever</span>}
-        </div>
-      )}
+      {(() => {
+        // Uma só linha de estado (avisos importantes primeiro)
+        if (raizD && conceitosD && conceitoNovo) return <p className="-mt-1 text-[11px] text-amber-500">⚠ Este conceito ainda não tem pasta no Drive (vai ser criada, V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</p>;
+        if (avisoV) return <p className="-mt-1 text-[11px] text-amber-500">⚠ {avisoV}</p>;
+        if (versaoMudada) return <p className="-mt-1 text-[11px] text-amber-500">⚠ {versaoMudada}</p>;
+        return (
+          <p className={`-mt-1 text-[11px] ${sub}`}>
+            {vEnviada ? <>A V{r.vNum} já foi enviada — vês tudo em <b>Entregas</b>, lá em baixo. Para a corrigir, arrasta os exports novos e escolhe <b>Substituir</b>.</> : <>Próxima entrega: <b>V{r.vNum}</b>.</>}
+            {raizD && !conceitosD ? <> <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : 'Ver conceitos no Drive'}</button></> : raizD && conceitoAtual ? <span className="text-emerald-500"> · pasta do conceito no Drive ✓</span> : null}
+          </p>
+        );
+      })()}
       {(() => {
         // A versão que estás a preparar (em cima) + as que já foram enviadas com esta tarefa (ficam guardadas, por baixo)
         const blocos = [];
         if (!vEnviada && r.ficheiros.length) blocos.push({ k: 'atual', v: Number(r.vNum), pasta: r.pasta, ficheiros: r.ficheiros, atual: true });
-        [t.drive, ...((t.drive && t.drive.anteriores) || [])].filter(d => d && (d.enviados || []).length)
-          .map(d => ({ k: d.pastaId || d.pasta, v: versaoDaPasta(d), pasta: [d.conceito, d.pasta].filter(Boolean).join(' / '), ficheiros: d.enviados.map(e => ({ formato: e.formato, nome: e.nome })), url: d.url }))
-          .sort((x, y) => y.v - x.v).forEach(x => { if (!blocos.some(b => b.k === x.k)) blocos.push(x); });
-        if (!blocos.length) return <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p>;
+        // As versões já enviadas estão em "Entregas" (lá em baixo), com os nomes de cada uma
+        if (!blocos.length) return vEnviada ? null : <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p>;
         const abertoDe = b => (blocosAbertos[b.k] != null ? blocosAbertos[b.k] : b.atual ? !nomesFechados : vEnviada && String(b.v) === String(r.vNum));
         const alternarBloco = b => { const novo = !abertoDe(b); setBlocosAbertos(o => ({ ...o, [b.k]: novo })); if (b.atual) { try { localStorage.setItem('trab-nomes-fechados', novo ? '0' : '1'); } catch (e) { /* */ } } };
         return (
