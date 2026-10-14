@@ -147,7 +147,7 @@ const VendaCasa = ({ G, uG, theme }) => {
           </div>
         </div>
         {porAlocar < -0.01 && (
-          <p className="text-xs text-red-400 mt-3">⚠️ Os movimentos somam mais do que o capital líquido. Verifica os valores.</p>
+          <p className="text-xs text-red-400 mt-3">⚠ Os movimentos somam mais do que o capital líquido. Verifica os valores.</p>
         )}
       </div>
 
@@ -231,7 +231,7 @@ const VendaCasa = ({ G, uG, theme }) => {
         )}
 
         {totInvestido > 0 && (
-          <p className={`text-xs mt-2 ${sub}`}>⚠️ {f(totInvestido)} está investido e não conta acima — só volta a contar se conseguires resgatá-lo a tempo da compra.</p>
+          <p className={`text-xs mt-2 ${sub}`}>⚠ {f(totInvestido)} está investido e não conta acima — só volta a contar se conseguires resgatá-lo a tempo da compra.</p>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
@@ -301,7 +301,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       {/* A repor com a venda */}
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-          <h3 className="text-lg font-semibold"><Ico e="↩️"/>A repor com a venda</h3>
+          <h3 className="text-lg font-semibold"><Ico e="↩"/>A repor com a venda</h3>
           {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
         </div>
         <p className={`text-xs mb-3 ${sub}`}>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</p>
