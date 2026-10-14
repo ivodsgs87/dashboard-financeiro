@@ -969,6 +969,8 @@ const MAX_ANEXO = 100 * 1048576;
 // Pré-visualização: Google Slides/Docs/Sheets/Drive, Figma, YouTube, Vimeo, PDF e vídeos
 const googleId = url => { const m = /\/d\/([a-zA-Z0-9_-]{15,})/.exec(url) || /[?&]id=([a-zA-Z0-9_-]{15,})/.exec(url); return m ? m[1] : null; };
 const ehGoogle = url => /(docs|drive)\.google\.com/.test(url || '');
+// Google Slides: o link pode apontar para um slide (…#slide=id.XXXX) — a pré-visualização mostra esse slide
+const slideDoLink = url => { const m = /[#&?]slide=id\.([\w-]+)/.exec(url || ''); return m ? m[1] : null; };
 // Conta Google com que os links do Google abrem (?authuser=…). O browser tem de ter essa conta com sessão iniciada.
 // Preenchido pelo Trabalho em cada render: conta geral + conta própria de cada cliente.
 const CONTA_LINKS = { padrao: '', porCliente: {} };
@@ -999,7 +1001,7 @@ const urlPrevia = (a, cid) => {
   if (tp !== 'link') return null;
   if (ehGoogle(u)) {
     const id = googleId(u); if (!id) return null;
-    if (/presentation/.test(u)) return comConta(`https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false`, cid);
+    if (/presentation/.test(u)) { const sl = slideDoLink(u); return comConta(`https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false${sl ? `&slide=id.${sl}` : ''}`, cid); }
     if (/document/.test(u)) return comConta(`https://docs.google.com/document/d/${id}/preview`, cid);
     if (/spreadsheets/.test(u)) return comConta(`https://docs.google.com/spreadsheets/d/${id}/preview`, cid);
     return comConta(`https://drive.google.com/file/d/${id}/preview`, cid);
@@ -1009,18 +1011,25 @@ const urlPrevia = (a, cid) => {
   m = /vimeo\.com\/(\d+)/.exec(u); if (m) return `https://player.vimeo.com/video/${m[1]}`;
   return null;
 };
-const miniatura = (a, cid) => {
+// Miniaturas a tentar, por ordem (se uma falhar, passa à seguinte)
+const miniaturas = (a, cid) => {
   const u = a.url || '';
-  if (tipoAnexo(a) !== 'link') return null;
-  if (ehGoogle(u)) { const id = googleId(u); return id ? comConta(`https://drive.google.com/thumbnail?id=${id}&sz=w640`, cid) : null; }
-  const m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
-  return null;
+  if (tipoAnexo(a) !== 'link') return [];
+  if (ehGoogle(u)) {
+    const id = googleId(u); if (!id) return [];
+    const geral = comConta(`https://drive.google.com/thumbnail?id=${id}&sz=w640`, cid);
+    const sl = /presentation/.test(u) ? slideDoLink(u) : null;
+    return sl ? [comConta(`https://docs.google.com/presentation/d/${id}/export/png?id=${id}&pageid=${encodeURIComponent(sl)}`, cid), geral] : [geral];
+  }
+  const m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return [`https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`];
+  return [];
 };
 const MiniLink = ({ a, sub, cid }) => {
-  const [falhou, setFalhou] = useState(false);
-  const src = miniatura(a, cid);
+  const [falhas, setFalhas] = useState(0);
+  const lista = miniaturas(a, cid);
+  const src = lista[falhas];
   let dominio = ''; try { dominio = new URL(a.url).hostname; } catch (e) { /* url estranho */ }
-  if (src && !falhou) return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhou(true)} className="w-full h-full object-cover object-top bg-white" />;
+  if (src) return <img key={src} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhas(n => n + 1)} className="w-full h-full object-cover object-top bg-white" />;
   return (
     <span className="flex flex-col items-center justify-center gap-1.5 w-full h-full text-blue-400">
       {dominio ? <img src={`https://www.google.com/s2/favicons?domain=${dominio}&sz=64`} alt="" className="w-8 h-8 rounded" onError={e => { e.currentTarget.style.display = 'none'; }} /> : <IcoA n="link" className="w-8 h-8" />}
@@ -2367,7 +2376,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
                 <span className="flex-1" />
                 {comHandle.length > 0 ? (
                   <button type="button" disabled={aEnviar || comHandle.every(x => x.renomeado) || repetidos.length > 0 || versaoOcupada} onClick={renomearAgora} title={!temVersao ? 'Primeiro confirma a versão no Drive, depois muda o nome dos ficheiros no PC' : 'Muda o nome dos ficheiros no teu PC para os nomes acima'}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏️ Renomear no PC'}</button>
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{comHandle.every(x => x.renomeado) ? '✓ Renomeados no PC' : '✏ Renomear no PC'}</button>
                 ) : <span className={`text-[10px] ${sub}`} title="O browser só deixa mudar o nome de ficheiros arrastados do Explorador (no Chrome)">Arrasta do Explorador para poderes renomear no PC</span>}
                 <button type="button" disabled={!pronto || aEnviar} onClick={enviar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aEnviar ? 'A enviar…' : `Enviar ${lista.length} para o Drive`}</button>
               </div>
@@ -2401,7 +2410,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
             <button type="button" onClick={escolherEContinuar} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 border border-amber-500/50 text-amber-500 hover:bg-amber-500/25">📁 Escolher a pasta dos exports</button>
           )}
           {renomeados && renomeados.length > 0 && (
-            <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏️ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`} no PC</button>
+            <button type="button" onClick={() => renomearNoPc(renomeados)} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">✏ Dar o mesmo nome {renomeados.length === 1 ? 'ao ficheiro' : `aos ${renomeados.length} ficheiros`} no PC</button>
           )}
           {resultado && resultado.folha && (
             <p className={`text-xs ${resultado.folha.ok ? 'text-emerald-500' : resultado.folha.xlsx ? 'text-amber-500' : 'text-red-400'}`}>
@@ -2416,7 +2425,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
               <button type="button" onClick={async () => { await copiarComLink(resultado.nomeBase || nomeBase, resultado.url); setCopiadoS(true); setTimeout(() => setCopiadoS(false), 1600); }} className={`${btn} ${copiadoS ? '!border-emerald-400 text-emerald-400' : ''}`} title="Copia o nome com o link da pasta — cola na coluna Creative da spreadsheet">{copiadoS ? '✓ copiado — cola na spreadsheet' : '📋 Copiar para a spreadsheet'}</button>
               {jogo.sheet && <a href={urlAbrir(jogo.sheet, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir a spreadsheet</a>}
               {jogo.sheet && resultado.nomeBase && !(resultado.folha && resultado.folha.ok) && <button type="button" disabled={ocupadoDrive} onClick={juntarFolhaAgora} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-50`}>📊 Juntar à spreadsheet agora</button>}
-              {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂️ Ver / apagar ficheiros no Drive'}</button>}
+              {resultado.pastaId && !noDrive && <button type="button" disabled={ocupadoDrive} onClick={verDrive} className={`${btn} disabled:opacity-50`}>{ocupadoDrive ? 'A ver…' : '🗂 Ver / apagar ficheiros no Drive'}</button>}
             </div>
           )}
           {noDrive && (
