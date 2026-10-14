@@ -5081,3 +5081,4 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
 };
 
 export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
+export const FICHEIRO_APP = 'trabalho';
