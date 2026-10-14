@@ -1287,6 +1287,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }, [mesKey, M, getMesAnteriorKey, saveUndo]);
 
  const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,metas:metasRaw=defG.metas,credito=defG.credito} = G;
+ // Reserva para impostos de um mês — a MESMA regra no ecrã, no relatório e nas exportações:
+ // a tua % sobre os teus recibos (Com e Sem Taxas) + a retenção já feita nos recibos passados pela Sara.
+ const reservaMes = md => [...((md && md.regCom) || []), ...((md && md.regSem) || [])]
+   .reduce((a, r) => a + (r.emitidoPorSara ? (Number(r.retIRS) || 0) : (Number(r.val) || 0) * ((Number(taxa) || 0) / 100)), 0);
  // Histórico do Portfolio calculado a partir dos meses guardados — já não depende do botão Snapshot
  const portfolioHist = patHistoricoPortfolio(G.portfolioHist, M);
   // Série do Património (a mesma do separador Património), para o dashboard e a Performance
@@ -3129,7 +3133,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className={`p-2.5 rounded-xl tile`}>
            <p className="text-[10px] text-slate-500">Meta anual</p>
            <p className={`text-sm font-bold ${metaPct>=esperado?'text-emerald-400':'text-amber-400'}`}>{metaPct.toFixed(0)}%</p>
-           <p className="text-[9px] text-slate-500">{metaPct>=esperado?'Acima':'Abaixo'} ({esperado.toFixed(0)}%)</p>
+           <p className="text-[10px] text-slate-500">{metaPct>=esperado?'Acima':'Abaixo'} ({esperado.toFixed(0)}%)</p>
          </div>
        </div>
        {topC.length>0&&(<div>
@@ -5506,7 +5510,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              
              return (
                <tr key={a} className={`border-t ${theme === 'light' ? 'border-slate-100 hover:bg-slate-50' : 'border-slate-700/50 hover:bg-slate-700/30'} ${a === anoAtualSistema ? (theme === 'light' ? 'bg-blue-50/50' : 'bg-blue-500/5') : ''}`}>
-                 <td className="px-3 py-2.5 font-bold">{a}{isEst && <span className="text-[9px] text-slate-500 ml-1">est.</span>}</td>
+                 <td className="px-3 py-2.5 font-bold">{a}{isEst && <span className="text-[10px] text-slate-500 ml-1">est.</span>}</td>
                  <td className="px-3 py-2.5 text-right font-mono">{fmt(receitas)}</td>
                  <td className="px-3 py-2.5 text-right font-mono text-blue-400">{ssVal > 0 ? fmt(ssVal) : '—'}</td>
                  <td className="px-3 py-2.5 text-right font-mono text-orange-400">{ivaVal > 0 ? fmt(ivaVal) : '—'}</td>
@@ -6432,13 +6436,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <div key={i} className="flex-1 relative group" title={`Ano ${p.ano}: ${fmt(p.total)} (inv: ${fmt(p.investido)}, juros: ${fmt(p.juros)})`}>
                      <div className="absolute bottom-0 w-full rounded-t" style={{ height: hTotal + '%', background: 'rgba(139,92,246,0.3)' }} />
                      <div className="absolute bottom-0 w-full rounded-t" style={{ height: hInv + '%', background: 'rgba(59,130,246,0.5)' }} />
-                     {i === proj.length - 1 && <div className="absolute -top-5 right-0 text-[9px] text-purple-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
-                     {i === 0 && proj.length > 1 && <div className="absolute -top-5 left-0 text-[9px] text-blue-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
+                     {i === proj.length - 1 && <div className="absolute -top-5 right-0 text-[10px] text-purple-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
+                     {i === 0 && proj.length > 1 && <div className="absolute -top-5 left-0 text-[10px] text-blue-400 font-bold whitespace-nowrap">{fmt(p.total)}</div>}
                    </div>
                  );
                })}
              </div>
-             <div className="flex justify-between text-[9px] text-slate-500 -mt-1">
+             <div className="flex justify-between text-[10px] text-slate-500 -mt-1">
                <span>Ano 0</span>
                <div className="flex gap-3">
                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500/50" />Investido</span>
@@ -6477,7 +6481,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <div className="flex items-center gap-2 mb-3">
                    <span className="text-lg"><Ico e="🏠" className="ico-solo"/></span>
                    <h4 className="font-semibold text-sm">Amortizar</h4>
-                   {avi.melhor === 'amortizar' && <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">Melhor</span>}
+                   {avi.melhor === 'amortizar' && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">Melhor</span>}
                  </div>
                  <div className="space-y-2 text-xs">
                    <div className="flex justify-between">
@@ -6505,7 +6509,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <div className="flex items-center gap-2 mb-3">
                    <span className="text-lg"><Ico e="📈" className="ico-solo"/></span>
                    <h4 className="font-semibold text-sm">Investir</h4>
-                   {avi.melhor === 'investir' && <span className="text-[9px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">Melhor</span>}
+                   {avi.melhor === 'investir' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">Melhor</span>}
                  </div>
                  <div className="space-y-2 text-xs">
                    <div className="flex justify-between">
@@ -6583,7 +6587,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <div className={`w-full h-4 rounded-full ${theme === 'light' ? 'bg-slate-200' : 'bg-slate-700'}`}>
                  <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-red-500 transition-all relative"
                    style={{ width: Math.min(100, (totPortfolio / fireTarget * 100)) + '%' }}>
-                   <span className="absolute right-1 top-0 text-[9px] text-white font-bold leading-4">{(totPortfolio / fireTarget * 100).toFixed(1)}%</span>
+                   <span className="absolute right-1 top-0 text-[10px] text-white font-bold leading-4">{(totPortfolio / fireTarget * 100).toFixed(1)}%</span>
                  </div>
                </div>
              </div>
@@ -6779,7 +6783,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    );
                  })}
                </div>
-               <div className="flex justify-between text-[9px] text-slate-500 mt-1">
+               <div className="flex justify-between text-[10px] text-slate-500 mt-1">
                  <span>{timeline[0]?.idade || flamingoIdade}a</span>
                  <div className="flex gap-3">
                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{background:'rgba(59,130,246,0.5)'}} />Acumular</span>
@@ -10672,7 +10676,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                                {v > 0 ? (<>
                                  {fmt(v)}
                                  {prev > 0 && Math.abs(diff) >= 1 && (
-                                   <span className={`text-[9px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                   <span className={`text-[10px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                                      {diff > 0 ? '▲' : '▼'}
                                    </span>
                                  )}
@@ -10697,7 +10701,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                              {v > 0 ? (<>
                                {fmt(v)}
                                {prev > 0 && Math.abs(diff) >= 1 && (
-                                 <span className={`text-[9px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                 <span className={`text-[10px] ml-0.5 ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                                    {diff > 0 ? '▲' : '▼'}
                                  </span>
                                )}
@@ -11342,8 +11346,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano', 'performance', 'historico'] },
    { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
-   { id: 'chat', label: 'Chat IA' },
-   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'notas', 'calfin', 'agenda', 'credito', 'vendacasa'] },
+   { id: 'notas', label: 'Notas', titulo: 'Notas', subs: ['notas'] },
+   { id: 'planear', label: 'Planear', titulo: 'Planeamento', subs: ['trabalho', 'calfin', 'agenda', 'credito', 'vendacasa'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['invest', 'portfolio', 'patrimonio', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
@@ -11856,7 +11860,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        const md = M[key] || {};
        const com = md.regCom?.reduce((a, r) => a + r.val, 0) || 0;
        const sem = md.regSem?.reduce((a, r) => a + r.val, 0) || 0;
-       const tax = (com + sem) * (G.taxa / 100); // reserva sobre Com + Sem Taxas
+       const tax = reservaMes(md); // mesma regra do ecrã principal
        totCom += com; totSem += sem; totTax += tax;
        resumoData.push([mesNome, com, sem, com + sem, tax, com + sem - tax]);
      });
@@ -12694,7 +12698,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    });
    
    // Impostos estimados
-   const impostoEstimado = totalComTaxas * (taxa / 100);
+   const impostoEstimado = Object.entries(M).filter(([k]) => Number(k.split('-')[0]) === anoRel).reduce((a, [, d]) => a + reservaMes(d), 0); // Com + Sem Taxas, como no ecrã
    
    // Dados de créditos
    const creditosData = G.creditos || [];
@@ -13364,7 +13368,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  const com = mesData.regCom?.reduce((a, r) => a + r.val, 0) || 0;
  const sem = mesData.regSem?.reduce((a, r) => a + r.val, 0) || 0;
  const tot = com + sem;
- const tax = tot * (G.taxa / 100); // reserva sobre Com + Sem Taxas
+ const tax = reservaMes(mesData); // mesma regra do ecrã principal
  const liq = tot - tax;
  totalAnualCom += com;
  totalAnualSem += sem;
@@ -13831,7 +13835,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                   const sel = `h-8 bg-transparent border-0 rounded-lg px-1 sm:px-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/40 appearance-none cursor-pointer ${claro ? 'text-slate-800 hover:bg-white' : 'text-slate-100 hover:bg-white/10'}`;
                   const opt = claro ? '' : 'bg-slate-800';
                   return (
-                    <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
+                    <div className={`flex items-center gap-0.5 p-0.5 rounded-xl border ${tab === 'notas' ? 'max-sm:hidden' : ''} ${claro ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-slate-700/60'}`}>
                       <button onClick={() => irMes(-1)} aria-label="Mês anterior" title="Mês anterior (Alt+←)" className={`${seta} ${navPos > 0 ? 'max-sm:hidden' : ''}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <select value={mes} onChange={e=>setMes(e.target.value)} aria-label="Mês" className={sel}>
                         {meses.map(m=><option key={m} value={m} className={opt}>{m}{m === mesAtualSistema ? ' •' : ''}</option>)}
@@ -13844,7 +13848,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                   );
                 })()}
                 {!isMesAtual(mes, ano) && (
-                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className={`h-8 px-3 text-xs font-medium rounded-xl border transition-colors ${theme === 'light' ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'}`} title="Voltar ao mês atual">Hoje</button>
+                  <button onClick={() => { setMes(mesAtualSistema); setAno(anoAtualSistema); }} className={`${tab === 'notas' ? 'max-sm:hidden' : ''} h-8 px-3 text-xs font-medium rounded-xl border transition-colors ${theme === 'light' ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'}`} title="Voltar ao mês atual">Hoje</button>
                 )}
               </div>
             </div>
@@ -13861,6 +13865,8 @@ ${transacoesOrdenadas.map(t => `<tr>
                 <button onClick={handleUndo} disabled={undoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg {...ic}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
                 <button onClick={handleRedo} disabled={redoRef.current.length === 0} className={btn(false, 'hidden sm:inline-flex')} title="Refazer (Ctrl+Y)" aria-label="Refazer"><svg {...ic}><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
                 {sep}
+                {/* Telemóvel: o chat com a IA (no computador é o botão redondo "✨ Perguntar") */}
+                <button onClick={() => setChatAberto(true)} className={btn(chatAberto, 'sm:hidden')} title="Perguntar à IA" aria-label="Perguntar à IA"><svg {...ic}><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/><path d="M19 3v4M17 5h4"/></svg></button>
                 {/* Esconder valores (olho) */}
                 <button onClick={() => setPrivado(v => !v)} className={btn(privado)} aria-pressed={privado} title={privado ? 'Mostrar os valores (Ctrl+.)' : 'Esconder os valores (Ctrl+.)'} aria-label={privado ? 'Mostrar os valores' : 'Esconder os valores'}>
                   {privado
@@ -13918,10 +13924,12 @@ ${transacoesOrdenadas.map(t => `<tr>
       <nav aria-label="Menu principal" className="sm:hidden fixed bottom-0 inset-x-0 z-40 px-3 pt-2 no-print" style={{ paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}>
         <div className={`flex items-stretch justify-between rounded-[2rem] border p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur-xl ${theme === 'light' ? 'bg-white/95 border-slate-200' : 'bg-slate-800/95 border-slate-700/60'}`}>
           {gruposMob.map(g => {
-            const ativo = g.id === 'chat' ? chatAberto : (!chatAberto && grupoMob && grupoMob.id === g.id);
+            const ativo = !chatAberto && grupoMob && grupoMob.id === g.id;
+            const destaque = g.id === 'notas';
             const ir = () => {
-              if (g.id === 'chat') { setChatAberto(true); return; }
               setChatAberto(false);
+              // Já nas Notas: volta ao início das notas
+              if (destaque && tab === 'notas') { window.dispatchEvent(new CustomEvent('notas-inicio')); return; }
               setTab(grupoMob && grupoMob.id === g.id ? g.subs[0] : (ultMobRef.current[g.id] || g.subs[0]));
               window.scrollTo({ top: 0, behavior: 'smooth' });
             };
@@ -13929,14 +13937,16 @@ ${transacoesOrdenadas.map(t => `<tr>
             const icone = {
               painel: <svg {...ic}><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/></svg>,
               dinheiro: <svg {...ic}><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1.2" fill="currentColor"/></svg>,
-              chat: <svg {...ic}><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z" fill={ativo ? 'currentColor' : 'none'}/></svg>,
+              notas: <svg {...ic}><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L13 13.8l-3.6.8.8-3.6z"/></svg>,
               planear: <svg {...ic}><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><rect x="13" y="13.5" width="4" height="4" rx=".5" fill="currentColor"/></svg>,
               patrimonio: <svg {...ic}><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v9h9a9 9 0 0 0-9-9z"/></svg>,
             }[g.id];
             return (
               <button key={g.id} onClick={ir} aria-label={g.label} aria-current={ativo ? 'page' : undefined}
-                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 rounded-[1.5rem] transition-colors ${ativo ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
-                {icone}
+                className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-2 rounded-[1.5rem] transition-colors ${destaque ? (ativo ? (theme === 'light' ? 'text-violet-700' : 'text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300') : ativo ? (theme === 'light' ? 'bg-violet-100 text-violet-700' : 'bg-white/10 text-violet-300') : theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
+                {destaque
+                  ? <span className={`-mt-7 w-[52px] h-[52px] rounded-full inline-flex items-center justify-center text-white shadow-lg ring-4 transition-transform active:scale-95 bg-gradient-to-br from-violet-500 to-blue-600 ${theme === 'light' ? 'ring-white' : 'ring-slate-800'} ${ativo ? 'scale-105' : ''}`}>{icone}</span>
+                  : icone}
                 <span className={`text-[11px] leading-none truncate max-w-full ${ativo ? 'font-semibold' : ''}`}>{g.label}</span>
               </button>
             );
@@ -13967,7 +13977,7 @@ ${transacoesOrdenadas.map(t => `<tr>
       )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
       <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' || tab === 'notas' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
-        {grupoMob && (
+        {grupoMob && grupoMob.id !== 'notas' && (
           <div className="sm:hidden no-print">
             <h2 className="text-3xl font-bold tracking-tight mb-3">{grupoMob.titulo}</h2>
             <div className="-mx-3 px-3 mb-4 flex gap-2 overflow-x-auto scrollbar-hide">
