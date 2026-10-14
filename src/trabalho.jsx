@@ -1323,6 +1323,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
+            {<a href={linkAE(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
             <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false }] }))}>Duplicar</button>
             <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
               const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
@@ -1754,6 +1755,16 @@ const nomesFicheiros = (trab, t) => {
     pasta: conceito ? `${conceito} / ${base}` : '',
     ficheiros: formatos.map(f => ({ formato: f, nome: [cod, tipo, base, f.replace(':', 'X'), dur, ddmmyy].filter(Boolean).join('_') })),
   };
+};
+// "Abrir no After Effects": link aeproj:// tratado pelo lançador AbrirAE instalado no PC (procura o .aep pelo conceito,
+// também no disco de arquivo, e lembra-se do projeto escolhido para cada tarefa)
+const linkAE = (trab, t, clientes) => {
+  const nf = nomesFicheiros(trab, t);
+  const cli = (clientes || []).find(c => String(c.id) === String(t.cid));
+  // só a versão que tu escolheste (ou a da pasta enviada para o Drive) — sem isso não desempata por versão
+  const v = String((t.ficheiros && t.ficheiros.versao) || (/_V(\d+)(?:_|$)/.exec(String((t.drive && t.drive.pasta) || '')) || [])[1] || '').replace(/^v/i, '');
+  const p = new URLSearchParams({ id: String(t.id), cliente: (cli && cli.nome) || '', jogo: (nf.jogo && nf.jogo.nome) || '', conceito: nf.conceito || '', versao: v ? `V${v}` : '' });
+  return `aeproj://abrir/?${p.toString()}`;
 };
 const copiar = txt => {
   try { if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(txt); return; } } catch (e) { /* tenta o método antigo */ }
