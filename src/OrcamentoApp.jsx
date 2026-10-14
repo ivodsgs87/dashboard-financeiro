@@ -14212,7 +14212,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            ].map(t => (
              <button key={t.id} onClick={() => setSidebarTab(t.id)}
                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all w-full text-left ${sidebarTab === t.id ? 'bg-blue-500/20 text-blue-400' : theme === 'light' ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'}`}>
-               <span>{t.icon}</span>{t.label}
+               <Ico e={t.icon}/>{t.label}
              </button>
            ))}
          </div>
@@ -14439,7 +14439,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                  {(G.catsInv || []).map((cat, i) => (
                    <div key={i} className={`flex items-center gap-3 p-2 rounded-lg ${theme === 'light' ? 'bg-white' : 'bg-slate-700/50'}`}>
                      <input type="text" value={cat} onChange={e => { saveUndo(); const novos = [...(G.catsInv || [])]; novos[i] = e.target.value; uG('catsInv', novos); }}
-                       className={`flex-1 text-sm bg-transparent border-none outline-none font-mono ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
+                       className={`flex-1 text-sm bg-transparent border-none outline-none ${theme === 'light' ? 'text-slate-900' : 'text-white'}`} />
                      <button onClick={() => { saveUndo(); uG('catsInv', (G.catsInv || []).filter((_, j) => j !== i)); }}
                        className="text-red-400 hover:text-red-300 text-xs">✕</button>
                    </div>
