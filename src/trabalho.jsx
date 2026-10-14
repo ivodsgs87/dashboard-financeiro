@@ -1024,12 +1024,12 @@ const miniaturas = (a, cid) => {
   const m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u); if (m) return [`https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`];
   return [];
 };
-const MiniLink = ({ a, sub, cid }) => {
+const MiniLink = ({ a, sub, cid, inteiro }) => {
   const [falhas, setFalhas] = useState(0);
   const lista = miniaturas(a, cid);
   const src = lista[falhas];
   let dominio = ''; try { dominio = new URL(a.url).hostname; } catch (e) { /* url estranho */ }
-  if (src) return <img key={src} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhas(n => n + 1)} className="w-full h-full object-cover object-top bg-white" />;
+  if (src) return <img key={src} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhas(n => n + 1)} className={`w-full h-full ${inteiro ? 'object-contain bg-black/30' : 'object-cover object-top bg-white'}`} />;
   return (
     <span className="flex flex-col items-center justify-center gap-1.5 w-full h-full text-blue-400">
       {dominio ? <img src={`https://www.google.com/s2/favicons?domain=${dominio}&sz=64`} alt="" className="w-8 h-8 rounded" onError={e => { e.currentTarget.style.display = 'none'; }} /> : <IcoA n="link" className="w-8 h-8" />}
@@ -1148,17 +1148,19 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         )
       )}
       {(anexos.length > 0 || envios.length > 0) ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="flex flex-wrap justify-center items-start gap-2">
           {anexos.map(a => {
             const tp = tipoAnexo(a);
+            // Google Slides: cartão mais largo e no formato do slide (16:9), sem cortar nada
+            const slides = tp === 'link' && /docs\.google\.com\/presentation/.test(a.url || '');
             return (
-              <div key={a.id} className={cartao}>
+              <div key={a.id} className={`${cartao} ${slides ? 'w-full sm:w-[calc(66.666%-0.25rem)]' : 'w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.34rem)]'}`}>
                 {tp === 'imagem' ? (
                   <button type="button" onClick={() => setVerImagem(a)} className="block w-full aspect-[4/3] bg-black/20" title={a.nome}><img src={a.url} alt={a.nome} loading="lazy" className="w-full h-full object-cover" /></button>
                 ) : tp === 'video' ? (
                   <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover pointer-events-none" /></button>
                 ) : tp === 'link' ? (
-                  <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className="block w-full aspect-[4/3] overflow-hidden" title={`Abrir ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} /></a>
+                  <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`block w-full ${slides ? 'aspect-video' : 'aspect-[4/3]'} overflow-hidden`} title={`Abrir ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} inteiro={slides} /></a>
                 ) : (
                   <button type="button" onClick={() => (urlPrevia(a, t.cid) ? setPrevia(a) : abrirLink(a.url, t.cid))} className={`flex flex-col items-center justify-center gap-1.5 w-full aspect-[4/3] ${tp === 'pdf' ? 'text-red-400' : sub}`} title={a.nome}>
                     <IcoA n={tp} className="w-8 h-8" />
@@ -1177,7 +1179,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
             );
           })}
           {envios.map(x => (
-            <div key={x.id} className={`${cartao} p-2 flex flex-col justify-center gap-1.5 aspect-[4/3]`}>
+            <div key={x.id} className={`${cartao} w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.34rem)] p-2 flex flex-col justify-center gap-1.5 aspect-[4/3]`}>
               <p className="text-xs truncate">{x.nome}</p>
               <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(x.p * 100)}%` }} /></div>
               <p className={`text-[10px] ${sub}`}>A enviar… {Math.round(x.p * 100)}%</p>
