@@ -3240,9 +3240,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    }
    
    return (
-     <div className="space-y-4">
+     <div className="space-y-4 pag-2col">
        {/* KPIs Principais */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 col-toda">
          <Card className="">
            <p className="text-xs text-slate-400 mb-1"><Ico e="📈"/>Taxa de Poupança</p>
            <p className="text-2xl font-bold text-blue-400">{taxaPoupancaAtual.toFixed(1)}%</p>
@@ -3436,12 +3436,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        )}
        
        {/* COMPARAR ANOS */}
-       <Card>
+       <Card className="col-toda">
          <CompararAnos G={G} M={M} theme={theme} anoAtual={ano} />
        </Card>
        
        {/* GRÁFICO PATRIMÓNIO LÍQUIDO */}
-       <Card>
+       <Card className="col-toda">
          <h3 className="font-semibold mb-4"><Ico e="💎"/>Evolução do Património Líquido</h3>
          {(() => {
            // Calcular património ao longo do tempo
@@ -3568,7 +3568,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </Card>
        
        {/* Distribuição de Despesas */}
-       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 col-toda">
          <Card>
            <h3 className="font-semibold mb-4"><Ico e="💳"/>Distribuição do Rendimento</h3>
            <div className="space-y-3">
@@ -4760,7 +4760,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
- <div className="space-y-6 max-w-4xl mx-auto">
+ <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
  
  {/* Layout Editor para Despesas Casal */}
  {showLayoutEditor && (
@@ -4779,6 +4779,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  
  {avisoDesp('despABanca', 'Despesas do casal')}
+ <div className="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:gap-6 2xl:items-start">
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -4795,7 +4796,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <SliderWithInput value={contrib} onChange={v=>uG('contrib',v)} min={0} max={100} unit="%" className="w-20 sm:w-32" color="pink"/>
  <div className="text-right hidden sm:block"><p className="text-xs text-slate-500">Parceiro/a</p><p className="font-semibold text-slate-300">{fmtP(100-contrib)}</p></div>
  </div>
- <DraggableList
+ <DraggableList className="space-y-2 lg:space-y-0 lg:grid lg:grid-flow-col lg:gap-x-3 lg:gap-y-2" style={{ gridTemplateRows: `repeat(${Math.max(1, Math.ceil(despABanca.length / 2))}, auto)`, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
  items={despABanca}
  onReorder={(newItems) => uG('despABanca', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
@@ -4808,11 +4809,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  )}
  />
- <div className="mt-6 p-4 bg-slate-700/30 rounded-xl space-y-3">
-   <div className="grid grid-cols-3 gap-4 text-center">
-     <div><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
-     <div><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
-     <div><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(parteSaraAB)}</p></div>
+ </Card>
+ <div className="space-y-6 2xl:sticky 2xl:top-40">
+ <Card className="space-y-3">
+   <div className="grid grid-cols-3 gap-4 text-center 2xl:grid-cols-1 2xl:gap-2 2xl:text-left">
+     <div className="2xl:flex 2xl:items-baseline 2xl:justify-between"><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
+     <div className="2xl:flex 2xl:items-baseline 2xl:justify-between"><p className="text-xs text-slate-500">Minha parte ({fmtP(contrib)})</p><p className="text-xl font-bold text-pink-400">{fmt(minhaAB)}</p></div>
+     <div className="2xl:flex 2xl:items-baseline 2xl:justify-between"><p className="text-xs text-slate-500">Parte Parceiro/a ({fmtP(100-contrib)})</p><p className="text-xl font-bold text-slate-400">{fmt(parteSaraAB)}</p></div>
    </div>
    {investFilhos > 0 && (
      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border bg-pink-500/10 border-pink-500/30 text-sm">
@@ -4839,20 +4842,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <span className="text-[10px] text-slate-500">(transfere)</span>
      </div>
    </div>
- </div> </Card>
+ </Card>
  
  {porCat.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-6"><Ico e="📊"/>Distribuição por Categoria</h3>
- <div className="flex flex-col lg:flex-row gap-6 items-center">
+ <h3 className="text-lg font-semibold mb-4 2xl:mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
+ <div className="flex flex-col lg:flex-row 2xl:flex-col gap-6 2xl:gap-4 items-center">
  <PieChart data={pieData} size={180}/>
- <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+ <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-1 gap-2 2xl:gap-0.5">
  {porCat.sort((a,b) => b.val - a.val).map(c => (
- <div key={c.cat} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg">
+ <div key={c.cat} className="flex items-center gap-2 p-2 2xl:py-1 bg-slate-700/30 2xl:bg-transparent rounded-lg">
  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
  <div className="flex-1 min-w-0">
-   <p className="text-xs font-medium truncate">{c.cat}</p>
-   <p className="text-xs text-slate-500">{((c.val/totAB)*100).toFixed(0)}%</p>
+   <p className="text-xs font-medium truncate">{c.cat}<span className="hidden 2xl:inline font-normal text-slate-500"> · {((c.val/totAB)*100).toFixed(0)}%</span></p>
+   <p className="text-xs text-slate-500 2xl:hidden">{((c.val/totAB)*100).toFixed(0)}%</p>
  </div>
  <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
  </div>
@@ -4861,6 +4864,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
  )}
+ </div>
+ </div>
  </div>
  );
  };
@@ -4877,7 +4882,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
  return (
- <div className="space-y-6 max-w-4xl mx-auto">
+ <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
  
  {/* Layout Editor para Despesas Pessoais */}
  {showLayoutEditor && (
@@ -4895,6 +4900,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  
  {avisoDesp('despPess', 'Despesas pessoais')}
+ <div className="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:gap-6 2xl:items-start">
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -4906,7 +4912,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
  </div>
  </div>
- <DraggableList
+ <DraggableList className="space-y-2 lg:space-y-0 lg:grid lg:grid-flow-col lg:gap-x-3 lg:gap-y-2" style={{ gridTemplateRows: `repeat(${Math.max(1, Math.ceil(despPess.length / 2))}, auto)`, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
  items={despPess}
  onReorder={(newItems) => uG('despPess', newItems)}
  renderItem={(d, idx, isDragging, onDragStart, onDragEnd) => (
@@ -4919,23 +4925,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  )}
  />
- <div className="flex justify-end mt-6 p-4 bg-slate-700/30 rounded-xl">
- <div className="text-right"><p className="text-xs text-slate-500">Total Despesas Pessoais</p><p className="text-xl font-bold">{fmt(totPess)}</p></div>
- </div>
+ </Card>
+ <div className="space-y-6 2xl:sticky 2xl:top-40">
+ <Card className="!py-4">
+ <div className="flex items-baseline justify-between gap-3"><p className="text-xs text-slate-500">Total Despesas Pessoais</p><p className="text-xl font-bold">{fmt(totPess)}</p></div>
  </Card>
  
  {porCat.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-6"><Ico e="📊"/>Distribuição por Categoria</h3>
- <div className="flex flex-col lg:flex-row gap-6 items-center">
+ <h3 className="text-lg font-semibold mb-4 2xl:mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
+ <div className="flex flex-col lg:flex-row 2xl:flex-col gap-6 2xl:gap-4 items-center">
  <PieChart data={pieData} size={180}/>
- <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+ <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-1 gap-2 2xl:gap-0.5">
  {porCat.sort((a,b) => b.val - a.val).map(c => (
- <div key={c.cat} className="flex items-center gap-2 p-2 bg-slate-700/30 rounded-lg">
+ <div key={c.cat} className="flex items-center gap-2 p-2 2xl:py-1 bg-slate-700/30 2xl:bg-transparent rounded-lg">
  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
  <div className="flex-1 min-w-0">
-   <p className="text-xs font-medium truncate">{c.cat}</p>
-   <p className="text-xs text-slate-500">{((c.val/totPess)*100).toFixed(0)}%</p>
+   <p className="text-xs font-medium truncate">{c.cat}<span className="hidden 2xl:inline font-normal text-slate-500"> · {((c.val/totPess)*100).toFixed(0)}%</span></p>
+   <p className="text-xs text-slate-500 2xl:hidden">{((c.val/totPess)*100).toFixed(0)}%</p>
  </div>
  <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
  </div>
@@ -4944,6 +4951,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </Card>
  )}
+ </div>
+ </div>
  </div>
  );
  };
@@ -5262,8 +5271,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const minMes = hAno.filter(x => x.tot > 0).length > 0 ? hAno.filter(x => x.tot > 0).reduce((a, x) => x.tot < a.tot ? x : a, hAno.filter(x => x.tot > 0)[0]) : null;
  
  return (
- <div key={mesKey} className="space-y-6">
- <div className="flex items-center gap-4 mb-2">
+ <div key={mesKey} className="space-y-6 pag-2col">
+ <div className="flex items-center gap-4 mb-2 col-toda">
  <h2 className="text-xl font-bold"><Ico e="📅"/>Histórico de Receitas</h2>
  <Select value={anoParaMostrar} onChange={e=>setHistAno(+e.target.value)} className="text-sm">
  {anosDisponiveis.map(a=><option key={a} value={a}>{a} {h.filter(x=>x.ano===a).length > 0 ? `(${h.filter(x=>x.ano===a).length} meses)` : '(sem dados)'}</option>)}
@@ -5278,14 +5287,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </Card>
  ) : (
  <>
- <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 col-toda">
  <StatCard label={`Total ${anoParaMostrar}`} value={fmt(totH)} color="text-blue-400" icon="📊"/>
  <StatCard label="Média Mensal" value={fmt(mediaAnual)} color="text-emerald-400" sub={`${hAno.length} meses com dados`} icon="📈"/>
  <StatCard label="Com Taxas" value={fmt(hAno.reduce((a,x)=>a+x.com,0))} color="text-orange-400" icon="📋"/>
  <StatCard label="Sem Taxas" value={fmt(hAno.reduce((a,x)=>a+x.sem,0))} color="text-emerald-400" icon="✅"/>
  </div>
 
- <Card>
+ <Card className="col-toda">
  <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Médias por Trimestre</h3>
  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
  {mediaTrim.map(t => (
@@ -5955,9 +5964,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
  
  return (
- <div className="space-y-6 max-w-5xl mx-auto">
+ <div className="space-y-6 max-w-5xl xl:max-w-none mx-auto pag-2col">
  {!estadoMesSel.futuro && (
-   <div className={avisoCls(estadoMesSel.port === 'ok' ? 'verde' : 'vermelho')} role="status">
+   <div className={'col-toda ' + avisoCls(estadoMesSel.port === 'ok' ? 'verde' : 'vermelho')} role="status">
      {estadoMesSel.port === 'ok'
        ? <span><strong>✓ Portfolio de {mes} atualizado</strong> · valores do dia {dataPt(estadoMesSel.data)}</span>
        : estadoMesSel.port === 'igual'
@@ -6092,7 +6101,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {porCat.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-6"><Ico e="📊"/>Distribuição por Categoria</h3>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
  <div className="flex flex-col lg:flex-row gap-6">
  <div className="flex-shrink-0">
    <PieChart data={pieData} size={180}/>
@@ -7094,10 +7103,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const [liquidacaoData, setLiquidacaoData] = useState({ data: new Date().toISOString().split('T')[0], valor: '' });
  
  return (
- <div className="space-y-6">
+ <div className="space-y-6 pag-2col">
  
  {/* LISTA DE CRÉDITOS */}
- <Card>
+ <Card className="col-toda">
    <div className="flex justify-between items-center mb-4">
      <h3 className="text-lg font-semibold"><Ico e="🏦"/>Os Meus Créditos</h3>
      <div className="flex gap-2">
@@ -7337,7 +7346,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* Detalhes do crédito selecionado */}
  {creditoEmUso && creditoEmUso.estado !== 'liquidado' && (
  <>
- <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 col-toda">
  <StatCard label="Dívida Atual" value={fmt(dividaAtual)} color="text-red-400" icon="🏠"/>
  <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
  <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
@@ -7349,19 +7358,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-lg font-semibold mb-4"><Ico e="📋"/>Dados do Crédito {creditoEmUso?.nome && `- ${creditoEmUso.nome}`}</h3>
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <div className="space-y-2">
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400 text-sm">Valor do Bem</span>
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={valorCasaFinal} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'valorBem', v) : uC('valorCasa',v)}/>
  </div>
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400 text-sm">Entrada</span>
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={entradaInicial} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'entradaInicial', v) : uC('entradaInicial',v)}/>
  </div>
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
  <span className="text-slate-400 text-sm">Financiado</span>
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={montanteInicial} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'montanteInicial', v) : uC('montanteInicial',v)}/>
  </div>
- <div className="flex justify-between items-center p-3 tile rounded-xl">
+ <div className="flex justify-between items-center gap-3 px-3 py-2 tile rounded-xl">
  <div>
    <span className="text-slate-300 text-sm">Data Fim</span>
    {dataFim && (() => {
@@ -7378,20 +7387,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  </div>
  <div className="space-y-2">
- <div className="flex justify-between items-center p-3 tile rounded-xl">
+ <div className="flex justify-between items-center gap-3 px-3 py-2 tile rounded-xl">
  <span className="text-slate-300 font-medium text-sm">Dívida Atual</span>
- <StableInput type="number" className="w-28 sm:w-32 bg-slate-700/50 border border-red-500/30 rounded-xl px-3 py-2 text-red-400 font-bold text-right focus:outline-none" initialValue={dividaAtual} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dividaAtual', v) : uC('dividaAtual',v)}/>
+ <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} !border-red-500/40 !text-red-400 font-bold text-right`} initialValue={dividaAtual} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dividaAtual', v) : uC('dividaAtual',v)}/>
  </div>
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Taxa de Juro Atual (%)</span>
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
+ <span className="text-slate-400 text-sm">Taxa de Juro Atual (%)</span>
  <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={taxaJuro} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'taxaJuro', v) : uC('taxaJuro',v)} step="0.1"/>
  </div>
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Prestação Mensal Atual</span>
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
+ <span className="text-slate-400 text-sm">Prestação Mensal Atual</span>
  <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={prestacao} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'prestacao', v) : uC('prestacao',v)}/>
  </div>
- <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400">Seguros</span>
+ <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
+ <span className="text-slate-400 text-sm">Seguros</span>
  <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={seguros} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'seguros', v) : uC('seguros',v)}/>
  </div>
  </div>
@@ -13974,7 +13983,7 @@ ${transacoesOrdenadas.map(t => `<tr>
         </div>
       )}
       <style>{CSS_BASE + CSS_MOBILE}</style>
-      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' || tab === 'notas' ? 'max-w-[1920px]' : 'max-w-7xl'}`} style={{overflowX: "clip"}}>
+      <main onTouchStart={onToqueIni} onTouchEnd={onToqueFim} className={`m-pad px-3 sm:px-6 py-4 sm:py-6 mx-auto ${tab === 'calfin' ? 'max-w-[1600px]' : tab === 'trabalho' || tab === 'notas' ? 'max-w-[1920px]' : 'max-w-7xl 2xl:max-w-[1600px]'}`} style={{overflowX: "clip"}}>
         {grupoMob && grupoMob.id !== 'notas' && (
           <div className="sm:hidden no-print">
             <div className="flex items-center justify-between gap-3 mb-3">
