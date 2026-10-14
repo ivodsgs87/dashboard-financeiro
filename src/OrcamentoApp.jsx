@@ -30,7 +30,10 @@ const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho', 'trabalho');
 const carregarNotas = () => import('./notas');
 const Notas = lazySeparador(carregarNotas, 'Notas', 'notas');
 const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio', 'patrimonioEcra');
-setTimeout(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }, 4000);
+// O Trabalho e as Notas (os mais usados) descarregam-se logo que a app fica parada; os outros a seguir
+const quandoParado = f => (typeof window !== 'undefined' && window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 4000 }) : setTimeout(f, 1500));
+setTimeout(() => quandoParado(() => { carregarTrabalho().catch(() => {}); carregarNotas().catch(() => {}); }), 1500);
+setTimeout(() => quandoParado(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }), 4000);
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
   
@@ -14573,6 +14576,40 @@ ${transacoesOrdenadas.map(t => `<tr>
          )}
          
          {/* ===== SOBRE ===== */}
+         {/* Espaço ocupado na base de dados (cada documento do Firestore tem um limite de 1 MB) */}
+         {sidebarTab === 'settings' && (() => {
+           const bytes = o => { try { return new TextEncoder().encode(JSON.stringify(o || {})).length; } catch (e) { return 0; } };
+           const LIM = 1048576;
+           const docs = [
+             { nome: 'Dados principais', sub: 'receitas, despesas, investimentos, definições…', b: bytes({ g: G, m: M }) },
+             ...(trabModo === 'doc' ? [{ nome: 'Trabalho', sub: `${(trabalho.tarefas || []).length} tarefas, ${(trabalho.pastas || []).length} pastas`, b: bytes(trabalho) }] : []),
+             ...(notasModo === 'doc' ? [{ nome: 'Notas (índice)', sub: 'as páginas ficam à parte e não contam aqui', b: bytes(notasIndice) }] : []),
+           ];
+           const kb = b => `${Math.round(b / 1024).toLocaleString('pt-PT')} KB`;
+           // O que ocupa mais nos dados principais
+           const maiores = Object.entries({ ...G, meses: M }).map(([k, v]) => [k, bytes(v)]).sort((x, y) => y[1] - x[1]).slice(0, 4);
+           const claroS = theme === 'light';
+           return (
+             <div className={`p-4 rounded-xl text-sm space-y-3 ${claroS ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+               <div>
+                 <h4 className="font-semibold">Espaço na base de dados</h4>
+                 <p className="text-xs text-slate-500">Cada bloco pode ter até 1 MB. Se algum passar dos 80%, avisa-me para arquivarmos coisas antigas.</p>
+               </div>
+               {docs.map(d => {
+                 const pct = Math.min(100, d.b / LIM * 100);
+                 const cor = pct >= 80 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500';
+                 return (
+                   <div key={d.nome}>
+                     <div className="flex items-baseline justify-between gap-2 text-xs"><span className="font-medium">{d.nome}</span><span className={`tabular-nums ${pct >= 80 ? 'text-red-400 font-semibold' : 'text-slate-500'}`}>{kb(d.b)} · {Math.round(pct)}%</span></div>
+                     <div className={`mt-1 h-1.5 rounded-full overflow-hidden ${claroS ? 'bg-slate-200' : 'bg-slate-700'}`}><div className={`h-full rounded-full ${cor}`} style={{ width: `${Math.max(1, pct)}%` }} /></div>
+                     <p className="mt-0.5 text-[11px] text-slate-500">{d.sub}</p>
+                   </div>
+                 );
+               })}
+               {maiores.length > 0 && <p className="text-[11px] text-slate-500">Mais pesado nos dados principais: {maiores.map(([k, b]) => `${k} (${kb(b)})`).join(' · ')}</p>}
+             </div>
+           );
+         })()}
          {sidebarTab === 'sobre' && (<>
            <div className={`p-4 rounded-xl text-sm space-y-3 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
              <h4 className="font-semibold">OrcamentoApp</h4>
