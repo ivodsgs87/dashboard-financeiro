@@ -9,8 +9,8 @@ import {
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
   ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, isoDia,
-  planearMes, trabParar, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button,
-  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  planearMes, trabParar, trabPararEm, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
+  Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -23,13 +23,13 @@ import {
 // e descarregam-se em segundo plano uns segundos depois de a app abrir.
 const carregarVendaCasa = () => import('./vendaCasa');
 const carregarPatrimonio = () => import('./patrimonioEcra');
-const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa');
-const Casamento = lazySeparador(carregarVendaCasa, 'Casamento');
+const VendaCasa = lazySeparador(carregarVendaCasa, 'VendaCasa', 'vendaCasa');
+const Casamento = lazySeparador(carregarVendaCasa, 'Casamento', 'vendaCasa');
 const carregarTrabalho = () => import('./trabalho');
-const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho');
+const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho', 'trabalho');
 const carregarNotas = () => import('./notas');
-const Notas = lazySeparador(carregarNotas, 'Notas');
-const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio');
+const Notas = lazySeparador(carregarNotas, 'Notas', 'notas');
+const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio', 'patrimonioEcra');
 setTimeout(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }, 4000);
 
 const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
@@ -570,6 +570,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       return undefined;
     }
     try { if (navigator.setAppBadge) navigator.setAppBadge().catch(() => {}); } catch (e) { /* sem suporte */ }
+    // Ícone do separador com um ponto vermelho de REC (o ponto do ícone da app instalada é desenhado pelo Windows, não dá para mudar a cor)
+    const icones = [...document.querySelectorAll('link[rel~="icon"]')].filter(l => !l.dataset.rec);
+    let recLink = null;
+    try {
+      const img = new Image();
+      img.onload = () => {
+        if (!document.querySelector('link[data-rec]') && !recLink) return;
+        const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0, 64, 64);
+        g.beginPath(); g.arc(46, 18, 15, 0, Math.PI * 2); g.fillStyle = '#ef4444'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#ffffff'; g.stroke();
+        if (recLink) recLink.href = c.toDataURL('image/png');
+      };
+      recLink = document.createElement('link'); recLink.rel = 'icon'; recLink.type = 'image/png'; recLink.dataset.rec = '1';
+      icones.forEach(l => { l.dataset.relOriginal = l.rel; l.rel = 'icon-desligado'; });
+      document.head.appendChild(recLink);
+      img.src = '/icon-180.png';
+    } catch (e) { /* sem canvas */ }
     const t0 = Date.parse(cronoIni);
     const pintar = () => {
       const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
@@ -578,7 +595,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     };
     pintar();
     const i = setInterval(pintar, 1000);
-    return () => clearInterval(i);
+    return () => {
+      clearInterval(i);
+      try { if (recLink) recLink.remove(); recLink = null; document.querySelectorAll('link[rel="icon-desligado"]').forEach(l => { l.rel = l.dataset.relOriginal || 'icon'; }); } catch (e) { /* */ }
+    };
   }, [cronoIni, cronoNome]);
   gTrabRef.current = G.trabalho || null;
   const mudarTrab = useCallback(fn => {
@@ -13896,7 +13916,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 )}
               </div>
 
-              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onAbrir={() => {
+              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onPararEm={iso => mudarTrab(tr => trabPararEm(tr, iso))} onAbrir={() => {
                 // Abre a lista (projeto) da tarefa que está a gravar
                 const c = trabACorrer(trabalho); const pid = c && c.tarefa && c.tarefa.pastaId;
                 const sel = pid ? { tipo: 'pasta', id: pid } : (c && c.tarefa && c.tarefa.cid != null ? { tipo: 'cliente', id: c.tarefa.cid } : null);
@@ -14576,3 +14596,4 @@ ${transacoesOrdenadas.map(t => `<tr>
 };
 
 export default OrcamentoApp;
+export const FICHEIRO_APP = 'OrcamentoApp';
