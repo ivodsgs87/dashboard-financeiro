@@ -586,10 +586,10 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         onDrop={e => { if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); inserirFicheiros(e.dataTransfer.files); } }}
         onBlur={() => setTimeout(() => setMencao(null), 200)} />
       {menuCols && createPortal(
-        <div data-menu-cols="1" className={`fixed z-[60] w-44 rounded-xl border shadow-2xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`} style={{ left: Math.min(menuCols.x, window.innerWidth - 188), top: menuCols.y }} role="menu">
+        <div data-menu-cols="1" className={`fixed z-[60] w-44 rounded-xl border shadow-2xl py-1 ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-100'}`} style={{ left: Math.min(menuCols.x, window.innerWidth - 188), top: menuCols.y }} role="menu">
           {[[2, '2 colunas'], [3, '3 colunas']].map(([n, txt]) => (
             <button key={n} type="button" role="menuitem" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={() => colunas(n)}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${menuCols.n === n ? 'text-blue-400' : ''} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${menuCols.n === n ? (claro ? 'text-blue-600' : 'text-blue-300') : ''} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>
               <span className="inline-flex gap-0.5">{Array.from({ length: n }).map((_, i) => <span key={i} className="w-2 h-3.5 rounded-sm border border-current opacity-70" />)}</span>{txt}{menuCols.n === n ? ' ✓' : ''}
             </button>
           ))}
