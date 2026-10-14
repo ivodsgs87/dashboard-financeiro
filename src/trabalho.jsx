@@ -575,7 +575,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                       const tem = {
                         anexo: g.lista.some(x => (x.anexos || []).length),
                         notas: g.lista.some(x => x.notas && String(x.notas).trim()),
-                        trello: g.lista.some(x => (x.trello && x.trello.url) || (jg(x) || {}).trello),
+                        trello: g.lista.some(x => (x.trello && x.trello.url) || usaTrello(jg(x))),
                         drive: g.lista.some(x => x.drive && x.drive.url),
                         folha: g.lista.some(x => { const j = jg(x); return j && !j.semJogo && j.sheet; }),
                       };
@@ -639,7 +639,7 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta, j
   const [txt, setTxt] = useState('');
   const [paraTrello, setParaTrello] = useState(() => { try { return localStorage.getItem('trab-novo-trello') === '1'; } catch (e) { return false; } });
   const mudarParaTrello = v => { setParaTrello(v); try { localStorage.setItem('trab-novo-trello', v ? '1' : '0'); } catch (e) { /* */ } };
-  const comTrello = !!(jogoTrello && jogoTrello.trello && jogoTrello.trelloLista);
+  const comTrello = !!(usaTrello(jogoTrello) && jogoTrello.trelloLista);
   const [prazo, setPrazo] = useState('');
   const [tipoEsc, setTipoEsc] = useState(null);
   const [foco, setFoco] = useState(false);
@@ -982,6 +982,8 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
 // Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
+// Jogos com spreadsheet (tracker) não usam o Trello: o link vai para a spreadsheet
+const usaTrello = j => !!(j && !j.semJogo && j.trello && !j.sheet);
 const IcoTrello = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>;
 // O link da pasta do Drive já foi juntado a este cartão do Trello?
 // Todas as versões enviadas para o Drive (V1, V2…) com os links ainda por juntar a este cartão
@@ -1039,7 +1041,7 @@ const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
   if (t.trello && t.trello.url) return <LinkTrello t={t} claro={claro} />;
   const trab = TRAB_ATUAL.trab;
   const jogo = trab ? jogoDaTarefa(trab, t) : null;
-  if (!jogo || jogo.semJogo || !jogo.trello) return null;
+  if (!usaTrello(jogo)) return null;
   const ligar = c => {
     mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome }, trelloSolto: false })));
     // A tarefa já tinha versões no Drive: junta logo esses links ao cartão
@@ -2475,6 +2477,74 @@ const juntarNaSpreadsheet = async (token, sheetUrl, nome, link, nomesJogo = []) 
   } }] }) });
   return { ok: true, linha: linha + 1, tab: f.title, gid: f.sheetId };
 };
+// Tab do jogo numa spreadsheet: pelo nome (ex.: "Sniper Creative tracker"), senão a do link (gid), senão a única
+const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
+const tabDoJogo = (folhas, sheetUrl, nomesJogo) => {
+  const gid = Number((/[#&?]gid=(\d+)/.exec(String(sheetUrl || '')) || [])[1] ?? NaN);
+  const GENERICAS = /^(battle|game|games|the|creative|tracker|mobile|clash|world|super)$/i;
+  const palavras = [...new Set(nomesJogo.flatMap(n => String(n || '').split(/[^A-Za-zÀ-ÿ0-9]+/)).filter(w => w.length >= 4 && !GENERICAS.test(w)).map(w => w.toLowerCase()))];
+  return (palavras.length ? folhas.find(x => palavras.some(w => x.title.toLowerCase().includes(w))) : null) || folhas.find(x => x.sheetId === gid) || (folhas.length === 1 ? folhas[0] : null) || folhas[0] || null;
+};
+// Cria uma spreadsheet nova (Google Sheets, na conta do cliente) com uma tab por jogo.
+// Com modelo: copia a tab do tracker de outro jogo (cabeçalho, caixinhas das networks, cores) e tira as linhas antigas.
+// Fica na mesma pasta do Drive que a spreadsheet do modelo.
+const criarFolhaTracker = async (token, { titulo, jogos, modelo, aviso = () => {} }) => {
+  let modeloId = null, modeloTab = null, pasta = null;
+  if (modelo && modelo.sheet) {
+    modeloId = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(modelo.sheet)) || [])[1] || null;
+    if (modeloId) {
+      aviso(`A ler o tracker do ${modelo.nome}…`);
+      const meta = await driveApi(token, `${DRV}/${modeloId}?fields=mimeType,parents&supportsAllDrives=true`);
+      if (meta.mimeType !== 'application/vnd.google-apps.spreadsheet') throw new Error(`A spreadsheet do ${modelo.nome} é um ficheiro Excel — escolhe outro modelo (tem de ser Google Sheets).`);
+      pasta = (meta.parents || [])[0] || null;
+      const ss = await driveApi(token, `${SHEETS}/${modeloId}?fields=sheets.properties(sheetId,title,gridProperties)`);
+      modeloTab = tabDoJogo((ss.sheets || []).map(x => x.properties), modelo.sheet, [modelo.nome, modelo.nomeFatura, ...(modelo.aliases || [])]);
+    }
+  }
+  aviso('A criar a spreadsheet…');
+  const nova = await driveApi(token, SHEETS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ properties: { title: titulo } }) });
+  const id = nova.spreadsheetId;
+  const vazia = nova.sheets && nova.sheets[0] && nova.sheets[0].properties.sheetId;
+  if (pasta) {
+    try {
+      const f = await driveApi(token, `${DRV}/${id}?fields=parents&supportsAllDrives=true`);
+      await driveApi(token, `${DRV}/${id}?addParents=${pasta}&removeParents=${(f.parents || []).join(',')}&supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    } catch (e) { pasta = null; /* fica no "O meu disco" */ }
+  }
+  const palavraModelo = modelo ? String(modelo.nome || '').split(/\s+/)[0] : '';
+  const tabs = [];
+  for (const j of jogos) {
+    aviso(`A preparar a tab do ${j.nome}… (${tabs.length + 1}/${jogos.length})`);
+    let tab;
+    if (modeloId && modeloTab) {
+      const cp = await driveApi(token, `${SHEETS}/${modeloId}/sheets/${modeloTab.sheetId}:copyTo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ destinationSpreadsheetId: id }) });
+      const re = palavraModelo ? new RegExp(palavraModelo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+      const titulo0 = re && re.test(modeloTab.title) ? modeloTab.title.replace(re, j.nome) : `${j.nome} Creative tracker`;
+      // Onde acabam os cabeçalhos: a primeira linha com um criativo (nome com link) — senão só a linha 1
+      const g = await driveApi(token, `${SHEETS}/${id}?ranges=${encodeURIComponent(`'${cp.title}'!A1:A60`)}&fields=sheets.data.rowData.values(hyperlink,textFormatRuns,formattedValue)`);
+      const linhas = ((((g.sheets || [])[0] || {}).data || [])[0] || {}).rowData || [];
+      const temLink = c => !!(c && (c.hyperlink || (c.textFormatRuns || []).some(r => r.format && r.format.link)));
+      let cab = linhas.findIndex(r => temLink((r.values || [])[0]));
+      if (cab < 1) cab = 1;
+      const nLin = Number(cp.gridProperties && cp.gridProperties.rowCount) || 1000;
+      const nCol = Number(cp.gridProperties && cp.gridProperties.columnCount) || 26;
+      await driveApi(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [
+        { updateSheetProperties: { properties: { sheetId: cp.sheetId, title: titulo0, index: tabs.length }, fields: 'title,index' } },
+        ...(nLin > cab ? [{ updateCells: { range: { sheetId: cp.sheetId, startRowIndex: cab, endRowIndex: nLin, startColumnIndex: 0, endColumnIndex: nCol }, fields: 'userEnteredValue,textFormatRuns,note' } }] : []),
+      ] }) });
+      tab = { sheetId: cp.sheetId, title: titulo0 };
+    } else {
+      const titulo0 = `${j.nome} Creative tracker`;
+      const r = await driveApi(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ addSheet: { properties: { title: titulo0, index: tabs.length, gridProperties: { frozenRowCount: 1 } } } }] }) });
+      const sid = r.replies[0].addSheet.properties.sheetId;
+      await driveApi(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ updateCells: { start: { sheetId: sid, rowIndex: 0, columnIndex: 0 }, rows: [{ values: ['Creative', 'Notes'].map(v => ({ userEnteredValue: { stringValue: v }, userEnteredFormat: { textFormat: { bold: true } } })) }], fields: 'userEnteredValue,userEnteredFormat.textFormat.bold' } }] }) });
+      tab = { sheetId: sid, title: titulo0 };
+    }
+    tabs.push({ jogoId: j.id, gid: tab.sheetId, tab: tab.title });
+  }
+  if (vazia != null && tabs.length) await driveApi(token, `${SHEETS}/${id}:batchUpdate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ deleteSheet: { sheetId: vazia } }] }) });
+  return { id, url: `https://docs.google.com/spreadsheets/d/${id}/edit`, tabs, naPasta: !!pasta };
+};
 // Pasta de exports no PC (para mudar o nome dos ficheiros): guardada no browser (IndexedDB) para não perguntar sempre
 let usarPastaExports = false;
 const idbPastas = () => new Promise((ok, falha) => { const r = indexedDB.open('app-pastas', 1); r.onupgradeneeded = () => r.result.createObjectStore('h'); r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
@@ -3105,15 +3175,19 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   const conceitosLocais = useMemo(() => {
     if (!jogoD) return [];
     const out = [];
-    (trab.tarefas || []).forEach(x => { if (x.id === t.id) return; const j = jogoDaTarefa(trab, x); if (!j || j.id !== jogoD.id) return; const doNome = conceitoDoNome(x.nome); const c = (x.ficheiros && x.ficheiros.conceito) || (doNome && doNome !== String(x.nome || '').trim() ? doNome : ''); if (c && !/^\d+\s*x\s*\d+$/i.test(c)) out.push(c); });
+    // Só conceitos escritos em "Nomes dos ficheiros" noutras tarefas deste jogo (nunca nomes de tarefas)
+    (trab.tarefas || []).forEach(x => { if (x.id === t.id) return; const j = jogoDaTarefa(trab, x); if (!j || j.id !== jogoD.id) return; const c = x.ficheiros && x.ficheiros.conceito; if (c && !/^\d+\s*x\s*\d+$/i.test(c)) out.push(c); });
     return out;
   }, [trab.tarefas, jogoD && jogoD.id, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const opcoesC = useMemo(() => {
     const vistos = new Map();
-    (conceitosD || []).forEach(n => { const k = slugF(n); if (k && !vistos.has(k)) vistos.set(k, { nome: n, drive: true }); });
+    // Pastas que não são conceitos deste jogo: as de outros jogos do cliente e as de versões soltas (…_V1)
+    const outros = new Set((trab.jogos || []).filter(j => jogoD && String(j.cid) === String(jogoD.cid) && j.id !== jogoD.id).flatMap(j => [j.nome, j.nomeFatura, j.codigo, ...(j.aliases || [])]).map(slugF).filter(x => x && x.length >= 3));
+    const naoConceito = n => { const k = slugF(n); return /_V\d+$/.test(k) || [...outros].some(o => k === o || k.startsWith(o + '_')); };
+    (conceitosD || []).forEach(n => { const k = slugF(n); if (k && !naoConceito(n) && !vistos.has(k)) vistos.set(k, { nome: n, drive: true }); });
     conceitosLocais.forEach(n => { const k = slugF(n); if (k && !vistos.has(k)) vistos.set(k, { nome: n, drive: false }); });
     return [...vistos.values()].sort((a, b) => (b.drive - a.drive) || a.nome.localeCompare(b.nome, 'pt'));
-  }, [conceitosD, conceitosLocais]);
+  }, [conceitosD, conceitosLocais, trab.jogos, jogoD && jogoD.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const txtFiltro = txtConceito != null ? txtConceito : '';
   const filtradasC = (txtFiltro.trim() ? opcoesC.filter(o => slugF(o.nome).includes(slugF(txtFiltro)) || conceitoParecido(o.nome, txtFiltro)) : opcoesC).slice(0, 40);
   const escolherC = n => { setF({ conceito: n }); setTxtConceito(null); setMenuC(false); };
@@ -3221,12 +3295,82 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   );
 };
 
+// ── Criar uma spreadsheet (tracker) para vários jogos de uma vez ──
+const CriarFolha = ({ cid, jogos, mudar, claro, sub, inputClass, onFechar }) => {
+  const modelos = jogos.filter(j => /docs\.google\.com\/spreadsheets\/d\//.test(String(j.sheet || '')));
+  const [sel, setSel] = useState(() => new Set(jogos.filter(j => !j.sheet).map(j => j.id)));
+  const [titulo, setTitulo] = useState('Creative tracker');
+  const [modeloId, setModeloId] = useState(() => (modelos[0] ? modelos[0].id : ''));
+  const [msg, setMsg] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const [feito, setFeito] = useState(null);
+  const escolhidos = jogos.filter(j => sel.has(j.id));
+  const modelo = modelos.find(j => j.id === modeloId) || null;
+  const criar = async () => {
+    if (!escolhidos.length || !titulo.trim()) return;
+    setOcupado(true); setMsg('A ligar à conta Google…');
+    try {
+      const conta = contaDe(cid);
+      const tk = tokenGuardadoDe(conta) || await tokenDrive(conta);
+      const r = await criarFolhaTracker(tk, { titulo: titulo.trim(), jogos: escolhidos, modelo, aviso: setMsg });
+      mudar(tr => r.tabs.reduce((acc, x) => opJogo(acc, x.jogoId, { sheet: `${r.url}#gid=${x.gid}` }), tr));
+      setFeito(r); setMsg('');
+    } catch (e) { setMsg(`Não consegui criar: ${e.message || e}`); }
+    setOcupado(false);
+  };
+  const caixa = `rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/60' : 'border-blue-500/30 bg-blue-500/[0.06]'}`;
+  if (feito) return (
+    <div className={caixa}>
+      <p className="text-sm font-medium text-emerald-500">✓ Spreadsheet criada{feito.naPasta && modelo ? ` na mesma pasta do tracker do ${modelo.nome}` : ' no teu Drive'}.</p>
+      <p className={`text-xs ${sub}`}>Tabs: {feito.tabs.map(x => x.tab).join(' · ')}. Já ficou ligada a cada jogo — a partir de agora, ao enviar para o Drive, o nome entra na tab certa, e o Trello deixa de aparecer nestes jogos.</p>
+      <div className="flex flex-wrap gap-2">
+        <a href={urlAbrir(feito.url, cid)} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Abrir a spreadsheet ↗</a>
+        <button type="button" onClick={onFechar} className={`px-3 py-1.5 text-sm rounded-lg border ${claro ? 'border-slate-200 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>Fechar</button>
+      </div>
+    </div>
+  );
+  return (
+    <div className={caixa}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">📊 Nova spreadsheet de tracker</p>
+        <button type="button" onClick={onFechar} disabled={ocupado} className={`text-xs ${sub} hover:text-red-400`} aria-label="Fechar">✕</button>
+      </div>
+      <label className="block"><span className={`text-xs ${sub}`}>Nome da spreadsheet</span>
+        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="ex.: Bear Hug — Creative tracker" className={`${inputClass} text-sm py-1.5 mt-1`} /></label>
+      <div>
+        <p className={`text-xs mb-1 ${sub}`}>Jogos (uma tab para cada)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {jogos.map(j => {
+            const on = sel.has(j.id);
+            return (
+              <button key={j.id} type="button" aria-pressed={on} onClick={() => setSel(p => { const n = new Set(p); if (n.has(j.id)) n.delete(j.id); else n.add(j.id); return n; })}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border ${on ? 'border-blue-500 bg-blue-600 text-white' : claro ? 'border-slate-200 bg-white hover:bg-slate-50' : 'border-slate-600 hover:bg-white/5'}`}>
+                <span className="w-2 h-2 rounded-sm" style={{ background: j.cor }} />{j.nome}{j.sheet ? <span className={on ? 'text-white/80' : sub} title="Já tem spreadsheet — fica com a nova">·📊</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <label className="block"><span className={`text-xs ${sub}`}>Copiar as colunas de</span>
+        <select value={modeloId} onChange={e => setModeloId(e.target.value)} className={`${inputClass} text-sm py-1.5 mt-1`}>
+          {modelos.map(j => <option key={j.id} value={j.id}>Tracker do {j.nome}</option>)}
+          <option value="">Nenhum (só "Creative" e "Notes")</option>
+        </select></label>
+      <p className={`text-[11px] ${sub}`}>{modelo ? `Copia a tab do ${modelo.nome} (cabeçalho, caixinhas das networks, cores) sem as linhas dos criativos, e guarda a spreadsheet na mesma pasta do Drive.` : 'Fica no "O meu disco" da conta do cliente — depois podes mudá-la de pasta.'}{contaDe(cid) ? ` Conta: ${contaDe(cid)}.` : ''}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" disabled={ocupado || !escolhidos.length || !titulo.trim()} onClick={criar} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{ocupado ? 'A criar…' : `Criar com ${escolhidos.length} tab${escolhidos.length === 1 ? '' : 's'}`}</button>
+        {msg && <span className={`text-xs ${/^Não consegui/.test(msg) ? 'text-red-400' : sub}`}>{msg}</span>}
+      </div>
+    </div>
+  );
+};
 // ── Jogos de um cliente (cartões com cor, outros nomes, Drive e spreadsheet) ──
 const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, notasDe, onAbrirNota, onNovaNota }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [nome, setNome] = useState('');
   const [corAberta, setCorAberta] = useState(null);
+  const [novaFolha, setNovaFolha] = useState(false);
   const jogos = (trab.jogos || []).filter(j => String(j.cid) === String(cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt'));
   const listas = (trab.pastas || []).filter(p => String(p.cid) === String(cid));
   const semJogo = listas.filter(p => !p.jogoId && !p.mesNum && ehListaDeJogo(p.nome) && !listas.some(f => f.paiId === p.id));
@@ -3247,7 +3391,9 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
           <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Jogo</button>
         </form>
         {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
+        {jogos.length > 0 && !novaFolha && <button type="button" onClick={() => setNovaFolha(true)} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoFolha s={13} /> Criar spreadsheet para vários jogos</button>}
       </div>
+      {novaFolha && <CriarFolha cid={cid} jogos={jogos} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} onFechar={() => setNovaFolha(false)} />}
       {!jogos.length && <p className={`text-sm ${sub}`}>Ainda não há jogos. Cria um, ou deteta-os pelos nomes das listas (ex.: "44 - Mahjong - Oct" → Mahjong).</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
         {jogos.map(j => {
@@ -3272,7 +3418,8 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
               <Campo rot="Pasta do Drive — vídeos"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
               <Campo rot="Pasta do Drive — banners / statics"><div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="https://drive.google.com/… (opcional)" className={ic} />{link(j.driveStatics)}</div></Campo>
               <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
-              <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} />
+              {j.sheet && j.trello ? <p className={`text-[11px] ${sub}`}>Trello escondido neste jogo (tem spreadsheet). <button type="button" onClick={() => set({ trello: '', trelloLista: null })} className="text-blue-400 hover:text-blue-300">Tirar o quadro</button></p>
+                : <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} />}
               {onAbrirNota && <div className={`pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}><p className={`text-xs mb-0.5 ${sub}`}>Notas</p><NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} /></div>}
             </div>
           );
@@ -3318,7 +3465,7 @@ const TrelloJogo = ({ j, set, ic, sub, claro, link }) => {
 // Cartão do Trello da tarefa: criar (com o nome da tarefa) ou ligar a um que já existe
 const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
   const jogo = jogoDaTarefa(trab, t);
-  const quadro = jogo && !jogo.semJogo ? jogo.trello : null;
+  const quadro = jogo && !jogo.semJogo && (usaTrello(jogo) || (t.trello && t.trello.id)) ? jogo.trello : null;
   const [parecidos, setParecidos] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState('');
@@ -4742,6 +4889,15 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }, [chaveTrello, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [pedir, setPedir] = useState(null); // { titulo, valor, ok }
+  // Menu "⋯" da pasta (subpasta, nome, cor, apagar) — o cabeçalho fica numa linha só
+  const [menuPasta, setMenuPasta] = useState(false);
+  useEffect(() => {
+    if (!menuPasta) return undefined;
+    const fechar = e => { if (!(e.target.closest && e.target.closest('[data-menu-pasta]'))) setMenuPasta(false); };
+    const esc = e => { if (e.key === 'Escape') setMenuPasta(false); };
+    document.addEventListener('mousedown', fechar); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fechar); document.removeEventListener('keydown', esc); };
+  }, [menuPasta]);
   const novaPasta = (cid, paiId) => setPedir({ titulo: paiId ? 'Nome da subpasta' : 'Nome da pasta', valor: '', ok: nome => {
     let novoId = null;
     mudar(tr => { const [n, id] = opNovaPasta(tr, { cid, paiId, nome }); novoId = id; return opAutoJogo(n, id); });
@@ -4900,10 +5056,35 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
 
   return (
     <div className="space-y-3">
-      <div className="lg:hidden flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setArvoreMob(!arvoreMob)} className={`lg:hidden px-3 py-2 text-sm rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'} inline-flex items-center gap-1.5`}><IcoT n="pasta" /> Pastas</button>
-
-        <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} flex-1 min-w-[160px] max-w-sm text-sm py-2`} />
+      <div className="lg:hidden space-y-2">
+        {/* Telemóvel: o menu do Trabalho sempre à mão, numa barra que desliza para o lado */}
+        {(() => {
+          const chip = ativo => `shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] whitespace-nowrap border ${ativo ? 'bg-blue-600 border-blue-600 text-white font-medium' : claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800/70 border-slate-700 text-slate-200'}`;
+          const sepM = <span className={`shrink-0 w-px h-5 self-center ${claro ? 'bg-slate-300' : 'bg-slate-700'}`} />;
+          const favs = (trab.favoritos || []).map(id => (trab.pastas || []).find(p => p.id === id)).filter(Boolean);
+          const frees = (trab.freelancers || []).filter(f => f.estado !== 'antigo').sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt'));
+          const clis = clientes.filter(c => c.estado !== 'antigo');
+          const ic = n => <IcoT n={n} className="w-3.5 h-3.5 opacity-80" />;
+          return (
+            <nav aria-label="Menu do Trabalho" className="flex items-center gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+              <button type="button" onClick={() => setArvoreMob(!arvoreMob)} aria-expanded={arvoreMob} className={chip(arvoreMob)}><IcoT n="pasta" className="w-3.5 h-3.5" /> Pastas</button>
+              {sepM}
+              <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={chip(sel.tipo === 'geral')}>{ic('casa')} Visão geral</button>
+              <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={chip(sel.tipo === 'timesheet')}>{ic('relogio')} Timesheet</button>
+              {calendario && <button type="button" onClick={() => setSel({ tipo: 'calendario' })} className={chip(sel.tipo === 'calendario')}>{ic('calendario')} Calendário</button>}
+              {favs.length > 0 && sepM}
+              {favs.map(p => <button key={p.id} type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className={chip(sel.tipo === 'pasta' && sel.id === p.id)}><span className="w-2 h-2 rounded-[3px]" style={{ background: p.cor || '#64748b' }} />{p.nome}{contar(p.id) > 0 && <span className="opacity-70 tabular-nums">{contar(p.id)}</span>}</button>)}
+              {clis.length > 0 && sepM}
+              {clis.map(c => <button key={c.id} type="button" onClick={() => setSel({ tipo: 'cliente', id: c.id })} className={chip(sel.tipo === 'cliente' && String(sel.id) === String(c.id))}><span className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold text-white" style={{ background: c.cor || '#64748b' }}>{String(c.nome || '?').charAt(0).toUpperCase()}</span>{c.nome}</button>)}
+              {sepM}
+              {onCliente && <button type="button" onClick={() => setSel({ tipo: 'clientes' })} className={chip(sel.tipo === 'clientes')}>{ic('pessoas')} Clientes</button>}
+              <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className={chip(sel.tipo === 'freelancers')}>{ic('freelancer')} Freelancers</button>
+              {frees.map(f => <button key={f.id} type="button" onClick={() => NAV_FREE.abrir(f.id)} className={chip(sel.tipo === 'freelancer' && sel.id === f.id)}><span className="w-2 h-2 rounded-full" style={{ background: corFreelancer(f) }} />{f.nome}</button>)}
+              {onCu && onPrecos && <button type="button" onClick={() => setSel({ tipo: 'tipos' })} className={chip(sel.tipo === 'tipos')}>{ic('etiqueta')} Tipos e preços</button>}
+            </nav>
+          );
+        })()}
+        <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" className={`${inputClass} w-full text-sm py-2`} />
       </div>
       <input ref={ficheiroRef} type="file" accept=".json,application/json" className="hidden" onChange={importar} />
       {modo === 'g' && <p className="text-[11px] text-amber-400" title="As regras do Firestore ainda não deixam gravar à parte. Os dados ficam no documento principal.">a gravar no documento principal</p>}
@@ -4938,6 +5119,51 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
                 {pasta && <span className="w-3 h-3 rounded" style={{ background: pasta.cor }} />}
                 {freeSel && <span className="w-3 h-3 rounded-full" style={{ background: corFreelancer(freeSel) }} />}
                 <h2 className="text-xl font-bold truncate">{titulo}</h2>
+                {pasta && (
+                  <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                    <button type="button" onClick={() => mudar(tr => opFavorito(tr, pasta.id))} aria-pressed={(trab.favoritos || []).includes(pasta.id)} title={(trab.favoritos || []).includes(pasta.id) ? 'Tirar dos favoritos' : 'Pôr nos favoritos'} aria-label="Favorito"
+                      className={`w-7 h-7 inline-flex items-center justify-center rounded-lg text-base ${(trab.favoritos || []).includes(pasta.id) ? 'text-amber-400' : `${sub} ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}`}>{(trab.favoritos || []).includes(pasta.id) ? '★' : '☆'}</button>
+                    {!pasta.paiId && (
+                            <select value={String(pasta.cid ?? '')} onChange={e => { const v = e.target.value; const c = clientes.find(x => String(x.id) === v); if (c) mudar(tr => opMudarCliente(tr, pasta.id, c.id)); }}
+                              className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Cliente desta pasta">
+                              {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
+                            </select>
+                          )}
+                    {!pasta.mesNum && !(trab.pastas || []).some(f => f.paiId === pasta.id) && (trab.jogos || []).some(j => String(j.cid) === String(pasta.cid)) && (
+                            <select value={pasta.jogoId || ''} onChange={e => { const j = (trab.jogos || []).find(x => x.id === e.target.value); mudar(tr => opPasta(tr, pasta.id, j ? { jogoId: j.id, cor: j.cor } : { jogoId: null })); }}
+                              className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Jogo desta lista">
+                              <option value="" className={claro ? '' : 'bg-slate-800'}>Sem jogo</option>
+                              {(trab.jogos || []).filter(j => String(j.cid) === String(pasta.cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(j => <option key={j.id} value={j.id} className={claro ? '' : 'bg-slate-800'}>Jogo: {j.nome}</option>)}
+                            </select>
+                          )}
+                    <div className="relative" data-menu-pasta="1">
+                      <button type="button" onClick={() => setMenuPasta(v => !v)} aria-expanded={menuPasta} aria-label="Mais opções da pasta" title="Subpasta, nome, cor, apagar"
+                        className={`w-7 h-7 inline-flex items-center justify-center rounded-lg ${sub} ${menuPasta ? (claro ? 'bg-slate-200/70' : 'bg-white/10') : claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+                      </button>
+                      {menuPasta && (
+                        <div className={`absolute left-0 top-full mt-1 z-40 w-56 rounded-xl border shadow-2xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`} role="menu">
+                          <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); novaPasta(pasta.cid, pasta.id); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>+ Subpasta</button>
+                          <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opAutoJogo(opPasta(tr, pasta.id, { nome: n }), pasta.id)) }); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Mudar o nome</button>
+                          {porOrganizar(pasta) && <button type="button" role="menuitem" onClick={() => { setMenuPasta(false);
+                  const plano = planoPorMeses(trab, pasta.id);
+                  const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
+                  const resumo = Object.entries(porMes).map(([n, q]) => `${n}: ${q}`).join(', ');
+                  if (window.confirm(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
+                }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar por meses</button>}
+                          <div className="px-3 py-2">
+                            <p className={`text-xs mb-1.5 ${sub}`}>Cor</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {CORES_PASTA.map(c => <button key={c} type="button" onClick={() => mudar(tr => opPasta(tr, pasta.id, { cor: c }))} className={`w-5 h-5 rounded ${pasta.cor === c ? `ring-2 ring-offset-1 ${claro ? 'ring-slate-500 ring-offset-white' : 'ring-white/70 ring-offset-slate-800'}` : ''}`} style={{ background: c }} aria-label="Cor da pasta" />)}
+                            </div>
+                          </div>
+                          <div className={`my-1 border-t ${claro ? 'border-slate-100' : 'border-slate-700'}`} />
+                          <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); const n = descendentes(trab, pasta.id).length - 1; const nt = tarefas.length; if (window.confirm(`Apagar "${pasta.nome}"${n ? `, ${n} subpasta${n === 1 ? '' : 's'}` : ''}${nt ? ` e ${nt} tarefa${nt === 1 ? '' : 's'}` : ''}?`)) { mudar(tr => opApagarPasta(tr, pasta.id)); setSel({ tipo: 'geral' }); } }} className="w-full px-3 py-2 text-sm text-left text-red-400 hover:bg-red-500/10">Apagar pasta</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             {freeSel && (() => {
@@ -4967,39 +5193,6 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
             <div className="flex flex-wrap items-center gap-2">
               {listasSemJogo > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, sel.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Dar uma cor a cada jogo ({listasSemJogo} lista{listasSemJogo === 1 ? '' : 's'})</button>}
               {anosPorOrganizar.length > 0 && <button type="button" onClick={organizarCliente} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar {anosPorOrganizar.map(p => p.nome).join(' e ')} por meses</button>}
-            </div>
-          )}
-          {pasta && (
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => mudar(tr => opFavorito(tr, pasta.id))} className={`px-2.5 py-1 text-xs rounded-lg border ${(trab.favoritos || []).includes(pasta.id) ? 'border-amber-400/50 text-amber-400' : claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>{(trab.favoritos || []).includes(pasta.id) ? '★ Favorito' : '☆ Favorito'}</button>
-              {!pasta.paiId && (
-                <select value={String(pasta.cid ?? '')} onChange={e => { const v = e.target.value; const c = clientes.find(x => String(x.id) === v); if (c) mudar(tr => opMudarCliente(tr, pasta.id, c.id)); }}
-                  className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Cliente desta pasta">
-                  {clientes.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
-                </select>
-              )}
-              {!pasta.mesNum && !(trab.pastas || []).some(f => f.paiId === pasta.id) && (trab.jogos || []).some(j => String(j.cid) === String(pasta.cid)) && (
-                <select value={pasta.jogoId || ''} onChange={e => { const j = (trab.jogos || []).find(x => x.id === e.target.value); mudar(tr => opPasta(tr, pasta.id, j ? { jogoId: j.id, cor: j.cor } : { jogoId: null })); }}
-                  className={`text-xs rounded-lg border px-2 py-1 bg-transparent ${claro ? 'border-slate-200' : 'border-slate-700'}`} title="Jogo desta lista">
-                  <option value="" className={claro ? '' : 'bg-slate-800'}>Sem jogo</option>
-                  {(trab.jogos || []).filter(j => String(j.cid) === String(pasta.cid)).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(j => <option key={j.id} value={j.id} className={claro ? '' : 'bg-slate-800'}>Jogo: {j.nome}</option>)}
-                </select>
-              )}
-              {porOrganizar(pasta) && (
-                <button type="button" onClick={() => {
-                  const plano = planoPorMeses(trab, pasta.id);
-                  const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
-                  const resumo = Object.entries(porMes).map(([n, q]) => `${n}: ${q}`).join(', ');
-                  if (window.confirm(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
-                }} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar por meses</button>
-              )}
-              <button type="button" onClick={() => novaPasta(pasta.cid, pasta.id)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>+ Subpasta</button>
-              <button type="button" onClick={() => setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opAutoJogo(opPasta(tr, pasta.id, { nome: n }), pasta.id)) })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Mudar o nome</button>
-              <div className="flex items-center gap-1">
-                {CORES_PASTA.map(c => <button key={c} type="button" onClick={() => mudar(tr => opPasta(tr, pasta.id, { cor: c }))} className={`w-4 h-4 rounded ${pasta.cor === c ? 'ring-2 ring-offset-1 ring-offset-transparent ring-white/70' : ''}`} style={{ background: c }} aria-label="Cor da pasta" />)}
-              </div>
-              <span className="flex-1" />
-              <button type="button" onClick={() => { const n = descendentes(trab, pasta.id).length - 1; const nt = tarefas.length; if (window.confirm(`Apagar "${pasta.nome}"${n ? `, ${n} subpasta${n === 1 ? '' : 's'}` : ''}${nt ? ` e ${nt} tarefa${nt === 1 ? '' : 's'}` : ''}?`)) { mudar(tr => opApagarPasta(tr, pasta.id)); setSel({ tipo: 'geral' }); } }} className="px-2.5 py-1 text-xs rounded-lg text-red-400 hover:bg-red-500/10">Apagar pasta</button>
             </div>
           )}
           {abas.length > 0 && (
