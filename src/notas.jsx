@@ -324,12 +324,18 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     const r = s.getRangeAt(0); const caixa = document.createElement('div'); caixa.appendChild(r.cloneContents());
     cmd('insertHTML', `<mark>${caixa.innerHTML}</mark>`);
   };
+  // Link: pede o endereço numa caixa da app (em vez da janela do browser)
+  const [pedirLink, setPedirLink] = useState(null); // { guardada, temTexto }
   const juntarLink = () => {
     prep();
-    const s = window.getSelection(); const temTexto = s && !s.isCollapsed;
-    const guardada = ultimaSel.current;
-    const url = window.prompt('Endereço do link (https://…)');
-    if (!url) return;
+    const s = window.getSelection(); const temTexto = !!(s && !s.isCollapsed);
+    setPedirLink({ guardada: ultimaSel.current, temTexto });
+  };
+  const aplicarLink = url => {
+    const pl = pedirLink; setPedirLink(null);
+    url = String(url || '').trim();
+    if (!url || !pl) return;
+    const guardada = pl.guardada; const temTexto = pl.temTexto;
     if (guardada) ultimaSel.current = guardada;
     const u = /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`;
     if (temTexto) cmd('createLink', u); else cmd('insertHTML', `<a href="${escHtml(u)}" target="_blank" rel="noopener noreferrer">${escHtml(u)}</a>&nbsp;`);
@@ -436,6 +442,18 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   const altVis = typeof window !== 'undefined' ? (window.visualViewport ? window.visualViewport.height : window.innerHeight) : 800;
   return (
     <div className="relative">
+      {pedirLink && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center pt-[20vh] p-4" style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }} onMouseDown={e => { if (e.target === e.currentTarget) setPedirLink(null); }}>
+          <form onSubmit={e => { e.preventDefault(); aplicarLink(e.currentTarget.elements.url.value); }} className={`w-full max-w-sm rounded-2xl border p-4 shadow-2xl ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+            <p className="text-sm font-semibold mb-2">{pedirLink.temTexto ? 'Pôr um link no texto escolhido' : 'Juntar um link'}</p>
+            <input name="url" autoFocus placeholder="https://…" onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setPedirLink(null); } }} className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} />
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setPedirLink(null)} className={`px-3 py-1.5 text-sm rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Cancelar</button>
+              <button type="submit" className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Juntar</button>
+            </div>
+          </form>
+        </div>
+      )}
       <div className={`sticky top-0 z-20 -mx-4 sm:-mx-6 px-3 sm:px-5 py-1.5 border-b backdrop-blur ${claro ? 'bg-white/90 border-slate-200' : 'bg-slate-900/90 border-slate-700/70'}`}>
         <div className="flex items-center gap-0.5 overflow-x-auto notas-scroll">
           <BotaoFerr claro={claro} ic="desfazer" titulo="Desfazer" fn={() => cmd('undo')} />
