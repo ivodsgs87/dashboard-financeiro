@@ -498,7 +498,7 @@ const AddClienteInput = memo(({onAdd, inputClass}) => {
 });
 
 // Draggable List Component - só arrasta pelo handle
-const DraggableList = memo(({items, onReorder, renderItem, className}) => {
+const DraggableList = memo(({items, onReorder, renderItem, className, style}) => {
  const [dragIdx, setDragIdx] = useState(null);
  const [overIdx, setOverIdx] = useState(null);
  
@@ -530,7 +530,7 @@ const DraggableList = memo(({items, onReorder, renderItem, className}) => {
  };
  
  return (
- <div className={className || "space-y-2"}>
+ <div className={className || "space-y-2"} style={style}>
  {items.map((item, idx) => (
  <div
  key={item.id}
@@ -2033,7 +2033,7 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
 // renders: antes eram recriadas a cada render e o React desmontava e voltava a montar tudo o que
 // estava lá dentro (gráficos a "saltar", campos a perder o que se escrevia). O tema vem do TemaCtx.
 const TemaCtx = React.createContext('dark');
-const Card = ({children, className = '', animate = false}) => { const theme = useContext(TemaCtx); return <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} rounded-xl sm:rounded-2xl border p-3 sm:p-5 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>; };
+const Card = ({children, className = '', animate = false}) => { const theme = useContext(TemaCtx); return <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} rounded-xl sm:rounded-2xl border p-3 sm:p-4 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>; };
 const StatCard = ({label, value, color = '', sub, icon}) => { const theme = useContext(TemaCtx); return <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1 flex items-center`}><Ico e={icon}/>{label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>; };
 const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
   const base = 'font-semibold rounded-xl transition-all duration-200 hover-scale ';
