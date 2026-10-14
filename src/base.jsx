@@ -566,7 +566,7 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
   const valorRef = useRef(null);
 
   const tiposCores = { SS: 'text-blue-400', IVA: 'text-orange-400', IRS: 'text-emerald-400' };
-  const tiposIcons = { SS: '🏛️', IVA: '💶', IRS: '📋' };
+  const tiposIcons = { SS: '🏛', IVA: '💶', IRS: '📋' };
   const todos = (impostosPagos || []).filter(p => p.data?.startsWith(anoAtual.toString())).sort((a, b) => b.data.localeCompare(a.data));
   const totalPago = todos.filter(p => p.valor > 0).reduce((a, p) => a + p.valor, 0);
   const totalRecebido = todos.filter(p => p.valor < 0).reduce((a, p) => a + Math.abs(p.valor), 0);
@@ -600,7 +600,7 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
               <span className="text-[10px] text-slate-500">Tipo</span>
               <select ref={tipoRef} defaultValue="SS"
                 className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
-                <option value="SS">🏛️ SS</option>
+                <option value="SS">🏛 SS</option>
                 <option value="IVA">💶 IVA</option>
                 <option value="IRS">📋 IRS</option>
               </select>
@@ -831,7 +831,7 @@ const guiaTransfCalc = ({ minhaAB = 0, investFilhos = 0, impostosNaTR = 0, inv =
     grupos[k].valor += n(i.val); grupos[k].cats.add(i.cat);
   });
   Object.values(grupos).forEach(g => passos.push({ id: 'g_inv_' + g.nome.toLowerCase().replace(/[^a-z0-9]+/g, '_'), para: g.nome, icon: '💼', valor: r2(g.valor), linhas: [[[...g.cats].join(' + '), r2(g.valor)]] }));
-  if (totalFerias > 0.5) passos.push({ id: 'g_revolut', para: 'Revolut', icon: '🏖️', valor: r2(totalFerias), linhas: [['Férias', r2(totalFerias)]] });
+  if (totalFerias > 0.5) passos.push({ id: 'g_revolut', para: 'Revolut', icon: '🏖', valor: r2(totalFerias), linhas: [['Férias', r2(totalFerias)]] });
   passos.forEach(x => { if (!x.fase) x.fase = 2; if (!x.de) x.de = 'Activo'; });
   const doActivo = f => r2(passos.filter(x => x.de === 'Activo' && !x.dispensado && (f == null || x.fase === f)).reduce((s, x) => s + x.valor, 0));
   const saidas = doActivo(2);
@@ -908,13 +908,35 @@ const ICO_SVG = {
   "🔍": "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5\"/>",
   "🎨": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"8\" cy=\"10\" r=\"1\"/><circle cx=\"12\" cy=\"7.5\" r=\"1\"/><circle cx=\"16\" cy=\"10\" r=\"1\"/><path d=\"M12 21a3 3 0 0 1 0-6h2\"/>",
   "👶": "<circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 8h.01M15 8h.01M10 10.5a3 3 0 0 0 4 0M6 21a6 6 0 0 1 12 0\"/>",
-  "📌": "<path d=\"M12 17v5M9 10.76V6h6v4.76l2 3.24H7z\"/><path d=\"M8 2h8\"/>"
+  "📌": "<path d=\"M12 17v5M9 10.76V6h6v4.76l2 3.24H7z\"/><path d=\"M8 2h8\"/>",
+  "🗑": '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  "📎": '<path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7L14 4.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6"/>',
+  "✏": '<path d="M14.5 4.5l5 5L9 20H4v-5z"/>',
+  "🛒": '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.5L21.5 8H6"/>',
+  "🔄": '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
+  "🔗": '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
+  "💾": '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
+  "🔒": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  "🔐": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  "🔓": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+  "💡": '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  "⏳": '<path d="M6 2h12M6 22h12M7 2c0 5 10 5 10 10S7 17 7 22M17 2c0 5-10 5-10 10s10 5 10 10"/>',
+  "✈": '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+  "🎉": '<path d="M5.8 11.3 2 22l10.7-3.8"/><path d="M4 3h.01M22 8h.01M15 2h.01M22 20h.01M22 2l-2.2.7a2.9 2.9 0 0 0-2 3.2v0c.2 1-.7 2-1.7 2H15"/><path d="M11 13c1.9 1.9 2.4 4.5 1.1 5.8-1.3 1.3-3.9.8-5.8-1.1S3.9 13.2 5.2 11.9c1.3-1.3 3.9-.8 5.8 1.1z"/>',
+  "🏆": '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+  "🚗": '<path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5M3 12h18"/>',
+  "❌": '<circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/>',
+  "🔎": '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  "⏭": '<path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/>',
+  "⏺": '<circle cx="12" cy="12" r="6"/>',
+  "🗺": '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  "ℹ": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
   };
 // Ícone de linha a partir do emoji que já existia no texto; se não houver ícone para ele, mostra o emoji
 const Ico = ({ e, className = '' }) => {
   const k = String(e || '').replace(/\uFE0F/g, '').trim();
   const svg = ICO_SVG[k];
-  if (!svg) return k ? <span className={`ico-emoji ${className}`}>{e} </span> : null;
+  if (!svg) return k ? <span className={`ico-emoji ${className}`}>{k} </span> : null;
   return <svg className={`ico ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />;
 };
 
@@ -1012,7 +1034,7 @@ const CalendarioFinanceiro = ({ eventosDoMes, theme, fmt, onToggle, anoInicial, 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold"><Ico e="🗓️"/>Calendário</h2>
+        <h2 className="text-lg font-semibold"><Ico e="🗓"/>Calendário</h2>
         <div className="flex items-center gap-2">
           <button onClick={() => mudar(-1)} aria-label="Mês anterior" className={`px-2.5 py-1.5 rounded-lg ${claro ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/50 hover:bg-slate-600'}`}>‹</button>
           <span className="font-medium w-36 text-center">{meses[m - 1]} {y}</span>
