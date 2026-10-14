@@ -300,6 +300,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
       <LinkDrive t={t} claro={claro} />
+      <LinkTrello t={t} claro={claro} />
       {((t.anexos || []).length > 0 || (t.notas && String(t.notas).trim())) && (
         <span className={`shrink-0 inline-flex items-center gap-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
           {(t.anexos || []).length > 0 && <span title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" /></span>}
@@ -401,6 +402,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             </button>
             <EtiquetaTipo t={t} cu={cu} claro={claro} />
             <LinkDrive t={t} claro={claro} />
+            <LinkTrello t={t} claro={claro} />
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
@@ -894,6 +896,12 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
 // Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
+const LinkTrello = ({ t, claro }) => (t.trello && t.trello.url ? (
+  <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={`Cartão do Trello: ${t.trello.nome || ''}`}
+    className={`shrink-0 inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>
+  </a>
+) : null);
 const LinkDrive = ({ t, claro }) => {
   const d = t.drive;
   if (!d || !d.url) return null;
@@ -1858,6 +1866,35 @@ const LS_SEMPRE = 'drive-sempre';
 const lerSempre = () => { try { return JSON.parse(localStorage.getItem(LS_SEMPRE) || '[]'); } catch (e) { return []; } };
 const ligadoSempre = email => lerSempre().includes(String(email || '_').toLowerCase());
 const marcarSempre = (emails, sim) => { try { const l = new Set(lerSempre()); emails.filter(Boolean).forEach(e => (sim ? l.add(String(e).toLowerCase()) : l.delete(String(e).toLowerCase()))); localStorage.setItem(LS_SEMPRE, JSON.stringify([...l])); } catch (e) { /* */ } };
+// ── Trello (pela Firebase Function "trello": a chave e o token ficam só no servidor) ──
+const TRELLO_FN = 'https://us-central1-dashboard-financas-f2b55.cloudfunctions.net/trello';
+const chamarTrello = async (acao, dados = {}) => {
+  const u = auth && auth.currentUser;
+  if (!u) throw new Error('Entra na app primeiro.');
+  const idt = await u.getIdToken();
+  let r;
+  try { r = await fetch(TRELLO_FN, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idt}` }, body: JSON.stringify({ acao, ...dados }) }); }
+  catch (e) { throw new Error('Não consegui falar com o servidor da app.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 404 && !(j.error && j.error.codigo) ? 'A função "trello" ainda não está publicada (falta o deploy das functions).' : (j.error && j.error.message) || `Erro ${r.status}`);
+  return j;
+};
+const cacheCartoes = new Map(); // quadro → { em, lista }
+const cartoesTrello = async (quadro, fresco = false) => {
+  const c = cacheCartoes.get(quadro);
+  if (!fresco && c && Date.now() - c.em < 120000) return c.lista;
+  const j = await chamarTrello('cartoes', { quadro });
+  cacheCartoes.set(quadro, { em: Date.now(), lista: j.cartoes || [] });
+  return j.cartoes || [];
+};
+// Cartões com nome parecido ao da tarefa (para ligar a um que a Sophie já criou)
+const parecidosTrello = (cartoes, nome) => {
+  const pal = s => new Set(String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(w => w.length > 2 && !/^\d+x$/.test(w) && !['new', 'video', 'variation', 'iteration', 'the'].includes(w)));
+  const a = pal(nome);
+  if (!a.size) return [];
+  return cartoes.map(c => { const b = pal(c.nome); let k = 0; a.forEach(w => { if (b.has(w)) k++; }); return { ...c, pts: k / a.size }; })
+    .filter(c => c.pts >= 0.5).sort((x, y) => y.pts - x.pts).slice(0, 6);
+};
 const chamarDriveFn = async (acao, dados = {}) => {
   const u = auth && auth.currentUser;
   if (!u) { const e = new Error('Entra na app primeiro.'); e.codigo = 'sessao'; throw e; }
@@ -2393,6 +2430,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
         set({ drive: reg });
         setResultado({ ...reg });
       }
+      // Trello: junta o link da pasta ao cartão desta tarefa (não mexe na lista do cartão)
+      if (t.trello && t.trello.id && enviados.length) {
+        setMsg('A juntar o link ao cartão do Trello…');
+        try {
+          await chamarTrello('comentar', { cartao: t.trello.id, texto: `${reg.nomeBase}\n${url}` });
+          await chamarTrello('anexar', { cartao: t.trello.id, url, nome: reg.nomeBase || reg.pasta });
+          reg.trello = { ok: true, em: new Date().toISOString() };
+        } catch (e) { reg.trello = { erro: String(e.message || e) }; }
+        set({ drive: reg }); setResultado({ ...reg });
+      }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
       if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); }
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
@@ -2505,6 +2552,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass }) => {
                 : `Não consegui escrever na spreadsheet: ${resultado.folha.erro}`}
             </p>
           )}
+          {resultado && resultado.trello && <p className={`text-xs ${resultado.trello.ok ? 'text-emerald-500' : 'text-red-400'}`}>{resultado.trello.ok ? '✓ Link da pasta juntado ao cartão do Trello' : `Não consegui juntar o link ao Trello: ${resultado.trello.erro}`}</p>}
           {resultado && resultado.url && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <a href={urlAbrir(resultado.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>📁 Abrir a pasta no Drive{resultado.anteriores && resultado.anteriores.length ? ` (${resultado.versao ? `V${resultado.versao}` : resultado.pasta})` : ''}</a>
@@ -2660,6 +2708,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         </div>
       )}
       <EnviarDrive t={t} trab={trab} r={r} set={set} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} />
+      <TrelloTarefa t={t} trab={trab} set={set} claro={claro} sub={sub} />
     </div>
   );
 };
@@ -2715,12 +2764,113 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
               <Campo rot="Pasta do Drive — vídeos"><div className="flex items-center"><TxtIn valor={j.drive} onGravar={v => set({ drive: v })} placeholder="https://drive.google.com/…" className={ic} />{link(j.drive)}</div></Campo>
               <Campo rot="Pasta do Drive — banners / statics"><div className="flex items-center"><TxtIn valor={j.driveStatics} onGravar={v => set({ driveStatics: v })} placeholder="https://drive.google.com/… (opcional)" className={ic} />{link(j.driveStatics)}</div></Campo>
               <Campo rot="Spreadsheet"><div className="flex items-center"><TxtIn valor={j.sheet} onGravar={v => set({ sheet: v })} placeholder="https://docs.google.com/spreadsheets/…" className={ic} />{link(j.sheet)}</div></Campo>
+              <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} />
               {onAbrirNota && <div className={`pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}><p className={`text-xs mb-0.5 ${sub}`}>Notas</p><NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} /></div>}
             </div>
           );
         })}
       </div>
       <p className={`text-[11px] ${sub}`}>As listas novas com o nome do jogo (ex.: "45 - Mahjong - Nov") ligam-se sozinhas e ficam com a cor dele. O código, a pasta do Drive e a spreadsheet vão servir para dar nome aos ficheiros e fazer o upload automático mais tarde.</p>
+    </div>
+  );
+};
+
+// Trello do jogo: o quadro e a lista onde a app cria os cartões novos
+const TrelloJogo = ({ j, set, ic, sub, claro, link }) => {
+  const [listas, setListas] = useState(null);
+  const [msg, setMsg] = useState('');
+  const carregar = async () => {
+    setMsg('A ler o quadro…');
+    try { const q = await chamarTrello('quadro', { quadro: j.trello }); setListas(q.listas || []); setMsg(`✓ ${q.nome}`); if (!j.trelloNome || j.trelloNome !== q.nome) set({ trelloNome: q.nome }); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+  };
+  return (
+    <div className="space-y-1.5">
+      <Campo rot="Quadro do Trello (opcional)"><div className="flex items-center"><TxtIn valor={j.trello} onGravar={v => { set({ trello: v, trelloLista: v ? j.trelloLista : null }); setListas(null); setMsg(''); }} placeholder="https://trello.com/b/…" className={ic} />{link(j.trello)}</div></Campo>
+      {j.trello && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={sub}>Cartões novos vão para:</span>
+          {listas ? (
+            <select value={(j.trelloLista && j.trelloLista.id) || ''} onChange={e => { const l = listas.find(x => x.id === e.target.value); set({ trelloLista: l ? { id: l.id, nome: l.nome } : null }); }} className={`${ic} !w-auto text-xs py-1`}>
+              <option value="">— escolhe a lista —</option>
+              {listas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          ) : (
+            <>
+              <b>{j.trelloLista ? j.trelloLista.nome : 'ainda não escolhida'}</b>
+              <button type="button" onClick={carregar} className="text-blue-400 hover:text-blue-300">{j.trelloLista ? 'mudar' : 'escolher a lista'}</button>
+            </>
+          )}
+          {msg && <span className={/^⚠/.test(msg) ? 'text-red-400' : sub}>{msg}</span>}
+        </div>
+      )}
+    </div>
+  );
+};
+// Cartão do Trello da tarefa: criar (com o nome da tarefa) ou ligar a um que já existe
+const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
+  const jogo = jogoDaTarefa(trab, t);
+  const quadro = jogo && !jogo.semJogo ? jogo.trello : null;
+  const [parecidos, setParecidos] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [nome, setNome] = useState(t.nome || '');
+  useEffect(() => { setNome(t.nome || ''); setParecidos(null); setMsg(''); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!quadro) return null;
+  const btn = `px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} disabled:opacity-50`;
+  const procurar = async () => {
+    setOcupado(true); setMsg('');
+    try { const cs = await cartoesTrello(quadro, true); const ps = parecidosTrello(cs, t.nome); setParecidos(ps); if (!ps.length) setMsg('Não encontrei nenhum cartão com um nome parecido.'); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setOcupado(false);
+  };
+  const criar = async () => {
+    if (!jogo.trelloLista) { setMsg('⚠ Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).'); return; }
+    setOcupado(true); setMsg('');
+    try {
+      // Antes de criar, confirma que não há já um cartão com este nome (a Sophie pode tê-lo criado)
+      const cs = await cartoesTrello(quadro, true);
+      const igual = cs.find(c => c.nome.trim().toLowerCase() === nome.trim().toLowerCase());
+      if (igual) { set({ trello: { id: igual.id, url: igual.url, nome: igual.nome } }); setMsg('✓ Já havia um cartão com este nome — liguei a esse.'); }
+      else {
+        const c = await chamarTrello('criar', { lista: jogo.trelloLista.id, nome: nome.trim() || t.nome });
+        set({ trello: { id: c.id, url: c.url, nome: c.nome } }); cacheCartoes.delete(quadro);
+        setMsg(`✓ Cartão criado em "${jogo.trelloLista.nome}".`);
+      }
+    } catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setOcupado(false);
+  };
+  return (
+    <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
+      <p className="text-sm font-medium">Trello <span className={`text-xs font-normal ${sub}`}>· {jogo.trelloNome || 'quadro do jogo'}</span></p>
+      {t.trello && t.trello.id ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <a href={t.trello.url} target="_blank" rel="noopener noreferrer" className={`${btn} !border-blue-500/50 text-blue-400`}>Abrir o cartão ↗</a>
+          <span className={`truncate max-w-[60%] ${sub}`} title={t.trello.nome}>{t.trello.nome}</span>
+          <button type="button" onClick={() => set({ trello: null })} className={`${sub} hover:text-red-400`} title="Desligar este cartão da tarefa (não apaga nada no Trello)">desligar</button>
+          <p className={`w-full text-[11px] ${sub}`}>Quando enviares para o Drive, a app junta o link da pasta a este cartão.</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <input value={nome} onChange={e => setNome(e.target.value)} className={`flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/40 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800/60 border-slate-700'}`} aria-label="Nome do cartão" />
+            <button type="button" disabled={ocupado || !nome.trim()} onClick={criar} className="shrink-0 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{ocupado ? '…' : '+ Criar cartão'}</button>
+            <button type="button" disabled={ocupado} onClick={procurar} className={`shrink-0 ${btn}`}>Ligar a um que já existe</button>
+          </div>
+          {jogo.trelloLista ? <p className={`text-[11px] ${sub}`}>Vai para a lista "{jogo.trelloLista.nome}".</p> : <p className="text-[11px] text-amber-500">Escolhe a lista dos cartões novos no jogo (cliente → Jogos).</p>}
+          {parecidos && parecidos.length > 0 && (
+            <div className={`rounded-lg border divide-y ${claro ? 'border-slate-200 divide-slate-200' : 'border-slate-700 divide-slate-700/60'}`}>
+              {parecidos.map(c => (
+                <div key={c.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate hover:text-blue-400" title={c.nome}>{c.nome}</a>
+                  <button type="button" onClick={() => { set({ trello: { id: c.id, url: c.url, nome: c.nome } }); setParecidos(null); setMsg('✓ Ligado.'); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {msg && <p className={`text-xs ${/^⚠/.test(msg) ? 'text-red-400' : /^✓/.test(msg) ? 'text-emerald-500' : sub}`}>{msg}</p>}
     </div>
   );
 };
