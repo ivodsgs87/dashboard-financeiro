@@ -188,8 +188,8 @@ const opApagarPasta = (trab, id) => {
   const ids = new Set(descendentes(trab, id));
   return { ...trab, pastas: (trab.pastas || []).filter(p => !ids.has(p.id)), tarefas: (trab.tarefas || []).filter(t => !ids.has(t.pastaId)), favoritos: (trab.favoritos || []).filter(f => !ids.has(f)) };
 };
-const opNovaTarefa = (trab, { pastaId, cid, nome, prazo, pecas }) => ({
-  ...trab, tarefas: [...(trab.tarefas || []), { id: trabId(), pastaId: pastaId || null, cid: cid ?? null, nome: nome.trim(), estado: 'todo', criada: agoraIso(), prazo: prazo || '', tempos: [], notas: '', ...(pecas ? { pecas } : {}) }],
+const opNovaTarefa = (trab, { id, pastaId, cid, nome, prazo, pecas }) => ({
+  ...trab, tarefas: [...(trab.tarefas || []), { id: id || trabId(), pastaId: pastaId || null, cid: cid ?? null, nome: nome.trim(), estado: 'todo', criada: agoraIso(), prazo: prazo || '', tempos: [], notas: '', ...(pecas ? { pecas } : {}) }],
 });
 const opTarefa = (trab, id, fn) => ({ ...trab, tarefas: (trab.tarefas || []).map(t => (t.id === id ? fn(t) : t)) });
 const opParar = trabParar;
@@ -300,7 +300,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
       <LinkDrive t={t} claro={claro} />
-      <LinkTrello t={t} claro={claro} />
+      <BotaoTrello t={t} mudar={mudar} claro={claro} alinhar="dir" />
       {((t.anexos || []).length > 0 || (t.notas && String(t.notas).trim())) && (
         <span className={`shrink-0 inline-flex items-center gap-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>
           {(t.anexos || []).length > 0 && <span title={`${t.anexos.length} anexo${t.anexos.length === 1 ? '' : 's'}`}><IcoA n="clip" className="w-3.5 h-3.5" /></span>}
@@ -402,7 +402,7 @@ const LinhaTabela = ({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio 
             </button>
             <EtiquetaTipo t={t} cu={cu} claro={claro} />
             <LinkDrive t={t} claro={claro} />
-            <LinkTrello t={t} claro={claro} />
+            <BotaoTrello t={t} mudar={mudar} claro={claro} />
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-3 1 1-3 8.5-8.5z" strokeLinejoin="round" /></svg>
             </button>
@@ -561,8 +561,11 @@ const sugestoesTarefa = (txt, cu, preco) => {
   if (resto && ['extra', 'ideation', 'ideacao', 'hora', 'call', 'reuniao', 'meeting'].some(a => a.startsWith(resto) || resto.startsWith(a))) out.push({ k: 'h', tipo: 'extra', n: 1, texto: 'Ideation / Extra work', rot: 'Ideation / Extra work', sub: 'à hora', valor: null });
   return out.slice(0, 8);
 };
-const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta }) => {
+const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta, jogoTrello }) => {
   const [txt, setTxt] = useState('');
+  const [paraTrello, setParaTrello] = useState(() => { try { return localStorage.getItem('trab-novo-trello') === '1'; } catch (e) { return false; } });
+  const mudarParaTrello = v => { setParaTrello(v); try { localStorage.setItem('trab-novo-trello', v ? '1' : '0'); } catch (e) { /* */ } };
+  const comTrello = !!(jogoTrello && jogoTrello.trello && jogoTrello.trelloLista);
   const [prazo, setPrazo] = useState('');
   const [tipoEsc, setTipoEsc] = useState(null);
   const [foco, setFoco] = useState(false);
@@ -580,7 +583,7 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta })
     setAtiva(-1);
     setTimeout(() => { const el = inRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);
   };
-  const criar = () => { if (!txt.trim()) return; onCriar(txt.replace(/\s*-\s*$/, ''), prazo, pecasEsc); setTxt(''); setTipoEsc(null); setAtiva(-1); };
+  const criar = () => { if (!txt.trim()) return; onCriar(txt.replace(/\s*-\s*$/, ''), prazo, pecasEsc, { trello: comTrello && paraTrello }); setTxt(''); setTipoEsc(null); setAtiva(-1); };
   const nomeTipo = id => { const t = tiposDe(cu, { [id]: 1 }).find(x => x.id === id); return t ? (t.curto || t.nome) : id; };
   return (
     <div className={`relative rounded-xl border p-2 ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/30'}`}>
@@ -614,6 +617,14 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta })
         <label className={`flex items-center gap-2 text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Prazo
           <input type="date" value={prazo} onChange={e => setPrazo(e.target.value)} title="Prazo de entrega (opcional)" disabled={semPasta} className={`${inputClass} !w-auto text-sm py-2`} />
         </label>
+        {comTrello && (
+          <button type="button" onClick={() => mudarParaTrello(!paraTrello)} aria-pressed={paraTrello} aria-label="Criar também o cartão no Trello"
+            title={paraTrello ? `Vai criar também o cartão no Trello (${jogoTrello.trelloNome || 'quadro do jogo'} · ${jogoTrello.trelloLista.nome}). Carrega para não criar.` : 'Carrega para criar também o cartão no Trello'}
+            className={`relative shrink-0 w-9 h-9 inline-flex items-center justify-center rounded-lg border ${paraTrello ? 'border-sky-500/60 bg-sky-500/15 text-sky-500' : claro ? 'border-slate-200 text-slate-300 hover:text-sky-500' : 'border-slate-700 text-slate-600 hover:text-sky-400'}`}>
+            <IcoTrello s={15} />
+            {paraTrello && <span className="absolute -right-1 -top-1 w-3 h-3 rounded-full bg-sky-500 inline-flex items-center justify-center"><svg width="7" height="7" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+          </button>
+        )}
         <button type="button" onClick={criar} disabled={!txt.trim() || semPasta} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Adicionar</button>
       </div>
       {txt.trim() && (
@@ -622,6 +633,7 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta })
           {!tipoEsc && (pecas.length ? pecas.map(p => `${p.n} × ${nomeTipo(p.tipo)}`).join(' + ') : 'Tarefa sem peças (conta à hora)')}
           {preview > 0 && <> · vale <strong className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(preview)}</strong></>}
           <> · fica criada hoje, {dataCurta(new Date().toISOString())}</>
+          {comTrello && paraTrello && <> · e vai para o Trello ({jogoTrello.trelloLista.nome})</>}
         </p>
       )}
     </div>
@@ -896,12 +908,80 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
 
 // 📎 na lista de tarefas: um anexo abre logo; vários mostram uma lista para escolher
 // Ícone "no Drive": a tarefa já foi enviada (abre a pasta com os ficheiros)
+const IcoTrello = ({ s = 12 }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>;
+// Já está no Trello: ícone azul com um visto (abre o cartão)
 const LinkTrello = ({ t, claro }) => (t.trello && t.trello.url ? (
-  <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={`Cartão do Trello: ${t.trello.nome || ''}`}
-    className={`shrink-0 inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="7" y="7" width="4" height="9" rx="1" fill="currentColor" /><rect x="13" y="7" width="4" height="5" rx="1" fill="currentColor" /></svg>
+  <a href={t.trello.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title={`Enviado para o Trello: ${t.trello.nome || ''} (abrir o cartão)`} aria-label="Abrir o cartão do Trello"
+    className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md text-sky-500 ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
+    <IcoTrello />
+    <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
   </a>
 ) : null);
+// Atalho na lista: tarefa de um jogo com quadro do Trello mas ainda sem cartão → ícone cinzento para enviar
+const BotaoTrello = ({ t, mudar, claro, alinhar = 'esq' }) => {
+  const [aberto, setAberto] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [parecidos, setParecidos] = useState(null);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = e => { if (ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    const esc = e => { if (e.key === 'Escape') setAberto(false); };
+    document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
+  }, [aberto]);
+  if (t.trello && t.trello.url) return <LinkTrello t={t} claro={claro} />;
+  if (t.estado === 'feito') return null; // tarefas antigas já entregues: não enche a lista de ícones
+  const trab = TRAB_ATUAL.trab;
+  const jogo = trab ? jogoDaTarefa(trab, t) : null;
+  if (!jogo || jogo.semJogo || !jogo.trello) return null;
+  const ligar = c => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, trello: { id: c.id, url: c.url, nome: c.nome } })));
+  const abrir = async () => {
+    setAberto(true); setMsg(''); setParecidos(null);
+    try { const cs = await cartoesTrello(jogo.trello); setParecidos(parecidosTrello(cs, t.nome)); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+  };
+  const criar = async () => {
+    setOcupado(true); setMsg('');
+    try { const r = await criarCartaoTrello(jogo, t.nome); ligar(r); setAberto(false); }
+    catch (e) { setMsg(`⚠ ${e.message || e}`); }
+    setOcupado(false);
+  };
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  return (
+    <span ref={ref} className="relative inline-flex shrink-0">
+      <button type="button" onClick={e => { e.stopPropagation(); if (aberto) setAberto(false); else abrir(); }} title="Ainda não está no Trello — carregar para enviar" aria-label="Enviar para o Trello"
+        className={`inline-flex items-center px-1 h-5 rounded-md ${aberto ? 'text-sky-500' : claro ? 'text-slate-300 hover:text-sky-500' : 'text-slate-600 hover:text-sky-400'} ${claro ? 'hover:bg-sky-50' : 'hover:bg-sky-500/10'}`}>
+        <IcoTrello />
+      </button>
+      {aberto && (
+        <span onClick={e => e.stopPropagation()} className={`absolute z-40 top-full mt-1 ${alinhar === 'dir' ? 'right-0' : 'left-0'} w-72 rounded-xl border shadow-xl p-3 space-y-2 text-left text-xs font-normal ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+          <span className="block text-[13px] font-medium">Enviar para o Trello</span>
+          <span className={`block ${sub}`}>{jogo.trelloNome || 'Quadro do jogo'}{jogo.trelloLista ? <> · lista <b>{jogo.trelloLista.nome}</b></> : ''}</span>
+          {jogo.trelloLista
+            ? <button type="button" disabled={ocupado} onClick={criar} className="w-full px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50">{ocupado ? 'A criar…' : '+ Criar cartão com o nome da tarefa'}</button>
+            : <span className="block text-amber-500">Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).</span>}
+          {parecidos == null && !msg && <span className={`block ${sub}`}>A procurar cartões parecidos…</span>}
+          {parecidos && parecidos.length > 0 && (
+            <span className="block">
+              <span className={`block mb-1 ${sub}`}>Ou liga a um que já existe:</span>
+              <span className={`block rounded-lg border divide-y ${claro ? 'border-slate-200 divide-slate-200' : 'border-slate-700 divide-slate-700/60'}`}>
+                {parecidos.map(c => (
+                  <span key={c.id} className="flex items-center gap-2 px-2 py-1.5">
+                    <a href={c.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate hover:text-blue-400" title={c.nome}>{c.nome}</a>
+                    <button type="button" onClick={() => { ligar(c); setAberto(false); }} className="shrink-0 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">Ligar</button>
+                  </span>
+                ))}
+              </span>
+            </span>
+          )}
+          {msg && <span className="block text-red-400">{msg}</span>}
+        </span>
+      )}
+    </span>
+  );
+};
 const LinkDrive = ({ t, claro }) => {
   const d = t.drive;
   if (!d || !d.url) return null;
@@ -986,6 +1066,8 @@ const slideDoLink = url => { const m = /[#&?]slide=id\.([\w-]+)/.exec(url || '')
 const CONTA_LINKS = { padrao: '', porCliente: {} };
 // Freelancers (preenchido pelo Trabalho em cada render) — para mostrar e mudar "quem faz" nas listas
 const FREE = { lista: [] };
+const NAV_FREE = { abrir: null }; // abrir a página de um freelancer (preenchido pelo Trabalho)
+const tarefasDoFreelancer = (trab, f) => (trab.tarefas || []).filter(t => t.freelancerId === f.id || (!t.freelancerId && t.outsourcing && normJ(t.outsourcing) === normJ(f.nome)));
 const FREE_CORES = ['#ec4899', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#f43f5e', '#6366f1', '#84cc16', '#0ea5e9', '#d946ef'];
 const corFreelancer = f => { if (!f) return '#94a3b8'; if (f.cor) return f.cor; const i = FREE.lista.findIndex(x => x.id === f.id); return FREE_CORES[(i < 0 ? 0 : i) % FREE_CORES.length]; };
 // Pôr a tarefa a ser feita por um freelancer (ou por ti): o custo vem da tabela de preços dele, se houver
@@ -1001,22 +1083,42 @@ const QuemFaz = ({ t, mudar, claro, editavel = true, className = '' }) => {
   const f = FREE.lista.find(x => x.id === t.freelancerId);
   const nome = f ? f.nome : (t.outsourcing || '');
   const cor = f ? corFreelancer(f) : '#94a3b8';
+  const chipCls = 'inline-flex items-center gap-1.5 max-w-full px-2 py-0.5 rounded-full text-[11px] font-semibold truncate';
+  const chipIn = <><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cor }} /><span className="truncate">{nome}</span></>;
+  // Com freelancer: carregar no nome abre a página dela (todas as tarefas numa vista)
   const chip = nome
-    ? <span className="inline-flex items-center gap-1.5 max-w-full px-2 py-0.5 rounded-full text-[11px] font-semibold truncate" style={{ background: `${cor}26`, color: cor }}><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cor }} /><span className="truncate">{nome}</span></span>
+    ? (f && NAV_FREE.abrir
+      ? <button type="button" onClick={e => { e.stopPropagation(); NAV_FREE.abrir(f.id); }} className={`${chipCls} hover:brightness-125 hover:underline underline-offset-2`} style={{ background: `${cor}26`, color: cor }} title={`Ver todas as tarefas de ${nome}`}>{chipIn}</button>
+      : <span className={chipCls} style={{ background: `${cor}26`, color: cor }}>{chipIn}</span>)
     : <span className={`text-[12px] px-1.5 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>Eu</span>;
   if (!editavel || !mudar || !FREE.lista.length) return <span className={`inline-flex min-w-0 ${className}`} title={nome ? `Feita por ${nome}` : 'Feita por ti'}>{chip}</span>;
+  const escolher = (
+    <select value={t.freelancerId || ''} onChange={e => mudar(tr => opAtribuir(tr, t.id, e.target.value || null))} aria-label="Quem faz" className="absolute inset-0 w-full opacity-0 cursor-pointer">
+      <option value="">Eu (ninguém)</option>
+      {FREE.lista.filter(x => x.estado !== 'antigo' || x.id === t.freelancerId).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+    </select>
+  );
+  if (f && NAV_FREE.abrir) {
+    return (
+      <span className={`group/qf inline-flex items-center gap-0.5 min-w-0 max-w-full ${className}`}>
+        <span className="min-w-0 inline-flex">{chip}</span>
+        <span className={`relative shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md opacity-0 group-hover/qf:opacity-100 focus-within:opacity-100 ${claro ? 'text-slate-400 hover:bg-slate-200/70' : 'text-slate-500 hover:bg-white/10'}`} title="Mudar quem faz">
+          <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          {escolher}
+        </span>
+      </span>
+    );
+  }
   return (
     <span className={`relative inline-flex min-w-0 max-w-full rounded-md ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'} ${className}`} title={nome ? `Feita por ${nome} (mudar)` : 'Feita por ti (mudar)'}>
       {chip}
-      <select value={t.freelancerId || ''} onChange={e => mudar(tr => opAtribuir(tr, t.id, e.target.value || null))} aria-label="Quem faz" className="absolute inset-0 w-full opacity-0 cursor-pointer">
-        <option value="">Eu (ninguém)</option>
-        {FREE.lista.filter(x => x.estado !== 'antigo' || x.id === t.freelancerId).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
-      </select>
+      {escolher}
     </span>
   );
 };
 // Reserva para impostos (%) das Definições — para mostrar a margem depois de impostos nas tarefas subcontratadas
 const RESERVA = { taxa: null };
+const TRAB_ATUAL = { trab: null }; // para os botões do Trello nas linhas saberem o jogo da tarefa
 const contaDe = cid => String((cid != null && CONTA_LINKS.porCliente[String(cid)]) || CONTA_LINKS.padrao || '').trim();
 const comConta = (url, cid) => {
   const conta = contaDe(cid);
@@ -1680,16 +1782,16 @@ const custoFreelancer = (f, t) => {
   });
   return falta ? null : Math.round(v * 100) / 100;
 };
-const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
+const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirId, onVer }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [nome, setNome] = useState('');
-  const [aberto, setAberto] = useState(null);
+  const [aberto, setAberto] = useState(abrirId || null);
   const lista = (trab.freelancers || []).slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt'));
   const tipos = [...tiposDe(cu), { id: 'hora', nome: 'Hora' }];
   const ic = `${inputClass} text-sm py-1.5`;
   const stats = f => {
-    const ts = (trab.tarefas || []).filter(t => t.freelancerId === f.id || (!t.freelancerId && t.outsourcing && normJ(t.outsourcing) === normJ(f.nome)));
+    const ts = tarefasDoFreelancer(trab, f);
     const doAno = ts.filter(t => trabEntrega(t).startsWith(`${ano}-`));
     const pago = doAno.reduce((a, t) => a + (Number(t.custoOutsourcing) || 0), 0);
     const faturado = doAno.reduce((a, t) => a + trabValor(t, cu, clientes), 0);
@@ -1711,7 +1813,8 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
           const ab = aberto === f.id;
           return (
             <div key={f.id} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'} ${f.estado === 'antigo' ? 'opacity-60' : ''}`}>
-              <button type="button" onClick={() => setAberto(ab ? null : f.id)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
+              <div className="flex items-center">
+              <button type="button" onClick={() => setAberto(ab ? null : f.id)} className="flex-1 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
                 <span className={`text-[10px] ${sub} transition-transform`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }}>▶</span>
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corFreelancer(f) }} />
                 <span className="font-semibold text-sm">{f.nome}</span>
@@ -1719,6 +1822,8 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass }) => {
                 <span className="flex-1" />
                 <span className={`text-xs ${sub}`}>{st.nAno} tarefa{st.nAno === 1 ? '' : 's'} em {ano} · pago <strong className="text-red-400">{eur(st.pago)}</strong>{st.nAno ? <> · margem <strong className={st.margem >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(st.margem)}</strong></> : null}</span>
               </button>
+              {onVer && <button type="button" onClick={() => onVer(f.id)} className="shrink-0 mr-2 px-2.5 py-1 text-xs rounded-lg text-blue-400 hover:bg-blue-500/10">Tarefas →</button>}
+              </div>
               {ab && (
                 <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 px-3 pb-3 pt-1 border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 content-start">
@@ -1886,6 +1991,19 @@ const cartoesTrello = async (quadro, fresco = false) => {
   const j = await chamarTrello('cartoes', { quadro });
   cacheCartoes.set(quadro, { em: Date.now(), lista: j.cartoes || [] });
   return j.cartoes || [];
+};
+// Cria o cartão na lista do jogo — mas, se já houver um com o mesmo nome (a Sophie pode tê-lo criado), liga a esse
+const criarCartaoTrello = async (jogo, nome) => {
+  if (!jogo || !jogo.trello) throw new Error('Este jogo não tem quadro do Trello.');
+  if (!jogo.trelloLista) throw new Error('Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).');
+  const n = String(nome || '').trim();
+  if (!n) throw new Error('Falta o nome do cartão.');
+  const cs = await cartoesTrello(jogo.trello, true);
+  const igual = cs.find(c => c.nome.trim().toLowerCase() === n.toLowerCase());
+  if (igual) return { id: igual.id, url: igual.url, nome: igual.nome, jaExistia: true };
+  const c = await chamarTrello('criar', { lista: jogo.trelloLista.id, nome: n });
+  cacheCartoes.delete(jogo.trello);
+  return { id: c.id, url: c.url, nome: c.nome };
 };
 // Cartões com nome parecido ao da tarefa (para ligar a um que a Sophie já criou)
 const parecidosTrello = (cartoes, nome) => {
@@ -2825,18 +2943,11 @@ const TrelloTarefa = ({ t, trab, set, claro, sub }) => {
     setOcupado(false);
   };
   const criar = async () => {
-    if (!jogo.trelloLista) { setMsg('⚠ Escolhe primeiro a lista dos cartões novos no jogo (cliente → Jogos).'); return; }
     setOcupado(true); setMsg('');
     try {
-      // Antes de criar, confirma que não há já um cartão com este nome (a Sophie pode tê-lo criado)
-      const cs = await cartoesTrello(quadro, true);
-      const igual = cs.find(c => c.nome.trim().toLowerCase() === nome.trim().toLowerCase());
-      if (igual) { set({ trello: { id: igual.id, url: igual.url, nome: igual.nome } }); setMsg('✓ Já havia um cartão com este nome — liguei a esse.'); }
-      else {
-        const c = await chamarTrello('criar', { lista: jogo.trelloLista.id, nome: nome.trim() || t.nome });
-        set({ trello: { id: c.id, url: c.url, nome: c.nome } }); cacheCartoes.delete(quadro);
-        setMsg(`✓ Cartão criado em "${jogo.trelloLista.nome}".`);
-      }
+      const r = await criarCartaoTrello(jogo, nome.trim() || t.nome);
+      set({ trello: { id: r.id, url: r.url, nome: r.nome } });
+      setMsg(r.jaExistia ? '✓ Já havia um cartão com este nome — liguei a esse.' : `✓ Cartão criado em "${jogo.trelloLista.nome}".`);
     } catch (e) { setMsg(`⚠ ${e.message || e}`); }
     setOcupado(false);
   };
@@ -3982,6 +4093,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const claro = useClaro(theme);
   // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
   FREE.lista = trab.freelancers || [];
+  TRAB_ATUAL.trab = trab;
   RESERVA.taxa = Number.isFinite(Number(taxaReserva)) ? Number(taxaReserva) : null;
   CONTA_LINKS.padrao = trab.contaGoogle || '';
   CONTA_LINKS.porCliente = {};
@@ -4043,6 +4155,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const cidSel = pasta ? pasta.cid : sel.tipo === 'cliente' ? sel.id : null;
   const cliente = clientes.find(c => String(c.id) === String(cidSel));
   useEffect(() => { if (sel.tipo === 'pasta' && !pasta) setSelEstado({ tipo: 'geral' }); }, [sel.tipo, pasta]);
+  const freeSel = sel.tipo === 'freelancer' ? (trab.freelancers || []).find(f => f.id === sel.id) : null;
+  useEffect(() => { if (sel.tipo === 'freelancer' && !freeSel && modo !== 'carregar') setSelEstado({ tipo: 'freelancers' }); }, [sel.tipo, freeSel, modo]); // eslint-disable-line react-hooks/exhaustive-deps
+  NAV_FREE.abrir = id => { setSel({ tipo: 'freelancer', id }); setAba('tarefas'); setTarefaAberta(null); };
 
   const abertasPorPasta = useMemo(() => {
     const m = {};
@@ -4054,9 +4169,10 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   let tarefas = [];
   if (pasta) { const ids = new Set(descendentes(trab, pasta.id)); tarefas = (trab.tarefas || []).filter(t => ids.has(t.pastaId)); }
   else if (sel.tipo === 'cliente') tarefas = (trab.tarefas || []).filter(t => String(t.cid) === String(sel.id));
+  else if (freeSel) tarefas = tarefasDoFreelancer(trab, freeSel);
   if (procura.trim()) {
     const q = procura.trim().toLowerCase();
-    tarefas = (pasta || sel.tipo === 'cliente' ? tarefas : (trab.tarefas || [])).filter(t => t.nome.toLowerCase().includes(q));
+    tarefas = (pasta || sel.tipo === 'cliente' || freeSel ? tarefas : (trab.tarefas || [])).filter(t => t.nome.toLowerCase().includes(q));
   }
   const ordenar = l => l.slice().sort((a, b) => (a.prazo || '9999').localeCompare(b.prazo || '9999') || String(a.criada).localeCompare(String(b.criada)));
   tarefas = ordenar(tarefas);
@@ -4069,9 +4185,18 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     setTimeout(() => { if (novoId) setSel({ tipo: 'pasta', id: novoId }); }, 0);
   } });
   const renomearPasta = (id, nome) => mudar(tr => opAutoJogo(opPasta(tr, id, { nome }), id));
-  const criarTarefa = (txt, prazo, pecas) => {
+  const jogoPasta = pasta ? jogoDaTarefa(trab, { pastaId: pasta.id }) : null;
+  const jogoTrello = jogoPasta && !jogoPasta.semJogo && jogoPasta.trello ? jogoPasta : null;
+  const criarTarefa = (txt, prazo, pecas, op = {}) => {
     if (!pasta) return;
-    mudar(tr => opNovaTarefa(tr, { pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo, pecas }));
+    const id = trabId();
+    mudar(tr => opNovaTarefa(tr, { id, pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo, pecas }));
+    if (op.trello && jogoTrello) {
+      const nome = txt.trim();
+      criarCartaoTrello(jogoTrello, nome)
+        .then(r => { mudar(tr => opTarefa(tr, id, x => ({ ...x, trello: { id: r.id, url: r.url, nome: r.nome } }))); if (showToast) showToast(r.jaExistia ? 'Já havia um cartão no Trello com este nome — ficou ligado.' : 'Cartão criado no Trello'); })
+        .catch(e => { if (showToast) showToast(`Tarefa criada, mas o Trello falhou: ${e.message || e}`, 'error'); });
+    }
   };
   const importar = async e => {
     const f = e.target.files && e.target.files[0];
@@ -4109,6 +4234,17 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
       <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'freelancers' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <IcoT n="freelancer" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Freelancers
       </button>
+      {(trab.freelancers || []).filter(f => f.estado !== 'antigo').sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(f => {
+        const n = tarefasDoFreelancer(trab, f).filter(t => t.estado !== 'feito').length;
+        const ativo = sel.tipo === 'freelancer' && sel.id === f.id;
+        return (
+          <button key={f.id} type="button" onClick={() => NAV_FREE.abrir(f.id)} className={`w-full flex items-center gap-2 pl-8 pr-2 py-1 rounded-lg text-[13px] text-left !mt-0 ${ativo ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: corFreelancer(f) }} />
+            <span className="flex-1 min-w-0 truncate">{f.nome}</span>
+            {n > 0 && <span className={`text-[11px] tabular-nums ${sub}`}>{n}</span>}
+          </button>
+        );
+      })}
       {onCu && onPrecos && (
         <button type="button" onClick={() => setSel({ tipo: 'tipos' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'tipos' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
           <IcoT n="etiqueta" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Tipos e preços
@@ -4158,7 +4294,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     </div>
   );
 
-  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
+  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : freeSel ? freeSel.nome : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
@@ -4227,9 +4363,25 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
                 </button>}
                 {pasta && <span className="w-3 h-3 rounded" style={{ background: pasta.cor }} />}
+                {freeSel && <span className="w-3 h-3 rounded-full" style={{ background: corFreelancer(freeSel) }} />}
                 <h2 className="text-xl font-bold truncate">{titulo}</h2>
               </div>
             </div>
+            {freeSel && (() => {
+              const abertas = tarefas.filter(t => t.estado !== 'feito');
+              const custoAberto = abertas.reduce((a, t) => a + (Number(t.custoOutsourcing) || 0), 0);
+              const doAno = tarefas.filter(t => trabEntrega(t).startsWith(`${ano}-`));
+              const pagoAno = doAno.reduce((a, t) => a + (Number(t.custoOutsourcing) || 0), 0);
+              const margemAno = doAno.reduce((a, t) => a + trabValor(t, cu, clientes), 0) - pagoAno;
+              const forte = claro ? 'text-slate-800' : 'text-slate-100';
+              return (
+                <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${sub}`}>
+                  <span><strong className={forte}>{abertas.length}</strong> em aberto</span>
+                  {custoAberto > 0 && <span><strong className="text-amber-500">{eur(custoAberto)}</strong> a pagar pelas abertas</span>}
+                  <span>{ano}: <strong className={forte}>{doAno.length}</strong> entregues · pago <strong className="text-red-400">{eur(pagoAno)}</strong>{doAno.length ? <> · margem <strong className={margemAno >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(margemAno)}</strong></> : null}</span>
+                </div>
+              );
+            })()}
             {(pasta || sel.tipo === 'cliente') && (
               <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${sub}`}>
                 <span><strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{tarefas.filter(t => t.estado !== 'feito').length}</strong> por acabar</span>
@@ -4289,7 +4441,15 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           {sel.tipo === 'geral' && !procura.trim() && <VisaoGeral trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} ano={ano} mesNum={mesNum} />}
           {sel.tipo === 'timesheet' && !procura.trim() && <Timesheet trab={trab} mudar={mudar} clientes={clientes} theme={theme} onAbrir={setTarefaAberta} />}
           {sel.tipo === 'calendario' && !procura.trim() && calendario}
-          {sel.tipo === 'freelancers' && !procura.trim() && <Freelancers trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} />}
+          {freeSel && !procura.trim() && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setSel({ tipo: 'freelancers', abrir: freeSel.id })} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Ficha e preços</button>
+              {freeSel.email && <a href={`mailto:${freeSel.email}`} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Enviar email</a>}
+              {freeSel.faz && <span className={`text-xs ${sub}`}>Faz: {freeSel.faz}</span>}
+              {!tarefas.length && <span className={`text-xs ${sub}`}>Ainda não tem tarefas. Escolhe-a em "Quem faz" numa tarefa.</span>}
+            </div>
+          )}
+          {sel.tipo === 'freelancers' && !procura.trim() && <Freelancers key={sel.abrir || '-'} abrirId={sel.abrir} onVer={id => NAV_FREE.abrir(id)} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} />}
           {sel.tipo === 'tipos' && !procura.trim() && <TiposTarefa cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} onPrecos={onPrecos} onCu={onCu} />}
           {sel.tipo === 'clientes' && !procura.trim() && <ListaClientes clientes={clientes} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} theme={theme}
             onAbrir={id => { setSel({ tipo: 'cliente', id }); setAba('ficha'); }}
@@ -4335,7 +4495,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           )}
           {((sel.tipo !== 'geral' && sel.tipo !== 'timesheet' && sel.tipo !== 'clientes' && sel.tipo !== 'tipos' && sel.tipo !== 'freelancers' && sel.tipo !== 'calendario') || procura.trim()) && abaAtual === 'tarefas' && (
             <div className="space-y-3">
-              {pasta && <NovaTarefa onCriar={criarTarefa} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} />}
+              {pasta && <NovaTarefa onCriar={criarTarefa} cid={pasta.cid} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} jogoTrello={jogoTrello} />}
               {sel.tipo === 'cliente' && !procura.trim() && !filhasDe(trab, null, sel.id).length && (
                 <Card><p className="text-sm">Ainda não há pastas para {cliente ? cliente.nome : 'este cliente'}. Carrega no <strong>+</strong> ao lado do nome, à esquerda.</p></Card>
               )}
