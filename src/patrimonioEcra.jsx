@@ -396,10 +396,10 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const anoAberto = y => anosAbertos[y] != null ? anosAbertos[y] : y === anosTab[0];
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto">
+    <div className="space-y-4 max-w-5xl xl:max-w-none mx-auto pag-2col">
 
       {/* Cabeçalho: três perguntas, três blocos */}
-      <div className={card}>
+      <div className={`${card} col-toda`}>
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-semibold"><Ico e="💎"/>Património</h3>
@@ -594,7 +594,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Evolução */}
       {det.length > 0 && (
-        <div className={card}>
+        <div className={`${card} col-esq`}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <h3 className="font-semibold">{verMercado ? 'O que o mercado rendeu (acumulado)' : `Evolução — ${nomeVista}`}</h3>
             <div className="flex items-center gap-2">
@@ -617,7 +617,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Poupança */}
       {poup.l.length > 0 && (
-        <div className={card}>
+        <div className={`${card} col-esq`}>
           <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
             <div>
               <h3 className="font-semibold">Poupança</h3>
@@ -646,7 +646,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Composição */}
       {ultimo && brutos > 0 && (
-        <div className={card}>
+        <div className={`${card} col-esq`}>
           <h3 className="font-semibold mb-3">Composição em {patRotulo(ultimo.idx)}</h3>
           <div className="flex h-4 w-full gap-0.5 mb-3">
             {ativosComp.map(c => <div key={c.k} title={`${c.label}: ${f(c.v)}`} className="h-full first:rounded-l last:rounded-r" style={{ width: `${(c.v / brutos) * 100}%`, background: c.cor }} />)}
@@ -677,7 +677,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       )}
 
       {/* Registo do mês */}
-      <div className={card}>
+      <div className={`${card} col-dir`}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <h3 className="text-lg font-semibold"><Ico e="📝"/>{meses[idxSel % 12]} {Math.floor(idxSel / 12)}</h3>
           <div className="flex items-center gap-2">
@@ -884,7 +884,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       </div>
 
       {/* Acontecimentos */}
-      <div className={card}>
+      <div className={`${card} col-toda`}>
         <button onClick={() => setSec({ ...sec, ev: !sec.ev })} aria-expanded={sec.ev} className="w-full flex items-center justify-between gap-3 text-left">
           <h3 className="font-semibold">{sec.ev ? '▾' : '▸'} 📌 Acontecimentos</h3>
           <span className={`text-xs ${sub}`}>{evOrd.length ? `${evOrd.length} ${evOrd.length === 1 ? 'marco' : 'marcos'}` : 'venda da casa, mudança de trabalho…'}</span>
@@ -913,7 +913,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
       {/* Histórico detalhado */}
       {det.length > 0 && (
-        <div className={card}>
+        <div className={`${card} col-toda`}>
           <div className="flex items-center justify-between gap-2">
             <button onClick={() => setSec({ ...sec, hist: !sec.hist })} aria-expanded={sec.hist} className="flex-1 text-left">
               <h3 className="font-semibold">{sec.hist ? '▾' : '▸'} 📚 Histórico detalhado</h3>
