@@ -1229,6 +1229,14 @@ html[data-tema="claro"] .text-orange-400 { color: #ea580c; } html[data-tema="cla
 html[data-tema="claro"] .text-violet-400 { color: #7c3aed; } html[data-tema="claro"] .text-purple-400 { color: #9333ea; }
 html[data-tema="claro"] .text-blue-400 { color: #2563eb; } html[data-tema="claro"] .text-cyan-400 { color: #0891b2; }
 html[data-tema="claro"] .text-pink-400 { color: #db2777; } html[data-tema="claro"] .text-teal-400 { color: #0d9488; }
+/* Computador (ecrãs largos): as páginas compridas passam a 2 colunas */
+@media (min-width: 1280px) {
+  .pag-2col { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
+  .pag-2col.pag-2col > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+  .pag-2col > .col-toda { grid-column: 1 / -1; }
+  .pag-2col > .col-esq { grid-column: 1; }
+  .pag-2col > .col-dir { grid-column: 2; grid-row: 2 / span 3; }
+}
 /* Os tons -300 (feitos para o tema escuro) também ficavam quase invisíveis no branco */
 html[data-tema="claro"] .text-amber-300, html[data-tema="claro"] .text-yellow-300 { color: #b45309; } html[data-tema="claro"] .text-emerald-300, html[data-tema="claro"] .text-green-300 { color: #047857; }
 html[data-tema="claro"] .text-blue-300, html[data-tema="claro"] .text-sky-300 { color: #1d4ed8; } html[data-tema="claro"] .text-red-300 { color: #b91c1c; } html[data-tema="claro"] .text-orange-300 { color: #c2410c; }
