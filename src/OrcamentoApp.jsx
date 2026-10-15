@@ -2,7 +2,7 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, confirmarIdentidade, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
+import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, guardarTrabalhoDocsJuntando, confirmarIdentidade, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
@@ -10,8 +10,9 @@ import {
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
   ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, isoDia,
   planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes,
-  VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button,
-  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  juntar3, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo,
+  TemaCtx, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -564,7 +565,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const trabModoRef = useRef('carregar'); trabModoRef.current = trabModo;
   const trabDocRef = useRef(null); trabDocRef.current = trabDoc;
   const gTrabRef = useRef(null);
-  const trabSujo = useRef(false);
+  // Alterações por gravar: cada mudança neste ecrã sobe a "geração"; a gravação marca a geração que levou
+  const trabGer = useRef(0);
+  const trabGerGravada = useRef(0);
+  const trabAGravar = useRef(false);
+  const trabPorGravar = () => trabGer.current !== trabGerGravada.current || trabAGravar.current;
   const trabTimer = useRef(null);
   // Como o Trabalho está guardado: 'anos' (um documento por ano) ou 'simples' (tudo num documento, se as regras não deixarem ler a coleção)
   const [trabArmazem, setTrabArmazem] = useState('anos');
@@ -573,6 +578,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const trabAnos = useRef([]);
   const migrandoTrab = useRef(false);
   const migracaoFalhou = useRef(false);
+  // O Trabalho partido nos documentos em que é gravado (por anos, ou tudo num) e o contrário
+  const docsDoTrab = trab => (trabArmazemRef.current === 'anos' ? dividirTrabalho(trab, trabAnos.current) : { dados: trab });
+  const trabDosDocs = docs => (trabArmazemRef.current === 'anos' ? juntarTrabalho(docs).trab : docs.dados || null);
+  // Chegou o Trabalho do servidor (deste ou de outro dispositivo). Se este ecrã tem alterações por gravar,
+  // junta as duas versões em vez de deitar fora uma delas. Devolve { trab, juntou } ou null (nada a fazer).
+  const receberTrab = docsServidor => {
+    const esc = {}; Object.entries(docsServidor).forEach(([k, v]) => { esc[k] = semCarimbo(v); });
+    const antes = trabEscrito.current;
+    const mudou = [...new Set([...Object.keys(esc), ...Object.keys(antes)])].filter(k => esc[k] !== antes[k] && esc[k] !== undefined);
+    if (!trabPorGravar() || !trabDocRef.current) { trabEscrito.current = esc; return { trab: trabDosDocs(docsServidor), juntou: false }; }
+    if (!mudou.length) return null; // é o eco do que este ecrã gravou
+    const meus = docsDoTrab(trabDocRef.current);
+    mudou.forEach(k => { meus[k] = juntar3(antes[k] != null ? JSON.parse(antes[k]) : undefined, meus[k], docsServidor[k]); });
+    trabEscrito.current = esc;
+    return { trab: trabDosDocs(meus), juntou: true };
+  };
   useEffect(() => {
     const uid = user && user.uid;
     if (!uid || typeof ouvirTrabalho !== 'function') { setTrabModo('g'); return undefined; }
@@ -583,8 +604,13 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       setTrabArmazem('simples'); trabArmazemRef.current = 'simples';
       try {
         parar = ouvirTrabalho(uid, (dados, pendente) => {
-          if (!vivo || pendente || trabSujo.current) return;
-          setTrabDoc(dados ? { ...TRAB_VAZIO, ...dados } : null);
+          if (!vivo || pendente) return;
+          const r = dados ? receberTrab({ dados }) : (trabPorGravar() ? null : { trab: null });
+          if (r) {
+            if (r.juntou) console.info('Trabalho: juntei as alterações de outro dispositivo com as deste');
+            trabDocRef.current = r.trab ? { ...TRAB_VAZIO, ...r.trab } : null;
+            setTrabDoc(trabDocRef.current);
+          }
           setTrabModo('doc');
         }, () => { if (vivo) setTrabModo('g'); });
       } catch (e) { setTrabModo('g'); }
@@ -592,12 +618,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     if (typeof ouvirTrabalhoAnos !== 'function') { ouvirSimples(); return () => { vivo = false; if (parar) parar(); }; }
     try {
       parar = ouvirTrabalhoAnos(uid, (docs, pendente) => {
-        if (!vivo || pendente || trabSujo.current) return;
+        if (!vivo || pendente) return;
         const { trab, migrar, anos } = juntarTrabalho(docs);
-        trabAnos.current = anos.map(k => k.slice(8));
-        const esc = {}; Object.entries(docs).forEach(([k, v]) => { if (k === 'dados' || /^tarefas-\d{4}$/.test(k)) esc[k] = semCarimbo(v); });
-        trabEscrito.current = esc;
-        setTrabDoc(trab ? { ...TRAB_VAZIO, ...trab } : null);
+        if ((migrar || trabArmazemRef.current !== 'anos') && trabPorGravar()) return; // formato antigo a meio de uma alteração: espera pela gravação deste ecrã
+        trabAnos.current = [...new Set([...trabAnos.current, ...anos.map(k => k.slice(8))])];
+        const docsT = {}; Object.entries(docs).forEach(([k, v]) => { if (k === 'dados' || /^tarefas-\d{4}$/.test(k)) docsT[k] = v; });
+        let novoT = trab;
+        if (migrar || trabArmazemRef.current !== 'anos') { const esc = {}; Object.entries(docsT).forEach(([k, v]) => { esc[k] = semCarimbo(v); }); trabEscrito.current = esc; }
+        else {
+          const r = receberTrab(docsT);
+          if (!r) { setTrabModo('doc'); return; }
+          if (r.juntou) console.info('Trabalho: juntei as alterações de outro dispositivo com as deste');
+          novoT = r.trab;
+        }
+        trabDocRef.current = novoT ? { ...TRAB_VAZIO, ...novoT } : null;
+        setTrabDoc(trabDocRef.current);
         if (!migracaoFalhou.current) { setTrabArmazem('anos'); trabArmazemRef.current = 'anos'; }
         setTrabModo('doc');
         // Primeira vez (ou depois de um dispositivo com a app antiga): passa para um documento por ano, com cópia de segurança
@@ -662,42 +697,84 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     };
   }, [cronoIni, cronoNome]);
   gTrabRef.current = G.trabalho || null;
+  // Grava o Trabalho: só os documentos que mudaram, e a ver primeiro o que está no servidor (se outro dispositivo
+  // gravou entretanto, junta as duas versões em vez de pôr uma por cima da outra)
+  const gravarTrab = () => {
+    const uid = user && user.uid;
+    if (!uid || !trabDocRef.current || trabModoRef.current !== 'doc') return;
+    if (trabAGravar.current) { clearTimeout(trabTimer.current); trabTimer.current = setTimeout(() => gravarTrabRef.current(), 400); return; } // uma gravação de cada vez
+    const ger = trabGer.current;
+    const anos = trabArmazemRef.current === 'anos';
+    const limpo = JSON.parse(JSON.stringify({ ...trabDocRef.current, atualizado: new Date().toISOString() }));
+    const docs = docsDoTrab(limpo);
+    const mudados = {};
+    Object.entries(docs).forEach(([k, v]) => { if (trabEscrito.current[k] !== semCarimbo(v)) mudados[k] = { ...v, atualizado: limpo.atualizado }; });
+    if (!Object.keys(mudados).length) { trabGerGravada.current = ger; return; }
+    const base = { ...trabEscrito.current };
+    const juntar = (id, meu, servidor) => {
+      if (!servidor) return meu;
+      const js = semCarimbo(servidor);
+      if (js === base[id] || js === semCarimbo(meu)) return meu; // ninguém mexeu lá desde a última vez
+      return { ...juntar3(base[id] != null ? JSON.parse(base[id]) : undefined, meu, servidor), atualizado: meu.atualizado };
+    };
+    const depois = escritos => {
+      Object.entries(escritos).forEach(([k, v]) => { trabEscrito.current[k] = semCarimbo(v); });
+      if (anos) trabAnos.current = [...new Set([...trabAnos.current, ...Object.keys(docs).filter(k => k.startsWith('tarefas-')).map(k => k.slice(8))])];
+      // Outro dispositivo tinha gravado entretanto: o que ficou gravado já tem as duas versões; junta-o ao que está agora no ecrã
+      const vieram = Object.keys(escritos).filter(k => escritos[k] !== mudados[k]);
+      if (vieram.length && trabDocRef.current) {
+        const atuais = docsDoTrab(trabDocRef.current);
+        vieram.forEach(k => { atuais[k] = juntar3(mudados[k], atuais[k], escritos[k]); });
+        const tj = trabDosDocs(atuais);
+        if (tj) { trabDocRef.current = { ...TRAB_VAZIO, ...tj }; setTrabDoc(trabDocRef.current); }
+        console.info('Trabalho: juntei as alterações de outro dispositivo ao gravar', vieram);
+      }
+      trabGerGravada.current = ger;
+      trabAGravar.current = false;
+    };
+    trabAGravar.current = true;
+    const simples = () => (anos ? guardarTrabalhoDocs(uid, mudados) : guardarTrabalho(uid, mudados.dados));
+    const comJuncao = typeof guardarTrabalhoDocsJuntando === 'function'
+      ? guardarTrabalhoDocsJuntando(uid, mudados, juntar).catch(err => {
+        if (/permission/i.test(String((err && (err.code || err.message)) || ''))) throw err;
+        // Sem rede (a transação precisa do servidor): grava da maneira normal — vai quando a rede voltar
+        console.warn('Trabalho: não deu para comparar com o servidor, gravo da maneira normal', err);
+        return simples().then(() => mudados);
+      })
+      : simples().then(() => mudados);
+    comJuncao.then(depois).catch(err => {
+      trabAGravar.current = false;
+      if (anos) {
+        console.error('Trabalho: não consegui gravar por anos — passo a gravar num documento só', err);
+        migracaoFalhou.current = true; setTrabArmazem('simples'); trabArmazemRef.current = 'simples';
+        guardarTrabalho(uid, limpo).then(() => { trabEscrito.current = { dados: semCarimbo(limpo) }; trabGerGravada.current = ger; })
+          .catch(() => { trabGerGravada.current = ger; setG(p => ({ ...p, trabalho: limpo })); setTrabModo('g'); });
+        return;
+      }
+      trabGerGravada.current = ger;
+      console.error('Trabalho: não consegui gravar à parte', err);
+      // Sem autorização para o documento à parte: passa a gravar no documento principal
+      setG(p => ({ ...p, trabalho: limpo }));
+      setTrabModo('g');
+    });
+  };
+  const gravarTrabRef = useRef(gravarTrab); gravarTrabRef.current = gravarTrab;
   const mudarTrab = useCallback(fn => {
     if (trabModoRef.current !== 'doc') { setG(p => ({ ...p, trabalho: fn(p.trabalho || TRAB_VAZIO) })); return; }
     const novo = fn(trabDocRef.current || gTrabRef.current || TRAB_VAZIO);
     trabDocRef.current = novo;
     setTrabDoc(novo);
-    trabSujo.current = true;
+    trabGer.current += 1;
     clearTimeout(trabTimer.current);
-    trabTimer.current = setTimeout(() => {
-      const uid = user && user.uid;
-      const limpo = JSON.parse(JSON.stringify({ ...trabDocRef.current, atualizado: new Date().toISOString() }));
-      if (trabArmazemRef.current === 'anos') {
-        // Só regrava a base e os anos que mudaram (normalmente só o ano atual)
-        const docs = dividirTrabalho(limpo, trabAnos.current);
-        const mudados = {};
-        Object.entries(docs).forEach(([k, v]) => { const j = semCarimbo(v); if (trabEscrito.current[k] !== j) { mudados[k] = { ...v, atualizado: limpo.atualizado }; } });
-        if (!Object.keys(mudados).length) { trabSujo.current = false; return; }
-        guardarTrabalhoDocs(uid, mudados).then(() => {
-          Object.entries(mudados).forEach(([k, v]) => { trabEscrito.current[k] = semCarimbo(v); });
-          trabAnos.current = [...new Set([...trabAnos.current, ...Object.keys(docs).filter(k => k.startsWith('tarefas-')).map(k => k.slice(8))])];
-          trabSujo.current = false;
-        }).catch(err => {
-          console.error('Trabalho: não consegui gravar por anos — passo a gravar num documento só', err);
-          migracaoFalhou.current = true; setTrabArmazem('simples'); trabArmazemRef.current = 'simples';
-          guardarTrabalho(uid, limpo).then(() => { trabSujo.current = false; }).catch(() => { trabSujo.current = false; setG(p => ({ ...p, trabalho: limpo })); setTrabModo('g'); });
-        });
-        return;
-      }
-      guardarTrabalho(uid, limpo).then(() => { trabSujo.current = false; }).catch(err => {
-        trabSujo.current = false;
-        console.error('Trabalho: não consegui gravar à parte', err);
-        // Sem autorização para o documento à parte: passa a gravar no documento principal
-        setG(p => ({ ...p, trabalho: limpo }));
-        setTrabModo('g');
-      });
-    }, 700);
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+    trabTimer.current = setTimeout(() => gravarTrabRef.current(), 700);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ao sair da página (ou mudar de separador) com alterações por gravar, grava já em vez de esperar
+  useEffect(() => {
+    const ja = () => { if (trabGer.current !== trabGerGravada.current && !trabAGravar.current) { clearTimeout(trabTimer.current); gravarTrabRef.current(); } };
+    const vis = () => { if (document.visibilityState === 'hidden') ja(); };
+    window.addEventListener('pagehide', ja); document.addEventListener('visibilitychange', vis);
+    return () => { window.removeEventListener('pagehide', ja); document.removeEventListener('visibilitychange', vis); };
+  }, []);
   // Pergunta única ao Gemini (pela mesma função do chat). Usado nas Notas para planear as compras.
   const perguntarIA = async (pergunta, contexto) => {
     const token = user && user.getIdToken ? await user.getIdToken() : '';
@@ -4496,9 +4573,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    onChange={e => {
                      // A ficha do cliente (Trabalho → Clientes) traz o país, o IVA e a retenção
                      const cid = +e.target.value;
-                     const rc = ((clientes.find(c => c.id === cid) || {}).recibo) || null;
-                     if (!rc || !rc.pais) { setEditRecibo({...editRecibo, cid}); return; }
-                     const np = rc.pais;
+                     const cli = clientes.find(c => c.id === cid);
+                     const rc = (cli && cli.recibo) || {};
+                     const prov = paisDoCliente(cli, recibosDoCliente(M, cid)); // o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes
+                     if (!prov) { setEditRecibo({...editRecibo, cid}); return; }
+                     const np = prov.pais;
                      const isSara = editRecibo.emitidoPorSara || false;
                      const newTaxaIva = isSara ? 0 : (np === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : (editRecibo.taxaIva != null ? editRecibo.taxaIva : 23)) : 0);
                      const newTaxaRet = isSara ? (np === 'PT' ? 11.5 : 0) : (np === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.75)) : 0);
@@ -13951,6 +14030,20 @@ ${transacoesOrdenadas.map(t => `<tr>
    onIrMes={k => { const [a, m] = String(k).split('-').map(Number); if (a && m) { setAno(a); setMes(meses[m - 1]); setTab('receitas'); setVerDados(false); window.scrollTo({ top: 0 }); } }}
    opc={{
      trabSeparado: trabModo === 'doc' && !!trabDoc,
+     definirPaisCliente: (cid, pais) => { saveUndo(); setG(p => ({ ...p, clientes: (p.clientes || []).map(c => (String(c.id) === String(cid) ? { ...c, recibo: { ...(c.recibo || {}), pais } } : c)) })); },
+     corrigirPaisRecibo: (k, lista, id, cid) => {
+       const c = (G.clientes || []).find(x => String(x.id) === String(cid)); if (!c) return;
+       const rg = regrasRecibo(c, recibosDoCliente(M, cid), G.coefSimpl);
+       saveUndo();
+       setM(p => {
+         const md = p[k] || {}; const r = (md[lista] || []).find(x => x.id === id); if (!r) return p;
+         const base = Number(r.valIliq ?? r.val) || 0;
+         const novo = { ...r, pais: rg.pais, taxaIva: rg.taxaIva, iva: Math.round(base * rg.taxaIva) / 100, taxaRetIRS: rg.taxaRet, retIRS: Math.round(base * rg.taxaRet) / 100 };
+         const sem = (md[lista] || []).filter(x => x.id !== id);
+         if (rg.lista === lista) return { ...p, [k]: { ...md, [lista]: (md[lista] || []).map(x => (x.id === id ? novo : x)) } };
+         return { ...p, [k]: { ...md, [lista]: sem, [rg.lista]: [...(md[rg.lista] || []), novo] } };
+       });
+     },
      acertarRecibo: (k, lista, id) => { saveUndo(); setM(p => { const md = p[k] || {}; return { ...p, [k]: { ...md, [lista]: (md[lista] || []).map(x => (x.id === id ? reciboComValor(x, x.val) : x)) } }; }); },
      limparFaturaTarefa: id => mudarTrab(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id === id ? (({ faturaId, ...r }) => r)(x) : x)) })),
      limparFreelancer: id => mudarTrab(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id === id ? { ...x, freelancerId: null } : x)) })),
@@ -14243,11 +14336,8 @@ ${transacoesOrdenadas.map(t => `<tr>
      // Já há um registo desta fatura em Receitas (ex.: gerada outra vez)? Não cria outro
      if (faturaId) { for (const [k0, md0] of Object.entries(M || {})) for (const lista0 of ['regCom', 'regSem']) { const r0 = ((md0 && md0[lista0]) || []).find(x => x && x.faturaId === faturaId); if (r0) return { k: k0, id: r0.id, lista: lista0 }; } }
      const c = (G.clientes || []).find(x => String(x.id) === String(cid)) || {};
-     const rc = c.recibo || {};
-     const pais = rc.pais || 'PT';
-     const lista = (rc.regime || (pais === 'Fora UE' ? 'sem' : 'com')) === 'sem' ? 'regSem' : 'regCom';
-     const taxaIva = pais === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : 23) : 0;
-     const taxaRet = pais === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(G.coefSimpl ?? 0.75)) : 0;
+     // País da ficha; se não estiver escolhido, o do NIF/VAT, da morada ou dos recibos verdes (só sem nada disso assume Portugal)
+     const { pais, lista, taxaIva, taxaRet } = regrasRecibo(c, recibosDoCliente(M, cid), G.coefSimpl);
      const ili = Math.round((Number(valor) || 0) * 100) / 100;
      const id = Date.now();
      const novo = { id, cid: c.id ?? cid, desc: `Invoice #${numero} — ${meses[(mesFatura || 1) - 1]}`, val: ili, valIliq: ili, iva: Math.round(ili * taxaIva) / 100, taxaIva, retIRS: Math.round(ili * taxaRet) / 100, taxaRetIRS: taxaRet, pais, faturaId, ...(pdf ? { ficheiroUrl: pdf.url, ficheiroCaminho: pdf.caminho, ficheiroNome: pdf.nome, ficheiroTipo: 'application/pdf' } : {}), data: new Date().toISOString().slice(0, 10) };
