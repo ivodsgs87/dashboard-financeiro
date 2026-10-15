@@ -71,7 +71,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   
   const [mes, setMes] = useState(mesAtualSistema);
   const [ano, setAno] = useState(anoAtualSistema);
-  const [tab, setTab] = useState('resumo');
+  // Atalho "Nota por voz" no ícone da app (manifest): abre as Notas numa página nova, já a ouvir
+  const [tab, setTab] = useState(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('nota') === 'voz') { localStorage.setItem('notas-voz', '1'); u.searchParams.delete('nota'); window.history.replaceState(null, '', u.toString()); return 'notas'; }
+      if (u.searchParams.get('ir') === 'criativos') { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'criativos' })); localStorage.setItem('criativos-foco', '1'); u.searchParams.delete('ir'); window.history.replaceState(null, '', u.toString()); return 'trabalho'; }
+    } catch (e) { /* sem URL */ }
+    return 'resumo';
+  });
   // O calendário de projetos passou para dentro do Trabalho
   useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
   // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, seta ←, botão de recuar do rato e gesto de voltar do telemóvel).
