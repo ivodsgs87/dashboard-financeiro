@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
-  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO,
+  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO, ehNaoFaturacao,
 } from './base';
 import { auth } from './firebase';
 
@@ -269,6 +269,8 @@ const HorasVivas = ({ t }) => {
   return <span className={`tabular-nums ${corre ? 'text-red-400 font-semibold' : ''}`}>{corre ? trabRelogio(ms) : tempoTxt(ms / 3600000)}</span>;
 };
 const dataCurta = iso => { const d = trabDia(iso); return d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : ''; };
+// Prazos: com o ano quando não é o deste ano (um «15/11» de 2025 parecia um prazo futuro)
+const dataPrazo = iso => { const d = trabDia(iso); if (!d) return ''; return d.slice(0, 4) === String(new Date().getFullYear()) ? dataCurta(iso) : `${dataCurta(iso)}/${d.slice(2, 4)}`; };
 const dataHora = iso => { if (!iso) return '—'; const d = new Date(iso); return `${dataCurta(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const paraInputLocal = iso => { if (!iso) return ''; const d = new Date(iso); return `${trabDia(iso)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
@@ -319,7 +321,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
     <div onClick={e => cliqueNaLinha(e, () => onAbrir(t.id))} className={`group cursor-pointer flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
-        <NomeTarefa t={t} cu={cu} claro={claro} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
+        <NomeTarefa t={t} cu={cu} claro={claro} prefixo={etiquetaTipo(t, cu) ? 'sm:hidden' : 'sempre'} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
       </button>
       <LinkDrive t={t} claro={claro} />
@@ -333,7 +335,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
       )}
       {(t.freelancerId || t.outsourcing) && <QuemFaz t={t} claro={claro} editavel={false} className="shrink-0 max-w-[110px]" />}
       <EtiquetaTipo t={t} cu={cu} claro={claro} className="hidden sm:inline-block" />
-      {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataCurta(t.prazo)}</span>}
+      {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataPrazo(t.prazo)}</span>}
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
       <span className={`hidden sm:inline w-16 text-right text-xs tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</span>
       <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
@@ -464,7 +466,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
         ) : (
           <>
             <button type="button" onClick={() => onAbrir(t.id)} className="min-w-0 text-left">
-              <NomeTarefa t={t} cu={cu} claro={claro} />
+              <NomeTarefa t={t} cu={cu} claro={claro} prefixo="semTipo" />
               {nomePasta && <span className={`block truncate text-[11px] -mt-0.5 ${sub}`}>{nomePasta}</span>}
             </button>
             <button type="button" onClick={() => setEditar(true)} className={`shrink-0 w-6 h-6 hidden group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`} title="Mudar o nome" aria-label="Mudar o nome">
@@ -500,7 +502,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
         <BotaoCrono aCorrer={corre} theme={theme} pequeno onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
         <TempoSomar t={t} mudar={mudar} claro={claro} className={sub} />
       </div>
-      <div className={`text-center tabular-nums ${atrasada ? 'text-red-400 font-medium' : sub}`}>{t.prazo ? dataCurta(t.prazo) : '—'}</div>
+      <div className={`text-center tabular-nums ${atrasada ? 'text-red-400 font-medium' : sub}`}>{t.prazo ? dataPrazo(t.prazo) : '—'}</div>
       {cheio && <div className={`text-center ${sub}`}>{t.feita ? haQuanto(t.feita) : '—'}</div>}
       <div className={`text-right tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</div>
     </div>
@@ -1703,6 +1705,14 @@ const descarregarDrive = async (conta, id, cab, onProg) => {
   for (;;) { const { done, value } = await leitor.read(); if (done) break; partes.push(value); n += value.length; if (onProg) onProg(total ? Math.min(1, n / total) : null, n); }
   return new Blob(partes);
 };
+// Exporta um ficheiro do Google (ex.: Slides → .pptx) e devolve-o (o Google só exporta até ~10 MB)
+const exportarDrive = async (conta, id, mime, cab = {}) => {
+  const ir = async forcar => fetch(`${DRV}/${encodeURIComponent(id)}/export?mimeType=${encodeURIComponent(mime)}`, { headers: { Authorization: `Bearer ${await tokenDrive(conta, forcar)}`, ...cab } });
+  let r = await ir(false);
+  if (r.status === 401) r = await ir(true);
+  if (!r.ok) { let m = `Erro ${r.status} da Google`; try { const j = await r.json(); if (j.error) m = /exportSizeLimitExceeded|too large/i.test(JSON.stringify(j.error)) ? 'a apresentação é grande demais para exportar' : (j.error.message || m); } catch (e) { /* sem JSON */ } throw new Error(m); }
+  return r.blob();
+};
 const lerBrief = async (conta, url, onProg) => {
   const id = googleId(url), cab = chaveRecurso(url);
   const meta = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(id)}?fields=name,mimeType,size,modifiedTime&supportsAllDrives=true`, false, cab);
@@ -1724,7 +1734,9 @@ const lerBrief = async (conta, url, onProg) => {
       const j = await pedirGoogle(conta, `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(id)}?fields=${encodeURIComponent('slides(objectId,pageElements,slideProperties(notesPage(pageElements)))')}`, false, cab);
       const daForma = els => { const out = []; const ver = es => (es || []).forEach(e => { if (e.shape && e.shape.text) out.push((e.shape.text.textElements || []).map(x => (x.textRun && x.textRun.content) || '').join('')); if (e.table) (e.table.tableRows || []).forEach(rw => (rw.tableCells || []).forEach(c => c.text && out.push((c.text.textElements || []).map(x => (x.textRun && x.textRun.content) || '').join('')))); if (e.elementGroup) ver(e.elementGroup.children); }); ver(els); return out.map(x => x.trim()).filter(Boolean).join('\n'); };
       const vids = els => { const out = []; const ver = es => (es || []).forEach(e => { if (e.video && e.video.id) out.push({ id: e.video.id, fonte: e.video.source }); if (e.elementGroup) ver(e.elementGroup.children); }); ver(els); return out; };
-      const slides = (j.slides || []).map((sl, i) => ({ n: i + 1, objectId: sl.objectId, texto: daForma(sl.pageElements), notas: daForma(((sl.slideProperties || {}).notesPage || {}).pageElements), videos: vids(sl.pageElements) }));
+      const altDe = els => { const out = []; const ver = es => (es || []).forEach(e => { if (e.title) out.push(e.title); if (e.description) out.push(e.description); if (e.elementGroup) ver(e.elementGroup.children); }); ver(els); return out.join('\n'); };
+      const nImgs = els => { let k = 0; const ver = es => (es || []).forEach(e => { if (e.image) k++; if (e.elementGroup) ver(e.elementGroup.children); }); ver(els); return k; };
+      const slides = (j.slides || []).map((sl, i) => ({ n: i + 1, objectId: sl.objectId, texto: daForma(sl.pageElements), notas: daForma(((sl.slideProperties || {}).notesPage || {}).pageElements), alt: altDe(sl.pageElements), nImagens: nImgs(sl.pageElements), videos: vids(sl.pageElements) }));
       await Promise.all([].concat(...slides.map(s => s.videos)).filter(v => v.fonte === 'DRIVE').map(async v => {
         try { const f = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(v.id)}?fields=name,size,thumbnailLink&supportsAllDrives=true`); Object.assign(v, { nome: f.name, tamanho: Number(f.size) || 0, mini: f.thumbnailLink || '' }); }
         catch (e) { v.erro = e.message; }
@@ -1753,16 +1765,26 @@ const palavrasDe = x => semAcentos(x).split(/[^a-z0-9]+/).filter(w => w.length >
 const palavrasTarefa = t => { const fx = (t && t.ficheiros) || {}; return fx.conceito ? palavrasDe(fx.conceito) : palavrasDe(String((t && t.nome) || '').split(/\s[-–—]\s/)[0]); };
 const slideDaTarefa = (slides, url, t) => {
   if (!slides || !slides.length) return null;
+  // 1) escolhido à mão nesta tarefa (no brief, «★ Qual é o slide desta tarefa?»)
+  const bs = t && t.briefSlide;
+  if (bs && bs.id === googleId(url)) {
+    const porId = bs.objectId && slides.find(s => s.objectId === bs.objectId); if (porId) return porId.n;
+    if (bs.n && slides[bs.n - 1]) return bs.n;
+  }
+  // 2) o link aponta para um slide
   const sl = slideDoLink(url);
   if (sl) {
     const porId = slides.find(s => s.objectId === sl); if (porId) return porId.n;
     const m = /^p(\d+)$/.exec(sl); if (m && slides[+m[1] - 1]) return +m[1];
   }
+  // 3) o brief só tem um slide
+  if (slides.length === 1) return 1;
+  // 4) o slide que tem as palavras do nome (no texto, nas notas ou no texto alternativo das imagens)
   const ws = palavrasTarefa(t);
   if (!ws.length) return null;
   let melhor = null, mp = 0;
   slides.forEach(s => {
-    const txt = ' ' + semAcentos(s.texto).replace(/[^a-z0-9]+/g, ' ') + ' ';
+    const txt = ' ' + semAcentos(`${s.texto || ''} ${s.notas || ''} ${s.alt || ''}`).replace(/[^a-z0-9]+/g, ' ') + ' ';
     const titulo = ' ' + semAcentos(String(s.texto).split('\n').slice(0, 2).join(' ')).replace(/[^a-z0-9]+/g, ' ') + ' ';
     const p = ws.filter(w => txt.includes(` ${w} `)).length / ws.length + ws.filter(w => titulo.includes(` ${w} `)).length / ws.length * 0.5;
     if (p > mp) { mp = p; melhor = s.n; }
@@ -1902,10 +1924,15 @@ const trazerBriefParaRefs = async (t, showToast) => {
     const doc = await lerBrief(conta, a.url);
     if (!doc || !doc.slides) { aviso('Não consegui ler os slides do brief.', 'error'); return; }
     const n = slideDaTarefa(doc.slides, a.url, t);
-    if (!n) { aviso('Não sei qual é o slide desta tarefa: abre o brief e marca-o com ★ — depois carrega outra vez em «Abrir pasta».', 'error'); return; }
+    if (!n) { aviso(`O brief tem ${doc.slides.length} slides e não sei qual é o desta tarefa. Abre o brief na tarefa e escolhe-o em «★ Qual é o slide desta tarefa?» — os assets vão logo para a Refs.`, 'info'); return; }
     const sl = doc.slides[n - 1];
     const vids = (sl.videos || []).filter(v => v.caminho || (v.fonte === 'DRIVE' && !v.erro && v.id));
-    const imgs = (sl.imagens || []).filter(x => x.caminho && doc.dados);
+    let imgs = (sl.imagens || []).filter(x => x.caminho && doc.dados).map(x => ({ ...x, dados: doc.dados }));
+    // Google Slides: as imagens vêm da apresentação exportada em .pptx (a API dos Slides não as deixa descarregar)
+    if (doc.tipo === 'gslides' && sl.nImagens) {
+      try { const p = await lerPptx(await exportarDrive(conta, googleId(a.url), MIME_PPTX, chaveRecurso(a.url))); const sp = p.slides[n - 1]; if (sp) imgs = (sp.imagens || []).map(x => ({ ...x, dados: p.dados })); }
+      catch (e) { aviso(`Não deu para tirar as imagens do slide ${n} (${(e && e.message) || e}) — copio só os vídeos.`); }
+    }
     if (!vids.length && !imgs.length) { aviso(`O slide ${n} do brief não tem vídeos nem imagens para copiar.`); return; }
     const pre = palavrasTitulo(t.nome) || 'brief';
     let feitos = 0, ja = 0;
@@ -1913,7 +1940,7 @@ const trazerBriefParaRefs = async (t, showToast) => {
       const nome = x.caminho ? `${pre}_slide${n}_${x.nome}` : (x.nome || 'video.mp4');
       try { await d.refs.getFileHandle(nome); ja++; continue; } catch (e) { /* ainda não está lá */ }
       const fh = await d.refs.getFileHandle(nome, { create: true });
-      if (x.caminho) { const bl = await doc.dados(x.caminho); const w = await fh.createWritable(); await w.write(bl); await w.close(); }
+      if (x.caminho) { const bl = await (x.dados || doc.dados)(x.caminho); const w = await fh.createWritable(); await w.write(bl); await w.close(); }
       else await guardarDoDrive(conta, { ...x, nome }, null, fh);
       feitos++;
     }
@@ -1928,8 +1955,7 @@ const VideoDoPptx = ({ blob, nome }) => {
   useEffect(() => { const tipo = /\.webm$/i.test(nome) ? 'video/webm' : /\.mov$/i.test(nome) ? 'video/quicktime' : 'video/mp4'; const u = URL.createObjectURL(new Blob([blob], { type: tipo })); setUrl(u); return () => URL.revokeObjectURL(u); }, [blob, nome]);
   return url ? <video src={url} controls autoPlay className="w-full max-h-[60vh] rounded-lg bg-black object-contain" /> : null;
 };
-// ── Mandar o brief para um chat do Claude: copia o texto do slide (e, à parte, os frames do vídeo) e abre o chat escolhido ──
-// (o Claude não vê vídeos: uma folha com 8 frames do vídeo, com os tempos, é o que lhe dá a ideia do que lá está)
+// ── Frames de um vídeo do brief: uma folha com 8 frames (com os tempos), para colar onde quiseres ──
 const framesDoVideo = async (blob, n = 8) => {
   const url = URL.createObjectURL(blob);
   try {
@@ -1990,43 +2016,13 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
     return base;
   })();
   const copiar = async (txt, qual) => { try { await navigator.clipboard.writeText(txt); setCopiado(qual); setTimeout(() => setCopiado(''), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
-  // Enviar ao Claude: escolhes o chat (fica lembrado por jogo), a app copia o brief e abre-o
-  const [menuClaude, setMenuClaude] = useState(false);
-  const [novoChat, setNovoChat] = useState(null); // { nome, url } | null
-  const trabA = TRAB_ATUAL.trab || {};
-  const jogoT = tarefa ? jogoDaTarefa(trabA, tarefa) : null;
-  const chats = trabA.chatsClaude || [];
-  const chatDoJogo = jogoT && (trabA.chatClaudePorJogo || {})[jogoT.id];
-  const textoParaClaude = d => {
-    const sl = d && d.slides; const nT = sl ? slideDaTarefa(sl, a.url, tarefa) : null;
-    const s = nT ? sl[nT - 1] : null;
-    const vids = s ? (s.videos || []).map(v => v.nome || (v.fonte === 'YOUTUBE' ? `YouTube ${v.id}` : 'vídeo')).filter(Boolean) : [];
-    return [
-      `Brief — ${(tarefa && tarefa.nome) || a.nome}${jogoT ? ` (${jogoT.nome})` : ''}`,
-      s ? `Slide ${s.n} de «${(d && d.nome) || a.nome}»` : `«${(d && d.nome) || a.nome}»`,
-      '',
-      s ? s.texto : ((d && d.texto) || (sl ? sl.map(x => `── Slide ${x.n} ──\n${x.texto}`).join('\n\n') : '')),
-      s && s.notas ? `\nNotas do slide: ${s.notas}` : '',
-      vids.length ? `\nVídeo de referência no slide: ${vids.join(', ')} (vai a seguir uma imagem com frames do vídeo)` : '',
-    ].filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // O slide desta tarefa, escolhido à mão (fica guardado na tarefa; é o que vai para a Refs)
+  const marcarSlide = n => {
+    const s = slides && slides[n - 1]; if (!s || !tarefa || !mudar) return;
+    mudar(tr => opTarefa(tr, tarefa.id, x => ({ ...x, briefSlide: { id: googleId(a.url), n, ...(s.objectId ? { objectId: s.objectId } : {}) } })));
+    if (aba !== 'editar') setAba('editar');
+    setChaveIframe(k => k + 1);
   };
-  const enviarClaude = async url => {
-    const d = doc && !doc.erro ? doc : await carregar(); if (!d) return;
-    try { await navigator.clipboard.writeText(textoParaClaude(d)); } catch (e) { /* sem área de transferência */ }
-    if (mudar && jogoT && url) mudar(tr => ({ ...tr, chatClaudePorJogo: { ...(tr.chatClaudePorJogo || {}), [jogoT.id]: url } }));
-    setMenuClaude(false);
-    window.open(url || 'https://claude.ai/new', '_blank', 'noopener');
-    setCopiado('claude'); setTimeout(() => setCopiado(''), 6000);
-  };
-  const juntarChat = () => {
-    const u = String((novoChat && novoChat.url) || '').trim();
-    if (!/^https:\/\/claude\.ai\//.test(u)) { setCopiado('chat-mau'); setTimeout(() => setCopiado(''), 2500); return; }
-    const nome = String(novoChat.nome || '').trim() || (jogoT ? jogoT.nome : 'Chat');
-    if (mudar) mudar(tr => ({ ...tr, chatsClaude: [...(tr.chatsClaude || []).filter(c => c.url !== u), { nome, url: u }] }));
-    setNovoChat(null);
-    enviarClaude(u);
-  };
-  const tirarChat = u => { if (mudar) mudar(tr => ({ ...tr, chatsClaude: (tr.chatsClaude || []).filter(c => c.url !== u) })); };
   const [framesK, setFramesK] = useState({}); // chave do vídeo → 'a fazer' | 'ok' | 'erro:…'
   const copiarFrames = (v, k) => {
     setFramesK(x => ({ ...x, [k]: 'a fazer' }));
@@ -2086,9 +2082,17 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
     <div className="fixed inset-0 z-[60] bg-black/85 flex flex-col p-2 sm:p-5 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
       <div className="flex flex-wrap items-center gap-2 mb-2 text-white">
         <p className="min-w-0 flex-1 text-sm font-medium truncate">{(doc && doc.nome) || a.nome}</p>
+        {slides && slides.length > 1 && (
+          <select value={nTarefa || ''} onChange={e => { const n = Number(e.target.value); if (n) marcarSlide(n); }} aria-label="O slide desta tarefa"
+            title="O slide do brief que é desta tarefa (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)"
+            className={`max-w-[260px] px-2.5 py-1.5 text-xs rounded-lg font-medium cursor-pointer outline-none ${slideT ? 'bg-amber-400 text-slate-900 hover:bg-amber-300' : 'bg-white/10 text-amber-300 ring-1 ring-amber-400/70 hover:bg-white/15'}`}>
+            {!slideT && <option value="">★ Qual é o slide desta tarefa?</option>}
+            {slides.map(s => <option key={s.n} value={s.n} className="bg-slate-800 text-white">★ Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 40)}` : ''}</option>)}
+          </select>
+        )}
         {slideT && (
-          <button type="button" onClick={() => { if (aba !== 'editar') setAba('editar'); setChaveIframe(k => k + 1); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-amber-400 text-slate-900 font-medium hover:bg-amber-300" title={`Voltar ao slide desta tarefa: ${tituloSlide(slideT)}`}>
-            ★ Slide {slideT.n}{tituloSlide(slideT) ? ` · ${tituloSlide(slideT).slice(0, 40)}` : ''}
+          <button type="button" onClick={() => { if (aba !== 'editar') setAba('editar'); setChaveIframe(k => k + 1); }} className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-amber-300 hover:bg-white/20" title={`Voltar ao slide desta tarefa: ${tituloSlide(slideT) || `slide ${slideT.n}`}`}>
+            {slides && slides.length > 1 ? 'Ir ao slide' : `★ Slide ${slideT.n}`}
           </button>
         )}
         {abas.length > 1 && (
@@ -2097,33 +2101,6 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
           </div>
         )}
         {tg === 'drive' && <button type="button" onClick={descarregarFicheiro} className={btn}>Descarregar {estadoProg(prog[idF])}</button>}
-        {tg !== 'drive' && (
-          <div className="relative">
-            <button type="button" onClick={() => { setMenuClaude(m => !m); if (!doc || doc.erro) carregar(); }} aria-expanded={menuClaude} className={`${btn} ${copiado === 'claude' ? '!bg-emerald-600' : ''}`}>{copiado === 'claude' ? '✓ Copiado — cola no chat (Ctrl+V)' : 'Enviar ao Claude ▾'}</button>
-            {menuClaude && (
-              <div className="absolute right-0 top-full mt-1 z-10 w-80 rounded-xl border border-slate-600 bg-slate-800 shadow-2xl p-2 space-y-1 text-sm text-white" role="menu">
-                {aCarregar && <p className="px-2 py-1 text-[11px] text-amber-300">A ler o brief… (espera um instante antes de escolher)</p>}
-                {doc && doc.erro && <p className="px-2 py-1 text-[11px] text-red-300">Não consegui ler o brief: {doc.erro}</p>}
-                <p className="px-2 pt-1 pb-1.5 text-[11px] text-white/60">Copia o texto {slideT ? `do slide ${slideT.n}` : 'do brief'} e abre o chat. No chat, carrega em Ctrl+V.{slideT && (slideT.videos || []).length ? ' Os frames do vídeo copias no separador Vídeos.' : ''}</p>
-                {chats.map(c => (
-                  <div key={c.url} className="group flex items-center gap-1">
-                    <button type="button" onClick={() => enviarClaude(c.url)} className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg hover:bg-white/10 truncate ${chatDoJogo === c.url ? 'text-amber-300' : ''}`} title={c.url}>{chatDoJogo === c.url ? '★ ' : ''}{c.nome}</button>
-                    <button type="button" onClick={() => tirarChat(c.url)} className="px-1.5 text-white/40 hover:text-red-300 opacity-0 group-hover:opacity-100" aria-label={`Tirar ${c.nome} da lista`}>✕</button>
-                  </div>
-                ))}
-                <button type="button" onClick={() => enviarClaude('https://claude.ai/new')} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10">+ Chat novo</button>
-                {novoChat ? (
-                  <div className="p-2 rounded-lg bg-white/5 space-y-1.5">
-                    <input autoFocus value={novoChat.url} onChange={e => setNovoChat(x => ({ ...x, url: e.target.value }))} placeholder="Cola o link do chat ou do projeto (claude.ai/…)" className="w-full rounded-md bg-slate-900 border border-slate-600 px-2 py-1 text-xs" />
-                    <input value={novoChat.nome} onChange={e => setNovoChat(x => ({ ...x, nome: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') juntarChat(); }} placeholder={`Nome (ex.: ${jogoT ? jogoT.nome : 'Mahjong'} — ideias)`} className="w-full rounded-md bg-slate-900 border border-slate-600 px-2 py-1 text-xs" />
-                    {copiado === 'chat-mau' && <p className="text-[11px] text-red-300">O link tem de começar por https://claude.ai/</p>}
-                    <button type="button" onClick={juntarChat} className="w-full px-2 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-500">Guardar e enviar</button>
-                  </div>
-                ) : <button type="button" onClick={() => setNovoChat({ nome: '', url: '' })} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10 text-white/80">+ Juntar um chat ou projeto (link)</button>}
-              </div>
-            )}
-          </div>
-        )}
         <a href={urlAbrir(a.url, cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no Google ↗</a>
         <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
       </div>
@@ -2142,6 +2119,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                   <div key={s.n} ref={s.n === nTarefa ? refSlide : null} className={`rounded-xl p-3 sm:p-4 scroll-mt-2 ${s.n === nTarefa ? 'bg-amber-400/10 ring-2 ring-amber-400' : 'bg-white/5'}`}>
                     <div className="flex items-center justify-between gap-2 mb-1.5">
                       <p className={`text-[11px] uppercase tracking-wide ${s.n === nTarefa ? 'text-amber-300 font-semibold' : 'text-white/50'}`}>Slide {s.n}{s.n === nTarefa ? ' · ★ desta tarefa' : ''}</p>
+                      {s.n !== nTarefa && slides.length > 1 && mudar && <button type="button" onClick={() => marcarSlide(s.n)} className="ml-auto text-[11px] text-amber-300 hover:underline">★ É este o desta tarefa</button>}
                       {(s.texto || s.notas) && <button type="button" onClick={() => copiar(`${s.texto}${s.notas ? `\n\n${s.notas}` : ''}`, `s${s.n}`)} className="text-[11px] text-blue-300 hover:underline">{copiado === `s${s.n}` ? '✓ Copiado' : 'Copiar'}</button>}
                     </div>
                     <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed select-text">{s.texto || '(sem texto)'}</pre>
@@ -2174,7 +2152,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                             <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Refs` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Refs' : 'Descarregar'}</button>
                             {destino && destino !== 'nenhum' && <button type="button" onClick={() => descarregar(v, true)} disabled={typeof prog[k] === 'number'} className="text-[11px] text-white/60 hover:text-white underline-offset-2 hover:underline">noutro sítio…</button>}
                           </>}
-                          {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <button type="button" onClick={() => copiarFrames(v, k)} disabled={framesK[k] === 'a fazer'} className={btn} title="Copia uma imagem com 8 frames do vídeo (com os tempos), para colares no chat do Claude">{framesK[k] === 'a fazer' ? 'A tirar frames…' : framesK[k] === 'ok' ? '✓ Frames copiados' : framesK[k] === 'ok-ficheiro' ? '✓ Frames descarregados' : 'Frames → Claude'}</button>}
+                          {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <button type="button" onClick={() => copiarFrames(v, k)} disabled={framesK[k] === 'a fazer'} className={btn} title="Copia uma imagem com 8 frames do vídeo (com os tempos), para colares onde quiseres">{framesK[k] === 'a fazer' ? 'A tirar frames…' : framesK[k] === 'ok' ? '✓ Frames copiados' : framesK[k] === 'ok-ficheiro' ? '✓ Frames descarregados' : 'Frames → Claude'}</button>}
                           {String(framesK[k] || '').startsWith('erro:') && <span className="text-xs text-red-300">{String(framesK[k]).slice(5)}</span>}
                           {v.fonte === 'YOUTUBE' && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no YouTube ↗</a>}
                           {prog[k] != null && <span className="text-xs">{estadoProg(prog[k])}</span>}
@@ -6743,7 +6721,10 @@ const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
 const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
   const f = (faturado || {})[c.id] || {};
   const meses12 = f[ano] || Array(12).fill(0);
-  const fatAno = meses12.reduce((a, v) => a + v, 0);
+  // Faturado: até ao mês de hoje (como em «O meu ano»); o que já está registado nos meses seguintes aparece à parte
+  const hojeF = new Date(); const ateM = ano < hojeF.getFullYear() ? 12 : ano === hojeF.getFullYear() ? hojeF.getMonth() + 1 : 0;
+  const fatAno = meses12.slice(0, ateM).reduce((a, v) => a + v, 0);
+  const fatDepois = meses12.slice(ateM).reduce((a, v) => a + v, 0);
   const fatAnt = (f[ano - 1] || []).reduce((a, v) => a + v, 0);
   let horasAno = 0, emCurso = 0, porEntregar = 0, entregueMes = 0;
   const pref = `${ano}-`;
@@ -6757,7 +6738,7 @@ const numerosCliente = (c, trab, faturado, ano, mesNum, cu, clientes) => {
   });
   let ultimo = null;
   Object.keys(f).map(Number).sort((a, b) => b - a).some(a => { const i = (f[a] || []).map((v, k) => (v ? k : -1)).filter(k => k >= 0).pop(); if (i != null && i >= 0) { ultimo = `${meses[i]} ${a}`; return true; } return false; });
-  return { meses12, fatAno, fatAnt, horasAno, emCurso, porEntregar, entregueMes, ultimo, eurHora: horasAno > 0 ? fatAno / horasAno : 0 };
+  return { meses12, fatAno, fatDepois, fatAnt, horasAno, emCurso, porEntregar, entregueMes, ultimo, eurHora: horasAno > 0 ? fatAno / horasAno : 0 };
 };
 const Campo = ({ rot, children, largo, escondido }) => (
   <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className={escondido ? 'sr-only' : 'text-xs text-slate-400'}>{rot}</span>{children}</label>
@@ -6838,6 +6819,11 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
             <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
             <Campo rot="Lembretes" largo><label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente (não lembrar nos Passos do mês)</label></Campo>
+            <Campo rot="Não é faturação" largo>
+              <label className="inline-flex items-start gap-2 text-sm"><input type="checkbox" checked={ehNaoFaturacao(c)} disabled={/reembolso/i.test(c.nome || '')} onChange={e => set({ naoFaturacao: e.target.checked })} className="accent-blue-500 mt-1" />
+                <span>Não é trabalho (ex.: reembolso do IRS) — o dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, do €/h e dos impostos.{/reembolso/i.test(c.nome || '') && <span className={`block text-xs ${sub}`}>Já está assim por ter «reembolso» no nome.</span>}</span>
+              </label>
+            </Campo>
             <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
             <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
             <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder={paisEf === 'PT' ? String(rec.taxaIva != null && rec.taxaIva !== '' ? rec.taxaIva : 23) : '0'} onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
@@ -6876,11 +6862,11 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
           <p className="text-sm font-semibold mb-3">Números de {ano}</p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              ['Faturado', eur(n.fatAno), n.fatAnt ? `${ano - 1}: ${eur(n.fatAnt)}` : ''],
+              ['Faturado', eur(n.fatAno), [n.fatDepois ? `+ ${eur(n.fatDepois)} nos próximos meses` : '', n.fatAnt ? `${ano - 1}: ${eur(n.fatAnt)}` : ''].filter(Boolean).join(' · ')],
               ['Por entregar', eur(n.porEntregar), 'tarefas ainda abertas'],
               ['Entregue este mês', eur(n.entregueMes), meses[mesNum - 1]],
               ['Horas', tempoTxt(n.horasAno), n.emCurso ? `${n.emCurso} em curso` : ''],
-              ['€ / hora', n.eurHora ? eur(n.eurHora) : '—', 'faturado ÷ horas'],
+              ['€/h faturado', n.eurHora ? eur(n.eurHora) : '—', 'faturado ÷ horas registadas'],
               ['Último recibo', n.ultimo || '—', ''],
             ].map(([k, v, nota]) => (
               <div key={k} className={`rounded-lg p-2.5 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}>
@@ -6921,7 +6907,7 @@ const PorTipoPeca = ({ linhas, cu, claro, sub, caixa, titulo, nota, estreito = f
     <div className={caixa}>
       <div className="flex items-baseline justify-between gap-2 mb-2">
         <p className="text-sm font-semibold">{titulo}</p>
-        {media > 0 && <span className={`text-xs ${sub}`}>média {eur(media)}/h</span>}
+        {media > 0 && <span className={`text-xs ${sub}`} title="€/h pelos preços = o valor das peças (pela tua tabela de preços) ÷ as horas registadas nelas">média {eur(media)}/h pelos preços</span>}
       </div>
       <div className={`${cols} text-[11px] pb-1 border-b ${claro ? 'border-slate-200' : 'border-slate-700'} ${sub}`}>
         <span>Tipo</span>{!estreito && <span className="text-right">Tarefas</span>}<span className="text-right" title="Mediana do tempo por peça">{estreito ? 'Tempo' : 'Tempo/peça'}</span><span className="text-right">€/peça</span><span className="text-right">€/h</span>
@@ -7331,7 +7317,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   CONTA_LINKS.porCliente = {};
   (clientesIn || []).forEach(c => { if (c && c.contaGoogle) CONTA_LINKS.porCliente[String(c.id)] = c.contaGoogle; });
   const clientes = useMemo(() => {
-    const app = (clientesIn || []).filter(c => !/reembolso/i.test(c.nome || ''));
+    const app = (clientesIn || []).filter(c => !/reembolso/i.test(c.nome || '')); // os marcados «não é faturação» continuam aqui (para se poder desmarcar)
     const extra = {};
     const ids = new Set((clientesIn || []).map(c => String(c.id)));
     // Pastas de clientes que não existem na app (vindos do ClickUp, ou cujo cliente se perdeu): mostram-se na mesma
