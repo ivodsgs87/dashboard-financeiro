@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
-  meses, Card, trabParar,
+  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp,
 } from './base';
 import { auth } from './firebase';
 
@@ -804,7 +804,7 @@ const Notas = ({ notas, onMudar, theme, inputClass }) => {
                   <p className={`text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{dataCurta(n.data)}/{String(n.data || '').slice(0, 4)}</p>
                 </div>
                 <button type="button" className="text-xs text-slate-400 hover:text-blue-400" onClick={() => setEditar(n.id)}>Editar</button>
-                <button type="button" className="text-xs text-slate-400 hover:text-red-400" onClick={() => { if (window.confirm('Apagar esta nota?')) onMudar((notas || []).filter(x => x.id !== n.id)); }}>Apagar</button>
+                <button type="button" className="text-xs text-slate-400 hover:text-red-400" onClick={async () => { if (await confirmar('Apagar esta nota?')) onMudar((notas || []).filter(x => x.id !== n.id)); }}>Apagar</button>
               </div>
               {n.texto && <p className={`mt-2 text-sm whitespace-pre-wrap ${claro ? 'text-slate-700' : 'text-slate-300'}`}>{n.texto}</p>}
             </>
@@ -1409,8 +1409,8 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
         .finally(() => setEnvios(v => v.filter(x => x.id !== id)));
     });
   };
-  const apagar = a => {
-    if (!window.confirm(`Tirar "${a.nome}" desta tarefa?`)) return;
+  const apagar = async a => {
+    if (!await confirmar(`Tirar "${a.nome}" desta tarefa?`)) return;
     mudar(tr => opTarefa(tr, t.id, x => ({ ...x, anexos: (x.anexos || []).filter(y => y.id !== a.id) })));
     // Só apaga o ficheiro se nenhuma outra tarefa (ex.: uma cópia) o usar
     const usado = (trab.tarefas || []).some(o => o.id !== t.id && (o.anexos || []).some(y => y.caminho && y.caminho === a.caminho));
@@ -2323,8 +2323,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               np && { txt: '✎ Mudar o nome da pasta e do .aep', href: linkAERenomear(trab, t, clientes, np), title: `Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects` },
               '-',
               !naFatura && { txt: fora ? '✓ Já faturada fora da app — desmarcar' : '€ Marcar como já faturada (fora da app)', title: 'As tarefas faturadas fora da app não entram nas faturas', onClick: () => set(fora ? { faturaId: null, faturada: false } : { faturaId: 'fora' }) },
-              { txt: '⧉ Duplicar tarefa', onClick: () => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] })) },
-              { txt: '🗑 Apagar tarefa', perigo: true, onClick: () => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(x => x.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
+              { txt: '⧉ Duplicar tarefa', onClick: () => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, faturaId: null, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] })) },
+              { txt: '🗑 Apagar tarefa', perigo: true, onClick: async () => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (await confirmar(`Apagar esta tarefa?${(t.anexos || []).some(x => x.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
                 const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(x => x.caminho)).filter(Boolean));
                 (t.anexos || []).forEach(x => { if (x.caminho && !outros.has(x.caminho) && onApagarAnexo) onApagarAnexo(x.caminho); });
                 mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
@@ -2538,6 +2538,20 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               </label>
               <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
             </div>
+            {(() => {
+              // Estimativa sugerida pelo teu histórico (só quando ainda não puseste uma) e quanto estás a ganhar por hora nesta tarefa
+              const sug = !est && t.estado !== 'feito' ? trabSugerirEstimativa(t, trab, cu, clientes) : null;
+              const eh = (t.estado === 'review' || t.estado === 'feito') && horasTarefa >= 0.25 && v > 0 ? v / horasTarefa : 0; // só no fim: a meio, o valor todo a dividir por poucas horas engana
+              if (!sug && !eh) return null;
+              const nomeT = id => { const x = tiposDe(cu).find(y => y.id === id); return x ? (x.curto || x.nome).toLowerCase() : id; };
+              const que = sug && (sug.tipos.length === 1 ? `${sug.amostras} tarefa${sug.amostras === 1 ? '' : 's'} de ${nomeT(sug.tipos[0])}` : `${sug.amostras} tarefas com estas peças`);
+              return (
+                <div className={`-mt-0.5 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] ${sub}`}>
+                  {sug && <span>Sugestão: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>≈ {tempoTxt(sug.h)}</b> <span className="opacity-80">(média de {que}{sug.soCliente ? ' deste cliente' : ''})</span> · <button type="button" onClick={() => set({ estimativa: sug.h })} className="text-blue-400 hover:text-blue-300">usar</button></span>}
+                  {eh > 0 && <span className="ml-auto tabular-nums" title={`Valor da tarefa (${eur(v)}) ÷ horas registadas (${tempoTxt(horasTarefa)})`}>{eur(eh)}/h</span>}
+                </div>
+              );
+            })()}
             <GraficoTempo t={t} mudar={mudar} claro={claro} inputClass={inputClass} est={est} />
             {verManual && <div className={`mt-3 pt-3 border-t flex flex-wrap items-center gap-2 ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
               <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} aria-label="Dia" className={`${inputClass} !w-auto text-sm py-1`} />
@@ -2697,7 +2711,7 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
                     <div className="flex items-center gap-3 sm:col-span-2">
                       {[['ativo', 'Ativo'], ['antigo', 'Já não trabalha comigo']].map(([k, n]) => <button key={k} type="button" onClick={() => set({ estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(f.estado || 'ativo') === k ? 'border-blue-400 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 text-slate-600' : 'border-slate-700 text-slate-300'}`}>{n}</button>)}
                       <span className="flex-1" />
-                      <button type="button" onClick={() => { if (window.confirm(`Apagar "${f.nome}"? As tarefas onde aparece ficam como estão.`)) mudar(tr => ({ ...tr, freelancers: (tr.freelancers || []).filter(x => x.id !== f.id) })); }} className="text-xs text-red-400 hover:text-red-300">Apagar</button>
+                      <button type="button" onClick={async () => { if (await confirmar(`Apagar "${f.nome}"? As tarefas onde aparece ficam como estão.`)) mudar(tr => ({ ...tr, freelancers: (tr.freelancers || []).filter(x => x.id !== f.id), tarefas: (tr.tarefas || []).map(x => (x.freelancerId === f.id ? { ...x, freelancerId: null, outsourcing: x.outsourcing || f.nome } : x)) })); }} className="text-xs text-red-400 hover:text-red-300">Apagar</button>
                     </div>
                   </div>
                   <div>
@@ -3649,7 +3663,32 @@ const verificarExports = (lista, pedidos) => {
   return { erros, avisos, ok };
 };
 const ehVideoF = f => !!f && (/^video\//.test(f.type || '') || /\.(mp4|mov|m4v|webm)$/i.test(f.name || ''));
-const PreviewExport = ({ lista, claro, sub }) => {
+// Miniatura de um vídeo/imagem do PC (um frame a meio segundo), no formato dele
+const MiniaturaFicheiro = ({ file, formato, alto = 40 }) => {
+  const [url, setUrl] = useState(null);
+  useEffect(() => { if (!file) return undefined; const u = URL.createObjectURL(file); setUrl(u); return () => URL.revokeObjectURL(u); }, [file]);
+  const [a, b] = String(formato || '16:9').split(':').map(Number);
+  const larg = Math.round(alto * ((a && b) ? a / b : 16 / 9));
+  const est = { width: Math.max(24, larg), height: alto };
+  if (!url) return <span className="shrink-0 rounded-md bg-black/30" style={est} />;
+  return ehImagemF(file)
+    ? <img src={url} alt="" aria-hidden="true" className="shrink-0 rounded-md object-cover bg-black" style={est} />
+    : <video src={`${url}#t=0.5`} muted playsInline preload="metadata" aria-hidden="true" tabIndex={-1} className="shrink-0 rounded-md object-cover bg-black pointer-events-none" style={est} />;
+};
+// Os formatos pedidos em Entrega: os que já tens (✓) e os que faltam (assinalados)
+const FormatosPedidos = ({ pedidos, tem, claro, compacto = false }) => {
+  const ped = ORDEM_FORMATOS.filter(f => (pedidos || []).includes(f));
+  if (!ped.length) return null;
+  const faltam = ped.filter(f => !tem.has(f));
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${compacto ? 'text-[11px]' : 'text-xs'}`} aria-label={faltam.length ? `Faltam ${faltam.join(', ')}` : 'Todos os formatos pedidos'}>
+      {ped.map(f => tem.has(f)
+        ? <span key={f} className={`px-1.5 py-0.5 rounded-md font-semibold ${claro ? 'bg-blue-100 text-blue-700' : 'bg-blue-500/15 text-blue-300'}`}>{f} ✓</span>
+        : <span key={f} className={`px-1.5 py-0.5 rounded-md font-semibold border border-dashed ${claro ? 'border-amber-500 text-amber-700 bg-amber-50' : 'border-amber-400/70 text-amber-300 bg-amber-500/10'}`} title="Pedido em Entrega e ainda sem ficheiro">{f} em falta</span>)}
+    </div>
+  );
+};
+const PreviewExport = ({ lista, claro, sub, pedidos }) => {
   const vis = lista.filter(x => x.file && (ehVideoF(x.file) || ehImagemF(x.file)));
   const [esc, setEsc] = useState(null);
   const item = vis.find(x => x.id === esc) || vis.find(x => x.formato === '9:16') || vis[0] || null;
@@ -3675,10 +3714,11 @@ const PreviewExport = ({ lista, claro, sub }) => {
         : <div className="relative"><video ref={refV} key={url} src={url} controls muted playsInline preload="metadata" className="rounded-lg bg-black object-contain" style={est} aria-label={`Pré-visualização do ${item.formato || 'vídeo'}`} onTimeUpdate={e => setAgoraP(e.currentTarget.currentTime)} /><button type="button" onClick={() => { const v = refV.current; const tempo = v ? v.currentTime : 0; if (v) v.pause(); setGrande({ tempo }); }} title="Ver em grande" aria-label="Ver em grande" className="absolute top-1.5 right-1.5 z-[1] w-8 h-8 inline-flex items-center justify-center rounded-lg bg-black/60 hover:bg-black/80 text-white shadow"><IcoAmpliar /></button></div>}
       {!ehImagemF(item.file) && item.meta && item.meta.dur > 0 && <p className={`text-[11px] tabular-nums ${sub}`} aria-label="Duração">{agoraP > 0 ? <><b className={claro ? 'text-slate-700' : 'text-slate-200'}>{fmtDur(agoraP)}</b> / {fmtDur(item.meta.dur)}</> : <>Duração: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>{fmtDur(item.meta.dur)}</b></>}</p>}
       <div className="flex flex-wrap gap-1" role="group" aria-label="Ver outro formato">
-        {vis.length > 1 && vis.map(x => (
+        {(vis.length > 1 || (pedidos || []).some(f => !vis.some(x => x.formato === f))) && vis.map(x => (
           <button key={x.id} type="button" onClick={() => setEsc(x.id)} aria-pressed={x.id === item.id}
             className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${x.id === item.id ? 'bg-blue-600 border-blue-600 text-white' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{x.formato || '?'}</button>
         ))}
+        {ORDEM_FORMATOS.filter(f => (pedidos || []).includes(f) && !vis.some(x => x.formato === f)).map(f => <span key={'f' + f} title="Pedido em Entrega e ainda sem ficheiro" className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border border-dashed ${claro ? 'border-amber-500 text-amber-700' : 'border-amber-400/70 text-amber-300'}`}>{f} em falta</span>)}
       </div>
       {grande && <VideoGrande url={url} imagem={ehImagemF(item.file)} formato={item.formato} nome={`${item.file.name}${item.meta && item.meta.dur ? ` · ${fmtDur(item.meta.dur)}` : ''}`} tempo={grande.tempo} opcoes={vis.map(x => ({ id: x.id, formato: x.formato }))} atual={item.id} onEscolher={id => setEsc(id)}
         onFechar={t2 => { setGrande(null); const v = refV.current; if (v && t2) { try { v.currentTime = t2; } catch (e) { /* */ } } }} />}
@@ -3815,7 +3855,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       const ignorar = new Set([...ignoradosRef.current, ...versoesDoConceito(trab, t, slugF(r.conceito)).flatMap(x => x.ficheiros.map(f => f.nome)), ...lista.map(x => nomeDe(x))]);
       const ult = Math.max(0, ...versoesDrive(t.drive).map(d => Date.parse(d.em) || 0));
       const desde = ult ? ult + 1000 : (Date.parse(t.criada) || 0) - 12 * 3600000;
-      const itens = await exportsNovos(dirExp, { desde, ignorar });
+      const itens0 = await exportsNovos(dirExp, { desde, ignorar });
+      const itens = await Promise.all(itens0.map(async x => ({ ...x, meta: await lerVideo(x.file) }))); // resolução e duração, para avisar já aqui
       setAchados({ projeto: (alvo && alvo.projeto) || dirExp.name, dir: dirExp, itens });
     } catch (e) { /* sem acesso */ }
     setEstadoExp('');
@@ -4348,15 +4389,43 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                     <p className={`text-[11.5px] ${sub}`}>Na @Exports de <code className={claro ? 'text-slate-700' : 'text-slate-200'}>{achados.projeto}</code> · desde o último envio</p>
                   </div>
                 </div>
-                <div className="px-3">
-                  {achados.itens.map(x => (
-                    <div key={x.file.name} className={`flex items-center gap-2 py-1.5 border-t text-xs ${claro ? 'border-blue-100' : 'border-blue-500/15'}`}>
-                      <span className={`w-10 shrink-0 font-semibold ${claro ? 'text-blue-700' : 'text-blue-300'}`}>{formatoDoFicheiro(x.file.name, null) || '?'}</span>
-                      <code className="flex-1 min-w-0 truncate" title={x.file.name}>{x.file.name}</code>
-                      <span className={`shrink-0 tabular-nums ${sub}`}>{(x.file.size / 1048576).toFixed(0)} MB · {(() => { const m = Math.round((Date.now() - x.file.lastModified) / 60000); return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : dataCurta(new Date(x.file.lastModified).toISOString()); })()}</span>
-                    </div>
-                  ))}
-                </div>
+                {(() => {
+                  const fmtA = x => formatoDoFicheiro(x.file.name, x.meta);
+                  const durs = achados.itens.map(x => (x.meta && x.meta.dur > 0 ? x.meta.dur : null)).filter(Boolean);
+                  const freq = d => durs.filter(x => Math.abs(x - d) <= 0.03).length;
+                  const durRef0 = durs.length ? durs.slice().sort((p, q) => freq(q) - freq(p))[0] : null; // a mais comum
+                  const empate = durs.length > 1 && durRef0 != null && freq(durRef0) < 2; // ninguém repete: não dá para saber qual está certa
+                  const durRef = empate ? null : durRef0;
+                  const tem = new Set(achados.itens.map(fmtA).filter(Boolean));
+                  return (
+                    <>
+                      <div className="px-3">
+                        {achados.itens.map(x => {
+                          const f = fmtA(x); const m = x.meta; const esp = f && RES_FORMATO[f];
+                          const resMal = m && m.w && f && (() => { const [a, b] = f.split(':').map(Number); return Math.abs(m.w / m.h - a / b) > 0.01; })();
+                          const resInvulgar = !resMal && m && m.w && esp && (m.w !== esp[0] || m.h !== esp[1]);
+                          const durMal = m && m.dur > 0 && ((durRef && Math.abs(m.dur - durRef) > 0.03) || empate);
+                          const quando = (() => { const mm = Math.round((Date.now() - x.file.lastModified) / 60000); return mm < 1 ? 'agora' : mm < 60 ? `há ${mm} min` : mm < 1440 ? `há ${Math.round(mm / 60)} h` : dataCurta(new Date(x.file.lastModified).toISOString()); })();
+                          return (
+                            <div key={x.file.name} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-2 border-t text-xs ${claro ? 'border-blue-100' : 'border-blue-500/15'}`}>
+                              <MiniaturaFicheiro file={x.file} formato={f} alto={40} />
+                              <div className="min-w-0">
+                                <code className="block truncate" title={x.file.name}>{x.file.name}</code>
+                                <span className={`block tabular-nums ${resMal || durMal ? 'text-amber-500' : sub}`}>
+                                  {[m && m.w ? `${m.w}×${m.h}` : null, m && m.dur > 0 ? segTxt(m.dur) : null, `${(x.file.size / 1048576).toFixed(0)} MB`, quando].filter(Boolean).join(' · ')}
+                                  {resMal ? ` · não é ${f}${esp ? ` (devia ser ${esp[0]}×${esp[1]})` : ''}` : resInvulgar ? ` · o normal é ${esp[0]}×${esp[1]}` : ''}
+                                  {durMal ? (empate ? ' · duração diferente dos outros' : ` · ${m.dur < durRef ? 'menos' : 'mais'} ${segTxt(Math.abs(m.dur - durRef))} que os outros`) : ''}
+                                </span>
+                              </div>
+                              <span className={`shrink-0 font-semibold ${f ? (claro ? 'text-blue-700' : 'text-blue-300') : 'text-amber-500'}`}>{f ? `${f} ✓` : 'formato?'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {!statics && (t.formatos || []).length > 0 && <div className={`px-3 pt-2 border-t ${claro ? 'border-blue-100' : 'border-blue-500/15'}`}><FormatosPedidos pedidos={t.formatos} tem={tem} claro={claro} /></div>}
+                    </>
+                  );
+                })()}
                 <div className="flex flex-wrap items-center justify-end gap-2 px-3 py-2.5">
                   <button type="button" onClick={() => { achados.itens.forEach(x => ignoradosRef.current.add(x.file.name)); setAchados({ ...achados, itens: [] }); }} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>Ignorar</button>
                   <button type="button" onClick={usarAchados} className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Usar {achados.itens.length === 1 ? 'este' : `estes ${achados.itens.length}`}</button>
@@ -4423,7 +4492,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             <div className="space-y-1.5">
               <p className={`text-[11px] uppercase tracking-wide ${sub}`}>{versoesTarefa.includes(Number(versaoDe(verSug))) ? `O que troca na V${versaoDe(verSug)}` : 'Nomes que vão ficar'}</p>
               <div className="flex flex-col sm:flex-row gap-3 items-start">
-              <PreviewExport lista={lista} claro={claro} sub={sub} />
+              <PreviewExport lista={lista} claro={claro} sub={sub} pedidos={statics ? [] : t.formatos} />
               <div className="flex-1 min-w-0 w-full space-y-2">
               {lista.map(item => (
                 <div key={item.id} className="text-xs space-y-1">
@@ -4437,7 +4506,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   </div>
                   {(item.estado === 'a enviar' || item.estado === 'feito') && <div className={`h-1 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className={`h-full ${item.estado === 'feito' ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.round(item.prog * 100)}%` }} /></div>}
                   {item.estado === 'erro' && <p className="text-red-400">{item.erro}</p>}
-                  <p className={`truncate text-[10px] opacity-70 ${sub}`}>{item.renomeado && item.nomeAntigo && item.nomeAntigo !== nomeDe(item) ? <>✓ renomeado no PC · era {item.nomeAntigo}</> : <>de {nomeDe(item)}</>}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${Math.round(item.meta.dur)}s` : ''}</p>
+                  <p className={`truncate text-[10px] opacity-70 ${sub}`}>{item.renomeado && item.nomeAntigo && item.nomeAntigo !== nomeDe(item) ? <>✓ renomeado no PC · era {item.nomeAntigo}</> : <>de {nomeDe(item)}</>}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${segTxt(item.meta.dur)}` : ''}</p>
                 </div>
               ))}
               </div>
@@ -5814,7 +5883,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
                             : <TrelloJogo j={j} set={set} ic={ic} sub={sub} claro={claro} link={link} semRotulo />}
                           <p className={`text-xs leading-snug pt-1 ${sub}`}>{st.listas} lista{st.listas === 1 ? '' : 's'} · {st.tarefas} tarefa{st.tarefas === 1 ? '' : 's'}<br /><span className={claro ? 'text-emerald-700' : 'text-emerald-400'}>{eur(st.valor)}</span> em {ano}</p>
                           <div className="min-w-0">{onAbrirNota && <NotasLigadas compacto lista={notasDe ? notasDe('jogo', j.id) : []} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('jogo', j.id, j.nome) : null} claro={claro} sub={sub} />}</div>
-                          <button type="button" onClick={() => { if (window.confirm(`Apagar o jogo "${j.nome}"? As listas e as tarefas ficam como estão.`)) mudar(tr => opApagarJogo(tr, j.id)); }} className={`pt-1.5 text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${j.nome}`}>✕</button>
+                          <button type="button" onClick={async () => { if (await confirmar(`Apagar o jogo "${j.nome}"? As listas e as tarefas ficam como estão.`)) mudar(tr => opApagarJogo(tr, j.id)); }} className={`pt-1.5 text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${j.nome}`}>✕</button>
                         </div>
                         {corAberta === j.id && (
                           <div className="sticky left-0 flex flex-wrap gap-1.5 px-3 pb-2 pl-10">{CORES_JOGO.map(c => <button key={c} type="button" onClick={() => { set({ cor: c }); setCorAberta(null); }} className={`w-6 h-6 rounded-md ${j.cor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`} style={{ background: c }} aria-label={`Cor ${c}`} />)}</div>
@@ -6107,7 +6176,7 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
       })}
       <div className="flex justify-end gap-1">
         {t && <button type="button" onClick={() => alternarOculto(t)} className={`text-xs ${sub} hover:text-blue-400`} title={ocultos.has(t.id) ? 'Voltar a mostrar nas tarefas' : 'Esconder das tarefas'}>{ocultos.has(t.id) ? 'mostrar' : 'esconder'}</button>}
-        {t && !t.base && <button type="button" onClick={() => { if (window.confirm(`Apagar o tipo "${t.nome}"? As tarefas que o usam ficam sem valor automático.`)) onCu({ tiposExtra: extra.filter(x => x.id !== t.id) }); }} className={`text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${t.nome}`}>✕</button>}
+        {t && !t.base && <button type="button" onClick={async () => { if (await confirmar(`Apagar o tipo "${t.nome}"? As tarefas que o usam ficam sem valor automático.`)) onCu({ tiposExtra: extra.filter(x => x.id !== t.id) }); }} className={`text-xs ${sub} hover:text-red-400`} aria-label={`Apagar ${t.nome}`}>✕</button>}
       </div>
     </div>
   );
@@ -6177,7 +6246,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       <input ref={inRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={async e => {
         const f = e.target.files && e.target.files[0]; e.target.value = ''; const r = alvo.current; if (!f || !r) return;
         setAEnviar(`${r.k}:${r.id}`);
-        try { await onJuntarFicheiro(r.k, r.id, f); } catch (er) { console.error('Recibo:', er); window.alert('Não consegui enviar o PDF.'); }
+        try { await onJuntarFicheiro(r.k, r.id, f); } catch (er) { console.error('Recibo:', er); avisoApp('Não consegui enviar o PDF.'); }
         setAEnviar(null);
       }} />
       {semPdf > 0 && <p className={`text-xs ${sub}`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app — só os que juntaste com o ficheiro (ex.: lidos pela IA) abrem aqui. Usa "+ PDF" para juntar os que faltam.</p>}
@@ -6237,6 +6306,7 @@ const PDF_LARG = { F1: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,
 const pdfBytes = s => { const out = []; for (const ch of String(s == null ? '' : s)) { const c = ch.codePointAt(0); const m = { 0x20AC: 0x80, 0x2013: 0x96, 0x2014: 0x97, 0x2019: 0x92, 0x2018: 0x91, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2026: 0x85 }; if (m[c]) out.push(m[c]); else if (c >= 32 && c < 256) out.push(c); else if (c === 10 || c === 9) out.push(32); else out.push(63); } return out; };
 const pdfLarg = (s, f, tam) => pdfBytes(s).reduce((a, c) => a + (PDF_LARG[f][c - 32] || 500), 0) * tam / 1000;
 const pdfTxt = s => pdfBytes(s).map(c => (c === 40 || c === 41 || c === 92 ? '\\' + String.fromCharCode(c) : String.fromCharCode(c))).join('');
+// Só no PDF da fatura (em inglês, para clientes estrangeiros): 1,234.56 €. No ecrã, cuEur (o formato da app)
 const eurFatura = v => `${(Math.round((Number(v) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const gerarPdfFatura = d => {
   const ops = [];
@@ -6350,7 +6420,7 @@ const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
   });
 };
 const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
-const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, showToast, onAbrirTarefa }) => {
+const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
@@ -6462,8 +6532,13 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     } catch (e) { console.error('Fatura:', e); if (showToast) showToast('Não consegui gerar a fatura.', 'error'); }
     setAGerar(false);
   };
-  const anular = f => {
-    if (!window.confirm(`Anular a fatura nº ${f.numero}? As tarefas voltam a ficar por faturar.${f.recibo ? '\n\nO registo em Receitas não é apagado — apaga-o lá se for preciso.' : ''}`)) return;
+  const anular = async f => {
+    if (!await confirmar(`Anular a fatura nº ${f.numero}? As tarefas voltam a ficar por faturar.`)) return;
+    // O registo que a fatura criou em Receitas: sai também (senão, ao gerar a fatura outra vez, contava a dobrar)
+    if (f.recibo && onApagarRecibo && await confirmar(`Tirar também o registo desta fatura em Receitas?\n\nSe já lhe juntaste o recibo verde ou o PDF, fica lá (apagas à mão se for preciso).`, { ok: 'Tirar', perigo: true, cancelar: 'Deixar ficar' })) {
+      const r = onApagarRecibo(f.recibo, f.id, f.pdf && f.pdf.caminho);
+      if (showToast) showToast(r === 'apagado' ? 'Registo em Receitas tirado' : r === 'fica' ? 'O registo em Receitas tem o recibo verde/PDF — ficou lá' : 'Não encontrei o registo em Receitas');
+    }
     mudar(tr => ({
       ...tr,
       faturas: (tr.faturas || []).filter(x => x.id !== f.id),
@@ -6542,8 +6617,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             <button type="button" onClick={() => setManuais(ms => [...ms, { id: `m:${trabId()}`, titulo: '', resto: 'AI Credits', valor: '' }])} className="text-xs text-blue-400 hover:text-blue-300">+ Linha (AI Credits, extra…)</button>
             {Object.values(edicoes).some(e => e.fora) && <button type="button" onClick={() => setEdicoes(e => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, { ...v, fora: false }])))} className={`text-xs ${sub} hover:text-blue-400`}>Repor linhas tiradas</button>}
             <span className="flex-1" />
-            {ivaTaxa > 0 && <span className={`text-xs ${sub}`}>IVA {ivaTaxa}%: {eurFatura(ivaValor)}</span>}
-            <span className="text-sm">Total <strong className="tabular-nums">{eurFatura(total)}</strong></span>
+            {ivaTaxa > 0 && <span className={`text-xs ${sub}`}>IVA {ivaTaxa}%: {cuEur(ivaValor)}</span>}
+            <span className="text-sm">Total <strong className="tabular-nums">{cuEur(total)}</strong></span>
           </div>
         </div>
         {/* Cabeçalho e ações */}
@@ -6605,7 +6680,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 <span className={`${chip} ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{(f.tarefas || []).length} tarefas</span>
                 {f.recibo && <span className={`${chip} bg-emerald-500/10 text-emerald-500`}>em Receitas</span>}
                 <span className="flex-1" />
-                <span className="tabular-nums font-medium">{eurFatura(f.total)}</span>
+                <span className="tabular-nums font-medium">{cuEur(f.total)}</span>
                 <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>
                 <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>Anular</button>
               </div>
@@ -6698,7 +6773,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             </Campo>
             <Campo rot="Estado">
               <div className="flex flex-wrap items-center gap-1.5">{[['ativo', 'Ativo'], ['pausa', 'Em pausa'], ['antigo', 'Antigo']].map(([k, nm]) => <button key={k} type="button" onClick={() => set({ estado: k })} className={chip((c.estado || 'ativo') === k)}>{nm}</button>)}
-                {onApagar && <button type="button" onClick={() => { const np = (trab.pastas || []).filter(p => String(p.cid) === String(c.id)).length; if (window.confirm(`Apagar o cliente "${c.nome}"?${np ? `\n\nTem ${np} pasta${np === 1 ? '' : 's'} no Trabalho, que ficam sem cliente.` : ''}\nOs recibos dele não são apagados. Se só já não trabalhas com ele, marca-o como "Antigo".`)) onApagar(c.id); }} className="ml-auto text-xs text-red-400 hover:text-red-300">Apagar cliente</button>}
+                {onApagar && <button type="button" onClick={async () => { const np = (trab.pastas || []).filter(p => String(p.cid) === String(c.id)).length; if (await confirmar(`Apagar o cliente "${c.nome}"?${np ? `\n\nTem ${np} pasta${np === 1 ? '' : 's'} no Trabalho, que ficam sem cliente.` : ''}\nOs recibos dele não são apagados. Se só já não trabalhas com ele, marca-o como "Antigo".`)) onApagar(c.id); }} className="ml-auto text-xs text-red-400 hover:text-red-300">Apagar cliente</button>}
               </div>
             </Campo>
           </div>
@@ -6773,10 +6848,45 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             ))}
           </div>
         </div>
+        <PorTipoPeca linhas={trabPorTipo(trab, cu, clientes, c.id)} cu={cu} claro={claro} sub={sub} caixa={caixa} titulo={`Por tipo de peça — ${c.nome}`} />
         <NotasLigadas lista={notas} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('cliente', c.id, c.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo={`Notas sobre ${c.nome}`} />
         <button type="button" onClick={onIrPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Preços de {c.nome} →</button>
         <p className={`text-[11px] ${sub}`}>O NIF e a morada ficam só na app — não vão no resumo do chat.</p>
       </div>
+    </div>
+  );
+};
+// Quanto tempo levas e quanto ganhas por hora em cada tipo de peça (tarefas feitas por ti, de um só tipo)
+const PorTipoPeca = ({ linhas, cu, claro, sub, caixa, titulo, nota }) => {
+  if (!linhas || !linhas.length) return null;
+  const tipos = tiposDe(cu);
+  const nomeT = id => { const x = tipos.find(y => y.id === id); return x ? x.nome : id; };
+  const tot = linhas.filter(o => o.valor > 0).reduce((a, o) => ({ v: a.v + o.valor, h: a.h + o.horas }), { v: 0, h: 0 }); // tipos sem preço não entram na média
+  const media = tot.h > 0 ? tot.v / tot.h : 0;
+  const ls = linhas.slice().sort((a, b) => b.tarefas - a.tarefas);
+  const cols = 'grid grid-cols-[minmax(0,1fr)_64px_84px_72px_72px] items-center gap-2';
+  return (
+    <div className={caixa}>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <p className="text-sm font-semibold">{titulo}</p>
+        {media > 0 && <span className={`text-xs ${sub}`}>média {eur(media)}/h</span>}
+      </div>
+      <div className={`${cols} text-[11px] pb-1 border-b ${claro ? 'border-slate-200' : 'border-slate-700'} ${sub}`}>
+        <span>Tipo</span><span className="text-right">Tarefas</span><span className="text-right" title="Mediana do tempo por peça">Tempo/peça</span><span className="text-right">€/peça</span><span className="text-right">€/h</span>
+      </div>
+      {ls.map(o => {
+        const baixo = media > 0 && o.valor > 0 && o.tarefas >= 2 && o.eurHora < media * 0.75;
+        return (
+          <div key={o.tipo} className={`${cols} py-1.5 text-sm tabular-nums border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+            <span className="truncate">{nomeT(o.tipo)}</span>
+            <span className={`text-right ${sub}`}>{o.tarefas}</span>
+            <span className="text-right">{tempoTxt(o.horasPorPeca)}</span>
+            <span className={`text-right ${sub}`}>{o.valor > 0 ? eur(o.valorPorPeca) : '—'}</span>
+            <span className={`text-right font-medium ${baixo ? 'text-amber-500' : ''}`} title={o.valor <= 0 ? 'Sem preço para este tipo' : baixo ? 'Bem abaixo da tua média: o preço deste tipo pode estar baixo (ou estas peças demoram mais do que contas)' : `${eur(o.valor)} em ${tempoTxt(o.horas)}`}>{o.valor > 0 ? eur(o.eurHora) : '—'}</span>
+          </div>
+        );
+      })}
+      <p className={`mt-2 text-[11px] ${sub}`}>{nota || 'Das tarefas feitas por ti (sem as subcontratadas), com tempo registado e de um só tipo de peça.'}</p>
     </div>
   );
 };
@@ -6826,6 +6936,7 @@ const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbr
           </button>
         ))}
       </div>
+      <PorTipoPeca linhas={trabPorTipo(trab, cu, clientes)} cu={cu} claro={claro} sub={sub} caixa={`rounded-xl border p-3.5 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`} titulo="Por tipo de peça — todos os clientes" />
     </div>
   );
 };
@@ -7150,7 +7261,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onIrMes, taxaReserva }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   const claro = useClaro(theme);
@@ -7374,7 +7485,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    if (modo === 'g' && !window.confirm('Ainda não tens a regra do Firestore para o Trabalho, por isso tudo fica no documento principal (que tem um limite de 1 MB). Importar o ClickUp ocupa ~200 KB. Queres importar mesmo assim?')) return;
+    if (modo === 'g' && !await confirmar('Ainda não tens a regra do Firestore para o Trabalho, por isso tudo fica no documento principal (que tem um limite de 1 MB). Importar o ClickUp ocupa ~200 KB. Queres importar mesmo assim?')) return;
     try {
       const [n, np, nt, nu] = await importarFicheiro(f, trab, clientes);
       mudar(() => n);
@@ -7491,9 +7602,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   const porOrganizar = p => p && !p.mesNum && (!p.paiId || /^\s*\d{4}\s*$/.test(p.nome)) && (trab.pastas || []).some(f => f.paiId === p.id && !f.mesNum);
   const anosPorOrganizar = sel.tipo === 'cliente' ? filhasDe(trab, null, sel.id).filter(porOrganizar) : [];
   const listasSemJogo = sel.tipo === 'cliente' ? (trab.pastas || []).filter(p => String(p.cid) === String(sel.id) && !p.jogoId && !p.mesNum && ehListaDeJogo(p.nome) && !(trab.pastas || []).some(f => f.paiId === p.id)).length : 0;
-  const organizarCliente = () => {
+  const organizarCliente = async () => {
     const planos = anosPorOrganizar.map(p => ({ p, n: planoPorMeses(trab, p.id).length }));
-    if (window.confirm(`Organizar por meses: ${planos.map(x => `${x.p.nome} (${x.n} listas)`).join(', ')}?\n\nCada lista vai para a pasta do mês dela. As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => anosPorOrganizar.reduce((acc, p) => opPorMeses(acc, p.id), tr));
+    if (await confirmar(`Organizar por meses: ${planos.map(x => `${x.p.nome} (${x.n} listas)`).join(', ')}?\n\nCada lista vai para a pasta do mês dela. As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => anosPorOrganizar.reduce((acc, p) => opPorMeses(acc, p.id), tr));
   };
 
   // Voltar: ao ecrã anterior (ou, se não houver, à pasta de cima / ao cliente)
@@ -7601,11 +7712,11 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
                         <div className={`absolute left-0 top-full mt-1 z-40 w-56 rounded-xl border shadow-2xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`} role="menu">
                           <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); novaPasta(pasta.cid, pasta.id); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>+ Subpasta</button>
                           <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); setPedir({ titulo: 'Novo nome da pasta', valor: pasta.nome, ok: n => mudar(tr => opAutoJogo(opPasta(tr, pasta.id, { nome: n }), pasta.id)) }); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Mudar o nome</button>
-                          {porOrganizar(pasta) && <button type="button" role="menuitem" onClick={() => { setMenuPasta(false);
+                          {porOrganizar(pasta) && <button type="button" role="menuitem" onClick={async () => { setMenuPasta(false);
                   const plano = planoPorMeses(trab, pasta.id);
                   const porMes = {}; plano.slice().sort((a, b) => (a.mes || 99) - (b.mes || 99)).forEach(x => { const n = x.mes ? MESES_NOMES[x.mes - 1] : 'Sem mês'; porMes[n] = (porMes[n] || 0) + 1; });
                   const resumo = Object.entries(porMes).map(([n, q]) => `${n}: ${q}`).join(', ');
-                  if (window.confirm(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
+                  if (await confirmar(`Organizar "${pasta.nome}" por meses?\n\n${plano.length} listas vão para pastas de mês (${resumo}). As pastas por jogo que ficarem vazias desaparecem. As tarefas não mudam.`)) mudar(tr => opPorMeses(tr, pasta.id));
                 }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}><IcoT n="calendario" className="w-3.5 h-3.5" /> Organizar por meses</button>}
                           <div className="px-3 py-2">
                             <p className={`text-xs mb-1.5 ${sub}`}>Cor</p>
@@ -7614,7 +7725,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
                             </div>
                           </div>
                           <div className={`my-1 border-t ${claro ? 'border-slate-100' : 'border-slate-700'}`} />
-                          <button type="button" role="menuitem" onClick={() => { setMenuPasta(false); const n = descendentes(trab, pasta.id).length - 1; const nt = tarefas.length; if (window.confirm(`Apagar "${pasta.nome}"${n ? `, ${n} subpasta${n === 1 ? '' : 's'}` : ''}${nt ? ` e ${nt} tarefa${nt === 1 ? '' : 's'}` : ''}?`)) { mudar(tr => opApagarPasta(tr, pasta.id)); setSel({ tipo: 'geral' }); } }} className="w-full px-3 py-2 text-sm text-left text-red-400 hover:bg-red-500/10">Apagar pasta</button>
+                          <button type="button" role="menuitem" onClick={async () => { setMenuPasta(false); const n = descendentes(trab, pasta.id).length - 1; const nt = tarefas.length; const idsP = new Set(descendentes(trab, pasta.id)); const daqui = (trab.tarefas || []).filter(x => idsP.has(x.pastaId)); const nFat = daqui.filter(x => x.faturaId && x.faturaId !== 'fora').length; const hP = daqui.reduce((a, x) => a + trabHoras(x), 0); if (await confirmar(`Apagar "${pasta.nome}"${n ? `, ${n} subpasta${n === 1 ? '' : 's'}` : ''}${nt ? ` e ${nt} tarefa${nt === 1 ? '' : 's'}` : ''}?${nFat || hP >= 0.5 ? `\n\nAtenção: vão também ${nFat ? `${nFat} tarefa${nFat === 1 ? '' : 's'} já faturada${nFat === 1 ? '' : 's'}` : ''}${nFat && hP >= 0.5 ? ' e ' : ''}${hP >= 0.5 ? `${tempoTxt(hP)} de horas registadas` : ''}. As faturas e as receitas não mudam, mas deixam de ter as tarefas ligadas.` : ''}`)) { mudar(tr => opApagarPasta(tr, pasta.id)); setSel({ tipo: 'geral' }); } }} className="w-full px-3 py-2 text-sm text-left text-red-400 hover:bg-red-500/10">Apagar pasta</button>
                         </div>
                       )}
                     </div>
@@ -7704,7 +7815,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
+          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
