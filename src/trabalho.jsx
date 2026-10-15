@@ -2417,6 +2417,42 @@ const ligarDriveSempre = email => new Promise((ok, falha) => {
   });
   cl.requestCode();
 });
+// ── Google Tasks (para o "Hey Google"): liga a conta do telemóvel com acesso permanente (pelo mesmo servidor do Drive) ──
+const TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
+const TASKS_API = 'https://tasks.googleapis.com/tasks/v1/';
+const ligarGoogleTasks = () => new Promise((ok, falha) => {
+  carregarGis().then(() => {
+    const cl = window.google.accounts.oauth2.initCodeClient({
+      client_id: GOOGLE_CLIENT_ID_T, scope: `openid email ${DRIVE_SCOPE} ${TASKS_SCOPE}`, ux_mode: 'popup', select_account: true,
+      callback: async r => {
+        if (!r || !r.code) { falha(new Error((r && (r.error_description || r.error)) || 'A Google não deu autorização.')); return; }
+        if (r.scope && !String(r.scope).includes(TASKS_SCOPE)) { falha(new Error('Faltou marcar a caixa do Google Tasks na janela da Google. Tenta outra vez.')); return; }
+        try { const j = await chamarDriveFn('ligar', { code: r.code }); guardarAcesso([j.email], j); marcarSempre([j.email], true); estadoSempre = null; ok(j.email); }
+        catch (e) { falha(e); }
+      },
+      error_callback: e => falha(new Error(e && e.type === 'popup_closed' ? 'Fechaste a janela da Google.' : e && e.type === 'popup_failed_to_open' ? 'O browser bloqueou a janela da Google (permite pop-ups para a app).' : 'A ligação à Google falhou.')),
+    });
+    cl.requestCode();
+  }).catch(falha);
+});
+// Pedido à API do Google Tasks com a conta ligada (se o acesso guardado não tiver o Tasks, pede outro ao servidor)
+const pedirTasks = async (conta, caminho, opts = {}) => {
+  const vez = async forcar => {
+    const tk = await tokenDrive(conta, forcar);
+    const r = await fetch(TASKS_API + caminho, { ...opts, headers: { Authorization: `Bearer ${tk}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) } });
+    return r;
+  };
+  let r = await vez(false);
+  if (r.status === 401 || r.status === 403) r = await vez(true);
+  if (!r.ok) {
+    let m = `Erro ${r.status} do Google Tasks`;
+    try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ }
+    if (/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) m = 'A Google Tasks API ainda não está ligada no Google Cloud (APIs e serviços › Biblioteca › Google Tasks API › Ativar).';
+    else if (r.status === 403) m = 'Esta conta não deu acesso ao Google Tasks. Volta a ligar a conta e deixa a caixa do Tasks marcada.';
+    throw new Error(m);
+  }
+  return r.status === 204 ? null : r.json();
+};
 const desligarDriveSempre = async email => {
   await chamarDriveFn('desligar', { conta: email || '_' });
   marcarSempre([email || '_'], false); delete tokensDrive[email || '_']; guardarTokens(); estadoSempre = null;
@@ -3168,6 +3204,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   };
   const [menuEntrega, setMenuEntrega] = useState(null); // pastaId com o ⋯ aberto
   const [nomesEntrega, setNomesEntrega] = useState(null); // pastaId com os nomes à vista
+  const [videoEntrega, setVideoEntrega] = useState(null); // pastaId com o vídeo à vista
   const [verPasta, setVerPasta] = useState(null); // registo da versão cuja pasta estás a ver
   const verDrive = async (d0) => {
     const d = d0 || resultado;
@@ -3535,7 +3572,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                     <div key={x.file.name} className={`flex items-center gap-2 py-1.5 border-t text-xs ${claro ? 'border-blue-100' : 'border-blue-500/15'}`}>
                       <span className={`w-10 shrink-0 font-semibold ${claro ? 'text-blue-700' : 'text-blue-300'}`}>{formatoDoFicheiro(x.file.name, null) || '?'}</span>
                       <code className="flex-1 min-w-0 truncate" title={x.file.name}>{x.file.name}</code>
-                      <span className={`shrink-0 tabular-nums ${sub}`}>{(x.file.size / 1048576).toFixed(0)} MB · {haQuanto(new Date(x.file.lastModified).toISOString())}</span>
+                      <span className={`shrink-0 tabular-nums ${sub}`}>{(x.file.size / 1048576).toFixed(0)} MB · {(() => { const m = Math.round((Date.now() - x.file.lastModified) / 60000); return m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : dataCurta(new Date(x.file.lastModified).toISOString()); })()}</span>
                     </div>
                   ))}
                 </div>
@@ -3669,6 +3706,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   const naFolha = d.folha && d.folha.ok;
                   const aberto = menuEntrega === d.pastaId;
                   const nomesAb = nomesEntrega === d.pastaId;
+                  const videoAb = videoEntrega === d.pastaId;
                   const linkFolha = naFolha && jogo.sheet ? (() => { const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1]; return id && d.folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${d.folha.gid}&range=A${d.folha.linha}` : jogo.sheet; })() : null;
                   return (
                     <div key={d.pastaId || d.url} className={`rounded-xl border ${aberto ? 'border-blue-500/60' : claro ? 'border-slate-200' : 'border-slate-700/70'} ${claro ? 'bg-white' : 'bg-slate-900/30'}`}>
@@ -3686,8 +3724,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                         <a href={urlAbrir(d.url, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Drive ↗</a>
                         {jogo.sheet && (naFolha ? <a href={urlAbrir(linkFolha, t.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Spreadsheet ↗</a>
                           : <button type="button" disabled={ocupadoDrive || !d.nomeBase} onClick={() => folhaVersao(d, false)} className={`${btn} !border-blue-500/50 text-blue-400 disabled:opacity-40`}>Juntar à spreadsheet</button>)}
+                        {(d.enviados || []).some(e => e.id) && <button type="button" onClick={() => setVideoEntrega(videoAb ? null : d.pastaId)} className={`${btn} ${videoAb ? '!border-blue-500/60 text-blue-400' : ''}`} aria-expanded={videoAb}>{videoAb ? 'Esconder vídeo' : '▶ Vídeo'}</button>}
                         {(d.enviados || []).length > 0 && <button type="button" onClick={() => setNomesEntrega(nomesAb ? null : d.pastaId)} className={btn} aria-expanded={nomesAb}>{nomesAb ? 'Esconder nomes' : 'Nomes'}</button>}
                       </div>
+                      {videoAb && <div className="px-3 pb-3 sm:pl-[3.6rem]"><VerVideo key={d.pastaId} conta={conta} ficheiros={d.enviados} claro={claro} sub={sub} iniciar /></div>}
                       {nomesAb && (
                         <div className="px-3 pb-2.5 sm:pl-[3.6rem] space-y-1">
                           {(d.enviados || []).map((e, i) => <div key={i} className="flex items-center gap-2 text-xs"><span className={`w-9 shrink-0 ${sub}`}>{e.formato}</span><code className="flex-1 min-w-0 break-all leading-snug">{e.nome}</code><button type="button" onClick={() => { copiar(e.nome); setMsg(`✓ Copiado: ${e.nome}`); }} className={btn}>Copiar</button></div>)}
@@ -3801,7 +3841,7 @@ const versoesDoConceito = (trab, t, conceitoSlug) => {
       if (slugF(d.conceito || (x.ficheiros || {}).conceito || conceitoDoNome(x.nome)) !== conceitoSlug) return;
       const v = versaoDaPasta(d);
       if (!v) return;
-      out.push({ v, pastaId: d.pastaId, tarefa: x, propria: x.id === t.id, variacao: campoVersao(x.ficheiros || {}, v, 'variacao', x) || '', em: d.em, url: d.url, ficheiros: (d.enviados || []).map(e => ({ nome: e.nome, formato: e.formato || formatoDoNomeF(e.nome) })) });
+      out.push({ v, pastaId: d.pastaId, pasta: d.pasta, tarefa: x, propria: x.id === t.id, variacao: campoVersao(x.ficheiros || {}, v, 'variacao', x) || '', em: d.em, url: d.url, ficheiros: (d.enviados || []).map(e => ({ nome: e.nome, formato: e.formato || formatoDoNomeF(e.nome) })) });
     });
   });
   return out;
@@ -3815,13 +3855,14 @@ const versoesComFicheirosNoDrive = async (token, raiz, conceito) => {
   const pc = fs.find(x => slugF(x.name) === slugF(conceito));
   let lista = [];
   if (pc) {
-    const subs = await filhosDrive(token, pc.id, true);
+    const q = encodeURIComponent(`'${pc.id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`);
+    const subs = ((await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink,createdTime)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`)) || {}).files || [];
     const re = new RegExp(`^${slugF(conceito)}_V(\\d+)(?:_(.+))?$`);
     lista = (await Promise.all(subs.map(async s => {
       const m = re.exec(slugF(s.name));
       if (!m) return null;
       const fich = await filhosDrive(token, s.id, false).catch(() => []);
-      return { v: Number(m[1]), pastaId: s.id, variacao: m[2] ? emTitulo(m[2].toLowerCase().replace(/_/g, ' ')) : '', url: s.webViewLink || `https://drive.google.com/drive/folders/${s.id}`, ficheiros: fich.map(f => ({ nome: f.name, formato: formatoDoNomeF(f.name) })).sort((a, b) => a.nome.localeCompare(b.nome)) };
+      return { v: Number(m[1]), pastaId: s.id, pasta: s.name, em: s.createdTime || '', variacao: m[2] ? emTitulo(m[2].toLowerCase().replace(/_/g, ' ')) : '', url: s.webViewLink || `https://drive.google.com/drive/folders/${s.id}`, ficheiros: fich.map(f => ({ nome: f.name, id: f.id, formato: formatoDoNomeF(f.name) })).sort((a, b) => a.nome.localeCompare(b.nome)) };
     }))).filter(Boolean);
   }
   cacheVersoesD[k] = { lista, em: Date.now() };
@@ -3851,7 +3892,7 @@ const VersoesConceito = ({ t, trab, conceito, raizD, contaD, claro, sub, mostrar
   drv.forEach(d => {
     const lst = porV.get(d.v) || [];
     const igual = lst.find(l => l.pastaId === d.pastaId) || (lst.length === 1 && !lst[0].pastaId ? lst[0] : null);
-    if (igual) { if (d.ficheiros.length) igual.ficheiros = d.ficheiros; if (!igual.url) igual.url = d.url; }
+    if (igual) { if (d.ficheiros.length) igual.ficheiros = d.ficheiros; if (!igual.url) igual.url = d.url; if (d.pasta) igual.pasta = d.pasta; }
     else { lst.push({ ...d, soDrive: true }); porV.set(d.v, lst); }
   });
   const linhas = [...porV.values()].flat().sort((a, b) => a.v - b.v);
@@ -3867,25 +3908,20 @@ const VersoesConceito = ({ t, trab, conceito, raizD, contaD, claro, sub, mostrar
       </button>
       {aberto && (
         <div className={`mt-1.5 rounded-lg border divide-y ${claro ? 'border-slate-200 divide-slate-100 bg-slate-50/60' : 'border-white/[0.07] divide-white/[0.05] bg-white/[0.02]'}`}>
-          {linhas.map((l, i) => (
-            <div key={(l.pastaId || '') + l.v + i} className="px-2.5 py-2 space-y-1">
-              <div className="flex items-center gap-2 min-w-0">
+          {linhas.map((l, i) => {
+            // Uma linha por versão, com o nome da pasta do Drive (ex.: UGC_SIGNS_V2_SPLIT_SCREEN)
+            const pastaN = l.pasta || [conceito, `V${l.v}`, slugF(l.variacao || '')].filter(Boolean).join('_');
+            return (
+              <div key={(l.pastaId || '') + l.v + i} className="group/v flex items-center gap-2 min-w-0 px-2.5 py-1.5">
                 <span className={`shrink-0 px-1 rounded text-[10.5px] leading-[16px] font-semibold tabular-nums ${claro ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/25'}`}>V{l.v}</span>
-                <span className="min-w-0 truncate text-xs font-medium" title={l.variacao || 'sem variação'}>{l.variacao || <span className={`font-normal ${sub}`}>sem variação</span>}</span>
-                <span className={`min-w-0 truncate text-[11px] ${sub}`} title={l.tarefa ? l.tarefa.nome : ''}>{[l.em ? dataCurta(l.em) : '', l.propria ? 'esta tarefa' : l.tarefa ? `outra tarefa: ${l.tarefa.nome}` : l.soDrive ? 'só no Drive' : ''].filter(Boolean).join(' · ')}</span>
+                <code className={`min-w-0 truncate text-[11.5px] ${claro ? 'text-slate-700' : 'text-slate-200'}`} title={l.ficheiros.length ? l.ficheiros.map(f => f.nome).join('\n') : pastaN}>{pastaN}</code>
+                <span className={`min-w-0 truncate text-[11px] ${sub}`} title={l.tarefa ? l.tarefa.nome : ''}>{[l.em ? dataCurta(l.em) : '', l.propria ? 'esta tarefa' : l.soDrive ? 'só no Drive' : ''].filter(Boolean).join(' · ')}</span>
                 <span className="flex-1" />
-                {l.ficheiros.length > 1 && btnCopiar(l.ficheiros.map(f => f.nome).join('\n'), i + ':todos', 'Copiar todos')}
+                <span className="sm:opacity-0 sm:group-hover/v:opacity-100 focus-within:opacity-100">{btnCopiar(pastaN, i + ':p')}</span>
                 {l.url && <a href={urlAbrir(l.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`shrink-0 text-[11px] ${sub} hover:text-blue-400`} title="Abrir a pasta no Drive">Drive ↗</a>}
               </div>
-              {l.ficheiros.length ? l.ficheiros.map((f, k) => (
-                <div key={f.nome + k} className="group/f flex items-center gap-2 pl-0.5">
-                  <span className={`w-8 shrink-0 text-[10.5px] ${sub}`}>{f.formato || '—'}</span>
-                  <code className={`flex-1 min-w-0 break-all leading-snug text-[11px] ${claro ? 'text-slate-600' : 'text-slate-300'}`}>{f.nome}</code>
-                  <span className="opacity-0 group-hover/f:opacity-100 focus-within:opacity-100">{btnCopiar(f.nome, i + ':' + k)}</span>
-                </div>
-              )) : <p className={`text-[11px] ${sub}`}>Sem ficheiros guardados.</p>}
-            </div>
-          ))}
+            );
+          })}
           {mostrarDrive && raizD && (aVer || semAcesso || !linhas.length) && (
             <p className={`px-2.5 py-2 text-[11px] ${sub}`}>
               {aVer ? 'A ver o Drive…' : semAcesso ? <button type="button" onClick={() => carregar(true)} className="text-blue-400 hover:text-blue-300">Ver também as que estão no Drive</button> : 'Ainda não há versões deste conceito.'}
@@ -3925,7 +3961,8 @@ const criativosDoCliente = (trab, cid, cu) => {
     const j = jogoDaTarefa(trab, t);
     if (!j || j.semJogo || !porJogo.has(j.id)) return;
     const fx = t.ficheiros || {};
-    const nomeC = String(fx.conceito || conceitoDoNome(t.nome, cu) || '').trim();
+    // Do nome da tarefa: "Bear Chase V2 - Variação" → conceito "Bear Chase" (a versão e a variação ficam à parte)
+    const nomeC = String(fx.conceito || String(conceitoDoNome(t.nome, cu) || '').split(/\s[-–—]\s/)[0].replace(/\s+V\d+$/i, '') || '').trim();
     const slug = slugF(nomeC);
     if (!slug || /^\d+\s*x\s*\d+$/i.test(nomeC)) return;
     const g = porJogo.get(j.id);
@@ -3981,7 +4018,7 @@ const miniaturaDrive = async (token, fileId) => {
   cacheMiniaturas.set(fileId, p);
   return p;
 };
-const MiniaturaC = ({ fileId, conta, claro }) => {
+const MiniaturaC = ({ fileId, conta, claro, className }) => {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let vivo = true;
@@ -3989,7 +4026,89 @@ const MiniaturaC = ({ fileId, conta, claro }) => {
     return () => { vivo = false; };
   }, [fileId, conta]);
   if (!src) return null;
-  return <img src={src} alt="Miniatura do vídeo" className={`w-[72px] h-[72px] object-cover rounded-lg shrink-0 ring-1 ${claro ? 'ring-slate-200' : 'ring-white/10'}`} />;
+  return <img src={src} alt="" className={className || `w-[72px] h-[72px] object-cover rounded-lg shrink-0 ring-1 ${claro ? 'ring-slate-200' : 'ring-white/10'}`} />;
+};
+// ── Ver o vídeo de uma versão enviada: vem do Drive do cliente (nada fica guardado na app nem na Firebase).
+// O browser guarda os últimos 10 que viste, para abrirem logo da próxima vez; os mais antigos saem sozinhos. ──
+const CACHE_VID = 'app-videos';
+const LS_VID = 'videos-vistos';
+const MAX_VID = 10;
+const chaveVid = id => `https://cache.app/video/${encodeURIComponent(id)}`;
+const listaVid = () => { try { return JSON.parse(localStorage.getItem(LS_VID)) || []; } catch (e) { return []; } };
+const marcarVid = async (c, id) => {
+  const l = [id, ...listaVid().filter(x => x !== id)];
+  for (const fora of l.slice(MAX_VID)) { try { await c.delete(chaveVid(fora)); } catch (e) { /* */ } }
+  try { localStorage.setItem(LS_VID, JSON.stringify(l.slice(0, MAX_VID))); } catch (e) { /* */ }
+};
+const videoDoDrive = async (conta, f, onProg) => {
+  let c = null;
+  try { c = await caches.open(CACHE_VID); const r = await c.match(chaveVid(f.id)); if (r) { marcarVid(c, f.id); return r.blob(); } } catch (e) { c = null; }
+  const pedir = async forcar => { const tk = await tokenDrive(conta, forcar); return fetch(`${DRV}/${encodeURIComponent(f.id)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${tk}` } }); };
+  let r = await pedir(false);
+  if (r.status === 401) r = await pedir(true);
+  if (!r.ok) throw new Error(r.status === 404 ? 'Este ficheiro já não está no Drive (foi apagado ou substituído).' : r.status === 403 ? `A conta ${conta || 'Google'} não tem acesso a este ficheiro.` : `Erro ${r.status} do Drive`);
+  const total = Number(r.headers.get('Content-Length')) || 0;
+  const tipo = r.headers.get('Content-Type') || (/\.(png|jpe?g|webp|gif)$/i.test(f.nome || '') ? 'image/png' : /\.webm$/i.test(f.nome || '') ? 'video/webm' : 'video/mp4');
+  let blob;
+  if (r.body && r.body.getReader) {
+    const leitor = r.body.getReader(); const partes = []; let n = 0;
+    for (;;) { const { done, value } = await leitor.read(); if (done) break; partes.push(value); n += value.length; if (onProg && total) onProg(Math.min(1, n / total)); }
+    blob = new Blob(partes, { type: tipo });
+  } else blob = await r.blob();
+  if (c) { try { await c.put(chaveVid(f.id), new Response(blob, { headers: { 'Content-Type': tipo } })); await marcarVid(c, f.id); } catch (e) { /* sem espaço: só não fica guardado */ } }
+  return blob;
+};
+const ORDEM_FMT = ['9:16', '4:5', '1:1', '16:9'];
+const VerVideo = ({ conta, ficheiros, claro, sub, iniciar = false, largura }) => {
+  const fs = (ficheiros || []).filter(f => f && f.id).slice().sort((a, b) => ((ORDEM_FMT.indexOf(a.formato) + 1) || 9) - ((ORDEM_FMT.indexOf(b.formato) + 1) || 9));
+  const [esc, setEsc] = useState(null);
+  const [tocar, setTocar] = useState(iniciar);
+  const [url, setUrl] = useState(null);
+  const [prog, setProg] = useState(null);
+  const [erro, setErro] = useState('');
+  const f = fs.find(x => x.id === esc) || fs[0] || null;
+  useEffect(() => {
+    setUrl(null); setErro('');
+    if (!tocar || !f) { setProg(null); return undefined; }
+    let vivo = true; let u = null;
+    setProg(0);
+    videoDoDrive(conta, f, p => { if (vivo) setProg(p); })
+      .then(b => { if (!vivo) return; u = URL.createObjectURL(b); setUrl(u); setProg(null); })
+      .catch(e => { if (vivo) { setErro(String((e && e.message) || e)); setProg(null); } });
+    return () => { vivo = false; if (u) URL.revokeObjectURL(u); };
+  }, [tocar, f && f.id, conta]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!f) return null;
+  const [fw, fh] = String(f.formato || '9:16').split(':').map(Number);
+  const larg = largura || (!fw || !fh ? 160 : fw / fh >= 1.3 ? 300 : fw / fh >= 0.95 ? 220 : fw / fh >= 0.75 ? 200 : 160);
+  const est = { width: larg, maxWidth: '100%', aspectRatio: fw && fh ? `${fw} / ${fh}` : '9 / 16' };
+  const imagem = /\.(png|jpe?g|webp|gif)$/i.test(f.nome || '');
+  return (
+    <div className="shrink-0 space-y-1.5" style={{ width: larg, maxWidth: '100%' }}>
+      {url ? (imagem ? <img src={url} alt={f.nome} className="rounded-lg bg-black object-contain" style={est} />
+        : <video key={url} src={url} controls autoPlay playsInline className="rounded-lg bg-black object-contain" style={est} aria-label={`Vídeo ${f.formato || ''}`} />)
+        : (
+          <button type="button" onClick={() => setTocar(true)} disabled={prog != null} className="relative block rounded-lg overflow-hidden bg-slate-900 ring-1 ring-black/10" style={est} aria-label={`Ver o ${imagem ? 'banner' : 'vídeo'} ${f.formato || ''}`} title={f.nome}>
+            <MiniaturaC fileId={f.id} conta={conta} claro={claro} className="absolute inset-0 w-full h-full object-cover opacity-80" />
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="w-11 h-11 rounded-full bg-white/90 text-slate-900 shadow-lg inline-flex items-center justify-center">
+                {prog != null ? <span className="text-[10px] font-semibold tabular-nums">{Math.round(prog * 100)}%</span> : <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>}
+              </span>
+            </span>
+            {prog != null && <span className="absolute left-0 right-0 bottom-0 h-1 bg-black/40"><span className="block h-full bg-blue-500 transition-all" style={{ width: `${Math.round(prog * 100)}%` }} /></span>}
+          </button>
+        )}
+      {prog != null && <p className={`text-[10.5px] ${sub}`}>A trazer do Drive…</p>}
+      {erro && <p className="text-[11px] text-red-400">{erro}</p>}
+      {fs.length > 1 && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Ver outro formato">
+          {fs.map(x => (
+            <button key={x.id} type="button" onClick={() => { setEsc(x.id); setTocar(true); }} aria-pressed={x.id === f.id}
+              className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${x.id === f.id ? 'bg-blue-600 border-blue-600 text-white' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{x.formato || '?'}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, inputClass, focarProcura }) => {
   const claro = useClaro(theme);
@@ -4009,7 +4128,8 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
   const conta = contaDe(cid);
   const info = trab.versoesInfo || {};
   const [tipoF, setTipoF] = useState('todos'); // todos | VID | BAN
-  const [ordem, setOrdem] = useState('recentes');
+  const [ordem, setOrdemS] = useState(() => { try { return localStorage.getItem('criativos-ordem') || 'recentes'; } catch (e) { return 'recentes'; } });
+  const setOrdem = v => { setOrdemS(v); try { localStorage.setItem('criativos-ordem', v); } catch (e) { /* */ } };
   const [q, setQ] = useState('');
   const procRef = useRef(null);
   useEffect(() => { if (focarProcura && procRef.current) procRef.current.focus(); }, [focarProcura]);
@@ -4055,6 +4175,8 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
     });
     return l.sort((a, b) => (a.v || 999) - (b.v || 999));
   };
+  // Dia de entrega de uma versão: o envio para o Drive; senão o dia em que a tarefa foi entregue
+  const entregaDe = x => (x.enviada || x.soDrive ? (x.em || '') : (x.t ? trabEntrega(x.t) : '')) || '';
   const estadoDe = (jogo, c, x) => {
     const m = (info[chaveVersaoC(jogo.id, c.slug, x.v)] || {}).estado;
     if (m) { const e = ESTADOS_V.find(y => y.id === m); if (e) return { ...e, manual: true }; }
@@ -4076,6 +4198,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
   ].sort((a, b) => (ordem === 'nome' ? a.nome.localeCompare(b.nome, 'pt') : (b.ultimo || '').localeCompare(a.ultimo || '') || a.nome.localeCompare(b.nome, 'pt'))) : [];
   const [abertos, setAbertos] = useState(() => new Set());
   const [nomesAb, setNomesAb] = useState(() => new Set());
+  const [tocarK, setTocarK] = useState(null); // versão cujo vídeo começa a tocar ao abrir
   const alternar = (setF, k) => setF(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const primeiro = conceitosL[0] && conceitosL[0].slug;
   const aberto = c => (abertos.has(`${jogoId}|${c.slug}`) ? true : abertos.has(`${jogoId}|${c.slug}|fechado`) ? false : c.slug === primeiro);
@@ -4156,7 +4279,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
       ))}
     </div>
   );
-  const linhaVersao = (jogo, c, x, l, fmts) => {
+  const linhaVersao = (jogo, c, x, l, fmts, comConceito = false) => {
     const k = `${jogo.id}|${c.slug}|${x.k}`;
     const e = estadoDe(jogo, c, x);
     const temN = x.ficheiros.length > 0;
@@ -4171,14 +4294,14 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
         <div className="flex flex-wrap sm:grid sm:grid-cols-[44px_minmax(0,1fr)_150px_52px_150px_auto] items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
           {chipV(x.v, ultimaV && !x.soDrive)}
           <div className="min-w-0 flex-1 sm:flex-none">
-            <p className={`text-[13.5px] truncate ${x.variacao ? '' : `italic ${sub}`}`} title={x.variacao || 'sem variação'}>{x.variacao ? (qn ? marcar(x.variacao) : x.variacao) : 'sem variação'}</p>
-            {x.t ? <button type="button" onClick={() => onAbrir && onAbrir(x.t.id)} className={`block max-w-full truncate text-[11.5px] text-left ${sub} hover:text-blue-400 hover:underline`} title={`Abrir a tarefa: ${x.t.nome}`}>{x.t.nome}</button> : <p className={`text-[11.5px] ${sub}`}>sem tarefa na app</p>}
+            {(x.variacao || comConceito) && <p className="text-[13.5px] truncate" title={`${comConceito ? `${c.nome}${x.variacao ? ' · ' : ''}` : ''}${x.variacao || ''}`}>{comConceito && <b className="font-semibold">{c.nome}{x.variacao ? ' · ' : ''}</b>}{x.variacao ? (qn ? marcar(x.variacao) : x.variacao) : ''}</p>}
+            {x.t ? <button type="button" onClick={() => onAbrir && onAbrir(x.t.id)} className={`block max-w-full truncate text-left hover:text-blue-400 hover:underline ${x.variacao || comConceito ? `text-[11.5px] ${sub}` : 'text-[13px]'}`} title={`Abrir a tarefa: ${x.t.nome}`}>{x.t.nome}</button> : <p className={`text-[11.5px] ${sub}`}>sem tarefa na app</p>}
             {ets.length > 0 && <p className="flex flex-wrap gap-1 mt-0.5">{ets.map(et => <span key={et} className={`text-[10.5px] px-1.5 rounded-full ${claro ? 'bg-violet-100 text-violet-700' : 'bg-violet-500/15 text-violet-300'}`}>{et}</span>)}</p>}
           </div>
           <div className="flex flex-wrap gap-1 w-full sm:w-auto order-last sm:order-none">
             {[...tem].filter(Boolean).map(f => <span key={f} className={`text-[11px] px-1.5 py-px rounded-md ${claro ? 'bg-slate-100 text-slate-700' : 'bg-slate-700/50 text-slate-200'}`}>{f}</span>)}
             {faltam.map(f => <span key={f} className="text-[11px] px-1.5 rounded-md border border-dashed border-amber-500/70 text-amber-500" title={`Falta o ${f}? As outras versões deste conceito têm.`}>{f}?</span>)}
-            {!temN && <span className={`text-[11px] ${sub}`}>{x.planeada ? 'ainda sem ficheiros' : '—'}</span>}
+            {!temN && <span className={`text-[11px] ${sub}`}>{x.planeada && !(x.t && x.t.estado === 'feito') ? 'ainda sem ficheiros' : '—'}</span>}
           </div>
           <span className={`text-xs tabular-nums ${sub}`}>{x.em ? dataCurta(x.em) : ''}</span>
           <label className="relative inline-flex items-center min-w-0" title="Estado desta versão (escolhe à mão: aprovada, ganhou nos testes…)">
@@ -4190,6 +4313,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
             </select>
           </label>
           <div className="flex items-center justify-end gap-1.5 ml-auto">
+            {x.ficheiros.some(f => f.id) && <button type="button" onClick={() => { setTocarK(k); setNomesAb(s0 => { const n = new Set(s0); n.add(k); return n; }); }} className={btn} aria-label={`Ver o vídeo da V${x.v}`} title="Ver o vídeo (vem do Drive)"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button>}
             <a href={linkAEPara(o)} className={btn} title="Abrir o projeto no After Effects">AE</a>
             {x.url && <a href={urlAbrir(x.url, jogo.cid)} target="_blank" rel="noopener noreferrer" className={btn} title="Abrir a pasta desta versão no Drive">Drive</a>}
             <button type="button" onClick={() => alternar(setNomesAb, k)} aria-expanded={abN} className={`${btn} ${abN ? (claro ? '!bg-blue-50 !border-blue-300 !text-blue-700' : '!bg-blue-500/15 !border-blue-500/50 !text-blue-200') : ''}`}>{temN ? 'Nomes' : 'Mais'}{abN ? ' ▴' : ''}</button>
@@ -4198,7 +4322,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
         {abN && (
           <div className="px-3 sm:pl-[72px] sm:pr-4 pb-3 space-y-2">
             <div className="flex gap-3 items-start">
-              {temN && x.ficheiros[0].id && <MiniaturaC fileId={x.ficheiros[0].id} conta={conta} claro={claro} />}
+              {temN && x.ficheiros.some(f => f.id) && <VerVideo key={x.k} conta={conta} ficheiros={x.ficheiros} claro={claro} sub={sub} iniciar={tocarK === k} largura={150} />}
               <div className="flex-1 min-w-0">{temN ? listaNomes(x, k) : <p className={`text-xs ${sub}`}>{x.planeada ? 'Esta versão ainda não foi enviada pela app.' : 'Sem nomes guardados.'}</p>}</div>
             </div>
             <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs ${sub}`}>
@@ -4227,11 +4351,13 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
     const pastaC = c.pastaUrl || (raiz && Array.isArray(drvConceitos[raiz]) ? (() => { const f = drvConceitos[raiz].find(y => slugF(y.name) === c.slug); return f ? (f.webViewLink || `https://drive.google.com/drive/folders/${f.id}`) : null; })() : null);
     const resumo = l.length ? l.slice(0, 4).map(x => `V${x.v || '?'}${x.variacao ? ` ${x.variacao}` : ''}`).join(' · ') + (l.length > 4 ? ` · +${l.length - 4}` : '') : (c.soDrive ? 'só no Drive (antes da app)' : '');
     const o = { trab, t: ult ? ult.t : null, clientes, jogo, conceito: c.slug, v: ult ? ult.v : null };
+    const alternarC = () => { setAbertos(s => { const n = new Set(s); if (ab) { n.delete(kc); n.add(`${kc}|fechado`); } else { n.add(kc); n.delete(`${kc}|fechado`); } return n; }); if (!ab) verNoDrive(jogo, c, false); };
     return (
       <section key={kc} className={cartao}>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3">
-          <button type="button" onClick={() => { setAbertos(s => { const n = new Set(s); if (ab) { n.delete(kc); n.add(`${kc}|fechado`); } else { n.add(kc); n.delete(`${kc}|fechado`); } return n; }); if (!ab) verNoDrive(jogo, c, false); }} aria-expanded={ab} className="flex-1 min-w-[200px] flex items-center gap-2.5 text-left">
-            <svg width="12" height="12" viewBox="0 0 12 12" className={`shrink-0 transition-transform ${sub}`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        {/* Toda a faixa do conceito abre e fecha (menos os botões à direita) */}
+        <div onClick={e => { if (e.target.closest && e.target.closest('a,button,select,input,[role=menu]')) return; alternarC(); }} className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-2 sm:px-3 py-2.5 cursor-pointer rounded-t-2xl ${ab ? '' : 'rounded-b-2xl'} ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.02]'}`}>
+          <button type="button" onClick={alternarC} aria-expanded={ab} className="flex-1 min-w-[200px] flex items-center gap-2 text-left py-0.5">
+            <span className={`w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}><svg width="12" height="12" viewBox="0 0 12 12" className={`transition-transform ${sub}`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
             <span className="min-w-0">
               <span className={`block text-[15px] font-semibold truncate ${forte}`}>{c.nome}</span>
               <span className={`block text-xs truncate ${sub}`}>{l.length ? `${l.length} ${l.length === 1 ? 'versão' : 'versões'} · ` : ''}{ab ? (c.ultimo ? `última a ${dataCurta(c.ultimo)}` : '') : resumo}</span>
@@ -4294,8 +4420,10 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
         )}
         {!qn && (
           <select value={ordem} onChange={e => setOrdem(e.target.value)} className={`h-11 rounded-xl border px-3 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Ordem">
-            <option value="recentes" className={claro ? '' : 'bg-slate-800'}>Mais recentes</option>
-            <option value="nome" className={claro ? '' : 'bg-slate-800'}>Por nome</option>
+            <option value="recentes" className={claro ? '' : 'bg-slate-800'}>Conceitos: mais recentes</option>
+            <option value="entrega" className={claro ? '' : 'bg-slate-800'}>Por ordem de entrega</option>
+            <option value="entrega-antiga" className={claro ? '' : 'bg-slate-800'}>Por entrega (mais antigas primeiro)</option>
+            <option value="nome" className={claro ? '' : 'bg-slate-800'}>Conceitos: por nome</option>
           </select>
         )}
       </div>
@@ -4354,7 +4482,34 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
                 <span className={`text-xs ${sub}`}>{[g.jogo.codigo, g.jogo.estudio, `${conceitosL.length} conceito${conceitosL.length === 1 ? '' : 's'}`, `${[...g.conceitos.values()].reduce((a, c) => a + c.versoes.length, 0)} versões na app`].filter(Boolean).join(' · ')}</span>
               </div>
             )}
-            {g && conceitosL.map(c => cartaoConceito(g.jogo, c))}
+            {g && !/^entrega/.test(ordem) && conceitosL.map(c => cartaoConceito(g.jogo, c))}
+            {g && /^entrega/.test(ordem) && (() => {
+              // Todas as versões do jogo pela ordem em que foram entregues (agrupadas por mês); as que faltam entregar ficam em cima
+              const antiga = ordem === 'entrega-antiga';
+              const todas = conceitosL.flatMap(c => versoesDe(g.jogo, c).map(x => ({ c, x, d: entregaDe(x), l: null })));
+              const porEntregar = todas.filter(r => !r.d && r.x.t && r.x.t.estado !== 'feito');
+              const entregues = todas.filter(r => r.d).sort((a, b) => (antiga ? a.d.localeCompare(b.d) : b.d.localeCompare(a.d)));
+              const semData = todas.filter(r => !r.d && !(r.x.t && r.x.t.estado !== 'feito'));
+              const meses = [];
+              entregues.forEach(r => { const k = r.d.slice(0, 7); let m = meses.find(y => y.k === k); if (!m) { m = { k, l: [] }; meses.push(m); } m.l.push(r); });
+              const nomeMes = k => { const [a, mm] = k.split('-').map(Number); return `${MESES_NOMES[mm - 1] || ''} ${a}`; };
+              const bloco = (titulo, l, chave) => (
+                <section key={chave} className={`${cartao} overflow-hidden`}>
+                  <p className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wide ${sub}`}>{titulo} <span className="font-normal normal-case tracking-normal">· {l.length} {l.length === 1 ? 'versão' : 'versões'}</span></p>
+                  {l.map(r => { const lc = versoesDe(g.jogo, r.c); return <React.Fragment key={`${r.c.slug}|${r.x.k}`}>{linhaVersao(g.jogo, r.c, r.x, lc, formatosConceito(lc), true)}</React.Fragment>; })}
+                </section>
+              );
+              const faltaDrive = conceitosL.filter(c => !Array.isArray(drvVersoes[`${raizDe(g.jogo, c.versoes[0] && c.versoes[0].tipoF === 'BAN' ? 'BAN' : 'VID')}|${c.slug}`]));
+              return (
+                <>
+                  {faltaDrive.length > 0 && <p className={`text-xs ${sub}`}>Aqui estão as versões que a app conhece. <button type="button" onClick={async () => { for (const c of faltaDrive) await verNoDrive(g.jogo, c, true); }} className="text-blue-500 hover:underline">Juntar também as que só estão no Drive ({faltaDrive.length} conceito{faltaDrive.length === 1 ? '' : 's'})</button></p>}
+                  {porEntregar.length > 0 && bloco('Por entregar', porEntregar, 'por')}
+                  {meses.map(m => bloco(nomeMes(m.k), m.l, m.k))}
+                  {semData.length > 0 && bloco('Sem data de entrega', semData, 'sem')}
+                  {!todas.length && <p className={`text-sm ${sub}`}>Ainda sem versões neste jogo.</p>}
+                </>
+              );
+            })()}
             {g && !conceitosL.length && <p className={`text-sm ${sub}`}>Ainda não há conceitos neste jogo. Aparecem quando escreves o conceito em "Nomes dos ficheiros" de uma tarefa.</p>}
           </div>
         </div>
@@ -6689,5 +6844,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
   return { nome, pasta: `${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
+export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks };
 export const FICHEIRO_APP = 'trabalho';
