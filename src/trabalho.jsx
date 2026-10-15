@@ -1525,7 +1525,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
       ) : (
         <p className={`text-[11px] ${sub}`}>Ou arrasta para aqui um PDF, imagens ou vídeos.</p>
       )}
-      {previa && tipoAnexo(previa) === 'link' && tipoGoogle(previa.url) && googleId(previa.url) && <PreviaGoogle a={previa} cid={t.cid} tarefa={t} onFechar={() => setPrevia(null)} />}
+      {previa && tipoAnexo(previa) === 'link' && tipoGoogle(previa.url) && googleId(previa.url) && <PreviaGoogle a={previa} cid={t.cid} tarefa={t} mudar={mudar} onFechar={() => setPrevia(null)} />}
       {previa && !(tipoAnexo(previa) === 'link' && tipoGoogle(previa.url) && googleId(previa.url)) && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
           <div className="flex items-center gap-2 mb-2 text-white">
@@ -1863,7 +1863,28 @@ const VideoDoPptx = ({ blob, nome }) => {
   useEffect(() => { const tipo = /\.webm$/i.test(nome) ? 'video/webm' : /\.mov$/i.test(nome) ? 'video/quicktime' : 'video/mp4'; const u = URL.createObjectURL(new Blob([blob], { type: tipo })); setUrl(u); return () => URL.revokeObjectURL(u); }, [blob, nome]);
   return url ? <video src={url} controls autoPlay className="w-full max-h-[60vh] rounded-lg bg-black object-contain" /> : null;
 };
-const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
+// ── Mandar o brief para um chat do Claude: copia o texto do slide (e, à parte, os frames do vídeo) e abre o chat escolhido ──
+// (o Claude não vê vídeos: uma folha com 8 frames do vídeo, com os tempos, é o que lhe dá a ideia do que lá está)
+const framesDoVideo = async (blob, n = 8) => {
+  const url = URL.createObjectURL(blob);
+  try {
+    const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.src = url;
+    await new Promise((ok, falha) => { v.onloadedmetadata = ok; v.onerror = () => falha(new Error('Não consegui abrir o vídeo.')); });
+    const dur = v.duration && isFinite(v.duration) ? v.duration : 1;
+    const w = 300, h = Math.round(w * (v.videoHeight || 16) / (v.videoWidth || 9)), cols = 4, rows = Math.ceil(n / cols), topo = 26;
+    const c = document.createElement('canvas'); c.width = cols * w + (cols + 1) * 6; c.height = rows * (h + topo) + (rows + 1) * 6;
+    const g = c.getContext('2d'); g.fillStyle = '#111827'; g.fillRect(0, 0, c.width, c.height);
+    for (let i = 0; i < n; i++) {
+      const t = Math.min(dur - 0.05, dur * (i + 0.5) / n);
+      await new Promise(ok => { v.onseeked = ok; v.currentTime = Math.max(0, t); });
+      const x = 6 + (i % cols) * (w + 6), y = 6 + Math.floor(i / cols) * (h + topo + 6);
+      g.drawImage(v, x, y + topo, w, h);
+      g.fillStyle = '#e5e7eb'; g.font = '600 15px system-ui, sans-serif'; g.fillText(`${i + 1} · ${fmtDur(t)}`, x + 4, y + 18);
+    }
+    return await new Promise(ok => c.toBlob(ok, 'image/png'));
+  } finally { URL.revokeObjectURL(url); }
+};
+const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const tg = tipoGoogle(a.url);
   const conta = contaDe(cid);
   const abas = tg === 'slides' ? [['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
@@ -1904,6 +1925,52 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
     return base;
   })();
   const copiar = async (txt, qual) => { try { await navigator.clipboard.writeText(txt); setCopiado(qual); setTimeout(() => setCopiado(''), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
+  // Enviar ao Claude: escolhes o chat (fica lembrado por jogo), a app copia o brief e abre-o
+  const [menuClaude, setMenuClaude] = useState(false);
+  const [novoChat, setNovoChat] = useState(null); // { nome, url } | null
+  const trabA = TRAB_ATUAL.trab || {};
+  const jogoT = tarefa ? jogoDaTarefa(trabA, tarefa) : null;
+  const chats = trabA.chatsClaude || [];
+  const chatDoJogo = jogoT && (trabA.chatClaudePorJogo || {})[jogoT.id];
+  const textoParaClaude = d => {
+    const sl = d && d.slides; const nT = sl ? slideDaTarefa(sl, a.url, tarefa) : null;
+    const s = nT ? sl[nT - 1] : null;
+    const vids = s ? (s.videos || []).map(v => v.nome || (v.fonte === 'YOUTUBE' ? `YouTube ${v.id}` : 'vídeo')).filter(Boolean) : [];
+    return [
+      `Brief — ${(tarefa && tarefa.nome) || a.nome}${jogoT ? ` (${jogoT.nome})` : ''}`,
+      s ? `Slide ${s.n} de «${(d && d.nome) || a.nome}»` : `«${(d && d.nome) || a.nome}»`,
+      '',
+      s ? s.texto : ((d && d.texto) || (sl ? sl.map(x => `── Slide ${x.n} ──\n${x.texto}`).join('\n\n') : '')),
+      s && s.notas ? `\nNotas do slide: ${s.notas}` : '',
+      vids.length ? `\nVídeo de referência no slide: ${vids.join(', ')} (vai a seguir uma imagem com frames do vídeo)` : '',
+    ].filter(x => x !== null).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+  const enviarClaude = async url => {
+    const d = doc && !doc.erro ? doc : await carregar(); if (!d) return;
+    try { await navigator.clipboard.writeText(textoParaClaude(d)); } catch (e) { /* sem área de transferência */ }
+    if (mudar && jogoT && url) mudar(tr => ({ ...tr, chatClaudePorJogo: { ...(tr.chatClaudePorJogo || {}), [jogoT.id]: url } }));
+    setMenuClaude(false);
+    window.open(url || 'https://claude.ai/new', '_blank', 'noopener');
+    setCopiado('claude'); setTimeout(() => setCopiado(''), 6000);
+  };
+  const juntarChat = () => {
+    const u = String((novoChat && novoChat.url) || '').trim();
+    if (!/^https:\/\/claude\.ai\//.test(u)) { setCopiado('chat-mau'); setTimeout(() => setCopiado(''), 2500); return; }
+    const nome = String(novoChat.nome || '').trim() || (jogoT ? jogoT.nome : 'Chat');
+    if (mudar) mudar(tr => ({ ...tr, chatsClaude: [...(tr.chatsClaude || []).filter(c => c.url !== u), { nome, url: u }] }));
+    setNovoChat(null);
+    enviarClaude(u);
+  };
+  const tirarChat = u => { if (mudar) mudar(tr => ({ ...tr, chatsClaude: (tr.chatsClaude || []).filter(c => c.url !== u) })); };
+  const [framesK, setFramesK] = useState({}); // chave do vídeo → 'a fazer' | 'ok' | 'erro:…'
+  const copiarFrames = (v, k) => {
+    setFramesK(x => ({ ...x, [k]: 'a fazer' }));
+    const fazer = (async () => { const blob = v.caminho ? await blobDoPptx(v) : await videoDoDrive(conta, { id: v.id, nome: v.nome }); return framesDoVideo(blob); })();
+    // A imagem entra na área de transferência quando estiver pronta (o Chrome deixa, porque o pedido começou num clique)
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': fazer })])
+      .then(() => setFramesK(x => ({ ...x, [k]: 'ok' })))
+      .catch(async e => { try { const b = await fazer; guardarBlobComo(b, `frames_${(v.nome || 'video').replace(/\.[^.]+$/, '')}.png`); setFramesK(x => ({ ...x, [k]: 'ok-ficheiro' })); } catch (e2) { setFramesK(x => ({ ...x, [k]: `erro:${e2.message || e.message}` })); } });
+  };
   const blobDoPptx = async v => { if (blobV[v.caminho]) return blobV[v.caminho]; const b = await doc.dados(v.caminho); setBlobV(x => ({ ...x, [v.caminho]: b })); return b; };
   // Para onde vão os vídeos: a Assets\Footage do projeto (se a app souber qual é), senão escolhes tu
   const [destino, setDestino] = useState(null); // null (por ver) | { projeto, footage } | 'nenhum'
@@ -1965,6 +2032,33 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
           </div>
         )}
         {tg === 'drive' && <button type="button" onClick={descarregarFicheiro} className={btn}>Descarregar {estadoProg(prog[idF])}</button>}
+        {tg !== 'drive' && (
+          <div className="relative">
+            <button type="button" onClick={() => { setMenuClaude(m => !m); if (!doc || doc.erro) carregar(); }} aria-expanded={menuClaude} className={`${btn} ${copiado === 'claude' ? '!bg-emerald-600' : ''}`}>{copiado === 'claude' ? '✓ Copiado — cola no chat (Ctrl+V)' : 'Enviar ao Claude ▾'}</button>
+            {menuClaude && (
+              <div className="absolute right-0 top-full mt-1 z-10 w-80 rounded-xl border border-slate-600 bg-slate-800 shadow-2xl p-2 space-y-1 text-sm text-white" role="menu">
+                {aCarregar && <p className="px-2 py-1 text-[11px] text-amber-300">A ler o brief… (espera um instante antes de escolher)</p>}
+                {doc && doc.erro && <p className="px-2 py-1 text-[11px] text-red-300">Não consegui ler o brief: {doc.erro}</p>}
+                <p className="px-2 pt-1 pb-1.5 text-[11px] text-white/60">Copia o texto {slideT ? `do slide ${slideT.n}` : 'do brief'} e abre o chat. No chat, carrega em Ctrl+V.{slideT && (slideT.videos || []).length ? ' Os frames do vídeo copias no separador Vídeos.' : ''}</p>
+                {chats.map(c => (
+                  <div key={c.url} className="group flex items-center gap-1">
+                    <button type="button" onClick={() => enviarClaude(c.url)} className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg hover:bg-white/10 truncate ${chatDoJogo === c.url ? 'text-amber-300' : ''}`} title={c.url}>{chatDoJogo === c.url ? '★ ' : ''}{c.nome}</button>
+                    <button type="button" onClick={() => tirarChat(c.url)} className="px-1.5 text-white/40 hover:text-red-300 opacity-0 group-hover:opacity-100" aria-label={`Tirar ${c.nome} da lista`}>✕</button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => enviarClaude('https://claude.ai/new')} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10">+ Chat novo</button>
+                {novoChat ? (
+                  <div className="p-2 rounded-lg bg-white/5 space-y-1.5">
+                    <input autoFocus value={novoChat.url} onChange={e => setNovoChat(x => ({ ...x, url: e.target.value }))} placeholder="Cola o link do chat ou do projeto (claude.ai/…)" className="w-full rounded-md bg-slate-900 border border-slate-600 px-2 py-1 text-xs" />
+                    <input value={novoChat.nome} onChange={e => setNovoChat(x => ({ ...x, nome: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') juntarChat(); }} placeholder={`Nome (ex.: ${jogoT ? jogoT.nome : 'Mahjong'} — ideias)`} className="w-full rounded-md bg-slate-900 border border-slate-600 px-2 py-1 text-xs" />
+                    {copiado === 'chat-mau' && <p className="text-[11px] text-red-300">O link tem de começar por https://claude.ai/</p>}
+                    <button type="button" onClick={juntarChat} className="w-full px-2 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-500">Guardar e enviar</button>
+                  </div>
+                ) : <button type="button" onClick={() => setNovoChat({ nome: '', url: '' })} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10 text-white/80">+ Juntar um chat ou projeto (link)</button>}
+              </div>
+            )}
+          </div>
+        )}
         <a href={urlAbrir(a.url, cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no Google ↗</a>
         <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
       </div>
@@ -2015,6 +2109,8 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
                             <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Footage` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Footage' : 'Descarregar'}</button>
                             {destino && destino !== 'nenhum' && <button type="button" onClick={() => descarregar(v, true)} disabled={typeof prog[k] === 'number'} className="text-[11px] text-white/60 hover:text-white underline-offset-2 hover:underline">noutro sítio…</button>}
                           </>}
+                          {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <button type="button" onClick={() => copiarFrames(v, k)} disabled={framesK[k] === 'a fazer'} className={btn} title="Copia uma imagem com 8 frames do vídeo (com os tempos), para colares no chat do Claude">{framesK[k] === 'a fazer' ? 'A tirar frames…' : framesK[k] === 'ok' ? '✓ Frames copiados' : framesK[k] === 'ok-ficheiro' ? '✓ Frames descarregados' : 'Frames → Claude'}</button>}
+                          {String(framesK[k] || '').startsWith('erro:') && <span className="text-xs text-red-300">{String(framesK[k]).slice(5)}</span>}
                           {v.fonte === 'YOUTUBE' && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no YouTube ↗</a>}
                           {prog[k] != null && <span className="text-xs">{estadoProg(prog[k])}</span>}
                         </div>
@@ -2147,8 +2243,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             {t.pastaPC
               ? <a href={linkAEPasta(trab, t, clientes)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)">Abrir pasta</a>
               : <a href={linkAECriar(trab, t, clientes)} onClick={() => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } })))} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas e projeto</a>}
-            {<a href={linkAE(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
-            <a href={`${linkAE(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
+            {<a href={linkAEAbrir(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
+            <a href={`${linkAEAbrir(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
             {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>Mudar nome</a> : null; })()}
             <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] }))}>Duplicar</button>
             <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
@@ -2759,7 +2855,7 @@ const linkAECriar = (trab, t, clientes) => {
 // É chamado no próprio clique (o Chrome só abre links aeproj:// a partir de um clique).
 const ehWindows = () => typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
 const avisarEstadoPC = (t, estado) => {
-  if (!t || !t.pastaPC || !estado || estado === t.estado || !ehWindows() || !TRAB_ATUAL.trab) return;
+  if (!t || !estado || estado === t.estado || !ehWindows() || !TRAB_ATUAL.trab || !nomeProjetoTarefa(TRAB_ATUAL.trab, t)) return; // sem pasta no PC, o lançador não faz nada
   try {
     const p = new URLSearchParams(linkAECriar(TRAB_ATUAL.trab, t, TRAB_ATUAL.clientes).replace(/^aeproj:\/\/criar\/\?/, ''));
     ['estrutura', 'pastasAE', 'ae'].forEach(k => p.delete(k));
@@ -2768,6 +2864,8 @@ const avisarEstadoPC = (t, estado) => {
     document.body.appendChild(a); a.click(); a.remove();
   } catch (e) { /* sem lançador: não faz mal */ }
 };
+// "Abrir no After Effects": leva também o nome e o sítio da pasta do projeto, para o lançador ir primeiro à pasta exata da tarefa
+const linkAEAbrir = (trab, t, clientes) => { const p = new URLSearchParams(linkAECriar(trab, t, clientes).replace(/^aeproj:\/\/criar\/\?/, '')); p.delete('estrutura'); return `aeproj://abrir/?${p.toString()}`; };
 // "Abrir pasta": abre a pasta do projeto no Explorador (se não existir, o lançador pergunta se a cria)
 const linkAEPasta = (trab, t, clientes) => linkAECriar(trab, t, clientes).replace(/^aeproj:\/\/criar\//, 'aeproj://pasta/');
 const nomeProjetoTarefa = (trab, t) => {
@@ -4512,7 +4610,7 @@ const ESTADOS_V = [
 const nomeBonitoC = s => { const x = String(s || '').trim(); return /[a-z]/.test(x) ? emTitulo(x) : emTitulo(x.toLowerCase().replace(/_/g, ' ')); };
 const chaveVersaoC = (jogoId, slug, v) => `${jogoId}|${slug}|${v || 0}`;
 const paramsAE = ({ trab, t, clientes, jogo, conceito, v }) => {
-  if (t) { const p = new URLSearchParams(linkAE(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, '')); if (v) p.set('versao', `V${v}`); return p; }
+  if (t) { const p = new URLSearchParams(linkAEAbrir(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, '')); if (v) p.set('versao', `V${v}`); return p; }
   const cli = (clientes || []).find(c => String(c.id) === String(jogo && jogo.cid));
   return new URLSearchParams({ id: '', cliente: (cli && cli.nome) || '', jogo: (jogo && jogo.nome) || '', conceito: conceito || '', versao: v ? `V${v}` : '' });
 };
