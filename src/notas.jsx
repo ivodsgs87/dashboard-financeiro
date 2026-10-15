@@ -281,7 +281,7 @@ const transcreverAudio = async (wav, lingua) => {
   if (!u) throw new Error('Entra na app primeiro.');
   let r;
   try { r = await fetch(FN_TRANSCREVER, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ audio: await blobBase64(wav), mime: 'audio/wav', lingua }) }); }
-  catch (e) { throw new Error('Não consegui falar com o servidor da app (sem internet?).'); }
+  catch (e) { const er = new Error('Não consegui falar com a função «transcrever» do servidor da app. Se ainda não fizeste o deploy dela (firebase deploy --only functions:transcrever), é isso; senão, vê a internet.'); er.status = 0; throw er; }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(r.status === 404 ? 'A função «transcrever» ainda não está publicada — falta fazer o deploy das functions.' : (j.error && j.error.message) || `Erro ${r.status} a transcrever`); e.status = r.status; throw e; }
   return String(j.texto || '').trim();
@@ -552,7 +552,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     const pedido = transcreverAudio(wav, lingua);
     g.fila = g.fila.then(async () => {
       try { const txt = await pedido; if (txt) { ultimoDitado.current = Date.now(); inserirDitado(txt, lingua); } }
-      catch (e) { if (Date.now() - avisouErroApp.current > 8000) { avisouErroApp.current = Date.now(); if (showToast) showToast(e.message, 'error'); } if (e.status === 404 || e.status === 401 || e.status === 403) pararDitado(); }
+      catch (e) { if (Date.now() - avisouErroApp.current > 8000) { avisouErroApp.current = Date.now(); if (showToast) showToast(e.message, 'error'); } if (e.status === 0 || e.status === 404 || e.status === 401 || e.status === 403) pararDitado(); }
       finally { setDitar(d => (d ? { ...d, pendentes: Math.max(0, (d.pendentes || 1) - 1) } : d)); }
     });
   };
