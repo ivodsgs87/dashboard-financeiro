@@ -1609,12 +1609,8 @@ const CU_NOMES_EN = {
   screenshots: ['Screenshot Set', 'Screenshot Sets'], video3d: ['3D Video', '3D Videos'],
 };
 const MESES_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-// 5040 → "5.040€" ; 34,5 → "34,50€"
-const cuEur = v => {
-  const n = Math.round((Number(v) || 0) * 100) / 100;
-  const [i, d] = Math.abs(n).toFixed(2).split('.');
-  return `${n < 0 ? '-' : ''}${i.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${d === '00' ? '' : ',' + d}€`;
-};
+// Euros: um só formato em toda a app (o mesmo do ecrã principal) — 5040 → "5 040 €" ; 34,5 → "34,50 €"
+const cuEur = v => _fmtEUR.format(Math.round((Number(v) || 0) * 100) / 100);
 // "4h30", "4:30", "4,5", "4.5" → 4.5 horas
 const cuLerHoras = t => {
   const x = String(t || '').trim().toLowerCase().replace(/\s/g, '');
@@ -1838,11 +1834,37 @@ const MES_ABREV = { jan: 1, feb: 2, fev: 2, mar: 3, apr: 4, abr: 4, may: 5, mai:
 const mesDoNomePasta = nome => { const ms = [...String(nome || '').toLowerCase().matchAll(/(?:^|[^a-zà-ú])(jan|feb|fev|mar|apr|abr|may|mai|jun|jul|aug|ago|sep|set|oct|out|nov|dec|dez)[a-zà-ú]*(?![a-zà-ú])/g)]; return ms.length ? MES_ABREV[ms[ms.length - 1][1]] : null; };
 const HORAS_TIPO_PADRAO = { video: 6, video3d: 8, ai_clip: 2, variacao: 2, iteracao: 1.5, hook: 1.5, aso: 4, banner: 1.5, banner_var: 1, icone: 6, feature: 3, screenshots: 6, extra: 2, outro: 3 };
 // Horas típicas por tipo de peça: a mediana das tuas tarefas já feitas (com tempo registado) ou um valor padrão
+// Tarefas que servem para medir quanto tempo levas: feitas (ou em review), com tempo registado e feitas por ti (não subcontratadas)
+const trabMedivel = t => (t.estado === 'feito' || t.estado === 'review') && trabHoras(t) > 0.2 && !(Number(t.custoOutsourcing) > 0) && !t.freelancerId && !t.outsourcing;
+const mediana = l => { const s = l.slice().sort((a, b) => a - b); const k = Math.floor(s.length / 2); return !s.length ? 0 : s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+// Por tipo de peça: horas por peça (mediana), valor por peça e €/h (valor ÷ horas). cid: só esse cliente; semId: sem essa tarefa
+const trabPorTipo = (trab, cu, clientes, cid = null, semId = null) => {
+  const por = {};
+  ((trab && trab.tarefas) || []).forEach(t => {
+    if (t.id === semId || !trabMedivel(t) || (cid != null && String(t.cid) !== String(cid))) return;
+    const ps = trabPecas(t); if (ps.length !== 1) return; // só as tarefas de um tipo, para a média não se baralhar
+    const tipo = ps[0].tipo; if (tipo === 'extra' || tipo === 'outro') return;
+    const n = ps[0].n || 1; const h = trabHoras(t); const v = trabValor(t, cu, clientes);
+    const o = por[tipo] = por[tipo] || { tipo, tarefas: 0, pecas: 0, horas: 0, valor: 0, hPeca: [] };
+    o.tarefas++; o.pecas += n; o.horas += h; o.valor += v; o.hPeca.push(h / n);
+  });
+  return Object.values(por).map(o => ({ ...o, horasPorPeca: mediana(o.hPeca), valorPorPeca: o.pecas ? o.valor / o.pecas : 0, eurHora: o.horas > 0 ? o.valor / o.horas : 0 }));
+};
+// Estimativa sugerida para uma tarefa: as horas típicas de cada peça (primeiro as deste cliente, com 2+ tarefas; senão as de todos, com 3+)
+const trabSugerirEstimativa = (t, trab, cu, clientes) => {
+  const ps = trabPecas(t).filter(p => p.tipo !== 'extra' && p.tipo !== 'outro');
+  if (!ps.length) return null;
+  const doCli = {}; trabPorTipo(trab, cu, clientes, t.cid, t.id).forEach(o => { if (o.tarefas >= 2) doCli[o.tipo] = o; });
+  const todos = {}; trabPorTipo(trab, cu, clientes, null, t.id).forEach(o => { if (o.tarefas >= 3) todos[o.tipo] = o; });
+  let h = 0, amostras = 0, soCliente = true;
+  for (const p of ps) { const o = doCli[p.tipo] || todos[p.tipo]; if (!o) return null; if (!doCli[p.tipo]) soCliente = false; h += o.horasPorPeca * (p.n || 1); amostras += o.tarefas; }
+  return { h: Math.max(0.25, Math.round(h * 4) / 4), amostras, soCliente, tipos: ps.map(p => p.tipo) };
+};
 const horasTipicas = trab => {
   const por = {};
   ((trab && trab.tarefas) || []).forEach(t => {
-    if (t.estado !== 'feito' && t.estado !== 'review') return;
-    const h = trabHoras(t); if (!(h > 0.2)) return;
+    if (!trabMedivel(t)) return; // feitas por ti, com tempo (as subcontratadas não dizem quanto tu levas)
+    const h = trabHoras(t);
     const ps = trabPecas(t); const n = ps.reduce((a, p) => a + (p.n || 1), 0) || 1;
     if (ps.length !== 1) return; // só as tarefas de um tipo, para a média não se baralhar
     (por[ps[0].tipo] = por[ps[0].tipo] || []).push(h / n);
@@ -2078,6 +2100,183 @@ const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, theme }) => {
         document.body
       )}
     </div>
+  );
+};
+
+// Mudar o valor de um recibo: o valor ilíquido, o IVA e a retenção acompanham (antes só mudava "val" e
+// as contas de SS/IRS/IVA continuavam com o valor antigo)
+const reciboComValor = (x, v) => {
+  const n = Math.round((Number(v) || 0) * 100) / 100;
+  const base = Number(x.valIliq != null && x.valIliq !== '' ? x.valIliq : x.val) || 0;
+  const esc = base ? n / base : 0;
+  const porTaxa = (taxa, antigo) => (taxa != null && taxa !== '' ? Math.round(n * Number(taxa)) / 100 : antigo ? Math.round(Number(antigo) * esc * 100) / 100 : antigo);
+  return { ...x, val: n, ...(x.valIliq != null ? { valIliq: n } : {}), ...(x.iva != null ? { iva: porTaxa(x.taxaIva, x.iva) } : {}), ...(x.retIRS != null ? { retIRS: porTaxa(x.taxaRetIRS, x.retIRS) } : {}) };
+};
+
+// ── Dois dispositivos ao mesmo tempo: junta as alterações deste ecrã com as que vieram do outro ──
+// Compara cada chave de g (ex.: clientes, despABanca) e cada mês de m em separado. Só há conflito
+// quando os dois mudaram a MESMA chave/mês de maneira diferente; nesse caso devolve null.
+const jsonEstavel = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x));
+const juntarVersoes = (base, local, remota) => {
+  const out = { g: {}, m: {} };
+  for (const parte of ['g', 'm']) {
+    const b = (base && base[parte]) || {}, l = (local && local[parte]) || {}, r = (remota && remota[parte]) || {};
+    for (const k of new Set([...Object.keys(b), ...Object.keys(l), ...Object.keys(r)])) {
+      const jb = jsonEstavel(b[k]), jl = jsonEstavel(l[k]), jr = jsonEstavel(r[k]);
+      let v;
+      if (jl === jr || jr === jb) v = l[k]; // iguais, ou só este ecrã mudou
+      else if (jl === jb) v = r[k]; // só o outro dispositivo mudou
+      else return null; // os dois mudaram a mesma coisa
+      if (v !== undefined) out[parte][k] = v;
+    }
+  }
+  return out;
+};
+
+// ── Verificar dados: procura duplicados, ligações partidas e valores que não batem certo ──
+// Só lê; as correções são botões (cada uma com Ctrl+Z). Devolve [{ grupo, nivel: 'erro'|'aviso'|'info', txt, acao?, ir? }]
+const verificarDados = (G, M, trab, opc = {}) => {
+  const out = []; const add = (grupo, nivel, txt, extra = {}) => out.push({ grupo, nivel, txt, ...extra });
+  const nomeMes = k => { const [a, m] = String(k).split('-').map(Number); return `${meses[(m || 1) - 1] || '?'} ${a || ''}`; };
+  const eu = v => _fmtEUR.format(v);
+  const clientes = G.clientes || []; const idsCli = new Set(clientes.map(c => String(c.id)));
+  const nomeCli = cid => (clientes.find(c => String(c.id) === String(cid)) || {}).nome || `cliente ${cid}`;
+  // ── Receitas ──
+  const recs = [];
+  Object.entries(M || {}).forEach(([k, md]) => {
+    if (!/^\d{4}-([1-9]|1[0-2])$/.test(k)) { add('Receitas', 'aviso', `Há um mês com uma chave estranha («${k}») nos dados.`); return; }
+    ['regCom', 'regSem'].forEach(lista => ((md && md[lista]) || []).forEach(r => { if (r) recs.push({ k, lista, r }); }));
+  });
+  const grupoPor = f => { const o = {}; recs.forEach(x => { const v = f(x.r); if (v) (o[v] = o[v] || []).push(x); }); return Object.values(o).filter(l => l.length > 1); };
+  grupoPor(r => r.faturaId).forEach(l => add('Receitas', 'erro', `A mesma fatura está registada ${l.length} vezes: ${l.map(x => `«${x.r.desc || 'recibo'}» (${nomeMes(x.k)}, ${eu(x.r.val)})`).join(', ')} — conta a dobrar nos impostos.`, { ir: l[0].k }));
+  grupoPor(r => r.ficheiroCaminho || r.ficheiroUrl || r.driveUrl).forEach(l => add('Receitas', 'aviso', `O mesmo PDF está em ${l.length} recibos: ${l.map(x => `«${x.r.desc || 'recibo'}» (${nomeMes(x.k)})`).join(', ')}.`, { ir: l[0].k }));
+  recs.forEach(x => {
+    const r = x.r;
+    if (r.valIliq != null && r.valIliq !== '' && Math.abs((Number(r.val) || 0) - (Number(r.valIliq) || 0)) > 0.01) add('Receitas', 'erro', `«${r.desc || 'recibo'}» (${nomeMes(x.k)}): o valor mostrado é ${eu(r.val)} mas o ilíquido guardado (usado na SS, IRS e IVA) é ${eu(r.valIliq)}.`, { ir: x.k, acao: opc.acertarRecibo && { rotulo: `Usar ${eu(r.val)}`, fn: () => opc.acertarRecibo(x.k, x.lista, r.id) } });
+    if (r.cid != null && !idsCli.has(String(r.cid))) add('Receitas', 'aviso', `«${r.desc || 'recibo'}» (${nomeMes(x.k)}, ${eu(r.val)}) é de um cliente que já não existe.`, { ir: x.k });
+  });
+  // possíveis duplicados: mesmo cliente, mesmo valor, datas a menos de 7 dias (ou o mesmo mês sem data)
+  const dia = x => (/^\d{4}-\d{2}-\d{2}/.test(String(x.r.data || '')) ? Date.parse(String(x.r.data).slice(0, 10)) : null);
+  for (let i = 0; i < recs.length; i++) for (let j = i + 1; j < recs.length; j++) {
+    const a = recs[i], b = recs[j];
+    if (String(a.r.cid) !== String(b.r.cid) || a.r.emitidoPorSara !== b.r.emitidoPorSara) continue;
+    if (Math.abs((Number(a.r.valIliq ?? a.r.val) || 0) - (Number(b.r.valIliq ?? b.r.val) || 0)) > 1 || !(Number(a.r.val) > 0)) continue;
+    if (a.r.faturaId && b.r.faturaId) continue; // a mesma fatura já aparece em cima; faturas diferentes não são duplicados
+    const da = dia(a), db = dia(b);
+    const perto = da && db ? Math.abs(da - db) <= 7 * 86400000 : a.k === b.k;
+    if (perto) add('Receitas', 'aviso', `Possível duplicado de ${nomeCli(a.r.cid)}: «${a.r.desc || 'recibo'}» (${nomeMes(a.k)}) e «${b.r.desc || 'recibo'}» (${nomeMes(b.k)}), os dois com ${eu(a.r.val)}.`, { ir: a.k });
+  }
+  // ── Clientes ──
+  const porNome = {}; clientes.forEach(c => { const n = String(c.nome || '').trim().toLowerCase(); if (n) (porNome[n] = porNome[n] || []).push(c); });
+  Object.values(porNome).filter(l => l.length > 1).forEach(l => add('Clientes', 'aviso', `Há ${l.length} clientes chamados «${l[0].nome}» — os recibos e as tarefas podem estar divididos entre eles.`));
+  const comRecibos = new Set(recs.map(x => String(x.r.cid)));
+  clientes.filter(c => comRecibos.has(String(c.id)) && !/reembolso/i.test(c.nome || '') && !(c.recibo && c.recibo.pais)).forEach(c => add('Clientes', 'info', `${c.nome} não tem o país definido na ficha (Recibos): os registos criados pelas faturas assumem Portugal, com IVA e retenção.`));
+  // ── Trabalho ──
+  const T = (trab && trab.tarefas) || []; const P = (trab && trab.pastas) || []; const F = (trab && trab.faturas) || [];
+  if (trab) {
+    const idsP = new Set(P.map(p => p.id)); const fatPorId = {}; F.forEach(f => { fatPorId[f.id] = f; });
+    const idsFr = new Set(((trab.freelancers) || []).map(f => f.id));
+    T.filter(x => x.faturaId && x.faturaId !== 'fora' && !fatPorId[x.faturaId]).forEach(x => add('Trabalho', 'erro', `«${x.nome}» está marcada como faturada numa fatura que já não existe — não entra em nenhuma fatura nova.`, { acao: opc.limparFaturaTarefa && { rotulo: 'Pôr por faturar', fn: () => opc.limparFaturaTarefa(x.id) } }));
+    T.filter(x => x.pastaId && !idsP.has(x.pastaId)).forEach(x => add('Trabalho', 'aviso', `«${x.nome}» está numa pasta que já não existe (não aparece nas listas).`));
+    T.filter(x => x.freelancerId && !idsFr.has(x.freelancerId)).forEach(x => add('Trabalho', 'info', `«${x.nome}» aponta para um freelancer que foi apagado.`, { acao: opc.limparFreelancer && { rotulo: 'Corrigir', fn: () => opc.limparFreelancer(x.id) } }));
+    const aCorrer = T.filter(x => (x.tempos || []).some(y => !y.fim));
+    if (aCorrer.length > 1) add('Trabalho', 'erro', `Há ${aCorrer.length} cronómetros a correr ao mesmo tempo (${aCorrer.map(x => `«${x.nome}»`).join(', ')}) — as horas contam a dobrar.`, { acao: opc.pararExtra && { rotulo: 'Deixar só o mais recente', fn: opc.pararExtra } });
+    T.forEach(x => (x.tempos || []).forEach(y => {
+      if (y.fim && Date.parse(y.fim) < Date.parse(y.ini)) add('Trabalho', 'erro', `«${x.nome}»: um tempo acaba antes de começar (${String(y.ini).slice(0, 10)}).`);
+      else if (y.fim && Date.parse(y.fim) - Date.parse(y.ini) > 12 * 3600000) add('Trabalho', 'aviso', `«${x.nome}»: um tempo de ${Math.round((Date.parse(y.fim) - Date.parse(y.ini)) / 3600000)}h seguidas (${String(y.ini).slice(0, 10)}) — esqueceste o cronómetro?`);
+    }));
+    const vistas = {}; T.forEach(x => { const k = [String(x.nome || '').trim().toLowerCase(), x.cid, x.pastaId, String(x.criada || '').slice(0, 10)].join('|'); (vistas[k] = vistas[k] || []).push(x); });
+    Object.values(vistas).filter(l => l.length > 1 && l[0].nome).forEach(l => add('Trabalho', 'aviso', `«${l[0].nome}» aparece ${l.length} vezes na mesma pasta, criada no mesmo dia.`));
+    const fatNum = {}; F.forEach(f => { const k = `${f.cid}|${f.numero}`; (fatNum[k] = fatNum[k] || []).push(f); });
+    Object.values(fatNum).filter(l => l.length > 1).forEach(l => add('Faturas', 'erro', `A fatura nº ${l[0].numero} de ${nomeCli(l[0].cid)} existe ${l.length} vezes.`));
+    const idsT = new Set(T.map(x => x.id));
+    F.forEach(f => { const falta = (f.tarefas || []).filter(id => !idsT.has(id)).length; if (falta) add('Faturas', 'info', `A fatura nº ${f.numero} de ${nomeCli(f.cid)} tinha ${falta} tarefa${falta === 1 ? '' : 's'} que já foram apagadas (a fatura fica igual).`); });
+  }
+  // ── Documento principal ──
+  if (opc.trabSeparado && G.trabalho && ((G.trabalho.tarefas || []).length || (G.trabalho.pastas || []).length)) add('Armazenamento', 'info', `Ficou uma cópia antiga do Trabalho dentro dos dados principais (${Math.round(JSON.stringify(G.trabalho).length / 1024)} KB). O Trabalho já está guardado à parte.`, { acao: opc.tirarTrabalhoAntigo && { rotulo: 'Tirar a cópia antiga', fn: opc.tirarTrabalhoAntigo } });
+  const kb = Math.round(JSON.stringify({ g: G, m: M }).length / 1024);
+  if (kb > 700) add('Armazenamento', kb > 900 ? 'erro' : 'aviso', `Os dados principais já ocupam ${kb} KB de 1024 KB (o limite da base de dados). Acima disso deixa de gravar.`);
+  return out;
+};
+const VerificarDadosModal = ({ G, M, trab, theme, opc, onFechar, onIrMes }) => {
+  const claro = theme === 'light';
+  const lista = verificarDados(G, M, trab, opc);
+  const grupos = [...new Set(lista.map(x => x.grupo))];
+  const cor = n => (n === 'erro' ? 'text-red-500' : n === 'aviso' ? 'text-amber-500' : claro ? 'text-slate-500' : 'text-slate-400');
+  useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc, true); return () => document.removeEventListener('keydown', esc, true); }, [onFechar]);
+  return createPortal(
+    <div className="animate-backdropIn fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
+      <div role="dialog" aria-label="Verificar dados" className={`animate-modalIn border rounded-2xl p-5 max-w-2xl w-full shadow-2xl max-h-[85vh] overflow-y-auto ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h3 className="text-lg font-semibold">Verificar dados</h3>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>✕</button>
+        </div>
+        <p className={`text-sm mb-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Procura duplicados, ligações partidas e valores que não batem certo em Receitas, Clientes e Trabalho. As correções podem ser desfeitas com Ctrl+Z.</p>
+        {!lista.length ? <p className="text-emerald-500 font-medium">✓ Está tudo certo — não encontrei problemas.</p> : grupos.map(gr => (
+          <div key={gr} className="mb-4">
+            <p className="text-sm font-semibold mb-1.5">{gr} <span className={`font-normal ${claro ? 'text-slate-500' : 'text-slate-400'}`}>({lista.filter(x => x.grupo === gr).length})</span></p>
+            <div className={`rounded-xl border divide-y ${claro ? 'border-slate-200 divide-slate-100' : 'border-slate-700 divide-slate-700/60'}`}>
+              {lista.filter(x => x.grupo === gr).slice(0, 40).map((x, i) => (
+                <div key={i} className="flex items-start gap-2.5 px-3 py-2 text-sm">
+                  <span className={`shrink-0 mt-0.5 ${cor(x.nivel)}`}>{x.nivel === 'erro' ? '✕' : x.nivel === 'aviso' ? '⚠' : 'ℹ'}</span>
+                  <span className="flex-1 min-w-0">{x.txt}</span>
+                  {x.ir && onIrMes && <button type="button" onClick={() => onIrMes(x.ir)} className="shrink-0 text-xs text-blue-500 hover:underline">Ver</button>}
+                  {x.acao && <button type="button" onClick={x.acao.fn} className="shrink-0 px-2 py-0.5 text-xs rounded-md bg-blue-600 hover:bg-blue-500 text-white">{x.acao.rotulo}</button>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ── Caixas de confirmação da app (substituem o confirm()/alert() do browser, que na app do Windows parecem de outro programa) ──
+// Uso: if (!(await confirmar('Apagar isto?\n\nExplicação…'))) return;  — o 1.º parágrafo é o título, o resto o texto.
+const DIALOGO = { abrir: null };
+const confirmar = (msg, opcoes = {}) => new Promise(res => {
+  const txt = String(msg || '');
+  let [tit, ...resto] = txt.split('\n\n');
+  const m = /^(.{6,}?[?.!])\s+(\S[\s\S]*)$/.exec(tit); // título comprido: a 1.ª frase fica de título
+  if (m && tit.length > 70) { tit = m[1]; resto = [m[2], ...resto]; }
+  const verbo = (/^(Apagar|Tirar|Anular|Organizar|Trocar|Importar)/.exec(tit) || [])[1];
+  const o = { titulo: tit, texto: resto.join('\n\n'), ok: verbo || (/^Deixar/.test(tit) ? 'Sim' : 'OK'), perigo: /^(Apagar|Tirar|Anular|Deixar)/.test(tit), ...opcoes };
+  if (!DIALOGO.abrir) { if (o.soOk) { avisoApp(txt); res(true); } else res(window.confirm(txt)); return; }
+  DIALOGO.abrir({ ...o, res });
+});
+const avisoApp = (msg, opcoes = {}) => confirmar(msg, { ok: 'OK', soOk: true, perigo: false, ...opcoes });
+const DialogoHost = ({ theme }) => {
+  const [d, setD] = useState(null);
+  const dRef = useRef(null);
+  const okRef = useRef(null);
+  useEffect(() => { DIALOGO.abrir = x => { if (dRef.current) dRef.current.res(false); dRef.current = x; setD(x); }; return () => { DIALOGO.abrir = null; }; }, []);
+  const fechar = v => { const cur = dRef.current; dRef.current = null; setD(null); if (cur) cur.res(v); };
+  useEffect(() => {
+    if (!d) return undefined;
+    const t0 = setTimeout(() => { if (okRef.current) okRef.current.focus(); }, 0);
+    const tecla = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fechar(!!d.soOk); }
+      else if (e.key === 'Enter' && !(e.target && e.target.dataset && e.target.dataset.cancelar)) { e.preventDefault(); e.stopPropagation(); fechar(true); }
+    };
+    document.addEventListener('keydown', tecla, true);
+    return () => { clearTimeout(t0); document.removeEventListener('keydown', tecla, true); };
+  }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!d) return null;
+  const claro = theme === 'light';
+  return createPortal(
+    <div className="animate-backdropIn fixed inset-0 bg-black/60 backdrop-blur-sm z-[120] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) fechar(!!d.soOk); }}>
+      <div role="alertdialog" aria-modal="true" aria-label={d.titulo} className={`animate-modalIn border rounded-2xl p-5 max-w-md w-full shadow-2xl ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+        <h3 className="text-lg font-semibold leading-snug">{d.titulo}</h3>
+        {d.texto && <p className={`mt-2 text-sm whitespace-pre-line ${claro ? 'text-slate-600' : 'text-slate-400'}`}>{d.texto}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          {!d.soOk && <button type="button" data-cancelar="1" onClick={() => fechar(false)} className={`px-4 py-2 text-sm rounded-xl border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>{d.cancelar || 'Cancelar'}</button>}
+          <button type="button" ref={okRef} onClick={() => fechar(true)} className={`px-4 py-2 text-sm font-semibold rounded-xl text-white ${d.perigo ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{d.ok}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };
 
@@ -2320,10 +2519,12 @@ export {
   CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
   cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
   trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
-  pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, horasTipicas, estimarHorasTarefa,
-  ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm,
-  trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador,
-  SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana,
+  trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes,
+  trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal,
+  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, verificarDados, VerificarDadosModal, DIALOGO,
+  confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button,
+  ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
+  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
