@@ -1638,9 +1638,10 @@ const lerPptx = async blob => {
     const cam = ordem[i];
     const xml = await z.texto(cam);
     const rels = relsXml(await z.texto(cam.replace(/slides\/(slide\d+\.xml)$/, 'slides/_rels/$1.rels')));
-    const videos = [], vistos = new Set();
+    const videos = [], vistos = new Set(), imagens = [];
     const EXT_VIDEO = /\.(mp4|m4v|mov|webm|avi|wmv|mkv|mpe?g)$/i;
     Object.values(rels).forEach(r => {
+      if (/\/image$/.test(r.tipo) && !r.externo) { const a = juntarCaminho(cam, r.alvo); if (a && z.entradas[a] && /\.(png|jpe?g|gif|webp)$/i.test(a) && !imagens.some(x => x.caminho === a)) imagens.push({ caminho: a, nome: a.split('/').pop(), tamanho: z.entradas[a].tamU }); return; }
       // ligações ao Drive / YouTube (o Google guarda assim os vídeos metidos pelo Slides num .pptx)
       const drv = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]{15,})/.exec(r.alvo) || /docs\.google\.com\/[^"]*?[?&]id=([\w-]{15,})/.exec(r.alvo);
       if (drv && !vistos.has(drv[1])) { vistos.add(drv[1]); videos.push({ id: drv[1], fonte: 'DRIVE', ligacao: true }); return; }
@@ -1660,8 +1661,11 @@ const lerPptx = async blob => {
     if (rNotas) notas = paragrafosXml((await z.texto(juntarCaminho(cam, rNotas.alvo))).replace(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*?type="sldNum"[\s\S]*?<\/p:sp>/g, ''));
     // ligações ao Drive escritas no próprio slide (fora das relações)
     (xml.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)[\w-]{15,}/g) || []).forEach(u => { const id = /([\w-]{15,})$/.exec(u)[1]; if (!vistos.has(id)) { vistos.add(id); videos.push({ id, fonte: 'DRIVE', ligacao: true }); } });
-    slides.push({ n: i + 1, texto: paragrafosXml(xml), notas, videos });
+    slides.push({ n: i + 1, texto: paragrafosXml(xml), notas, videos, imagens });
   }
+  // imagens do modelo (logótipo, fundos): aparecem em metade dos slides ou mais — não são referências
+  const vezes = {}; slides.forEach(s => s.imagens.forEach(x => { vezes[x.caminho] = (vezes[x.caminho] || 0) + 1; }));
+  slides.forEach(s => { s.imagens = s.imagens.filter(x => slides.length < 3 || vezes[x.caminho] < slides.length / 2); });
   // vídeos que estão no ficheiro mas não consegui ligar a nenhum slide: aparecem na mesma
   const usados = new Set([].concat(...slides.map(s => s.videos.map(v => v.caminho).filter(Boolean))));
   const soltos = Object.keys(z.entradas).filter(k => /^ppt\/media\//.test(k) && /\.(mp4|m4v|mov|webm|avi|wmv|mkv|mpe?g)$/i.test(k) && !usados.has(k)).map(k => ({ caminho: k, nome: k.split('/').pop(), tamanho: z.entradas[k].tamU, solto: true }));
@@ -1782,7 +1786,7 @@ const guardarBlob = async (blob, nome) => {
   guardarBlobComo(blob, nome);
   return true;
 };
-// ── A pasta Assets\Footage do projeto desta tarefa (pela pasta dos projetos que escolheste para os exports) ──
+// ── A pasta Assets\Refs do projeto desta tarefa (pela pasta dos projetos que escolheste para os exports) ──
 const nomeLivre = async (dir, nome) => {
   const m = /^(.*?)(\.[^.]+)?$/.exec(nome);
   for (let i = 1; i < 200; i++) { const n = i === 1 ? nome : `${m[1]}_${i}${m[2] || ''}`; try { await dir.getFileHandle(n); } catch (e) { return n; } }
@@ -1805,9 +1809,9 @@ const pastaDoProjetoDaTarefa = async (tarefa, pedir) => {
     await idbGravar(kc, { ...alvo, em: Date.now() });
   }
   let assets = null; try { assets = await alvo.dir.getDirectoryHandle('Assets'); } catch (e) { /* sem Assets */ }
-  if (!assets) return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, footage: null };
-  const footage = await assets.getDirectoryHandle('Footage', { create: true });
-  return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, footage };
+  if (!assets) return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, refs: null };
+  const refs = await assets.getDirectoryHandle('Refs', { create: true }); // as referências do brief (vídeos e imagens) ficam à parte da Footage
+  return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, refs };
 };
 // Textos do slide prontos para o After: as falas do guião (QUEM: "…") e os outros textos entre aspas (cartões, end card, hooks)
 const textosParaAE = texto => {
@@ -1856,35 +1860,52 @@ const BlocoTextosAE = ({ slide, copiar, copiado }) => {
     </div>
   );
 };
-// Depois de criar (ou abrir) a pasta do projeto: copia sozinho o vídeo de referência do slide da tarefa para Assets\Footage.
-// Espera até 2 min que a pasta apareça; só usa acessos que já estejam dados (não abre janelas da Google nem do Windows).
+// Depois de criar (ou abrir) a pasta do projeto: copia sozinho os assets do slide da tarefa (vídeos e imagens) para Assets\Refs.
+// Diz sempre o que aconteceu (antes falhava em silêncio quando faltava a pasta dos projetos ou a ligação à Google).
 const BRIEF_A_COPIAR = new Set();
-const trazerBriefParaFootage = async (t, showToast) => {
-  if (!t || BRIEF_A_COPIAR.has(t.id) || typeof window === 'undefined' || !window.showDirectoryPicker) return;
-  const a = (t.anexos || []).find(x => tipoAnexo(x) === 'link' && tipoGoogle(x.url) === 'slides' && googleId(x.url));
-  if (!a) return;
+const trazerBriefParaRefs = async (t, showToast) => {
+  const aviso = (txt, tipo = 'info') => { if (showToast) showToast(txt, tipo); };
+  if (!t || BRIEF_A_COPIAR.has(t.id) || typeof window === 'undefined') return;
+  const a = (t.anexos || []).find(x => tipoAnexo(x) === 'link' && googleId(x.url) && (tipoGoogle(x.url) === 'slides' || /\.pptx$/i.test(x.nome || '')));
+  if (!a) return; // a tarefa não tem brief em slides: nada a fazer
+  if (!window.showDirectoryPicker) { aviso('Os assets do brief só vão sozinhos para a pasta do projeto no Chrome ou no Edge.'); return; }
   const conta = contaDe(t.cid);
-  if (!(tokenGuardadoDe(conta) || ligadoSempre(conta || '_'))) return;
+  if (!(tokenGuardadoDe(conta) || ligadoSempre(conta || '_'))) { aviso('Para copiar os assets do brief para a pasta Refs, abre o brief nesta tarefa uma vez (liga a conta Google).'); return; }
   BRIEF_A_COPIAR.add(t.id);
   try {
+    // A pasta dos projetos (ex.: C:\WORK): se ainda não a escolheste, pede-a já (ainda dentro do clique)
+    let raiz = await idbLer('raiz-projetos');
+    if (!raiz) {
+      aviso('Escolhe a pasta onde estão os teus projetos (ex.: C:\\WORK) — é só desta vez.');
+      try { raiz = await window.showDirectoryPicker({ id: 'projetos', mode: 'readwrite' }); await idbGravar('raiz-projetos', raiz); }
+      catch (e) { aviso('Sem a pasta dos projetos não consigo copiar os assets do brief. Escolhe-a quando quiseres no painel Enviar para o Drive.', 'error'); return; }
+    }
+    if (!(await permissaoLer(raiz, true))) { aviso('O browser não deu acesso à pasta dos projetos — os assets do brief não foram copiados.', 'error'); return; }
     let d = null;
-    for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (!d || !d.footage) { d = null; await new Promise(ok => setTimeout(ok, 5000)); } }
-    if (!d) return;
+    for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (!d || !d.refs) { d = null; if (i === 1) aviso('À espera da pasta do projeto para copiar o brief…'); await new Promise(ok => setTimeout(ok, 5000)); } }
+    if (!d) { aviso(`Não encontrei a pasta deste projeto (com a pasta Assets) dentro de ${raiz.name} — os assets do brief não foram copiados.`, 'error'); return; }
     const doc = await lerBrief(conta, a.url);
-    if (!doc || !doc.slides) return;
-    const n = slideDaTarefa(doc.slides, a.url, t); if (!n) return;
-    const vids = (doc.slides[n - 1].videos || []).filter(v => v.caminho || (v.fonte === 'DRIVE' && !v.erro && v.id));
-    let feitos = 0;
-    for (const v of vids) {
-      const nome = v.caminho ? `${palavrasTitulo(t.nome) || 'brief'}_slide${n}_${v.nome}` : (v.nome || 'video.mp4');
-      try { await d.footage.getFileHandle(nome); continue; } catch (e) { /* ainda não está lá */ }
-      const fh = await d.footage.getFileHandle(nome, { create: true });
-      if (v.caminho) { const b = await doc.dados(v.caminho); const w = await fh.createWritable(); await w.write(b); await w.close(); }
-      else await guardarDoDrive(conta, { ...v, nome }, null, fh);
+    if (!doc || !doc.slides) { aviso('Não consegui ler os slides do brief.', 'error'); return; }
+    const n = slideDaTarefa(doc.slides, a.url, t);
+    if (!n) { aviso('Não sei qual é o slide desta tarefa: abre o brief e marca-o com ★ — depois carrega outra vez em «Abrir pasta».', 'error'); return; }
+    const sl = doc.slides[n - 1];
+    const vids = (sl.videos || []).filter(v => v.caminho || (v.fonte === 'DRIVE' && !v.erro && v.id));
+    const imgs = (sl.imagens || []).filter(x => x.caminho && doc.dados);
+    if (!vids.length && !imgs.length) { aviso(`O slide ${n} do brief não tem vídeos nem imagens para copiar.`); return; }
+    const pre = palavrasTitulo(t.nome) || 'brief';
+    let feitos = 0, ja = 0;
+    for (const x of [...vids, ...imgs]) {
+      const nome = x.caminho ? `${pre}_slide${n}_${x.nome}` : (x.nome || 'video.mp4');
+      try { await d.refs.getFileHandle(nome); ja++; continue; } catch (e) { /* ainda não está lá */ }
+      const fh = await d.refs.getFileHandle(nome, { create: true });
+      if (x.caminho) { const bl = await doc.dados(x.caminho); const w = await fh.createWritable(); await w.write(bl); await w.close(); }
+      else await guardarDoDrive(conta, { ...x, nome }, null, fh);
       feitos++;
     }
-    if (feitos && showToast) showToast(`Copiei ${feitos === 1 ? 'o vídeo' : `${feitos} vídeos`} do brief para ${d.projeto}\\Assets\\Footage.`, 'success');
-  } catch (e) { /* sem acesso: dá para fazer à mão na vista do brief */ }
+    const oque = (k, ex) => `${k} ${k === 1 ? 'ficheiro' : 'ficheiros'}${ex}`;
+    if (feitos) aviso(`Copiei ${oque(feitos, '')} do slide ${n} do brief para ${d.projeto}\\Assets\\Refs.`, 'success');
+    else if (ja) aviso(`Os assets do slide ${n} do brief já estavam em ${d.projeto}\\Assets\\Refs.`);
+  } catch (e) { aviso(`Não consegui copiar os assets do brief: ${(e && e.message) || e}`, 'error'); }
   finally { BRIEF_A_COPIAR.delete(t.id); }
 };
 const VideoDoPptx = ({ blob, nome }) => {
@@ -2001,12 +2022,12 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
       .catch(async e => { try { const b = await fazer; guardarBlobComo(b, `frames_${(v.nome || 'video').replace(/\.[^.]+$/, '')}.png`); setFramesK(x => ({ ...x, [k]: 'ok-ficheiro' })); } catch (e2) { setFramesK(x => ({ ...x, [k]: `erro:${e2.message || e.message}` })); } });
   };
   const blobDoPptx = async v => { if (blobV[v.caminho]) return blobV[v.caminho]; const b = await doc.dados(v.caminho); setBlobV(x => ({ ...x, [v.caminho]: b })); return b; };
-  // Para onde vão os vídeos: a Assets\Footage do projeto (se a app souber qual é), senão escolhes tu
+  // Para onde vão os vídeos: a Assets\Refs do projeto (se a app souber qual é), senão escolhes tu
   const [destino, setDestino] = useState(null); // null (por ver) | { projeto, footage } | 'nenhum'
   const verDestino = async pedir => {
     if (destino && destino !== 'nenhum') return destino;
     if (destino === 'nenhum' && !pedir) return null;
-    try { const d = await pastaDoProjetoDaTarefa(tarefa, pedir); setDestino(d && d.footage ? d : 'nenhum'); return d && d.footage ? d : null; } catch (e) { setDestino('nenhum'); return null; }
+    try { const d = await pastaDoProjetoDaTarefa(tarefa, pedir); setDestino(d && d.refs ? d : 'nenhum'); return d && d.refs ? d : null; } catch (e) { setDestino('nenhum'); return null; }
   };
   useEffect(() => { if (aba === 'videos' && !destino) verDestino(false); }, [aba]); // eslint-disable-line react-hooks/exhaustive-deps
   const descarregar = async (v, ondeEscolho) => {
@@ -2016,12 +2037,12 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
       const nome = v.caminho ? `${(tarefa && palavrasTitulo(tarefa.nome)) || 'brief'}_slide${v.slide}_${v.nome}` : (v.nome || 'video.mp4');
       const d = ondeEscolho ? null : await verDestino(true);
       let ok, fh = null;
-      if (d && d.footage) { fh = await d.footage.getFileHandle(await nomeLivre(d.footage, nome), { create: true }); }
+      if (d && d.refs) { fh = await d.refs.getFileHandle(await nomeLivre(d.refs, nome), { create: true }); }
       if (v.caminho) {
         const blob = await blobDoPptx(v);
         if (fh) { const w = await fh.createWritable(); await w.write(blob); await w.close(); ok = true; } else ok = await guardarBlob(blob, nome);
       } else ok = await guardarDoDrive(conta, { ...v, nome }, x => setProg(p => ({ ...p, [k]: x })), fh);
-      setProg(p => ({ ...p, [k]: ok ? (fh ? `ok:${d.projeto}\\Assets\\Footage\\${fh.name}` : 'ok') : undefined }));
+      setProg(p => ({ ...p, [k]: ok ? (fh ? `ok:${d.projeto}\\Assets\\Refs\\${fh.name}` : 'ok') : undefined }));
     } catch (e) { setProg(p => ({ ...p, [k]: `erro:${e.message}` })); }
   };
   const descarregarFicheiro = async () => {
@@ -2135,7 +2156,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                           </div>
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <>
                             <button type="button" onClick={async () => { if (verV === k) { setVerV(null); return; } if (v.caminho) await blobDoPptx(v); setVerV(k); }} className={btn}>{verV === k ? 'Fechar' : '▶ Ver'}</button>
-                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Footage` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Footage' : 'Descarregar'}</button>
+                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Refs` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Refs' : 'Descarregar'}</button>
                             {destino && destino !== 'nenhum' && <button type="button" onClick={() => descarregar(v, true)} disabled={typeof prog[k] === 'number'} className="text-[11px] text-white/60 hover:text-white underline-offset-2 hover:underline">noutro sítio…</button>}
                           </>}
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <button type="button" onClick={() => copiarFrames(v, k)} disabled={framesK[k] === 'a fazer'} className={btn} title="Copia uma imagem com 8 frames do vídeo (com os tempos), para colares no chat do Claude">{framesK[k] === 'a fazer' ? 'A tirar frames…' : framesK[k] === 'ok' ? '✓ Frames copiados' : framesK[k] === 'ok-ficheiro' ? '✓ Frames descarregados' : 'Frames → Claude'}</button>}
@@ -2147,7 +2168,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                       </div>
                     );
                   })}
-                  <p className="text-[11px] text-white/50">{destino && destino !== 'nenhum' ? `Os vídeos vão para ${destino.projeto}\\Assets\\Footage (o nome nunca substitui um ficheiro que já lá esteja).` : 'Ao descarregar escolhes a pasta. Para irem direto para a Assets\\Footage do projeto, a app precisa de saber onde estão os teus projetos (escolhe-a uma vez no painel do Drive › «Escolher a pasta dos projetos») e a tarefa tem de ter o conceito preenchido.'}</p>
+                  <p className="text-[11px] text-white/50">{destino && destino !== 'nenhum' ? `Os vídeos vão para ${destino.projeto}\\Assets\\Refs (o nome nunca substitui um ficheiro que já lá esteja).` : 'Ao descarregar escolhes a pasta. Para irem direto para a Assets\\Refs do projeto, a app precisa de saber onde estão os teus projetos (escolhe-a uma vez no painel do Drive › «Encontrar os exports sozinho») e a tarefa tem de ter o conceito preenchido.'}</p>
                 </div>
               )
             )}
@@ -2307,8 +2328,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               const neutro = claro ? 'border-slate-200 text-slate-600 hover:bg-slate-50' : 'border-slate-700 text-slate-300 hover:bg-white/5';
               return (<>
                 {t.pastaPC
-                  ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaFootage(t, showToast)} className={`${btnTopo} ${neutro}`} title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)"><IcoT n="pasta" className="w-3.5 h-3.5" />Abrir pasta</a>
-                  : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaFootage(t, showToast); }} className={`${btnTopo} ${neutro}`} title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}><IcoT n="pasta" className="w-3.5 h-3.5" />Criar pastas e projeto</a>}
+                  ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaRefs(t, showToast)} className={`${btnTopo} ${neutro}`} title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)"><IcoT n="pasta" className="w-3.5 h-3.5" />Abrir pasta</a>
+                  : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaRefs(t, showToast); }} className={`${btnTopo} ${neutro}`} title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}><IcoT n="pasta" className="w-3.5 h-3.5" />Criar pastas e projeto</a>}
                 <a href={linkAEAbrir(trab, t, clientes)} className={`${btnTopo} ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>
               </>);
             })()}
@@ -2931,7 +2952,7 @@ const linkAE = (trab, t, clientes) => {
 const exportDaTarefa = t => { const vs = versoesDrive(t.drive).slice().sort((x, y) => String(y.em || '').localeCompare(String(x.em || ''))); const e = vs.map(d => (d.enviados || [])[0]).find(Boolean); return e ? e.nome : ''; };
 const linkAERenomear = (trab, t, clientes, novo, ficheiro) => { const f = ficheiro || exportDaTarefa(t); return linkAE(trab, t, clientes).replace('aeproj://abrir/?', 'aeproj://renomear/?') + `&novo=${encodeURIComponent(novo)}${f ? `&ficheiro=${encodeURIComponent(f)}` : ''}`; };
 // "Criar pastas no PC": o lançador cria a pasta do projeto (cliente › jogo › ano › Videos) com a tua estrutura e fixa-a no Acesso rápido
-const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Images', 'Projects/AE', 'Projects/PRE'];
+const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Images', 'Assets/Refs', 'Projects/AE', 'Projects/PRE'];
 // Pastas dentro do projeto do After Effects (painel do projeto), criado na versão mais recente que tiveres instalada
 const ESTRUTURA_AE = ['00.MASTERCOMPS', '01.PRECOMPS', '02.ASSETS/AUDIO/MUSIC', '02.ASSETS/AUDIO/SFX', '02.ASSETS/AUDIO/VO', '02.ASSETS/FOOTAGE', '02.ASSETS/IMAGES', '02.ASSETS/PSD+AI', '03.AE'];
 const linkAECriar = (trab, t, clientes) => {
