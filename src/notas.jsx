@@ -175,6 +175,7 @@ const IC = {
   link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
   imagem: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>', arroba: '<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.4 6.8"/>',
   colunas: '<rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>',
+  micro: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   linha: '<path d="M4 12h16"/>', limpar: '<path d="M6 19h8M10 5h8M14 5l-4 14M4 4l16 16"/>', desfazer: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', refazer: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
   editar: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/>', mover: '<path d="M5 12h14M13 6l6 6-6 6"/>', copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   seta: '<path d="M9 6l6 6-6 6"/>', pessoas: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.2a5 5 0 0 1 5.5 5.3"/>', tag: '<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.25"/>',
@@ -445,6 +446,79 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         .catch(() => { const img = ref.current && ref.current.querySelector(`img[data-up="${id}"]`); if (img) img.remove(); avisar(); if (showToast) showToast('Não consegui guardar o ficheiro: falta ligar o Storage na Firebase.', 'error'); });
     });
   };
+  // ── Ditado por voz (Chrome / Edge / Android): o texto entra onde está o cursor ──
+  // Comandos: "vírgula", "ponto final", "ponto de interrogação", "dois pontos", "nova linha"… (em inglês: "comma", "full stop", "new line"…)
+  const [ditar, setDitar] = useState(null); // { lingua, provisorio }
+  const recRef = useRef(null);
+  const ditarRef = useRef(false);
+  const ultimoDitado = useRef(0);
+  const SR = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const pontuar = (txt, pt) => {
+    let s = ' ' + String(txt || '') + ' ';
+    const regras = pt
+      ? [[/\s+ponto e v[íi]rgula(?=\s)/gi, ';'], [/\s+v[íi]rgula(?=\s)/gi, ','], [/\s+ponto final(?=\s)/gi, '.'], [/\s+ponto de interroga[çc][ãa]o(?=\s)/gi, '?'], [/\s+ponto de exclama[çc][ãa]o(?=\s)/gi, '!'], [/\s+dois pontos(?=\s)/gi, ':'], [/\s+reticências(?=\s)/gi, '…']]
+      : [[/\s+semicolon(?=\s)/gi, ';'], [/\s+comma(?=\s)/gi, ','], [/\s+(?:full stop|period)(?=\s)/gi, '.'], [/\s+question mark(?=\s)/gi, '?'], [/\s+exclamation (?:mark|point)(?=\s)/gi, '!'], [/\s+colon(?=\s)/gi, ':']];
+    regras.forEach(([re, sinal]) => { s = s.replace(re, sinal); });
+    // Depois de . ? ! a palavra seguinte começa com maiúscula
+    return s.replace(/([.?!…])\s+(\p{L})/gu, (m, a, b) => `${a} ${b.toUpperCase()}`).replace(/\s+/g, ' ').trim();
+  };
+  const antesDoCursor = () => {
+    const s = window.getSelection(); const el = ref.current;
+    if (!s || !s.rangeCount || !el) return '';
+    const r = s.getRangeAt(0); let n = r.startContainer; if (n.nodeType === 3) n = n.parentNode;
+    const blocoEl = n && n.closest ? n.closest('p,div,li,h1,h2,h3,blockquote') : null;
+    const b = blocoEl && el.contains(blocoEl) ? blocoEl : el;
+    try { const x = document.createRange(); x.setStart(b, 0); x.setEnd(r.startContainer, r.startOffset); return x.toString().slice(-6); } catch (e) { return ''; }
+  };
+  const inserirDitado = (txt, lingua) => {
+    const pt = String(lingua).startsWith('pt');
+    prep();
+    const partes = String(txt || '').split(pt ? /\s*\b(?:nova linha|novo par[áa]grafo)\b\s*/i : /\s*\b(?:new line|new paragraph)\b\s*/i);
+    partes.forEach((p, i) => {
+      if (i > 0) { try { document.execCommand('insertParagraph'); } catch (e) { /* */ } }
+      let s = pontuar(p, pt);
+      if (!s) return;
+      const antes = antesDoCursor();
+      if (!antes.trim() || /[.!?…]\s*$/.test(antes)) s = s.charAt(0).toUpperCase() + s.slice(1);
+      if (antes && !/[\s ]$/.test(antes) && !/^[,.;:!?…]/.test(s)) s = ' ' + s;
+      document.execCommand('insertText', false, s);
+    });
+    avisar();
+  };
+  const pararDitado = () => { ditarRef.current = false; setDitar(null); const r = recRef.current; recRef.current = null; try { if (r) r.stop(); } catch (e) { /* já parou */ } };
+  const comecarDitado = lingua => {
+    if (!SR) { if (showToast) showToast('O ditado por voz funciona no Chrome e no Edge. No telemóvel também podes usar o microfone do teclado.', 'info'); return; }
+    if (protegida) { if (showToast) showToast('Nas páginas protegidas o ditado fica desligado: o áudio passa pelos servidores da Google.', 'info'); return; }
+    if (recRef.current) { try { recRef.current.onend = null; recRef.current.abort(); } catch (e) { /* */ } }
+    const rec = new SR();
+    rec.lang = lingua; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = ev => {
+      let prov = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) { ultimoDitado.current = Date.now(); inserirDitado(r[0].transcript, lingua); } else prov += r[0].transcript;
+      }
+      setDitar(d => (d ? { ...d, provisorio: prov } : d));
+    };
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { if (showToast) showToast('O browser não deixou usar o microfone. Dá licença ao microfone a este site (cadeado ao lado do endereço).', 'error'); pararDitado(); }
+      else if (ev.error === 'network') { if (showToast) showToast('O ditado precisa de internet.', 'error'); pararDitado(); }
+      else if (ev.error === 'audio-capture') { if (showToast) showToast('Não encontrei nenhum microfone.', 'error'); pararDitado(); }
+    };
+    // O Chrome pára sozinho depois de uns segundos de silêncio: volta a ouvir até carregares em Parar (ou 1 minuto calado)
+    rec.onend = () => {
+      if (!ditarRef.current || recRef.current !== rec) return;
+      if (Date.now() - ultimoDitado.current > 60000) { pararDitado(); if (showToast) showToast('Parei o ditado (1 minuto sem falares).', 'info'); return; }
+      try { rec.start(); } catch (e) { pararDitado(); }
+    };
+    recRef.current = rec; ditarRef.current = true; ultimoDitado.current = Date.now();
+    try { localStorage.setItem('notas-ditado-lingua', lingua); } catch (e) { /* sem armazenamento */ }
+    setDitar({ lingua, provisorio: '' });
+    prep();
+    try { rec.start(); } catch (e) { pararDitado(); }
+  };
+  const linguaDitado = () => { try { return localStorage.getItem('notas-ditado-lingua') || 'pt-PT'; } catch (e) { return 'pt-PT'; } };
+  useEffect(() => () => { ditarRef.current = false; const r = recRef.current; recRef.current = null; try { if (r) r.abort(); } catch (e) { /* */ } }, []);
   // @menções
   const opcoes = useMemo(() => {
     if (!mencao) return [];
@@ -556,6 +630,8 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           <BotaoFerr claro={claro} ic="desfazer" titulo="Desfazer" fn={() => cmd('undo')} />
           <BotaoFerr claro={claro} ic="refazer" titulo="Refazer" fn={() => cmd('redo')} />
           {sep}
+          <BotaoFerr claro={claro} ic="micro" titulo={ditar ? 'Parar o ditado' : 'Ditar por voz'} on={!!ditar} fn={() => (ditar ? pararDitado() : comecarDitado(linguaDitado()))} />
+          {sep}
           <BotaoFerr claro={claro} ic="H1" titulo="Título" on={estados.h1} fn={() => bloco('h1')} />
           <BotaoFerr claro={claro} ic="H2" titulo="Subtítulo" on={estados.h2} fn={() => bloco('h2')} />
           <BotaoFerr claro={claro} ic="negrito" titulo="Negrito (Ctrl+B)" on={estados.b} fn={() => cmd('bold')} />
@@ -577,6 +653,20 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           <BotaoFerr claro={claro} ic="limpar" titulo="Limpar formatação" fn={() => { cmd('removeFormat'); cmd('formatBlock', 'p'); }} />
           <input ref={fichRef} type="file" multiple className="hidden" onChange={e => { inserirFicheiros(e.target.files); e.target.value = ''; }} />
         </div>
+        {ditar && (
+          <div className={`mt-1.5 mb-0.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${claro ? 'bg-red-50 text-slate-700 ring-1 ring-red-200' : 'bg-red-500/10 text-slate-200 ring-1 ring-red-500/25'}`} role="status" aria-live="polite">
+            <span className="relative flex w-2.5 h-2.5 shrink-0" aria-hidden="true"><span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" /><span className="relative w-2.5 h-2.5 rounded-full bg-red-500" /></span>
+            <span className="shrink-0 font-medium">A ouvir…</span>
+            <span className={`flex-1 min-w-0 truncate italic ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
+            <span className={`shrink-0 inline-flex rounded-md overflow-hidden ring-1 ${claro ? 'ring-slate-300' : 'ring-slate-600'}`} role="group" aria-label="Língua do ditado">
+              {[['pt-PT', 'PT'], ['en-US', 'EN']].map(([l, txt]) => (
+                <button key={l} type="button" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={() => { if (ditar.lingua !== l) comecarDitado(l); }} aria-pressed={ditar.lingua === l}
+                  className={`px-1.5 py-0.5 text-[11px] font-semibold ${ditar.lingua === l ? 'bg-blue-600 text-white' : claro ? 'bg-white text-slate-600 hover:bg-slate-100' : 'bg-slate-800 text-slate-300 hover:bg-white/10'}`}>{txt}</button>
+              ))}
+            </span>
+            <button type="button" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={pararDitado} className="shrink-0 px-2 py-0.5 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold">Parar</button>
+          </div>
+        )}
       </div>
       <div ref={ref} className="nota-ed pt-4" contentEditable suppressContentEditableWarning data-ph={placeholder || 'Escreve aqui… usa @ para marcar um cliente, jogo ou tarefa'}
         spellCheck autoCorrect="on" autoCapitalize="sentences"
