@@ -1628,7 +1628,7 @@ const lerZip = async blob => {
 const xmlTexto = s => String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d)).replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&amp;/g, '&');
 const paragrafosXml = xml => String(xml || '').split(/<\/a:p>/).map(p => (p.match(/<a:t>([^<]*)<\/a:t>|<a:t\/>/g) || []).map(t => xmlTexto(t.replace(/<\/?a:t\/?>/g, ''))).join('')).map(x => x.trim()).filter(Boolean).join('\n');
 const relsXml = xml => { const out = {}; (String(xml || '').match(/<Relationship\b[^>]*>/g) || []).forEach(r => { const g = k => (new RegExp(`${k}="([^"]*)"`).exec(r) || [])[1] || ''; out[g('Id')] = { tipo: g('Type'), alvo: g('Target'), externo: g('TargetMode') === 'External' }; }); return out; };
-const juntarCaminho = (base, rel) => { const p = base.split('/').slice(0, -1); rel.split('/').forEach(s => { if (s === '..') p.pop(); else if (s && s !== '.') p.push(s); }); return p.join('/'); };
+const juntarCaminho = (base, rel) => { const p = String(rel || '').startsWith('/') ? [] : base.split('/').slice(0, -1); rel.split('/').forEach(s => { if (s === '..') p.pop(); else if (s && s !== '.') p.push(s); }); return p.join('/'); };
 const lerPptx = async blob => {
   const z = await lerZip(blob);
   const pres = await z.texto('ppt/presentation.xml');
@@ -1641,8 +1641,16 @@ const lerPptx = async blob => {
     const xml = await z.texto(cam);
     const rels = relsXml(await z.texto(cam.replace(/slides\/(slide\d+\.xml)$/, 'slides/_rels/$1.rels')));
     const videos = [], vistos = new Set();
+    const EXT_VIDEO = /\.(mp4|m4v|mov|webm|avi|wmv|mkv|mpe?g)$/i;
     Object.values(rels).forEach(r => {
-      if (!/\/(video|media)$/.test(r.tipo)) return;
+      // ligações ao Drive / YouTube (o Google guarda assim os vídeos metidos pelo Slides num .pptx)
+      const drv = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]{15,})/.exec(r.alvo) || /docs\.google\.com\/[^"]*?[?&]id=([\w-]{15,})/.exec(r.alvo);
+      if (drv && !vistos.has(drv[1])) { vistos.add(drv[1]); videos.push({ id: drv[1], fonte: 'DRIVE', ligacao: true }); return; }
+      const yt = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/.exec(r.alvo);
+      if (yt && !vistos.has(yt[1])) { vistos.add(yt[1]); videos.push({ id: yt[1], fonte: 'YOUTUBE' }); return; }
+      const alvoInt = !r.externo && juntarCaminho(cam, r.alvo);
+      const ehVideo = /\/(video|media)$/.test(r.tipo) || (alvoInt && EXT_VIDEO.test(alvoInt));
+      if (!ehVideo) return;
       if (r.externo) { videos.push({ nome: r.alvo.split('/').pop(), externo: r.alvo }); return; }
       const alvo = juntarCaminho(cam, r.alvo);
       if (vistos.has(alvo) || !z.entradas[alvo]) return;
@@ -1652,9 +1660,15 @@ const lerPptx = async blob => {
     let notas = '';
     const rNotas = Object.values(rels).find(r => /\/notesSlide$/.test(r.tipo));
     if (rNotas) notas = paragrafosXml((await z.texto(juntarCaminho(cam, rNotas.alvo))).replace(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*?type="sldNum"[\s\S]*?<\/p:sp>/g, ''));
+    // ligações ao Drive escritas no próprio slide (fora das relações)
+    (xml.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)[\w-]{15,}/g) || []).forEach(u => { const id = /([\w-]{15,})$/.exec(u)[1]; if (!vistos.has(id)) { vistos.add(id); videos.push({ id, fonte: 'DRIVE', ligacao: true }); } });
     slides.push({ n: i + 1, texto: paragrafosXml(xml), notas, videos });
   }
-  return { slides, dados: z.dados };
+  // vídeos que estão no ficheiro mas não consegui ligar a nenhum slide: aparecem na mesma
+  const usados = new Set([].concat(...slides.map(s => s.videos.map(v => v.caminho).filter(Boolean))));
+  const soltos = Object.keys(z.entradas).filter(k => /^ppt\/media\//.test(k) && /\.(mp4|m4v|mov|webm|avi|wmv|mkv|mpe?g)$/i.test(k) && !usados.has(k)).map(k => ({ caminho: k, nome: k.split('/').pop(), tamanho: z.entradas[k].tamU, solto: true }));
+  const media = Object.keys(z.entradas).filter(k => /^ppt\/media\//.test(k)).map(k => k.split('/').pop());
+  return { slides, dados: z.dados, soltos, media };
 };
 // ── A apresentação/documento do brief, já lido: slides (texto + vídeos) ou só texto ──
 const BRIEFS_LIDOS = new Map(); // fica em memória enquanto a app está aberta (o último .pptx não volta a ser descarregado)
@@ -1681,7 +1695,13 @@ const lerBrief = async (conta, url, onProg) => {
   if (meta.mimeType === MIME_PPTX || /\.pptx$/i.test(meta.name || '')) {
     const blob = await descarregarDrive(conta, id, cab, onProg);
     const p = await lerPptx(blob);
-    res = { tipo: 'pptx', nome: meta.name, slides: p.slides, dados: p.dados };
+    const ligados = [].concat(...p.slides.map(s => s.videos.filter(v => v.ligacao)));
+    await Promise.all(ligados.map(async v => {
+      try { const f = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(v.id)}?fields=name,size,mimeType,thumbnailLink&supportsAllDrives=true`); Object.assign(v, { nome: f.name, tamanho: Number(f.size) || 0, mini: f.thumbnailLink || '', naoVideo: !/^video\//.test(f.mimeType || '') }); }
+      catch (e) { v.erro = e.message; }
+    }));
+    p.slides.forEach(s => { s.videos = s.videos.filter(v => !v.naoVideo); });
+    res = { tipo: 'pptx', nome: meta.name, slides: p.slides, dados: p.dados, soltos: p.soltos, media: p.media };
   } else if (meta.mimeType === MIME_GSLIDES) {
     try {
       const j = await pedirGoogle(conta, `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(id)}?fields=${encodeURIComponent('slides(objectId,pageElements,slideProperties(notesPage(pageElements)))')}`, false, cab);
@@ -1828,8 +1848,8 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
   const estadoProg = x => (x == null ? null : x === 'ok' ? <span className="text-emerald-400">✓ Guardado</span> : String(x).startsWith('erro:') ? <span className="text-red-300">{String(x).slice(5)}</span> : <span className="tabular-nums">{Math.round(x * 100)}%</span>);
   const btn = 'px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25 text-white';
   const idF = googleId(a.url);
-  const todosVideos = slides ? [].concat(...slides.map(s => (s.videos || []).map(v => ({ ...v, slide: s.n })))) : [];
-  const videosOrd = todosVideos.slice().sort((x, y) => (y.slide === nTarefa) - (x.slide === nTarefa) || x.slide - y.slide);
+  const todosVideos = slides ? [].concat(...slides.map(s => (s.videos || []).map(v => ({ ...v, slide: s.n }))), ((doc && doc.soltos) || []).map(v => ({ ...v, slide: 0 }))) : [];
+  const videosOrd = todosVideos.slice().sort((x, y) => (y.slide === nTarefa) - (x.slide === nTarefa) || (x.slide || 999) - (y.slide || 999));
   const textoTudo = slides ? slides.map(s => `── Slide ${s.n} ──\n${s.texto}${s.notas ? `\n\nNotas: ${s.notas}` : ''}`).join('\n\n') : (doc && doc.texto) || '';
   const erroBox = d => (
     <div className="max-w-xl space-y-2 text-sm">
@@ -1883,7 +1903,12 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
               </div>
             )}
             {!aCarregar && doc && !doc.erro && aba === 'videos' && (
-              doc.avisoApi ? erroBox(doc.avisoApi) : !videosOrd.length ? <p className="text-sm text-white/70">Não há vídeos metidos nestes slides.</p> : (
+              doc.avisoApi ? erroBox(doc.avisoApi) : !videosOrd.length ? (
+                <div className="space-y-2 text-sm text-white/70">
+                  <p>Não encontrei vídeos dentro desta apresentação.</p>
+                  {doc.tipo === 'pptx' && <p className="text-[11px] text-white/45">Ficheiros de imagem/vídeo dentro do .pptx: {(doc.media || []).length ? doc.media.join(', ') : 'nenhum'}. {slideT ? `Ligações no slide ${slideT.n}: ${(slideT.videos || []).length}.` : ''} (Manda-me isto se o vídeo estiver lá e eu não o encontrar.)</p>}
+                </div>
+              ) : (
                 <div className="max-w-3xl mx-auto space-y-2">
                   {videosOrd.map(v => {
                     const k = v.caminho || v.id || v.externo;
@@ -1894,7 +1919,7 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
                           {v.mini ? <img src={v.mini} alt="" referrerPolicy="no-referrer" className="w-20 h-12 object-cover rounded-md bg-black" /> : <span className="w-20 h-12 rounded-md bg-black/40 inline-flex items-center justify-center"><IcoA n="video" className="w-5 h-5" /></span>}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{v.nome || (v.fonte === 'YOUTUBE' ? 'Vídeo do YouTube' : 'Vídeo')}</p>
-                            <p className={`text-xs ${daTarefa ? 'text-amber-300' : 'text-white/60'}`}>Slide {v.slide}{daTarefa ? ' · ★ desta tarefa' : ''}{v.tamanho ? ` · ${tamanhoTxt(v.tamanho)}` : ''}{v.erro ? ` · ${v.erro}` : ''}{v.externo ? ' · ligado a um ficheiro fora da apresentação' : ''}</p>
+                            <p className={`text-xs ${daTarefa ? 'text-amber-300' : 'text-white/60'}`}>{v.slide ? `Slide ${v.slide}` : 'Não sei em que slide está'}{daTarefa ? ' · ★ desta tarefa' : ''}{v.tamanho ? ` · ${tamanhoTxt(v.tamanho)}` : ''}{v.erro ? ` · ${v.erro}` : ''}{v.externo ? ' · ligado a um ficheiro fora da apresentação' : ''}</p>
                           </div>
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <>
                             <button type="button" onClick={async () => { if (verV === k) { setVerV(null); return; } if (v.caminho) await blobDoPptx(v); setVerV(k); }} className={btn}>{verV === k ? 'Fechar' : '▶ Ver'}</button>
