@@ -2028,7 +2028,11 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
  const [menuAberto, setMenuAberto] = useState(null);
  const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
  const menuRef = useRef(null);
+ const tFecharMenu = useRef(null);
+ const fecharMenuDepois = () => { clearTimeout(tFecharMenu.current); tFecharMenu.current = setTimeout(() => setMenuAberto(null), 250); };
+ const manterMenu = () => clearTimeout(tFecharMenu.current);
  const abrirMenu = (id, el) => {
+   clearTimeout(tFecharMenu.current);
    const r = el.getBoundingClientRect();
    setMenuPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 210)), top: r.bottom + 6 });
    setMenuAberto(id);
@@ -2060,6 +2064,7 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
             <button key={t.id} data-grupo-menu aria-label={t.label}
               aria-haspopup="menu" aria-expanded={menuAberto === t.id}
               onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
+              onMouseLeave={fecharMenuDepois}
               onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
               className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
                 isSubActive
@@ -2083,7 +2088,7 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
         const g = tabs.find(t => t.id === menuAberto);
         if (!g || !g.submenu) return null;
         return (
-          <div ref={menuRef} role="menu" className="fixed z-50 animate-fadeIn" style={{ left: menuPos.left, top: menuPos.top }}>
+          <div ref={menuRef} role="menu" className="fixed z-50 animate-fadeIn" style={{ left: menuPos.left, top: menuPos.top - 8, paddingTop: 8 }} onMouseEnter={manterMenu} onMouseLeave={fecharMenuDepois}>
             <div className={`${theme === 'light' ? 'bg-white border-slate-200 shadow-lg' : 'bg-slate-800 border-slate-700 shadow-xl'} border rounded-xl py-1 min-w-[180px]`}>
               {g.submenu.map(sub => (
                 <button key={sub.id} role="menuitem"
