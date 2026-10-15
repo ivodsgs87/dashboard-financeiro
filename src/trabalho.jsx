@@ -5010,6 +5010,11 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
       </div>
     );
   };
+  // Mês/ano de um conceito: de quando foram entregues as versões (ex.: "Set 2026" ou "Set → Out 2026")
+  const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const mesCurto = k => { const [a, m] = String(k).split('-').map(Number); return a && m ? `${MES_CURTO[m - 1]} ${a}` : ''; };
+  const mesesDoConceito = (jogo, c) => { const ds = versoesDe(jogo, c).map(entregaDe).filter(Boolean).map(d => d.slice(0, 7)).sort(); return ds.length ? { de: ds[0], ate: ds[ds.length - 1] } : null; };
+  const etiquetaMeses = mc => (!mc ? '' : mc.de === mc.ate ? mesCurto(mc.de) : mc.de.slice(0, 4) === mc.ate.slice(0, 4) ? `${MES_CURTO[Number(mc.de.slice(5, 7)) - 1]} → ${mesCurto(mc.ate)}` : `${mesCurto(mc.de)} → ${mesCurto(mc.ate)}`);
   const cartaoConceito = (jogo, c) => {
     const kc = `${jogo.id}|${c.slug}`;
     const ab = aberto(c);
@@ -5030,7 +5035,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
           <button type="button" onClick={alternarC} aria-expanded={ab} className="flex-1 min-w-[200px] flex items-center gap-2 text-left py-0.5">
             <span className={`w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-lg ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}><svg width="12" height="12" viewBox="0 0 12 12" className={`transition-transform ${sub}`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
             <span className="min-w-0">
-              <span className={`block text-[15px] font-semibold truncate ${forte}`}>{c.nome}</span>
+              <span className="flex items-center gap-2 min-w-0"><span className={`text-[15px] font-semibold truncate ${forte}`}>{c.nome}</span>{(() => { const em = etiquetaMeses(mesesDoConceito(jogo, c)); return em ? <span className={`shrink-0 text-[10.5px] font-medium px-1.5 py-0.5 rounded-md ${claro ? 'bg-slate-100 text-slate-600' : 'bg-slate-700/70 text-slate-300'}`}>{em}</span> : null; })()}</span>
               <span className={`block text-xs truncate ${sub}`}>{l.length ? `${l.length} ${l.length === 1 ? 'versão' : 'versões'} · ` : ''}{ab ? (c.ultimo ? `última a ${dataCurta(c.ultimo)}` : '') : resumo}</span>
             </span>
           </button>
@@ -5158,7 +5163,32 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
                 <span className={`text-xs ${sub}`}>{[g.jogo.codigo, g.jogo.estudio, `${conceitosL.length} conceito${conceitosL.length === 1 ? '' : 's'}`, `${[...g.conceitos.values()].reduce((a, c) => a + c.versoes.length, 0)} versões na app`].filter(Boolean).join(' · ')}</span>
               </div>
             )}
-            {g && !/^entrega/.test(ordem) && conceitosL.map(c => cartaoConceito(g.jogo, c))}
+            {g && ordem === 'nome' && conceitosL.map(c => cartaoConceito(g.jogo, c))}
+            {g && ordem === 'recentes' && (() => {
+              // Conceitos agrupados pelo mês da última entrega: cada mês num cartão, com o que foi entregue nesse mês
+              const grupos = []; const emCurso = []; const semData = [];
+              conceitosL.forEach(c => {
+                const mc = mesesDoConceito(g.jogo, c);
+                if (!mc) { (c.tarefas.some(t => t.estado !== 'feito') ? emCurso : semData).push(c); return; }
+                let gr = grupos.find(x => x.k === mc.ate); if (!gr) { gr = { k: mc.ate, l: [] }; grupos.push(gr); }
+                gr.l.push(c);
+              });
+              grupos.sort((a, b) => b.k.localeCompare(a.k));
+              const entreguesNoMes = k => conceitosL.reduce((n, c) => n + versoesDe(g.jogo, c).filter(x => (entregaDe(x) || '').slice(0, 7) === k).length, 0);
+              const caixa = (chave, titulo, extra, l) => (
+                <div key={chave} className={`rounded-2xl p-2 sm:p-3 space-y-2 ${claro ? 'bg-slate-100/80 ring-1 ring-slate-200' : 'bg-slate-900/50 ring-1 ring-slate-700/50'}`}>
+                  <p className="px-1 flex flex-wrap items-baseline gap-x-2"><span className={`text-sm font-semibold ${forte}`}>{titulo}</span><span className={`text-xs ${sub}`}>{extra}</span></p>
+                  {l.map(c => cartaoConceito(g.jogo, c))}
+                </div>
+              );
+              return (
+                <>
+                  {emCurso.length > 0 && caixa('curso', 'Em curso', `${emCurso.length} ${emCurso.length === 1 ? 'conceito' : 'conceitos'} ainda por entregar`, emCurso)}
+                  {grupos.map(gr => { const nv = entreguesNoMes(gr.k); const [a, m] = gr.k.split('-').map(Number); return caixa(gr.k, `${MESES_NOMES[m - 1]} ${a}`, `${gr.l.length} ${gr.l.length === 1 ? 'conceito' : 'conceitos'} · ${nv} ${nv === 1 ? 'versão entregue' : 'versões entregues'}`, gr.l); })}
+                  {semData.length > 0 && caixa('sem', 'Sem data', `${semData.length} ${semData.length === 1 ? 'conceito' : 'conceitos'} (só no Drive ainda por ver, ou sem envio)`, semData)}
+                </>
+              );
+            })()}
             {g && /^entrega/.test(ordem) && (() => {
               // Todas as versões do jogo pela ordem em que foram entregues (agrupadas por mês); as que faltam entregar ficam em cima
               const antiga = ordem === 'entrega-antiga';
