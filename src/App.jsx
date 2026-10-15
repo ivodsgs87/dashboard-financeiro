@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
-import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData } from './firebase';
+import { signInWithGoogle, logOut, subscribeToAuth, getUserData, saveUserData, subscribeToUserData } from './firebase';
 
 // A app principal é grande, por isso vem num ficheiro à parte que começa a
 // descarregar logo aqui, ao mesmo tempo que o login e os dados da Firebase.
@@ -56,7 +56,8 @@ const MemoOrcamentoApp = React.memo(
     prev.user === next.user &&
     prev.initialData === next.initialData &&
     prev.onSaveData === next.onSaveData &&
-    prev.onLogout === next.onLogout
+    prev.onLogout === next.onLogout &&
+    prev.remoto === next.remoto
 );
 
 const App = () => {
@@ -65,6 +66,9 @@ const App = () => {
   const [userData, setUserData] = useState(undefined); // undefined = loading, null = sem dados
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const [erroCarregar, setErroCarregar] = useState(null); // não conseguiu ler os dados (ex.: sem internet) — nunca arranca com dados vazios
+  const [remoto, setRemoto] = useState(null); // dados mudados noutro dispositivo
+  const [tentativa, setTentativa] = useState(0);
   const dataLoadedRef = useRef(false);
   const userRef = useRef(null);
 
@@ -98,28 +102,41 @@ const App = () => {
       try {
         const data = await getUserData(user.uid);
         console.log('Dados carregados:', data ? 'sim' : 'não');
-        setUserData(data); // null se não existir, objeto se existir
+        setErroCarregar(null);
+        setUserData(data); // null só se o documento não existir (utilizador novo)
         setLastSync(data?.updatedAt || null);
       } catch (e) {
+        // Falhou a leitura (sem internet, servidor em baixo…): NÃO arranca como utilizador novo —
+        // isso gravava os valores vazios por cima dos teus dados. Mostra o erro e deixa tentar outra vez.
         console.error('Erro ao carregar dados:', e);
-        setUserData(null);
+        dataLoadedRef.current = false;
+        setErroCarregar(e);
       }
     };
     loadData();
-  }, [user]);
+  }, [user, tentativa]);
+
+  // Depois de carregar, ouve o documento: se outro dispositivo gravar, a app recebe os dados novos
+  const carregou = userData !== undefined;
+  useEffect(() => {
+    if (!user || !carregou) return undefined;
+    return subscribeToUserData(user.uid, d => setRemoto(d));
+  }, [user, carregou]);
 
   // Save data to Firebase - useCallback para evitar re-renders
-  const handleSaveData = useCallback(async (data) => {
+  const handleSaveData = useCallback(async (data, opcoes = {}) => {
     const currentUser = userRef.current;
     if (!currentUser) return;
     
     setSyncing(true);
     try {
-      await saveUserData(currentUser.uid, data);
-      setLastSync(new Date().toISOString());
+      const v = await saveUserData(currentUser.uid, data, opcoes);
+      setLastSync(v || new Date().toISOString());
       console.log('Dados salvos no Firebase');
     } catch (error) {
       console.error('Error saving data:', error);
+      setSyncing(false);
+      throw error; // a app tem de saber que não gravou (para tentar outra vez e avisar)
     }
     setSyncing(false);
   }, []); // Sem dependências - usa ref para user
@@ -160,6 +177,19 @@ const App = () => {
     );
   }
 
+  if (erroCarregar && userData === undefined) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div role="alert" className="max-w-md w-full text-center bg-slate-800/60 border border-slate-700 rounded-2xl p-6 text-slate-300">
+          <p className="text-lg font-semibold mb-1">Não consegui carregar os teus dados</p>
+          <p className="text-sm opacity-80 mb-5">Verifica a ligação à internet. Os teus dados estão seguros na cloud — a app só abre depois de os ler, para não gravar nada por cima.</p>
+          <button onClick={() => { setErroCarregar(null); setTentativa(x => x + 1); }} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white">Tentar outra vez</button>
+          <p className="mt-4 text-xs opacity-60 break-words">{String(erroCarregar?.message || erroCarregar)}</p>
+        </div>
+      </div>
+    );
+  }
+
   // Mostrar loading enquanto carrega dados do utilizador
   if (userData === undefined) {
     return <EcraCarregar texto="A carregar os teus dados..." />;
@@ -175,6 +205,7 @@ const App = () => {
         onLogout={logOut}
         syncing={syncing}
         lastSync={lastSync}
+        remoto={remoto}
       />
     </Suspense>
     </ProtecaoApp>
