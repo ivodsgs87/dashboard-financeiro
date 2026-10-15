@@ -80,6 +80,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     } catch (e) { /* sem URL */ }
     return 'resumo';
   });
+  const tabRef = useRef(tab); tabRef.current = tab;
+  // No Trabalho, a pesquisa (lupa / Ctrl+F) procura nas tarefas e nos criativos, não no resto da app
+  const abrirCriativos = () => { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'criativos' })); localStorage.setItem('criativos-foco', '1'); } catch (err) { /* */ } window.dispatchEvent(new Event('trab-criativos')); setTab('trabalho'); };
   // O calendário de projetos passou para dentro do Trabalho
   useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
   // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, seta ←, botão de recuar do rato e gesto de voltar do telemóvel).
@@ -337,6 +340,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       // Ctrl+F = Pesquisa
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
+        if (tabRef.current === 'trabalho') { abrirCriativos(); return; }
         setShowSearch(true);
       }
       // Ctrl+K = Procurar nos criativos (Trabalho › Criativos)
@@ -13244,7 +13248,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    const results = searchResults();
    
    return (
-     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 animate-backdropIn flex items-start justify-center pt-20" onMouseDown={e => { if (e.target === e.currentTarget) setShowSearch(false); }}>
+     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[90] animate-backdropIn flex items-start justify-center pt-20" onMouseDown={e => { if (e.target === e.currentTarget) setShowSearch(false); }}>
        <div className={`${modalBg} rounded-2xl animate-modalIn w-full max-w-2xl mx-4 shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
          <div className="p-4 border-b border-slate-700">
            <div className="flex items-center gap-3">
@@ -14011,7 +14015,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                     : <svg {...ic}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>}
                 </button>
                 {/* Pesquisa */}
-                <button onClick={() => setShowSearch(true)} className={btn(false)} title="Pesquisar (Ctrl+F)" aria-label="Pesquisar"><svg {...ic}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+                <button onClick={() => { if (tab === 'trabalho') abrirCriativos(); else setShowSearch(true); }} className={btn(false)} title={tab === 'trabalho' ? 'Procurar tarefas e criativos (Ctrl+K)' : 'Pesquisar (Ctrl+F)'} aria-label="Pesquisar"><svg {...ic}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
                 {/* Alertas */}
                 <button onClick={() => setShowAlerts(true)} className={btn(false, nAlertas > 0 ? (claro ? '!text-orange-600' : '!text-orange-400') : '')} title={nAlertas > 0 ? `${nAlertas} alerta${nAlertas === 1 ? '' : 's'}` : 'Alertas'} aria-label="Alertas">
                   <svg {...ic}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
