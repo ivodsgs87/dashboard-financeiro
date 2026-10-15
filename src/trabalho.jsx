@@ -1858,6 +1858,37 @@ const BlocoTextosAE = ({ slide, copiar, copiado }) => {
     </div>
   );
 };
+// Depois de criar (ou abrir) a pasta do projeto: copia sozinho o vídeo de referência do slide da tarefa para Assets\Footage.
+// Espera até 2 min que a pasta apareça; só usa acessos que já estejam dados (não abre janelas da Google nem do Windows).
+const BRIEF_A_COPIAR = new Set();
+const trazerBriefParaFootage = async (t, showToast) => {
+  if (!t || BRIEF_A_COPIAR.has(t.id) || typeof window === 'undefined' || !window.showDirectoryPicker) return;
+  const a = (t.anexos || []).find(x => tipoAnexo(x) === 'link' && tipoGoogle(x.url) === 'slides' && googleId(x.url));
+  if (!a) return;
+  const conta = contaDe(t.cid);
+  if (!(tokenGuardadoDe(conta) || ligadoSempre(conta || '_'))) return;
+  BRIEF_A_COPIAR.add(t.id);
+  try {
+    let d = null;
+    for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (!d || !d.footage) { d = null; await new Promise(ok => setTimeout(ok, 5000)); } }
+    if (!d) return;
+    const doc = await lerBrief(conta, a.url);
+    if (!doc || !doc.slides) return;
+    const n = slideDaTarefa(doc.slides, a.url, t); if (!n) return;
+    const vids = (doc.slides[n - 1].videos || []).filter(v => v.caminho || (v.fonte === 'DRIVE' && !v.erro && v.id));
+    let feitos = 0;
+    for (const v of vids) {
+      const nome = v.caminho ? `${palavrasTitulo(t.nome) || 'brief'}_slide${n}_${v.nome}` : (v.nome || 'video.mp4');
+      try { await d.footage.getFileHandle(nome); continue; } catch (e) { /* ainda não está lá */ }
+      const fh = await d.footage.getFileHandle(nome, { create: true });
+      if (v.caminho) { const b = await doc.dados(v.caminho); const w = await fh.createWritable(); await w.write(b); await w.close(); }
+      else await guardarDoDrive(conta, { ...v, nome }, null, fh);
+      feitos++;
+    }
+    if (feitos && showToast) showToast(`Copiei ${feitos === 1 ? 'o vídeo' : `${feitos} vídeos`} do brief para ${d.projeto}\\Assets\\Footage.`, 'success');
+  } catch (e) { /* sem acesso: dá para fazer à mão na vista do brief */ }
+  finally { BRIEF_A_COPIAR.delete(t.id); }
+};
 const VideoDoPptx = ({ blob, nome }) => {
   const [url, setUrl] = useState(null);
   useEffect(() => { const tipo = /\.webm$/i.test(nome) ? 'video/webm' : /\.mov$/i.test(nome) ? 'video/quicktime' : 'video/mp4'; const u = URL.createObjectURL(new Blob([blob], { type: tipo })); setUrl(u); return () => URL.revokeObjectURL(u); }, [blob, nome]);
@@ -2241,8 +2272,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
             {t.pastaPC
-              ? <a href={linkAEPasta(trab, t, clientes)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)">Abrir pasta</a>
-              : <a href={linkAECriar(trab, t, clientes)} onClick={() => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } })))} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas e projeto</a>}
+              ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaFootage(t, showToast)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)">Abrir pasta</a>
+              : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaFootage(t, showToast); }} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas e projeto</a>}
             {<a href={linkAEAbrir(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
             <a href={`${linkAEAbrir(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
             {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>Mudar nome</a> : null; })()}
