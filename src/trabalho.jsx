@@ -2583,7 +2583,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             {[['Criada', 'criada', t.criada], ['Começada', 'iniciada', t.iniciada], ['Review', 'review', t.review], ['Terminada', 'feita', t.feita]].filter(([, , d]) => d).map(([k, campo, d]) => (
               <label key={k} className="inline-flex items-center gap-1 cursor-pointer" title={campo === 'review' || campo === 'feita' ? 'Carrega para mudar (o dia da entrega conta nas receitas desse mês)' : 'Carrega para mudar'}>
                 {k}
-                <input type="datetime-local" defaultValue={paraInputLocal(d)} key={campo + d} onBlur={e => { if (e.target.value) { const iso = new Date(e.target.value).toISOString(); if (iso !== d) set({ [campo]: iso }); } }}
+                <input type="datetime-local" defaultValue={paraInputLocal(d)} key={campo + d} style={{ colorScheme: claro ? 'light' : 'dark' }} onBlur={e => { if (e.target.value) { const iso = new Date(e.target.value).toISOString(); if (iso !== d) set({ [campo]: iso }); } }}
                   className={`tabular-nums bg-transparent border-0 p-0 text-xs rounded hover:underline focus:outline-none focus:ring-1 focus:ring-blue-500 ${claro ? 'text-slate-600' : 'text-slate-300'}`} />
               </label>
             ))}
@@ -6113,9 +6113,9 @@ const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
       </div>
       {sel ? (
         <div className={`rounded-lg border p-2 flex flex-wrap items-center gap-2 text-xs ${claro ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.03]'}`}>
-          <input type="datetime-local" defaultValue={paraInputLocal(sel.x.ini)} key={'i' + sel.x.id + sel.x.ini} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { ini: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Início" />
+          <input type="datetime-local" defaultValue={paraInputLocal(sel.x.ini)} key={'i' + sel.x.id + sel.x.ini} style={{ colorScheme: claro ? 'light' : 'dark' }} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { ini: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Início" />
           <span className="opacity-50">→</span>
-          {sel.x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(sel.x.fim)} key={'f' + sel.x.id + sel.x.fim} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { fim: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Fim" />
+          {sel.x.fim ? <input type="datetime-local" defaultValue={paraInputLocal(sel.x.fim)} key={'f' + sel.x.id + sel.x.fim} style={{ colorScheme: claro ? 'light' : 'dark' }} onBlur={e => { if (e.target.value) atualizar(sel.x.id, { fim: new Date(e.target.value).toISOString() }); }} className={`${inputClass} !w-auto text-xs py-1`} aria-label="Fim" />
             : <span className="text-red-400 font-medium">a correr</span>}
           <span className="ml-auto flex items-center gap-1">
             <span className="font-semibold tabular-nums mr-1">{tempoTxt((sel.fim - sel.ini) / 3600000)}</span>
