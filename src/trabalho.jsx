@@ -1450,8 +1450,10 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastar(false); }}
       onDrop={e => { e.preventDefault(); setArrastar(false); if (e.dataTransfer.files && e.dataTransfer.files.length) { enviar(e.dataTransfer.files); return; } const u = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text') || '').split(/\s+/).find(x => /^https?:\/\//.test(x)); if (u) juntar({ id: trabId() + 'l', tipo: 'link', nome: nomeDoLink(u), url: u, criado: agoraIso() }); }}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium flex items-center gap-1.5"><IcoA n="clip" className="w-4 h-4" /> Brief e anexos {anexos.length > 0 && <span className={`text-xs font-normal ${sub}`}>{anexos.length}</span>}</p>
+        <p className="text-[15px] font-semibold flex items-center gap-1.5"><IcoA n="clip" className="w-4 h-4" /> Brief e anexos {anexos.length > 0 && <span className={`text-xs font-normal ${sub}`}>{anexos.length}</span>}</p>
         <div className="flex items-center gap-1.5">
+          {temGoogle && !editConta && <button type="button" onClick={() => setEditConta(true)} title={`Os links do Google abrem com a conta ${contaUsada || 'principal do browser'} — carrega para mudar`} aria-label="Conta Google dos links"
+            className={`w-7 h-7 rounded-lg flex items-center justify-center ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button>}
           {anexos.length > 0 && <button type="button" onClick={() => setLink({ url: '', nome: '', foco: true })} className="px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Link</button>}
           <button type="button" onClick={() => inRef.current && inRef.current.click()} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Carregar ficheiro</button>
           <input ref={inRef} type="file" multiple className="hidden" onChange={e => { enviar(e.target.files); e.target.value = ''; }} />
@@ -1475,11 +1477,7 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
               className={`${inputClass} !w-60 text-xs py-1`} />
             <span className={`text-[11px] ${sub}`}>Vazio = a conta principal deste browser</span>
           </div>
-        ) : (
-          <p className={`text-[11px] ${sub}`}>
-            Google: {contaUsada ? <strong className="font-medium">{contaUsada}</strong> : 'conta principal do browser'} · <button type="button" onClick={() => setEditConta(true)} className="text-blue-400 hover:underline">Mudar</button>
-          </p>
-        )
+        ) : null
       )}
       {(anexos.length > 0 || envios.length > 0) ? (
         <div className="flex flex-wrap justify-center items-start gap-2">
@@ -2213,6 +2211,35 @@ const NotasDaTarefa = ({ t, set, inputClass, lab, sub }) => {
     </label>
   );
 };
+// Menu "⋯" do cabeçalho da tarefa: as ações que se usam pouco (fica fora do DetalheTarefa para não perder o estado "aberto")
+const MenuMais = ({ claro, itens }) => {
+  const [aberto, setAberto] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = e => { if (ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); setAberto(false); } };
+    document.addEventListener('mousedown', fora); document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc, true); };
+  }, [aberto]);
+  const cls = perigo => `w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${perigo ? 'text-red-400 hover:bg-red-500/10' : claro ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-200 hover:bg-white/5'}`;
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setAberto(a => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-label="Mais ações" title="Mais ações"
+        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xl leading-none ${aberto ? (claro ? 'bg-slate-100' : 'bg-white/10') : ''} ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`}>⋯</button>
+      {aberto && (
+        <div role="menu" className={`absolute right-0 top-full mt-1 z-50 min-w-[300px] whitespace-nowrap rounded-xl border shadow-xl py-1 ${claro ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-600'}`}>
+          {itens.filter(Boolean).map((it, i) => (it === '-'
+            ? <div key={i} className={`my-1 border-t ${claro ? 'border-slate-200' : 'border-slate-700'}`} />
+            : it.href
+              ? <a key={i} role="menuitem" href={it.href} title={it.title} onClick={() => { setAberto(false); if (it.onClick) it.onClick(); }} className={cls(it.perigo)}>{it.txt}</a>
+              : <button key={i} type="button" role="menuitem" title={it.title} onClick={() => { setAberto(false); it.onClick(); }} className={cls(it.perigo)}>{it.txt}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 // No ecrã grande a janela da tarefa cabe toda no ecrã: cada coluna rola sozinha se precisar
 const COL_XL = 'xl:h-full xl:overflow-y-auto xl:pr-1 xl:-mr-1 [scrollbar-width:thin]';
 const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota }) => {
@@ -2223,6 +2250,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const [varias, setVarias] = useState(false);
   const [gravou, setGravou] = useState(false);
   const [nomeLivre, setNomeLivre] = useState(false);
+  const [verFinal, setVerFinal] = useState(false); // "Valor à mão" aberto
+  const [verSub, setVerSub] = useState(false); // "Subcontratei" aberto
+  const [verManual, setVerManual] = useState(false); // "Juntar tempo à mão" aberto
   useEffect(() => { if (!gravou) return undefined; const i = setTimeout(() => setGravou(false), 1600); return () => clearTimeout(i); }, [gravou]);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
   if (!t) return null;
@@ -2232,9 +2262,10 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const corre = (t.tempos || []).some(x => !x.fim);
   const pastasCli = (trab.pastas || []).filter(p => String(p.cid) === String(t.cid));
   const caminhoTxt = p => caminho(trab, p.id).map(x => x.nome).join(' / ');
-  const lab = `text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`;
+  const lab = `text-[13px] ${claro ? 'text-slate-500' : 'text-slate-400'}`;
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
-  const caixa = `rounded-xl border p-3 ${claro ? 'border-slate-200' : 'border-slate-700'}`;
+  const caixa = `rounded-xl border p-3.5 ${claro ? 'border-slate-200' : 'border-slate-700'}`;
+  const titCaixa = 'text-[15px] font-semibold';
   // Peças da tarefa: à mão (t.pecas) ou lidas do nome
   const pecasAtuais = {}; trabPecas(t).forEach(p => { if (p.tipo !== 'outro' && p.tipo !== 'extra') pecasAtuais[p.tipo] = (pecasAtuais[p.tipo] || 0) + p.n; });
   const temMao = t.pecas && Object.keys(t.pecas).length > 0;
@@ -2271,20 +2302,35 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
-            {t.pastaPC
-              ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaFootage(t, showToast)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)">Abrir pasta</a>
-              : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaFootage(t, showToast); }} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas e projeto</a>}
-            {<a href={linkAEAbrir(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
-            <a href={`${linkAEAbrir(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
-            {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>Mudar nome</a> : null; })()}
-            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] }))}>Duplicar</button>
-            <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
-              const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
-              (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
-              mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
-            } }}>Apagar tarefa</button>
-          <span className={`text-sm tabular-nums ${sub}`}><HorasVivas t={t} /></span>
+            {(() => {
+              const btnTopo = `hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[13px] font-medium border`;
+              const neutro = claro ? 'border-slate-200 text-slate-600 hover:bg-slate-50' : 'border-slate-700 text-slate-300 hover:bg-white/5';
+              return (<>
+                {t.pastaPC
+                  ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaFootage(t, showToast)} className={`${btnTopo} ${neutro}`} title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)"><IcoT n="pasta" className="w-3.5 h-3.5" />Abrir pasta</a>
+                  : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaFootage(t, showToast); }} className={`${btnTopo} ${neutro}`} title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}><IcoT n="pasta" className="w-3.5 h-3.5" />Criar pastas e projeto</a>}
+                <a href={linkAEAbrir(trab, t, clientes)} className={`${btnTopo} ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>
+              </>);
+            })()}
+          <span className={`text-sm tabular-nums ml-1 ${sub}`}><HorasVivas t={t} /></span>
           <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
+          {(() => {
+            const np = nomeProjetoTarefa(trab, t);
+            const naFatura = t.faturaId && t.faturaId !== 'fora';
+            const fora = !!(t.faturaId || t.faturada);
+            return <MenuMais claro={claro} itens={[
+              { txt: '↺ Trocar o projeto do After', href: `${linkAEAbrir(trab, t, clientes)}&escolher=1`, title: 'Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)' },
+              np && { txt: '✎ Mudar o nome da pasta e do .aep', href: linkAERenomear(trab, t, clientes, np), title: `Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects` },
+              '-',
+              !naFatura && { txt: fora ? '✓ Já faturada fora da app — desmarcar' : '€ Marcar como já faturada (fora da app)', title: 'As tarefas faturadas fora da app não entram nas faturas', onClick: () => set(fora ? { faturaId: null, faturada: false } : { faturaId: 'fora' }) },
+              { txt: '⧉ Duplicar tarefa', onClick: () => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] })) },
+              { txt: '🗑 Apagar tarefa', perigo: true, onClick: () => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(x => x.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
+                const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(x => x.caminho)).filter(Boolean));
+                (t.anexos || []).forEach(x => { if (x.caminho && !outros.has(x.caminho) && onApagarAnexo) onApagarAnexo(x.caminho); });
+                mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
+              } } },
+            ]} />;
+          })()}
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
         <div className={`p-4 lg:p-5 grid grid-cols-1 gap-4 lg:gap-5 items-start xl:items-stretch xl:flex-1 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)] ${comFicheiros ? 'lg:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,1.15fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]'}`}>
@@ -2343,8 +2389,8 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           {/* Valor da tarefa: peças por tipo, com preço do cliente */}
           <div className={caixa}>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-medium">Valor</p>
-              <p className={`text-lg font-semibold tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(v)}</p>
+              <p className={titCaixa}>Valor</p>
+              <p className={`text-xl font-semibold tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(v)}</p>
             </div>
             {(() => {
               const pecasT = trabPecas(t);
@@ -2353,7 +2399,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               const simples = !porHora && tiposCom.length === 1 && pecasAtuais[tiposCom[0]] === 1;
               const multi = !porHora && (tiposCom.length > 1 || (tiposCom.length === 1 && pecasAtuais[tiposCom[0]] > 1));
               const verQtd = varias || multi;
-              const chip = on => `px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
+              const chip = on => `px-3 py-1 rounded-full text-[13px] border transition-colors ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
               const linhaHoras = porHora && (
                 <div className="grid grid-cols-[minmax(0,1fr)_92px_72px_80px] items-center gap-2 text-sm">
                   <span>Horas (à hora)</span><span className="text-right tabular-nums">{tempoTxt(horasTarefa)}</span>
@@ -2400,111 +2446,117 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                       {linhaHoras}
                     </div>
                   )}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>Várias peças nesta tarefa</button>}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+                    {!verQtd && <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setVarias(true)}>Várias peças</button>}
                     <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => setMaisTipos(!maisTipos)}>{maisTipos ? 'Menos tipos' : 'Mais tipos'}</button>
+                    {!(verFinal || t.valorManual != null) && <button type="button" className="text-blue-400 hover:text-blue-300" title="Escrever o valor a faturar à mão (por defeito é o total das peças)" onClick={() => setVerFinal(true)}>Valor à mão</button>}
+                    {!(verSub || t.freelancerId || t.outsourcing || custo > 0) && <button type="button" className="text-blue-400 hover:text-blue-300" title="Se passaste a tarefa a outro freelancer — desconta no mês em que a entregas" onClick={() => setVerSub(true)}>Subcontratei</button>}
                     {temMao && <button type="button" className={`${sub} hover:text-blue-400`} onClick={() => set({ pecas: null })}>Voltar a ler do nome</button>}
                   </div>
                 </>
               );
             })()}
-            <div className={`mt-3 pt-3 border-t grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
-              <span className="text-sm">Valor final <span className={`text-[11px] ${sub}`}>(vazio = {eur(vAuto)})</span></span>
-              <NumIn valor={t.valorManual ?? null} placeholder={String(Math.round(vAuto))} onGravar={x => set({ valorManual: x })} className={`${inputClass} !w-full text-sm py-1 text-right font-semibold`} />
-            </div>
+            {(verFinal || t.valorManual != null) && (
+              <div className={`mt-3 pt-3 border-t grid grid-cols-[minmax(0,1fr)_120px_auto] items-center gap-2 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+                <span className="text-sm">Valor à mão <span className={`text-xs ${sub}`}>(vazio = {eur(vAuto)})</span></span>
+                <NumIn valor={t.valorManual ?? null} placeholder={String(Math.round(vAuto))} onGravar={x => set({ valorManual: x })} className={`${inputClass} !w-full text-sm py-1 text-right font-semibold`} />
+                <button type="button" onClick={() => { if (t.valorManual != null) set({ valorManual: null }); setVerFinal(false); }} title="Voltar ao valor das peças" aria-label="Tirar o valor à mão" className={`w-7 h-7 rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`}>✕</button>
+              </div>
+            )}
+            {/* Subcontratação (só aparece se passaste a tarefa a alguém) */}
+            {(verSub || t.freelancerId || t.outsourcing || custo > 0) && (
+              <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm" title="Se passaste a tarefa a outro freelancer — desconta no mês em que a entregas">Subcontratação</p>
+                  {!(t.freelancerId || t.outsourcing || custo > 0) && <button type="button" onClick={() => setVerSub(false)} aria-label="Fechar subcontratação" className={`w-7 h-7 rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/10'}`}>✕</button>}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(trab.freelancers || []).length > 0 ? (
+                    <select value={t.freelancerId || (t.outsourcing ? '__' : '')} onChange={e => {
+                      const f = (trab.freelancers || []).find(x => x.id === e.target.value);
+                      if (!f) { set({ freelancerId: null, outsourcing: '', custoOutsourcing: null }); return; }
+                      const c = custoFreelancer(f, t);
+                      set({ freelancerId: f.id, outsourcing: f.nome, ...(c != null ? { custoOutsourcing: c } : {}) });
+                    }} className={`${inputClass} text-sm py-1.5`}>
+                      <option value="">Ninguém (fiz eu)</option>
+                      {t.outsourcing && !t.freelancerId && <option value="__">{t.outsourcing}</option>}
+                      {(trab.freelancers || []).filter(f => f.estado !== 'antigo' || f.id === t.freelancerId).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    </select>
+                  ) : (
+                    <input key={t.id + 'q' + (t.outsourcing || '')} defaultValue={t.outsourcing || ''} placeholder="Quem fez" onBlur={e => { if (e.target.value !== (t.outsourcing || '')) set({ outsourcing: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
+                  )}
+                  <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
+                </div>
+                {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">Usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
+                {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
+                {custo > 0 && RESERVA.taxa != null && (() => {
+                  // Nos recibos verdes o imposto é sobre o valor todo da tarefa: o que pagas ao freelancer não o reduz
+                  const imp = v * RESERVA.taxa / 100; const liq = v - custo - imp;
+                  return (
+                    <p className="text-sm" title={`Imposto calculado sobre os ${eur(v)} da tarefa (o que pagas ao freelancer não baixa o imposto nos recibos verdes)`}>
+                      Depois de impostos: <strong className={liq >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(liq)}</strong> <span className={sub}>({v ? Math.round(liq / v * 100) : 0}%) · reserva de {String(RESERVA.taxa).replace('.', ',')}% = {eur(imp)}</span>
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Entrega */}
           <div className={`${caixa} space-y-3`}>
-            <p className="text-sm font-medium">Entrega</p>
+            <p className={titCaixa}>Entrega</p>
             <div>
               <span className={lab}>Formatos</span>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {FORMATOS.map(f => { const on = (t.formatos || []).includes(f); return (
                   <button key={f} type="button" onClick={() => set({ formatos: on ? (t.formatos || []).filter(x => x !== f) : [...(t.formatos || []), f] })}
-                    className={`px-2.5 py-1 rounded-md text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{f}</button>
+                    className={`px-3 py-1 rounded-md text-[13px] border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{f}</button>
                 ); })}
               </div>
             </div>
-            <label className="flex flex-col gap-1"><span className={lab}>Link da entrega (Frame.io, Drive…)</span>
+            <label className="flex flex-col gap-1"><span className={lab}>Link da entrega</span>
               <div className="flex gap-2">
-                <input key={t.id + 'l' + (t.link || '')} defaultValue={t.link || ''} placeholder="https://" onBlur={e => { if (e.target.value !== (t.link || '')) set({ link: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
+                <input key={t.id + 'l' + (t.link || '')} defaultValue={t.link || ''} placeholder="https://… (Frame.io, Drive)" onBlur={e => { if (e.target.value !== (t.link || '')) set({ link: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
                 {t.link && <a href={urlAbrir(t.link, t.cid)} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white flex items-center">Abrir</a>}
               </div>
             </label>
             {t.faturaId && t.faturaId !== 'fora' ? (
-              <p className="text-sm text-emerald-500">✓ Faturada na fatura nº {((trab.faturas || []).find(f => f.id === t.faturaId) || {}).numero || '?'} (para tirar, anula a fatura no separador Faturas do cliente)</p>
-            ) : (
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={!!(t.faturaId || t.faturada)} onChange={e => set(e.target.checked ? { faturaId: 'fora' } : { faturaId: null, faturada: false })} />
-                Já faturada (fora da app) — não entra nas faturas
-              </label>
-            )}
-          </div>
-
-          {/* Outsourcing */}
-          <div className={`${caixa} space-y-2`}>
-            <p className="text-sm font-medium" title="Se passaste a tarefa a outro freelancer — desconta no mês em que a entregas">Subcontratação</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(trab.freelancers || []).length > 0 ? (
-                <select value={t.freelancerId || (t.outsourcing ? '__' : '')} onChange={e => {
-                  const f = (trab.freelancers || []).find(x => x.id === e.target.value);
-                  if (!f) { set({ freelancerId: null, outsourcing: '', custoOutsourcing: null }); return; }
-                  const c = custoFreelancer(f, t);
-                  set({ freelancerId: f.id, outsourcing: f.nome, ...(c != null ? { custoOutsourcing: c } : {}) });
-                }} className={`${inputClass} text-sm py-1.5`}>
-                  <option value="">Ninguém (fiz eu)</option>
-                  {t.outsourcing && !t.freelancerId && <option value="__">{t.outsourcing}</option>}
-                  {(trab.freelancers || []).filter(f => f.estado !== 'antigo' || f.id === t.freelancerId).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                </select>
-              ) : (
-                <input key={t.id + 'q' + (t.outsourcing || '')} defaultValue={t.outsourcing || ''} placeholder="Quem fez" onBlur={e => { if (e.target.value !== (t.outsourcing || '')) set({ outsourcing: e.target.value.trim() }); }} className={`${inputClass} text-sm py-1.5`} />
-              )}
-              <NumIn valor={t.custoOutsourcing ?? null} placeholder="Quanto lhe pagas (€)" onGravar={x => set({ custoOutsourcing: x })} className={`${inputClass} text-sm py-1.5`} />
-            </div>
-            {(() => { const f = (trab.freelancers || []).find(x => x.id === t.freelancerId); const c = custoFreelancer(f, t); return f ? <p className={`text-xs ${sub}`}>{c != null ? <>Pela tabela de {f.nome}: {eur(c)}{Math.abs(c - custo) >= 0.5 && <> · <button type="button" onClick={() => set({ custoOutsourcing: c })} className="text-blue-400 hover:text-blue-300">Usar este valor</button></>}</> : `${f.nome} não tem preço para este tipo — escreve o valor (ou junta-o em Freelancers).`}</p> : null; })()}
-            {custo > 0 && <p className="text-sm">Margem: <strong className={v - custo >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(v - custo)}</strong> <span className={sub}>({v ? Math.round((v - custo) / v * 100) : 0}%)</span></p>}
-            {custo > 0 && RESERVA.taxa != null && (() => {
-              // Nos recibos verdes o imposto é sobre o valor todo da tarefa: o que pagas ao freelancer não o reduz
-              const imp = v * RESERVA.taxa / 100; const liq = v - custo - imp;
-              return (
-                <p className="text-sm" title={`Imposto calculado sobre os ${eur(v)} da tarefa (o que pagas ao freelancer não baixa o imposto nos recibos verdes)`}>
-                  Depois de impostos: <strong className={liq >= 0 ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'text-red-400'}>{eur(liq)}</strong> <span className={sub}>({v ? Math.round(liq / v * 100) : 0}%) · reserva de {String(RESERVA.taxa).replace('.', ',')}% = {eur(imp)}</span>
-                </p>
-              );
-            })()}
+              <p className="text-sm text-emerald-500" title="Para tirar, anula a fatura no separador Faturas do cliente">✓ Na fatura nº {((trab.faturas || []).find(f => f.id === t.faturaId) || {}).numero || '?'}</p>
+            ) : (t.faturaId || t.faturada) ? (
+              <p className="text-sm text-emerald-500">✓ Já faturada fora da app <span className={sub}>— não entra nas faturas ·</span> <button type="button" onClick={() => set({ faturaId: null, faturada: false })} className={`${sub} underline hover:text-blue-400`}>desmarcar</button></p>
+            ) : null}
           </div>
 
           {/* Tempo */}
           <div className={caixa}>
             <div className="flex items-center justify-between gap-2 mb-2">
-              <p className="text-sm font-medium">Tempo</p>
+              <p className={titCaixa}>Tempo</p>
               <span className="flex-1" />
-              <label className={`flex items-center gap-1.5 text-xs ${sub}`} title="Opcional: quantas horas achas que vai levar">Estimativa
-                <NumIn valor={t.estimativa ?? null} placeholder="—" onGravar={x => set({ estimativa: x })} className={`${inputClass} !w-16 text-xs py-1 text-right`} />
+              <button type="button" onClick={() => setVerManual(m => !m)} className={`text-[13px] ${verManual ? sub : 'text-blue-400 hover:text-blue-300'}`} title="Juntar horas que não ficaram no cronómetro">{verManual ? 'Fechar' : '+ Tempo à mão'}</button>
+              <label className={`flex items-center gap-1.5 text-[13px] ${sub}`} title="Opcional: quantas horas achas que vai levar">Estimativa
+                <NumIn valor={t.estimativa ?? null} placeholder="—" onGravar={x => set({ estimativa: x })} className={`${inputClass} !w-16 text-sm py-1 text-right`} />
               </label>
               <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
             </div>
             <GraficoTempo t={t} mudar={mudar} claro={claro} inputClass={inputClass} est={est} />
-            <div className={`mt-3 pt-2 border-t flex flex-wrap items-center gap-2 ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
-              <span className={`text-xs ${sub}`}>Juntar tempo à mão:</span>
-              <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} className={`${inputClass} !w-auto text-xs py-1`} />
-              <input value={hManual} onChange={e => setHManual(e.target.value)} placeholder="ex.: 2h30" className={`${inputClass} !w-24 text-xs py-1`} />
-              <button type="button" className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white disabled:opacity-40" disabled={!cuLerHoras(hManual)} onClick={() => {
+            {verManual && <div className={`mt-3 pt-3 border-t flex flex-wrap items-center gap-2 ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+              <input type="date" value={diaManual} onChange={e => setDiaManual(e.target.value)} aria-label="Dia" className={`${inputClass} !w-auto text-sm py-1`} />
+              <input autoFocus value={hManual} onChange={e => setHManual(e.target.value)} placeholder="ex.: 2h30" aria-label="Horas" className={`${inputClass} !w-24 text-sm py-1`} />
+              <button type="button" className="text-sm px-3 py-1 rounded-lg bg-blue-600 text-white disabled:opacity-40" disabled={!cuLerHoras(hManual)} onClick={() => {
                 const h = cuLerHoras(hManual); if (!h) return;
                 const ini = new Date(`${diaManual}T09:00`); const fim = new Date(ini.getTime() + h * 3600000);
                 mudar(tr => opTarefa(tr, t.id, y => ({ ...y, iniciada: y.iniciada || ini.toISOString(), tempos: [...(y.tempos || []), { id: trabId(), ini: ini.toISOString(), fim: fim.toISOString(), manual: true }] })));
                 setHManual('');
               }}>+ Acrescentar</button>
-            </div>
+            </div>}
           </div>
 
-          <div className={`flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] px-1 ${sub}`}>
+          <div className={`flex flex-wrap gap-x-4 gap-y-0.5 text-xs px-1 ${sub}`}>
             {[['Criada', 'criada', t.criada], ['Começada', 'iniciada', t.iniciada], ['Review', 'review', t.review], ['Terminada', 'feita', t.feita]].filter(([, , d]) => d).map(([k, campo, d]) => (
               <label key={k} className="inline-flex items-center gap-1 cursor-pointer" title={campo === 'review' || campo === 'feita' ? 'Carrega para mudar (o dia da entrega conta nas receitas desse mês)' : 'Carrega para mudar'}>
                 {k}
                 <input type="datetime-local" defaultValue={paraInputLocal(d)} key={campo + d} onBlur={e => { if (e.target.value) { const iso = new Date(e.target.value).toISOString(); if (iso !== d) set({ [campo]: iso }); } }}
-                  className={`tabular-nums bg-transparent border-0 p-0 text-[11px] rounded hover:underline focus:outline-none focus:ring-1 focus:ring-blue-500 ${claro ? 'text-slate-600' : 'text-slate-300'}`} />
+                  className={`tabular-nums bg-transparent border-0 p-0 text-xs rounded hover:underline focus:outline-none focus:ring-1 focus:ring-blue-500 ${claro ? 'text-slate-600' : 'text-slate-300'}`} />
               </label>
             ))}
           </div>
@@ -4243,14 +4295,14 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   return (
     <div className={`mt-3 pt-3 border-t space-y-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
       <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-sm font-medium flex-1">Enviar para o Drive</p>
-        {raiz && r.conceito && <span className={`text-[11px] truncate max-w-[60%] ${sub}`} title={`${statics ? 'Statics' : 'Vídeos'} › ${r.conceito} › ${baseDe(verSug)}`}>📁 {baseDe(verSug)}</span>}
+        <p className="text-[15px] font-semibold flex-1">Enviar para o Drive</p>
+        {raiz && r.conceito && <span className={`text-xs truncate max-w-[60%] ${sub}`} title={`${statics ? 'Statics' : 'Vídeos'} › ${r.conceito} › ${baseDe(verSug)}`}>📁 {baseDe(verSug)}</span>}
       </div>
       {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
         <>
           {ENVIANDO.has(t.id) && !aEnviar && <p className="text-xs text-blue-400">A enviar esta tarefa… acompanha no quadro no canto do ecrã (podes continuar a trabalhar).</p>}
           {!lista.length && !aEnviar && !expDesligado && (() => {
-            const linha = `flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] ${sub}`;
+            const linha = `flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] ${sub}`;
             const lnk = 'text-blue-500 hover:underline';
             if (achados && achados.itens.length) return (
               <div className={`rounded-xl border ${claro ? 'border-blue-200 bg-blue-50/60' : 'border-blue-500/40 bg-blue-500/[0.07]'}`}>
@@ -4277,7 +4329,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               </div>
             );
             if (estadoExp === 'a procurar') return <p className={linha}>A procurar exports novos na pasta dos projetos…</p>;
-            if (estadoExp === 'sem-raiz') return <p className={linha}>A app pode encontrar os exports novos sozinha. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Escolher a pasta dos projetos</button><button type="button" onClick={() => { setExpDesligado(true); try { localStorage.setItem('exp-auto-off', '1'); } catch (e) { /* */ } }} className={`${sub} hover:text-red-400`} aria-label="Não mostrar mais">✕</button></p>;
+            if (estadoExp === 'sem-raiz') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk} title="A app passa a encontrar sozinha os exports novos na @Exports do projeto">Encontrar os exports sozinho (escolher a pasta dos projetos)</button><button type="button" onClick={() => { setExpDesligado(true); try { localStorage.setItem('exp-auto-off', '1'); } catch (e) { /* */ } }} className={`${sub} hover:text-red-400`} aria-label="Não mostrar mais">✕</button></p>;
             if (estadoExp === 'sem-licenca') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk}>Procurar exports novos</button><span>(o browser pede autorização à pasta dos projetos)</span></p>;
             if (achados && achados.nada) return <p className={linha}>Não encontrei o projeto de {nomeBonitoC(r.conceito)} na pasta dos projetos. <button type="button" onClick={() => procurarExports(true, true)} className={lnk}>Escolher outra pasta</button></p>;
             if (achados) return <p className={linha}>Sem exports novos em <code>{achados.projeto}</code>. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button></p>;
@@ -4295,7 +4347,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             className={`rounded-xl border-2 border-dashed px-3 ${lista.length ? 'py-4 min-h-[72px]' : 'py-8 min-h-[150px]'} flex flex-col items-center justify-center gap-1 text-center cursor-pointer transition-colors ${arrastarD ? 'border-blue-400 bg-blue-500/10' : claro ? 'border-slate-300 hover:bg-slate-50' : 'border-slate-600 hover:bg-white/[0.03]'} ${sub}`}>
             <span className={`text-2xl leading-none ${arrastarD ? 'text-blue-400' : ''}`}>⬇</span>
             <span className={`text-sm font-medium ${claro ? 'text-slate-700' : 'text-slate-200'}`}>{lista.length ? 'Arrasta mais exports' : 'Arrasta os exports para aqui'}</span>
-            <span className="text-[11px]">ou carrega para escolher</span>
+            <span className="text-xs">ou carrega para escolher</span>
             <input ref={inRef} type="file" multiple accept="video/*,image/*" className="hidden" onChange={e => { juntar(e.target.files); e.target.value = ''; }} />
           </div>
           {lista.length > 0 && (() => {
@@ -4510,10 +4562,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               <p className={`px-3 py-1.5 text-[10px] ${sub}`}>Para substituir um vídeo, arrasta a versão nova para cima: fica com o mesmo nome e troca a antiga.</p>
             </div>
           )}
-          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${sub}`}>
-            <span className="flex-1 min-w-[160px] truncate" title="Os ficheiros vão direto do computador para o Drive — nada fica guardado na app.">Conta: {conta ? <b>{conta}</b> : 'a tua conta Google'}</span>
+          <div className={`flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs ${sub}`}>
+            {!sempre && <span className="flex-1 min-w-[160px] truncate" title="Os ficheiros vão direto do computador para o Drive — nada fica guardado na app.">Conta: {conta ? <b>{conta}</b> : 'a tua conta Google'}</span>}
             {sempre ? (
-              <span className="text-emerald-500">🔒 Ligado · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>Desligar</button></span>
+              <span className="text-emerald-500 opacity-80" title={`Drive ligado: ${conta || 'a tua conta Google'}. Os ficheiros vão direto do computador para o Drive — nada fica guardado na app.`}>🔒 {conta || 'Drive ligado'} · <button type="button" onClick={async () => { try { await desligarDriveSempre(conta); setSempre(false); setMsg('Desliguei a ligação permanente ao Drive desta conta.'); } catch (e) { setMsg(`⚠ ${e.message || e}`); } }} className={`underline ${sub} hover:text-red-400`}>Desligar</button></span>
             ) : (
               <button type="button" disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await ligarDriveSempre(conta); setSempre(true); setMsg(`✓ Drive ligado para sempre${j.email ? ` (${j.email})` : ''} — já não precisas de entrar na Google.`); } catch (e) { setMsg(`⚠ ${e.message || e}`); } setALigar(false); }}
                 className="px-2 py-0.5 rounded-md border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50" title="A app fica com acesso permanente ao Drive desta conta (guardado cifrado no servidor). Podes desligar quando quiseres.">🔒 Manter sempre ligado</button>
@@ -5448,8 +5500,8 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
   return (
     <div className={`${caixa} space-y-3`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Nomes dos ficheiros</p>
-        <span className={`text-xs ${sub}`}>{r.jogo ? `${r.jogo.nome} (${r.cod})` : 'sem jogo'}{r.jogo && !r.jogo.codigo ? ' · código no separador Jogos' : ''}</span>
+        <p className="text-[15px] font-semibold">Nomes dos ficheiros</p>
+        <span className={`text-[13px] ${sub}`}>{r.jogo ? `${r.jogo.nome} (${r.cod})` : 'sem jogo'}{r.jogo && !r.jogo.codigo ? ' · código no separador Jogos' : ''}</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
         <label className="flex flex-col gap-1 col-span-2 sm:col-span-3 min-w-0"><span className={lab}>Conceito</span>
@@ -5490,11 +5542,11 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
       </div>
       {(() => {
         // Uma só linha de estado (avisos importantes primeiro)
-        if (raizD && conceitosD && conceitoNovo) return <p className="-mt-1 text-[11px] text-amber-500">⚠ Este conceito ainda não tem pasta no Drive (vai ser criada, V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</p>;
-        if (avisoV) return <p className="-mt-1 text-[11px] text-amber-500">⚠ {avisoV}</p>;
-        if (versaoMudada) return <p className="-mt-1 text-[11px] text-amber-500">⚠ {versaoMudada}</p>;
+        if (raizD && conceitosD && conceitoNovo) return <p className="-mt-1 text-xs text-amber-500">Conceito novo: a pasta no Drive é criada no 1.º envio (V1).{parecidos.length > 0 && <> Querias dizer {parecidos.map((n, i) => <React.Fragment key={n}>{i ? ', ' : ' '}<button type="button" onClick={() => { setF({ conceito: n }); setTxtConceito(null); }} className="underline text-blue-400 hover:text-blue-300">{n}</button></React.Fragment>)}?</>}</p>;
+        if (avisoV) return <p className="-mt-1 text-xs text-amber-500">⚠ {avisoV}</p>;
+        if (versaoMudada) return <p className="-mt-1 text-xs text-amber-500">⚠ {versaoMudada}</p>;
         return (
-          <p className={`-mt-1 text-[11px] ${sub}`}>
+          <p className={`-mt-1 text-xs ${sub}`}>
             {vEnviada ? <>A V{r.vNum} já foi enviada — vês tudo em <b>Entregas</b>, lá em baixo. Para a corrigir, arrasta os exports novos e escolhe <b>Substituir</b>.</> : <>Próxima entrega: <b>V{r.vNum}</b>.</>}
             {raizD && !conceitosD ? <> <button type="button" disabled={aVerD} onClick={() => carregarConceitos(true)} className="text-blue-400 hover:text-blue-300 disabled:opacity-50">{aVerD ? 'A ver o Drive…' : 'Ver conceitos no Drive'}</button></> : raizD && conceitoAtual ? <span className="text-emerald-500"> · pasta do conceito no Drive ✓</span> : null}
           </p>
@@ -5506,7 +5558,7 @@ const NomesFicheiros = ({ t, trab, set, mudar, claro, inputClass, lab, sub, caix
         const blocos = [];
         if (!vEnviada && r.ficheiros.length) blocos.push({ k: 'atual', v: Number(r.vNum), pasta: r.pasta, ficheiros: r.ficheiros, atual: true });
         // As versões já enviadas estão em "Entregas" (lá em baixo), com os nomes de cada uma
-        if (!blocos.length) return vEnviada ? null : <p className={`text-xs ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p>;
+        if (!blocos.length) return vEnviada ? null : <p className={`text-[13px] ${sub}`}>Escolhe os formatos em Entrega para veres os nomes.</p>;
         const abertoDe = b => (blocosAbertos[b.k] != null ? blocosAbertos[b.k] : b.atual ? !nomesFechados : vEnviada && String(b.v) === String(r.vNum));
         const alternarBloco = b => { const novo = !abertoDe(b); setBlocosAbertos(o => ({ ...o, [b.k]: novo })); if (b.atual) { try { localStorage.setItem('trab-nomes-fechados', novo ? '0' : '1'); } catch (e) { /* */ } } };
         return (
@@ -5884,7 +5936,7 @@ const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
           <p className={`mt-0.5 text-[10px] text-right ${totalH > est ? 'text-red-400' : sub}`}>{totalH > est ? `+${tempoTxt(totalH - est)} acima da estimativa` : `faltam ${tempoTxt(est - totalH)} para a estimativa`}</p>
         </div>
       )}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" title="Passa o rato por uma barra para ver as horas · carrega para mudar ou apagar">
         {dias.map(dia => {
           const ds = segs.filter(x => x.dia === dia);
           const tot = ds.reduce((a, x) => a + (x.h1 - x.h0), 0);
@@ -5935,7 +5987,7 @@ const GraficoTempo = ({ t, mudar, claro, inputClass, est }) => {
             <button type="button" className={`px-1.5 py-1 rounded-md ${sub} hover:text-current`} onClick={() => setSelId(null)} aria-label="Fechar">✕</button>
           </span>
         </div>
-      ) : <p className={`text-[10px] ${sub}`}>Passa o rato por uma barra para ver as horas · carrega para mudar ou apagar{sessoes.some(q => q.x.manual) ? <> · <span className="inline-block w-2 h-2 rounded-sm bg-sky-400/70 align-middle" /> posto à mão</> : ''}</p>}
+      ) : sessoes.some(q => q.x.manual) ? <p className={`text-xs ${sub}`}><span className="inline-block w-2 h-2 rounded-sm bg-sky-400/70 align-middle" /> posto à mão</p> : null}
     </div>
   );
 };
@@ -6035,10 +6087,16 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
 const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Notas', compacto = false }) => {
   if (!onAbrir) return null;
   const l = lista || [];
+  if (!l.length && !compacto) return (
+    <div className={`flex items-center justify-between gap-2 px-1 text-[13px] ${sub}`}>
+      <span className="flex items-center gap-1.5" title="Escreve @ numa nota (separador Notas) para a ligar a isto"><IcoT n="nota" className="w-4 h-4" /> {titulo}: nenhuma</span>
+      {onNova && <button type="button" onClick={onNova} className="text-blue-400 hover:text-blue-300">+ Nova nota</button>}
+    </div>
+  );
   return (
     <div className={compacto ? 'space-y-1' : `${caixa} space-y-1.5`}>
-      {!compacto && <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium flex items-center gap-1.5"><IcoT n="nota" className="w-4 h-4" /> {titulo} {l.length > 0 && <span className={`text-xs font-normal ${sub}`}>{l.length}</span>}</p>
-        {onNova && <button type="button" onClick={onNova} className="text-xs text-blue-400 hover:text-blue-300">+ Nova nota</button>}</div>}
+      {!compacto && <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold flex items-center gap-1.5"><IcoT n="nota" className="w-4 h-4" /> {titulo} {l.length > 0 && <span className={`text-xs font-normal ${sub}`}>{l.length}</span>}</p>
+        {onNova && <button type="button" onClick={onNova} className="text-[13px] text-blue-400 hover:text-blue-300">+ Nova nota</button>}</div>}
       {l.slice(0, compacto ? 3 : 6).map(p => (
         <button key={p.id} type="button" onClick={() => onAbrir(p.id)} className={`w-full text-left px-2 py-1.5 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
           <span className="block text-sm truncate">{p.titulo || 'Sem título'}</span>
@@ -6046,7 +6104,6 @@ const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Not
         </button>
       ))}
       {l.length > (compacto ? 3 : 6) && <p className={`px-2 text-[11px] ${sub}`}>+{l.length - (compacto ? 3 : 6)} no separador Notas</p>}
-      {!l.length && !compacto && <p className={`px-2 text-xs ${sub}`}>Nenhuma nota com @ a falar disto. Escreve @ numa nota para ligar.</p>}
       {compacto && onNova && <button type="button" onClick={onNova} className="px-2 text-[11px] text-blue-400 hover:text-blue-300">+ Nova nota</button>}
     </div>
   );
