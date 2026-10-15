@@ -175,6 +175,7 @@ const IC = {
   link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
   imagem: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>', arroba: '<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.4 6.8"/>',
   colunas: '<rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>',
+  google: '<path d="M20.5 12.2c0-.6-.1-1.2-.2-1.7H12v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.6-3.9 2.6-6.5z"/><path d="M12 21c2.4 0 4.5-.8 5.9-2.2L15 16.6c-.8.5-1.8.9-3 .9-2.3 0-4.3-1.6-5-3.7H4v2.3A9 9 0 0 0 12 21z"/><path d="M7 13.8a5.4 5.4 0 0 1 0-3.5V8H4a9 9 0 0 0 0 8.1z"/><path d="M12 6.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 4 8l3 2.3c.7-2.1 2.7-3.7 5-3.7z"/>',
   micro: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   linha: '<path d="M4 12h16"/>', limpar: '<path d="M6 19h8M10 5h8M14 5l-4 14M4 4l16 16"/>', desfazer: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', refazer: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
   editar: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/>', mover: '<path d="M5 12h14M13 6l6 6-6 6"/>', copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
@@ -254,6 +255,7 @@ const Menu = ({ itens, claro, alinhar = 'right' }) => {
   );
 };
 
+const DITAR_AO_ABRIR = { sim: false };
 // Botão da barra do editor (fora do Editor para não ser recriado a cada tecla)
 const BotaoFerr = ({ ic, on, fn, titulo, claro }) => (
   <button type="button" title={titulo} aria-label={titulo} aria-pressed={!!on} onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={fn}
@@ -519,6 +521,8 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   };
   const linguaDitado = () => { try { return localStorage.getItem('notas-ditado-lingua') || 'pt-PT'; } catch (e) { return 'pt-PT'; } };
   useEffect(() => () => { ditarRef.current = false; const r = recRef.current; recRef.current = null; try { if (r) r.abort(); } catch (e) { /* */ } }, []);
+  // Atalho "Nota por voz" (ícone da app no telemóvel): a página nova abre já a ouvir
+  useEffect(() => { if (!DITAR_AO_ABRIR.sim) return undefined; DITAR_AO_ABRIR.sim = false; const tm = setTimeout(() => comecarDitado(linguaDitado()), 350); return () => clearTimeout(tm); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // @menções
   const opcoes = useMemo(() => {
     if (!mencao) return [];
@@ -1801,6 +1805,16 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const secPagina = pagina ? secDe(pagina.seccaoId) : null;
   const cadPagina = secPagina ? (ix.cadernos || []).find(c => c.id === secPagina.cadernoId) : null;
 
+  // "Nota por voz" (atalho no ícone da app): página nova já a ouvir
+  useEffect(() => {
+    if (modo === 'carregar' || !(ix.seccoes || []).some(s2 => !s2.protegida)) return; // espera pelas secções
+    let pedido = false; try { pedido = localStorage.getItem('notas-voz') === '1'; localStorage.removeItem('notas-voz'); } catch (e) { /* */ }
+    if (!pedido) return;
+    DITAR_AO_ABRIR.sim = true;
+    let sid = null; try { sid = localStorage.getItem('notas-ult-sec'); } catch (e) { /* */ }
+    const ok = sid && (ix.seccoes || []).some(s2 => s2.id === sid && !s2.protegida);
+    novaPagina('branco', null, null, { titulo: `Nota por voz — ${dataLonga(agora())} ${horaTxt(agora())}`, html: '', ...(ok ? { sid } : {}) });
+  }, [modo, (ix.seccoes || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
   // Abrir uma página vinda de outro sítio da app (ex.: ficha do cliente)
   useEffect(() => {
     if (!abrir || modo === 'carregar') return;
@@ -1822,6 +1836,79 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   // Secções-cofre (protegidas e com palavras-passe) mostram-se em grelha, a não ser que escolhas a lista
   const emGrelha = !!(!mostrarSeccao && secao && secao.protegida && (ix.paginas || []).some(p => p.seccaoId === secao.id && p.tipo === 'senha') && !listaPref.has(secao.id));
   const mudarVistaCofre = grelha => setListaPref(prev => { const n = new Set(prev); if (grelha) n.delete(secao.id); else n.add(secao.id); try { localStorage.setItem('notas-cofre-lista', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
+
+  // ── "Hey Google" → Google Tasks → Notas: o que dizes ao telemóvel entra numa página por dia ──
+  const [gCfg, setGCfg] = useState(() => { try { return JSON.parse(localStorage.getItem('gtasks-cfg')) || null; } catch (e) { return null; } });
+  const gravarGCfg = c => { setGCfg(c); try { if (c) localStorage.setItem('gtasks-cfg', JSON.stringify(c)); else localStorage.removeItem('gtasks-cfg'); } catch (e) { /* sem armazenamento */ } };
+  const [painelG, setPainelG] = useState(false);
+  const [gListas, setGListas] = useState(null);
+  const [gMsg, setGMsg] = useState('');
+  const [gOcupado, setGOcupado] = useState(false);
+  const ixRef = useRef(ix); ixRef.current = ix;
+  const pagIdRef = useRef(pagId); pagIdRef.current = pagId;
+  const aImportarG = useRef(false);
+  const carregarListasG = async (cfg = gCfg) => {
+    if (!cfg || !cfg.conta) return;
+    try { const T = await import('./trabalho'); const j = await T.pedirTasks(cfg.conta, 'users/@me/lists?maxResults=100'); setGListas(j.items || []); setGMsg(''); }
+    catch (e) { setGMsg(`⚠ ${e.message || e}`); }
+  };
+  const ligarG = async () => {
+    setGOcupado(true); setGMsg('');
+    try { const T = await import('./trabalho'); const conta = await T.ligarGoogleTasks(); const c = { ...(gCfg || {}), conta }; gravarGCfg(c); await carregarListasG(c); }
+    catch (e) { setGMsg(`⚠ ${e.message || e}`); }
+    setGOcupado(false);
+  };
+  const criarListaG = async () => {
+    setGOcupado(true);
+    try { const T = await import('./trabalho'); const l = await T.pedirTasks(gCfg.conta, 'users/@me/lists', { method: 'POST', body: JSON.stringify({ title: 'Notas' }) }); gravarGCfg({ ...gCfg, lista: l.id, listaNome: l.title }); await carregarListasG(); }
+    catch (e) { setGMsg(`⚠ ${e.message || e}`); }
+    setGOcupado(false);
+  };
+  const importarGoogle = async manual => {
+    const cfg = gCfg;
+    if (!cfg || !cfg.conta || !cfg.lista || aImportarG.current || modo === 'carregar') return;
+    aImportarG.current = true;
+    try {
+      const T = await import('./trabalho');
+      const j = await T.pedirTasks(cfg.conta, `lists/${encodeURIComponent(cfg.lista)}/tasks?showCompleted=false&showHidden=false&maxResults=100`);
+      let feitos = []; try { feitos = JSON.parse(localStorage.getItem('gtasks-feitos')) || []; } catch (e) { /* */ }
+      const itens = (j.items || []).filter(x => x.title && x.title.trim() && x.status !== 'completed' && !feitos.includes(x.id)).sort((a, b) => String(a.updated).localeCompare(String(b.updated)));
+      if (!itens.length) { if (manual && showToast) showToast('Não há notas novas no Google Tasks.', 'info'); return; }
+      const ix0 = ixRef.current;
+      const secs = ix0.seccoes || [];
+      const sid = cfg.seccao && secs.some(s2 => s2.id === cfg.seccao && !s2.protegida) ? cfg.seccao : (secs.find(s2 => !s2.protegida) || {}).id;
+      if (!sid) return;
+      const titulo = `Notas por voz — ${dataLonga(agora())}`;
+      const novoHtml = `<ul>${itens.map(x => `<li><b>${horaTxt(x.updated)}</b> — ${escHtml(x.title.trim())}${x.notes ? `<br>${escHtml(x.notes)}` : ''}</li>`).join('')}</ul>`;
+      const existente = (ix0.paginas || []).find(p => p.seccaoId === sid && !p.tituloC && p.titulo === titulo);
+      if (existente && existente.id !== pagIdRef.current) {
+        const d = await lerPagina(existente.id);
+        const html = `${(d && d.html) || ''}${novoHtml}`;
+        await guardarPagina(existente.id, { html, editada: agora() }, sid);
+        mudarIndice(i => ({ ...i, paginas: (i.paginas || []).map(p => (p.id === existente.id ? { ...p, txt: textoDe(html).slice(0, 600), tags: tagsDe(html), editada: agora() } : p)) }));
+      } else {
+        const id = nId();
+        await guardarPagina(id, { html: novoHtml, editada: agora() }, sid);
+        mudarIndice(i => ({ ...i, paginas: [...(i.paginas || []), { id, seccaoId: sid, titulo, criada: agora(), editada: agora(), txt: textoDe(novoHtml).slice(0, 600), tags: tagsDe(novoHtml) }] }));
+      }
+      try { localStorage.setItem('gtasks-feitos', JSON.stringify([...itens.map(x => x.id), ...feitos].slice(0, 400))); } catch (e) { /* */ }
+      // No Google Tasks ficam marcadas como feitas (não se apagam: vês tudo em "Concluídas")
+      for (const x of itens) { try { await T.pedirTasks(cfg.conta, `lists/${encodeURIComponent(cfg.lista)}/tasks/${encodeURIComponent(x.id)}`, { method: 'PATCH', body: JSON.stringify({ id: x.id, status: 'completed' }) }); } catch (e) { /* fica por marcar; não volta a entrar */ } }
+      if (showToast) showToast(`${itens.length} nota${itens.length === 1 ? '' : 's'} do "Hey Google" em ${titulo}`, 'success');
+    } catch (e) { if (manual) { setGMsg(`⚠ ${e.message || e}`); if (showToast) showToast(String(e.message || e), 'error'); } }
+    finally { aImportarG.current = false; }
+  };
+  // Ao abrir as notas e ao voltar à app (no máximo uma vez por minuto)
+  const ultG = useRef(0);
+  useEffect(() => {
+    if (modo === 'carregar' || !gCfg || !gCfg.lista) return undefined;
+    const f = () => { if (document.hidden || Date.now() - ultG.current < 60000) return; ultG.current = Date.now(); importarGoogle(false); };
+    f();
+    window.addEventListener('focus', f); document.addEventListener('visibilitychange', f);
+    return () => { window.removeEventListener('focus', f); document.removeEventListener('visibilitychange', f); };
+  }, [modo, gCfg && gCfg.lista, gCfg && gCfg.conta]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (painelG && gCfg && gCfg.conta && !gListas) carregarListasG(); }, [painelG]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!painelG) return undefined; const f = e => { if (e.key === 'Escape') setPainelG(false); }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f); }, [painelG]);
 
   // ── Operações ──
   const novaPagina = async (modeloId = 'branco', sobre = null, kDesbloq = null, pronto = null) => {
@@ -2147,6 +2234,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
       <div className="space-y-0.5">
         <button type="button" onClick={() => { setFiltro('recentes'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'recentes')}><Ic n="relogio" className={`w-4 h-4 ${sub}`} /> Recentes</button>
         <button type="button" onClick={() => { setFiltro('favoritos'); setProcura(''); setVista('paginas'); }} className={linhaBtn(filtro === 'favoritos')}><Ic n="estrela" className={`w-4 h-4 ${sub}`} /> Favoritos <span className={`ml-auto text-xs ${sub}`}>{(ix.paginas || []).filter(p => p.fav).length || ''}</span></button>
+        <button type="button" onClick={() => setPainelG(true)} className={linhaBtn(false)} title="Notas ditas ao telemóvel (Google Tasks)"><Ic n="micro" className={`w-4 h-4 ${sub}`} /> Hey Google <span className={`ml-auto text-[11px] ${gCfg && gCfg.lista ? 'text-emerald-500' : sub}`}>{gCfg && gCfg.lista ? 'ligado' : ''}</span></button>
         {/* As páginas favoritas ficam logo aqui, à mão (como os projetos favoritos no Trabalho) */}
         {(() => {
           const favs = (ix.paginas || []).filter(p => p.fav).sort((a, b) => String(tituloDe(a)).localeCompare(String(tituloDe(b)), 'pt'));
@@ -2513,6 +2601,62 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
       {modalCofre}
       {fabNotas}
       {pedir && <Pedir key={pedir.titulo} {...pedir} claro={claro} onFechar={() => setPedir(null)} />}
+      {painelG && (
+        <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 pt-[10vh] sm:pt-4 bg-black/55" onMouseDown={e => { if (e.target === e.currentTarget) setPainelG(false); }}>
+          <div role="dialog" aria-label="Notas pelo Hey Google" onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setPainelG(false); } }} className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl space-y-4 ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
+            <div className="flex items-start gap-3">
+              <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${claro ? 'bg-blue-50 text-blue-600' : 'bg-blue-500/15 text-blue-300'}`}><Ic n="micro" className="w-5 h-5" /></span>
+              <div className="flex-1">
+                <p className="font-semibold">Notas pelo “Hey Google”</p>
+                <p className={`text-sm ${sub}`}>Dizes uma nota ao telemóvel e ela aparece aqui, numa página por dia.</p>
+              </div>
+              <button type="button" onClick={() => setPainelG(false)} className={`w-8 h-8 rounded-lg ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button>
+            </div>
+            <ol className="space-y-3 text-sm">
+              <li className="flex gap-2.5"><span className={`shrink-0 w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center ${gCfg && gCfg.conta ? 'bg-emerald-500 text-white' : claro ? 'bg-slate-200' : 'bg-slate-700'}`}>{gCfg && gCfg.conta ? '✓' : '1'}</span>
+                <div className="flex-1 space-y-1">
+                  <p>Liga a conta Google do teu telemóvel (a do Gemini).</p>
+                  {gCfg && gCfg.conta ? <p className={`text-xs ${sub}`}>Ligada: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>{gCfg.conta}</b> · <button type="button" onClick={ligarG} className="text-blue-500 hover:underline">trocar</button></p>
+                    : <button type="button" disabled={gOcupado} onClick={ligarG} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{gOcupado ? 'A ligar…' : 'Ligar a conta Google'}</button>}
+                </div>
+              </li>
+              <li className="flex gap-2.5"><span className={`shrink-0 w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center ${gCfg && gCfg.lista ? 'bg-emerald-500 text-white' : claro ? 'bg-slate-200' : 'bg-slate-700'}`}>{gCfg && gCfg.lista ? '✓' : '2'}</span>
+                <div className="flex-1 space-y-1.5">
+                  <p>Escolhe a lista do Google Tasks de onde vêm as notas.</p>
+                  {gCfg && gCfg.conta && (gListas ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select value={gCfg.lista || ''} onChange={e => { const l = gListas.find(x => x.id === e.target.value); gravarGCfg({ ...gCfg, lista: l ? l.id : null, listaNome: l ? l.title : '' }); }} className={`flex-1 min-w-0 rounded-lg border px-2 py-1.5 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Lista do Google Tasks">
+                        <option value="" className={claro ? '' : 'bg-slate-800'}>Escolhe…</option>
+                        {gListas.map(l => <option key={l.id} value={l.id} className={claro ? '' : 'bg-slate-800'}>{l.title}</option>)}
+                      </select>
+                      {!gListas.some(l => /^notas?$/i.test(l.title)) && <button type="button" disabled={gOcupado} onClick={criarListaG} className={`px-2.5 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Criar a lista “Notas”</button>}
+                    </div>
+                  ) : <p className={`text-xs ${sub}`}>A ver as tuas listas…</p>)}
+                </div>
+              </li>
+              <li className="flex gap-2.5"><span className={`shrink-0 w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}>3</span>
+                <div className="flex-1 space-y-1.5">
+                  <p>Secção onde ficam as notas:</p>
+                  <select value={(gCfg && gCfg.seccao) || ''} onChange={e => gravarGCfg({ ...(gCfg || {}), seccao: e.target.value || null })} className={`w-full rounded-lg border px-2 py-1.5 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Secção das notas por voz">
+                    <option value="" className={claro ? '' : 'bg-slate-800'}>A primeira secção</option>
+                    {seccoes.filter(s2 => !s2.protegida).map(s2 => { const c = (ix.cadernos || []).find(x => x.id === s2.cadernoId); return <option key={s2.id} value={s2.id} className={claro ? '' : 'bg-slate-800'}>{c ? `${c.nome} › ` : ''}{s2.nome}</option>; })}
+                  </select>
+                </div>
+              </li>
+            </ol>
+            <div className={`rounded-xl p-3 text-sm space-y-1 ${claro ? 'bg-slate-50' : 'bg-slate-900/50'}`}>
+              <p className="font-medium">No telemóvel, diz:</p>
+              <p className={sub}>“Hey Google, adiciona {gCfg && gCfg.listaNome && !/^(my tasks|as minhas tarefas|minhas tarefas)$/i.test(gCfg.listaNome) ? <>à minha lista <b>{gCfg.listaNome}</b> do Google Tasks</> : 'aos meus Tasks'}: ideia para o vídeo do Mahjong…”</p>
+              <p className={`text-xs ${sub}`}>A app vai buscar as notas quando abres as Notas (e ao voltares à app), e marca-as como feitas no Google Tasks.</p>
+            </div>
+            {gMsg && <p className={`text-sm ${/^⚠/.test(gMsg) ? 'text-red-400' : sub}`}>{gMsg}</p>}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {gCfg ? <button type="button" onClick={() => { gravarGCfg(null); setGListas(null); }} className={`text-xs ${sub} hover:text-red-400`}>Desligar</button> : <span />}
+              <button type="button" disabled={!gCfg || !gCfg.lista || gOcupado} onClick={async () => { setGOcupado(true); await importarGoogle(true); setGOcupado(false); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">Ir buscar agora</button>
+            </div>
+          </div>
+        </div>
+      )}
       {planear && <PlanearCompras itens={planear.itens} titulo={planear.titulo} claro={claro} sub={sub} perguntarIA={perguntarIA} onFechar={() => setPlanear(null)}
         onGuardar={async (tit, html) => { const sid = planear.sid; setPlanear(null); await novaPagina('branco', null, null, { titulo: tit, html, sid }); if (showToast) showToast('Plano guardado numa página nova.'); }} />}
       {importar && <ImportarSenhas claro={claro} sub={sub} destino={`${(((ix.cadernos || []).find(c => c.id === importar.s.cadernoId)) || {}).nome || ''} › ${importar.s.nome}`} onImportar={fazerImportar} onFechar={() => setImportar(null)} />}
