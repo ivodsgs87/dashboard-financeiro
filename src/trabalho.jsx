@@ -1753,10 +1753,10 @@ const slideDaTarefa = (slides, url, t) => {
   return mp >= 0.6 ? melhor : null;
 };
 // Guarda um ficheiro do Drive no PC: escolhes a pasta (ex.: Assets\Footage do projeto) e vai direto para lá, sem passar pela memória
-const guardarDoDrive = async (conta, f, onProg) => {
+const guardarDoDrive = async (conta, f, onProg, destinoDado) => {
   let token = await tokenDrive(conta); // 1.º o acesso (pode abrir a janela da Google), depois a janela de guardar
-  let destino = null;
-  if (window.showSaveFilePicker) {
+  let destino = destinoDado || null;
+  if (!destino && window.showSaveFilePicker) {
     try { destino = await window.showSaveFilePicker({ id: 'brief-videos', suggestedName: f.nome || 'video.mp4' }); }
     catch (e) { if (e && e.name === 'AbortError') return false; destino = null; }
   }
@@ -1783,6 +1783,80 @@ const guardarBlob = async (blob, nome) => {
   }
   guardarBlobComo(blob, nome);
   return true;
+};
+// ── A pasta Assets\Footage do projeto desta tarefa (pela pasta dos projetos que escolheste para os exports) ──
+const nomeLivre = async (dir, nome) => {
+  const m = /^(.*?)(\.[^.]+)?$/.exec(nome);
+  for (let i = 1; i < 200; i++) { const n = i === 1 ? nome : `${m[1]}_${i}${m[2] || ''}`; try { await dir.getFileHandle(n); } catch (e) { return n; } }
+  return `${Date.now()}_${nome}`;
+};
+const pastaDoProjetoDaTarefa = async (tarefa, pedir) => {
+  if (!tarefa || typeof window === 'undefined' || !window.showDirectoryPicker) return null;
+  const raiz = await idbLer('raiz-projetos');
+  if (!raiz || !(await permissaoLer(raiz, pedir))) return null;
+  const nf = nomesFicheiros(TRAB_ATUAL.trab, tarefa);
+  if (!nf || !nf.conceito) return null;
+  const kc = `proj:${nf.jogo ? nf.jogo.id : ''}:${slugF(nf.conceito)}`;
+  let alvo = await idbLer(kc);
+  if (alvo && alvo.dir) { try { const it = alvo.dir.entries(); await it.next(); } catch (e) { alvo = null; } } // mudou de nome/sítio
+  if (!alvo || !alvo.dir) {
+    const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(tarefa.cid));
+    const a = await acharExportsConceito(raiz, { conceito: nf.conceito, jogo: nf.jogo ? nf.jogo.nome : '', cliente: cli ? cli.nome : '' });
+    if (!a || !a.proj) return null;
+    alvo = { dir: a.proj, projeto: a.projeto };
+    await idbGravar(kc, { ...alvo, em: Date.now() });
+  }
+  let assets = null; try { assets = await alvo.dir.getDirectoryHandle('Assets'); } catch (e) { /* sem Assets */ }
+  if (!assets) return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, footage: null };
+  const footage = await assets.getDirectoryHandle('Footage', { create: true });
+  return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, footage };
+};
+// Textos do slide prontos para o After: as falas do guião (QUEM: "…") e os outros textos entre aspas (cartões, end card, hooks)
+const textosParaAE = texto => {
+  const falas = [], ecra = [], visto = new Set();
+  String(texto || '').split('\n').forEach(linha => {
+    const l = linha.trim(); if (!l) return;
+    const f = /^([A-Z][A-Za-z0-9 .'’()&/-]{0,30}):\s*["“”](.+?)["“”]\s*$/.exec(l);
+    if (f && f[1] === f[1].toUpperCase()) { falas.push({ quem: f[1].trim(), txt: f[2].trim() }); return; }
+    const re = /["“]([^"“”]{2,160})["”]/g; let m;
+    while ((m = re.exec(l))) { const t = m[1].trim(); const k = t.toLowerCase(); if (t && !visto.has(k)) { visto.add(k); ecra.push(t); } }
+  });
+  const naFala = t => falas.some(x => x.txt.toLowerCase().includes(t.toLowerCase())); // "cold open on «…»" repete uma fala
+  return { falas, ecra: ecra.filter(t => !naFala(t)) };
+};
+const BlocoTextosAE = ({ slide, copiar, copiado }) => {
+  const { falas, ecra } = textosParaAE(slide.texto);
+  if (!falas.length && !ecra.length) return null;
+  const linha = (txt, k) => (
+    <li key={k} className="group flex items-start gap-2 py-1">
+      <span className="flex-1 min-w-0 select-text">{txt}</span>
+      <button type="button" onClick={() => copiar(txt, k)} className="shrink-0 text-[11px] text-blue-300 hover:underline opacity-70 group-hover:opacity-100">{copiado === k ? '✓' : 'Copiar'}</button>
+    </li>
+  );
+  return (
+    <div className="rounded-xl p-3 sm:p-4 bg-blue-500/10 ring-1 ring-blue-400/40 space-y-3">
+      <p className="text-[11px] uppercase tracking-wide text-blue-200 font-semibold">Para o After — textos do slide {slide.n}</p>
+      {ecra.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-2"><p className="text-xs font-medium">Textos no ecrã <span className="text-white/50 font-normal">(cartões, end card, hooks)</span></p><button type="button" onClick={() => copiar(ecra.join('\n'), 'ae-ecra')} className="text-[11px] text-blue-300 hover:underline">{copiado === 'ae-ecra' ? '✓ Copiados' : `Copiar os ${ecra.length}`}</button></div>
+          <ul className="text-sm divide-y divide-white/5">{ecra.map((t, i) => linha(t, `ae-e${i}`))}</ul>
+        </div>
+      )}
+      {falas.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-2"><p className="text-xs font-medium">Falas <span className="text-white/50 font-normal">(para legendas)</span></p><button type="button" onClick={() => copiar(falas.map(x => x.txt).join('\n'), 'ae-falas')} className="text-[11px] text-blue-300 hover:underline">{copiado === 'ae-falas' ? '✓ Copiadas' : `Copiar as ${falas.length}`}</button></div>
+          <ul className="text-sm divide-y divide-white/5">{falas.map((x, i) => (
+            <li key={i} className="group flex items-start gap-2 py-1">
+              <span className="shrink-0 w-24 truncate text-[11px] text-white/50 pt-0.5">{x.quem}</span>
+              <span className="flex-1 min-w-0 select-text">{x.txt}</span>
+              <button type="button" onClick={() => copiar(x.txt, `ae-f${i}`)} className="shrink-0 text-[11px] text-blue-300 hover:underline opacity-70 group-hover:opacity-100">{copiado === `ae-f${i}` ? '✓' : 'Copiar'}</button>
+            </li>
+          ))}</ul>
+        </div>
+      )}
+      <p className="text-[11px] text-white/45">«Copiar os …» copia um por linha — no After, cola numa layer de texto e cada linha fica numa linha.</p>
+    </div>
+  );
 };
 const VideoDoPptx = ({ blob, nome }) => {
   const [url, setUrl] = useState(null);
@@ -1819,7 +1893,8 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
   const nTarefa = slides ? slideDaTarefa(slides, a.url, tarefa) : null;
   const slideT = nTarefa ? slides[nTarefa - 1] : null;
   const tituloSlide = s => (s && String(s.texto || '').split('\n')[0]) || '';
-  useEffect(() => { if (aba === 'texto' && refSlide.current) refSlide.current.scrollIntoView({ block: 'start' }); }, [aba, nTarefa, doc]);
+  // Abre já no slide da tarefa — a não ser que haja o bloco «Para o After» (que fica no topo e é o que interessa)
+  useEffect(() => { if (aba !== 'texto' || !refSlide.current || !slideT) return; const tx = textosParaAE(slideT.texto); if (!tx.falas.length && !tx.ecra.length) refSlide.current.scrollIntoView({ block: 'start' }); }, [aba, nTarefa, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // URL do editor já no slide da tarefa (quando dá para saber)
   const urlEditor = (() => {
     const base = urlEditarGoogle(a.url, cid);
@@ -1830,14 +1905,27 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
   })();
   const copiar = async (txt, qual) => { try { await navigator.clipboard.writeText(txt); setCopiado(qual); setTimeout(() => setCopiado(''), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
   const blobDoPptx = async v => { if (blobV[v.caminho]) return blobV[v.caminho]; const b = await doc.dados(v.caminho); setBlobV(x => ({ ...x, [v.caminho]: b })); return b; };
-  const descarregar = async v => {
+  // Para onde vão os vídeos: a Assets\Footage do projeto (se a app souber qual é), senão escolhes tu
+  const [destino, setDestino] = useState(null); // null (por ver) | { projeto, footage } | 'nenhum'
+  const verDestino = async pedir => {
+    if (destino && destino !== 'nenhum') return destino;
+    if (destino === 'nenhum' && !pedir) return null;
+    try { const d = await pastaDoProjetoDaTarefa(tarefa, pedir); setDestino(d && d.footage ? d : 'nenhum'); return d && d.footage ? d : null; } catch (e) { setDestino('nenhum'); return null; }
+  };
+  useEffect(() => { if (aba === 'videos' && !destino) verDestino(false); }, [aba]); // eslint-disable-line react-hooks/exhaustive-deps
+  const descarregar = async (v, ondeEscolho) => {
     const k = v.caminho || v.id;
     setProg(p => ({ ...p, [k]: 0 }));
     try {
-      let ok;
-      if (v.caminho) { const nome = `${(tarefa && palavrasTitulo(tarefa.nome)) || 'brief'}_slide${v.slide}_${v.nome}`; ok = await guardarBlob(await blobDoPptx(v), nome); }
-      else ok = await guardarDoDrive(conta, v, x => setProg(p => ({ ...p, [k]: x })));
-      setProg(p => ({ ...p, [k]: ok ? 'ok' : undefined }));
+      const nome = v.caminho ? `${(tarefa && palavrasTitulo(tarefa.nome)) || 'brief'}_slide${v.slide}_${v.nome}` : (v.nome || 'video.mp4');
+      const d = ondeEscolho ? null : await verDestino(true);
+      let ok, fh = null;
+      if (d && d.footage) { fh = await d.footage.getFileHandle(await nomeLivre(d.footage, nome), { create: true }); }
+      if (v.caminho) {
+        const blob = await blobDoPptx(v);
+        if (fh) { const w = await fh.createWritable(); await w.write(blob); await w.close(); ok = true; } else ok = await guardarBlob(blob, nome);
+      } else ok = await guardarDoDrive(conta, { ...v, nome }, x => setProg(p => ({ ...p, [k]: x })), fh);
+      setProg(p => ({ ...p, [k]: ok ? (fh ? `ok:${d.projeto}\\Assets\\Footage\\${fh.name}` : 'ok') : undefined }));
     } catch (e) { setProg(p => ({ ...p, [k]: `erro:${e.message}` })); }
   };
   const descarregarFicheiro = async () => {
@@ -1845,7 +1933,7 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
     try { const f = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(id)}?fields=name,size&supportsAllDrives=true`, false, chaveRecurso(a.url)); await descarregar({ id, nome: f.name, tamanho: Number(f.size) || 0 }); }
     catch (e) { setProg(p => ({ ...p, [id]: `erro:${e.message}` })); }
   };
-  const estadoProg = x => (x == null ? null : x === 'ok' ? <span className="text-emerald-400">✓ Guardado</span> : String(x).startsWith('erro:') ? <span className="text-red-300">{String(x).slice(5)}</span> : <span className="tabular-nums">{Math.round(x * 100)}%</span>);
+  const estadoProg = x => (x == null ? null : x === 'ok' ? <span className="text-emerald-400">✓ Guardado</span> : String(x).startsWith('ok:') ? <span className="text-emerald-400" title={String(x).slice(3)}>✓ Guardado em {String(x).slice(3).split('\\').slice(0, -1).join('\\')}</span> : String(x).startsWith('erro:') ? <span className="text-red-300">{String(x).slice(5)}</span> : <span className="tabular-nums">{Math.round(x * 100)}%</span>);
   const btn = 'px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25 text-white';
   const idF = googleId(a.url);
   const todosVideos = slides ? [].concat(...slides.map(s => (s.videos || []).map(v => ({ ...v, slide: s.n }))), ((doc && doc.soltos) || []).map(v => ({ ...v, slide: 0 }))) : [];
@@ -1889,6 +1977,7 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
             {!aCarregar && doc && !doc.erro && aba === 'texto' && (
               <div className="max-w-3xl mx-auto space-y-3">
                 {doc.avisoApi && <p className="text-[11px] text-amber-300">Sem a API do Google Slides não consigo separar o texto por slide nem ver os vídeos (vê o separador Vídeos).</p>}
+                {slideT && <BlocoTextosAE slide={slideT} copiar={copiar} copiado={copiado} />}
                 <div className="flex items-center justify-between gap-2"><p className="text-xs text-white/60">Seleciona o que quiseres e Ctrl+C — ou copia tudo.</p><button type="button" onClick={() => copiar(textoTudo, 'tudo')} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{copiado === 'tudo' ? '✓ Copiado' : 'Copiar tudo'}</button></div>
                 {slides ? slides.map(s => (
                   <div key={s.n} ref={s.n === nTarefa ? refSlide : null} className={`rounded-xl p-3 sm:p-4 scroll-mt-2 ${s.n === nTarefa ? 'bg-amber-400/10 ring-2 ring-amber-400' : 'bg-white/5'}`}>
@@ -1923,7 +2012,8 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
                           </div>
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <>
                             <button type="button" onClick={async () => { if (verV === k) { setVerV(null); return; } if (v.caminho) await blobDoPptx(v); setVerV(k); }} className={btn}>{verV === k ? 'Fechar' : '▶ Ver'}</button>
-                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">Descarregar</button>
+                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Footage` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Footage' : 'Descarregar'}</button>
+                            {destino && destino !== 'nenhum' && <button type="button" onClick={() => descarregar(v, true)} disabled={typeof prog[k] === 'number'} className="text-[11px] text-white/60 hover:text-white underline-offset-2 hover:underline">noutro sítio…</button>}
                           </>}
                           {v.fonte === 'YOUTUBE' && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no YouTube ↗</a>}
                           {prog[k] != null && <span className="text-xs">{estadoProg(prog[k])}</span>}
@@ -1932,7 +2022,7 @@ const PreviaGoogle = ({ a, cid, tarefa, onFechar }) => {
                       </div>
                     );
                   })}
-                  <p className="text-[11px] text-white/50">Ao descarregar, escolhes a pasta (por exemplo a Assets\Footage do projeto) — o browser lembra-se da última.</p>
+                  <p className="text-[11px] text-white/50">{destino && destino !== 'nenhum' ? `Os vídeos vão para ${destino.projeto}\\Assets\\Footage (o nome nunca substitui um ficheiro que já lá esteja).` : 'Ao descarregar escolhes a pasta. Para irem direto para a Assets\\Footage do projeto, a app precisa de saber onde estão os teus projetos (escolhe-a uma vez no painel do Drive › «Escolher a pasta dos projetos») e a tarefa tem de ter o conceito preenchido.'}</p>
                 </div>
               )
             )}
@@ -3287,7 +3377,7 @@ const acharExportsConceito = async (raiz, { conceito, jogo, cliente }) => {
     try {
       for await (const [nome, e] of dir.entries()) {
         if (e.kind !== 'directory') continue;
-        if (nome.toLowerCase() === '@exports') { achados.push({ dir: e, projeto: cam[cam.length - 1] || '', cam }); continue; }
+        if (nome.toLowerCase() === '@exports') { achados.push({ dir: e, proj: dir, projeto: cam[cam.length - 1] || '', cam }); continue; }
         if (IGNORAR_PROJ.test(nome) || nivel >= 7) continue;
         subs.push([e, nome]);
       }
