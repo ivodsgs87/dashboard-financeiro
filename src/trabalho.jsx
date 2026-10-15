@@ -3618,6 +3618,36 @@ const VideoGrande = ({ url, imagem, formato, nome, tempo = 0, onFechar, opcoes, 
 };
 // Pré-visualização do export (o 9:16 primeiro), logo que se arrastam os ficheiros — dá para trocar de formato
 const ehImagemF = f => !!f && (/^image\//.test(f.type || '') || /\.(png|jpe?g|webp|gif)$/i.test(f.name || ''));
+// Resolução de cada formato (vídeo)
+const RES_FORMATO = { '9:16': [1080, 1920], '4:5': [1080, 1350], '16:9': [1920, 1080], '1:1': [1080, 1080] };
+const ORDEM_FORMATOS = ['9:16', '4:5', '16:9', '1:1'];
+const segTxt = s => `${(Math.round(s * 100) / 100).toFixed(2).replace('.', ',')} s`;
+// Verificação antes de enviar: resolução certa para o formato, formatos pedidos em Entrega todos lá, mesma duração em todos
+const verificarExports = (lista, pedidos) => {
+  const erros = [], avisos = [];
+  const vids = (lista || []).filter(x => x.file && !ehImagemF(x.file) && x.formato);
+  if (!vids.length) return { erros, avisos, ok: null };
+  vids.forEach(x => {
+    const m = x.meta; const esp = RES_FORMATO[x.formato];
+    if (!m || !m.w || !m.h) { avisos.push(`Não consegui ler a resolução e a duração do ${x.formato} (o browser não abre este tipo de vídeo) — confirma tu.`); return; }
+    const [a, b] = x.formato.split(':').map(Number);
+    if (Math.abs(m.w / m.h - a / b) > 0.01) erros.push(`O ${x.formato} tem ${m.w}×${m.h} — essa resolução não é ${x.formato}${esp ? ` (devia ser ${esp[0]}×${esp[1]})` : ''}.`);
+    else if (esp && (m.w !== esp[0] || m.h !== esp[1])) avisos.push(`O ${x.formato} tem ${m.w}×${m.h} — o normal é ${esp[0]}×${esp[1]}.`);
+  });
+  const comDur = vids.filter(x => x.meta && x.meta.dur > 0);
+  const durs = comDur.map(x => x.meta.dur);
+  const durIguais = durs.length < 2 || Math.max(...durs) - Math.min(...durs) <= 0.03; // menos de 1 frame
+  if (!durIguais) erros.push(`As durações não são iguais: ${comDur.slice().sort((p, q) => ORDEM_FORMATOS.indexOf(p.formato) - ORDEM_FORMATOS.indexOf(q.formato)).map(x => `${x.formato} = ${segTxt(x.meta.dur)}`).join(' · ')}.`);
+  const tem = new Set(vids.map(x => x.formato));
+  const ped = (pedidos || []).filter(f => RES_FORMATO[f]);
+  const faltam = ped.filter(f => !tem.has(f));
+  if (faltam.length) erros.push(`Falta${faltam.length === 1 ? '' : 'm'} o${faltam.length === 1 ? '' : 's'} ${faltam.join(', ')} (pedido${faltam.length === 1 ? '' : 's'} em Entrega).`);
+  const aMais = [...tem].filter(f => ped.length && !ped.includes(f));
+  if (aMais.length) avisos.push(`${aMais.join(', ')} não está marcado em Entrega.`);
+  if (!ped.length) avisos.push('Marca os formatos em Entrega para eu confirmar que não falta nenhum.');
+  const ok = !erros.length ? `${[...tem].sort((p, q) => ORDEM_FORMATOS.indexOf(p) - ORDEM_FORMATOS.indexOf(q)).join(' · ')}${durs.length ? ` · ${durs.length > 1 ? 'todos com ' : ''}${segTxt(durs[0])}` : ''}${vids.every(x => x.meta && x.meta.w) ? ' · resoluções certas' : ''}` : null;
+  return { erros, avisos, ok };
+};
 const ehVideoF = f => !!f && (/^video\//.test(f.type || '') || /\.(mp4|mov|m4v|webm)$/i.test(f.name || ''));
 const PreviewExport = ({ lista, claro, sub }) => {
   const vis = lista.filter(x => x.file && (ehVideoF(x.file) || ehImagemF(x.file)));
@@ -4089,6 +4119,11 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   // Também na memória da app: se fechares a tarefa a meio do envio, ao voltar vês o ponto em que está
   const mudarItem = (id, patch) => { const f = l => l.map(x => (x.id === id ? { ...x, ...patch } : x)); cacheEnvio.set(t.id, f(cacheEnvio.get(t.id) || lista)); setLista(f); };
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
+  // Verificação antes de enviar (só vídeos): se houver problemas, o botão fica bloqueado até carregares em "Enviar mesmo assim"
+  const verif = statics ? { erros: [], avisos: [], ok: null } : verificarExports(lista, t.formatos);
+  const assinaturaVerif = lista.map(x => `${x.id}:${x.formato}:${x.meta ? `${x.meta.w}x${x.meta.h}@${x.meta.dur}` : '-'}`).join('|') + '/' + (t.formatos || []).join(',');
+  const [ignorarVerif, setIgnorarVerif] = useState('');
+  const verifIgnorada = ignorarVerif === assinaturaVerif;
   // Vídeo novo com uma versão que já existe no Drive (e que não é a desta tarefa): não deixa avançar
   // "Esta entrega é…": nova versão ou substituir uma enviada (é o que decide a versão dos ficheiros)
   const [escolha, setEscolha] = useState(null); // { tipo: 'nova'|'substituir', v, porque }
@@ -4154,7 +4189,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const outrasV = versoesDeOutras(trab, t, r.conceito);
   const proximaVersao = Math.max(0, ...((infoAtual && infoAtual.versoes) || []), ...outrasV, ...versoesTarefa) + 1;
   const versaoOcupada = !!(novoVideo && ((infoAtual && infoAtual.versoes.includes(versaoEscolhida)) || outrasV.includes(versaoEscolhida)) && String(versaoAnterior || '') !== String(versaoEscolhida) && !versoesTarefa.includes(versaoEscolhida));
-  const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada;
+  const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada && (!verif.erros.length || verifIgnorada);
   const enviar = async (subst = {}, opcoes = {}) => {
     if (!pronto || aEnviar || ENVIANDO.has(t.id)) return null;
     setAEnviar(true);
@@ -4409,6 +4444,23 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               </div>
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
+              {lista.some(x => x.estado !== 'feito') && (verif.erros.length > 0 ? (
+                <div className={`rounded-lg border px-3 py-2.5 space-y-1.5 text-[13px] ${verifIgnorada ? (claro ? 'border-slate-200' : 'border-slate-700') : 'border-red-500/50 bg-red-500/[0.07]'}`} role="alert">
+                  <p className={`font-semibold ${verifIgnorada ? sub : 'text-red-400'}`}>{verifIgnorada ? 'Vais enviar mesmo com estes problemas:' : 'Antes de enviar, confirma:'}</p>
+                  {verif.erros.map((e, i) => <p key={'e' + i} className={verifIgnorada ? sub : (claro ? 'text-red-700' : 'text-red-300')}>✕ {e}</p>)}
+                  {verif.avisos.map((e, i) => <p key={'a' + i} className="text-amber-500">⚠ {e}</p>)}
+                  <div className="flex justify-end pt-0.5">
+                    {verifIgnorada
+                      ? <button type="button" onClick={() => setIgnorarVerif('')} className={`text-xs ${sub} hover:text-blue-400 underline`}>Afinal não</button>
+                      : <button type="button" onClick={() => setIgnorarVerif(assinaturaVerif)} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`} title="Ex.: só o 9:16 para aprovação do cliente">Enviar mesmo assim</button>}
+                  </div>
+                </div>
+              ) : verif.ok ? (
+                <div className="space-y-0.5 text-[13px]">
+                  <p className="text-emerald-500">✓ Verificado: {verif.ok}</p>
+                  {verif.avisos.map((e, i) => <p key={'a' + i} className="text-amber-500">⚠ {e}</p>)}
+                </div>
+              ) : null)}
               <div className={`rounded-lg border p-2.5 space-y-1.5 text-xs ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/40'}`}>
                 {comHandle.length > 0 ? (
                   <label className="flex items-center gap-2"><input type="checkbox" checked={mudarNoPc} onChange={e => setMudarNoPc(e.target.checked)} disabled={aEnviar} className="accent-blue-500" /> Mudar também o nome dos ficheiros no PC</label>
