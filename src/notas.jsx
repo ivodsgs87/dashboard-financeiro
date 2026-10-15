@@ -487,14 +487,41 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     });
     avisar();
   };
-  const pararDitado = () => { ditarRef.current = false; setDitar(null); const r = recRef.current; recRef.current = null; try { if (r) r.stop(); } catch (e) { /* já parou */ } };
+  // Medidor do microfone: mostra se está mesmo a entrar som (separa "o microfone não funciona" de "o reconhecimento não responde")
+  const micRef = useRef(null); // { stream, ctx, raf }
+  const barraRef = useRef(null);
+  const ouviuSom = useRef(0);
+  const pararMedidor = () => { const m = micRef.current; micRef.current = null; if (!m) return; try { cancelAnimationFrame(m.raf); } catch (e) { /* */ } try { m.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* */ } try { m.ctx.close(); } catch (e) { /* */ } };
+  const ligarMedidor = () => {
+    if (micRef.current || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      if (!ditarRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ctx = new AC(); const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+      const buf = new Uint8Array(an.fftSize); const m = { stream, ctx, raf: 0 }; micRef.current = m;
+      const passo = () => {
+        an.getByteTimeDomainData(buf); let pico = 0; for (let i = 0; i < buf.length; i++) pico = Math.max(pico, Math.abs(buf[i] - 128));
+        const nv = Math.min(1, pico / 60); if (nv > 0.15) ouviuSom.current = Date.now();
+        if (barraRef.current) barraRef.current.style.width = `${Math.round(nv * 100)}%`;
+        m.raf = requestAnimationFrame(passo);
+      };
+      passo();
+    }).catch(err => {
+      // Sem medidor não faz mal (o reconhecimento avisa se não houver microfone); só pára se o browser recusou o microfone
+      if (err && err.name === 'NotAllowedError') { if (showToast) showToast('O browser não deixou usar o microfone. Carrega no cadeado ao lado do endereço › Microfone › Permitir, e recarrega a página.', 'error'); pararDitado(); }
+    });
+  };
+  const pararDitado = () => { ditarRef.current = false; setDitar(null); pararMedidor(); const r = recRef.current; recRef.current = null; try { if (r) r.stop(); } catch (e) { /* já parou */ } };
   const comecarDitado = lingua => {
     if (!SR) { if (showToast) showToast('O ditado por voz funciona no Chrome e no Edge. No telemóvel também podes usar o microfone do teclado.', 'info'); return; }
     if (protegida) { if (showToast) showToast('Nas páginas protegidas o ditado fica desligado: o áudio passa pelos servidores da Google.', 'info'); return; }
     if (recRef.current) { try { recRef.current.onend = null; recRef.current.abort(); } catch (e) { /* */ } }
     const rec = new SR();
     rec.lang = lingua; rec.continuous = true; rec.interimResults = true;
+    let arrancou = 0, falhasSeguidas = 0, temResultados = false;
+    rec.onstart = () => { arrancou = Date.now(); };
     rec.onresult = ev => {
+      temResultados = true; falhasSeguidas = 0;
       let prov = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -503,24 +530,44 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
       setDitar(d => (d ? { ...d, provisorio: prov } : d));
     };
     rec.onerror = ev => {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { if (showToast) showToast('O browser não deixou usar o microfone. Dá licença ao microfone a este site (cadeado ao lado do endereço).', 'error'); pararDitado(); }
-      else if (ev.error === 'network') { if (showToast) showToast('O ditado precisa de internet.', 'error'); pararDitado(); }
-      else if (ev.error === 'audio-capture') { if (showToast) showToast('Não encontrei nenhum microfone.', 'error'); pararDitado(); }
+      const e = ev.error;
+      if (e === 'no-speech' || e === 'aborted') return; // silêncio: volta a ouvir sozinho
+      const msg = e === 'not-allowed' ? 'O browser não deixou usar o microfone. Carrega no cadeado ao lado do endereço › Microfone › Permitir, e recarrega a página.'
+        : e === 'service-not-allowed' ? 'Este browser não deixa usar o reconhecimento de voz (acontece no Brave, Opera e Arc). Usa o Chrome ou o Edge.'
+        : e === 'network' ? 'O reconhecimento de voz não chegou aos servidores (sem internet, VPN ou bloqueador de anúncios a bloquear?).'
+        : e === 'audio-capture' ? 'Não encontrei nenhum microfone (ou o Windows está a bloqueá-lo: Definições › Privacidade › Microfone).'
+        : e === 'language-not-supported' ? `O browser não reconhece a língua ${lingua}. Experimenta EN.`
+        : `O ditado parou (${e || 'erro desconhecido'}).`;
+      if (showToast) showToast(msg, 'error');
+      pararDitado();
     };
     // O Chrome pára sozinho depois de uns segundos de silêncio: volta a ouvir até carregares em Parar (ou 1 minuto calado)
     rec.onend = () => {
       if (!ditarRef.current || recRef.current !== rec) return;
       if (Date.now() - ultimoDitado.current > 60000) { pararDitado(); if (showToast) showToast('Parei o ditado (1 minuto sem falares).', 'info'); return; }
+      // Se o reconhecimento arranca e pára logo, várias vezes seguidas, sem nunca ouvir nada: o serviço de voz não está a funcionar
+      if (!temResultados && (!arrancou || Date.now() - arrancou < 1500)) falhasSeguidas++; else falhasSeguidas = 0;
+      if (falhasSeguidas >= 3) { pararDitado(); if (showToast) showToast('O reconhecimento de voz do browser não está a responder. Confirma que estás no Chrome ou no Edge (no Brave/Opera não funciona) e que não há VPN ou bloqueador a bloquear o Google.', 'error'); return; }
+      arrancou = 0;
       try { rec.start(); } catch (e) { pararDitado(); }
     };
     recRef.current = rec; ditarRef.current = true; ultimoDitado.current = Date.now();
     try { localStorage.setItem('notas-ditado-lingua', lingua); } catch (e) { /* sem armazenamento */ }
-    setDitar({ lingua, provisorio: '' });
+    setDitar({ lingua, provisorio: '', inicio: Date.now() });
     prep();
+    ouviuSom.current = 0;
+    ligarMedidor();
     try { rec.start(); } catch (e) { pararDitado(); }
   };
   const linguaDitado = () => { try { return localStorage.getItem('notas-ditado-lingua') || 'pt-PT'; } catch (e) { return 'pt-PT'; } };
-  useEffect(() => () => { ditarRef.current = false; const r = recRef.current; recRef.current = null; try { if (r) r.abort(); } catch (e) { /* */ } }, []);
+  useEffect(() => () => { ditarRef.current = false; pararMedidor(); const r = recRef.current; recRef.current = null; try { if (r) r.abort(); } catch (e) { /* */ } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Há som a entrar mas, ao fim de uns segundos, ainda nenhuma palavra: avisa no próprio aviso do ditado
+  const [semPalavras, setSemPalavras] = useState(false);
+  useEffect(() => {
+    if (!ditar) { setSemPalavras(false); return undefined; }
+    const iv = setInterval(() => setSemPalavras(!!ouviuSom.current && !ditar.provisorio && Date.now() - ultimoDitado.current > 7000 && Date.now() - (ditar.inicio || 0) > 7000), 1000);
+    return () => clearInterval(iv);
+  }, [ditar]);
   // Atalho "Nota por voz" (ícone da app no telemóvel): a página nova abre já a ouvir
   useEffect(() => { if (!DITAR_AO_ABRIR.sim) return undefined; DITAR_AO_ABRIR.sim = false; const tm = setTimeout(() => comecarDitado(linguaDitado()), 350); return () => clearTimeout(tm); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // @menções
@@ -661,7 +708,8 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           <div className={`mt-1.5 mb-0.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${claro ? 'bg-red-50 text-slate-700 ring-1 ring-red-200' : 'bg-red-500/10 text-slate-200 ring-1 ring-red-500/25'}`} role="status" aria-live="polite">
             <span className="relative flex w-2.5 h-2.5 shrink-0" aria-hidden="true"><span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" /><span className="relative w-2.5 h-2.5 rounded-full bg-red-500" /></span>
             <span className="shrink-0 font-medium">A ouvir…</span>
-            <span className={`flex-1 min-w-0 truncate italic ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
+            <span className={`shrink-0 w-12 h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} title="Nível do microfone"><span ref={barraRef} className="block h-full w-0 bg-emerald-500 transition-[width] duration-75" /></span>
+            <span className={`flex-1 min-w-0 truncate italic ${semPalavras ? 'text-amber-500 not-italic' : claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (semPalavras ? 'O microfone está a ouvir, mas o reconhecimento de voz não está a devolver palavras (confirma a internet / VPN, e que estás no Chrome ou Edge).' : ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
             <span className={`shrink-0 inline-flex rounded-md overflow-hidden ring-1 ${claro ? 'ring-slate-300' : 'ring-slate-600'}`} role="group" aria-label="Língua do ditado">
               {[['pt-PT', 'PT'], ['en-US', 'EN']].map(([l, txt]) => (
                 <button key={l} type="button" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={() => { if (ditar.lingua !== l) comecarDitado(l); }} aria-pressed={ditar.lingua === l}
