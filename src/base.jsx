@@ -1947,11 +1947,54 @@ const trabRelogio = ms => { const s = Math.floor(ms / 1000); return `${Math.floo
 const trabPararEm = (trab, iso) => ({
   ...trab, tarefas: ((trab && trab.tarefas) || []).map(t => ((t.tempos || []).some(x => !x.fim) ? { ...t, tempos: t.tempos.map(x => (x.fim ? x : { ...x, fim: Date.parse(iso) > Date.parse(x.ini) ? iso : new Date().toISOString() })) } : t)),
 });
+// Tirar uma pausa ao cronómetro que está a correr: a sessão acaba em "desde" e recomeça em "ate" (a mesma tarefa)
+const trabCortarPausa = (trab, desde, ate) => ({
+  ...trab, tarefas: ((trab && trab.tarefas) || []).map(t => ((t.tempos || []).some(x => !x.fim) ? { ...t, tempos: t.tempos.flatMap(x => (x.fim ? [x] : Date.parse(desde) > Date.parse(x.ini) ? [{ ...x, fim: desde }, { id: trabId(), ini: ate, fim: null }] : [{ ...x, ini: ate }])) } : t)),
+});
 const CRONO_LONGO_H = 4; // a partir de quantas horas seguidas pergunta se te esqueceste
-const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
+const CRONO_PAUSA_MIN = 20; // minutos sem sinal (PC a dormir, app fechada, ou longe do PC) que contam como pausa
+const cronoLerSinal = () => { try { return JSON.parse(localStorage.getItem('crono-sinal') || 'null'); } catch (e) { return null; } };
+const cronoGravarSinal = (id, t) => { try { localStorage.setItem('crono-sinal', JSON.stringify({ id, t })); } catch (e) { /* sem armazenamento */ } };
+const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, theme }) => {
   const corre = trabACorrer(trab);
   const [, setTic] = useState(0);
   const [aberto, setAberto] = useState(false);
+  // Pausas: a app deixa um "sinal de vida" a cada 20 s enquanto o cronómetro corre. Se o PC dormir ou a app fechar,
+  // o sinal pára — ao voltar, vê o buraco e pergunta se tira esse tempo. Com autorização, também sabe quando sais do PC.
+  const idT = corre ? String(corre.tempo.id || corre.tempo.ini) : '';
+  const [pausa, setPausa] = useState(null); // { desde, ate } em ms
+  const ultimo = useRef(0);
+  useEffect(() => {
+    if (!idT) { setPausa(null); return undefined; }
+    const ini0 = Date.parse(corre.tempo.ini); const lim = CRONO_PAUSA_MIN * 60000;
+    const s = cronoLerSinal(); const agora = Date.now();
+    if (s && s.id === idT && s.t > ini0 && agora - s.t > lim) setPausa({ desde: s.t, ate: agora });
+    ultimo.current = agora; cronoGravarSinal(idT, agora);
+    const verificar = () => { const n = Date.now(); if (n - ultimo.current > lim) { const d = ultimo.current; setPausa(p => p || { desde: d, ate: n }); } ultimo.current = n; cronoGravarSinal(idT, n); };
+    const i = setInterval(verificar, 20000);
+    const vis = () => { if (document.visibilityState === 'visible') verificar(); };
+    document.addEventListener('visibilitychange', vis);
+    // Longe do PC sem ele adormecer (ex.: almoço): só com autorização do browser ("saber quando estás a usar o dispositivo")
+    let det = null; const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null; let idleDesde = 0;
+    (async () => {
+      try {
+        if (!('IdleDetector' in window) || !navigator.permissions) return;
+        const p = await navigator.permissions.query({ name: 'idle-detection' }).catch(() => null);
+        if (!p || p.state !== 'granted') return;
+        det = new window.IdleDetector();
+        det.addEventListener('change', () => {
+          const parado = det.userState === 'idle' || det.screenState === 'locked';
+          if (parado && !idleDesde) idleDesde = Date.now() - 5 * 60000; // o "parado" só dispara ao fim de 5 min sem mexer
+          else if (!parado && idleDesde) { const n = Date.now(); if (n - idleDesde > lim) { const d = idleDesde; setPausa(q => q || { desde: Math.max(d, ini0), ate: n }); } idleDesde = 0; }
+        });
+        await det.start({ threshold: 5 * 60000, signal: ctl ? ctl.signal : undefined });
+      } catch (e) { /* sem deteção */ }
+    })();
+    return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); try { if (ctl) ctl.abort(); } catch (e) { /* */ } };
+  }, [idT]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [podeAusencia, setPodeAusencia] = useState(false); // dá para pedir a autorização de saber quando sais do PC
+  useEffect(() => { (async () => { try { if (!('IdleDetector' in window) || !navigator.permissions) return; const p = await navigator.permissions.query({ name: 'idle-detection' }); setPodeAusencia(p.state === 'prompt'); } catch (e) { /* */ } })(); }, [aberto]);
+  useEffect(() => { if (pausa) setAberto(true); }, [pausa]);
   const [horaFim, setHoraFim] = useState('');
   const ref = useRef(null);
   const refCaixa = useRef(null);
@@ -1966,7 +2009,7 @@ const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
   // "Continuar" cala o aviso por 2 horas (fica lembrado neste browser)
   const chave = corre ? `crono-ok-${corre.tempo.id || corre.tempo.ini}` : '';
   const calado = (() => { try { return Number(localStorage.getItem(chave) || 0) > Date.now(); } catch (e) { return false; } })();
-  const avisar = longo && !calado;
+  const avisar = longo && !calado && !pausa;
   useEffect(() => { if (avisar) { setAberto(true); const d = new Date(Math.min(Date.now(), ini + 2 * 3600000)); setHoraFim(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`); } }, [avisar]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!aberto) return undefined;
@@ -1987,11 +2030,16 @@ const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
     onPararEm(d.toISOString()); setAberto(false);
   };
   const continuar = () => { try { localStorage.setItem(chave, String(Date.now() + 2 * 3600000)); } catch (e) { /* sem armazenamento */ } setAberto(false); };
+  const durTxt = ms2 => { const m = Math.round(ms2 / 60000); return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`; };
+  const diaHora = t => { const d = new Date(t); return `${d.toDateString() !== new Date().toDateString() ? `${d.getDate()}/${d.getMonth() + 1} ` : ''}${hhmm(t)}`; };
+  const pedirAusencia = async () => { try { const r = await window.IdleDetector.requestPermission(); setPodeAusencia(false); if (r === 'granted') window.location.reload(); } catch (e) { setPodeAusencia(false); } };
+  const linkAusencia = podeAusencia && <button type="button" onClick={pedirAusencia} className={`mt-2 block text-left ${claro ? 'text-blue-600' : 'text-blue-400'} hover:underline`}>Avisar também quando saio do PC sem ele adormecer (o browser pede autorização)</button>;
+  const alerta = longo || !!pausa;
   return (
     <div ref={ref} className="relative">
-      <div className={`flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full border text-xs ${longo ? (claro ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-amber-500/40 bg-amber-500/10 text-amber-300') : claro ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-500/30 bg-blue-500/10 text-blue-300'}`}>
-        <button type="button" onClick={() => (longo ? setAberto(!aberto) : onAbrir())} className="flex items-center gap-1.5 min-w-0" title={longo ? 'Cronómetro ligado há muito tempo — esqueceste-te?' : corre.tarefa.nome}>
-          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${longo ? 'bg-amber-400' : 'bg-red-500'}`} />
+      <div className={`flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full border text-xs ${alerta ? (claro ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-amber-500/40 bg-amber-500/10 text-amber-300') : claro ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-blue-500/30 bg-blue-500/10 text-blue-300'}`}>
+        <button type="button" onClick={() => (alerta ? setAberto(!aberto) : onAbrir())} className="flex items-center gap-1.5 min-w-0" title={pausa ? 'O cronómetro contou enquanto estiveste fora — tirar esse tempo?' : longo ? 'Cronómetro ligado há muito tempo — esqueceste-te?' : corre.tarefa.nome}>
+          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${alerta ? 'bg-amber-400' : 'bg-red-500'}`} />
           <span className="font-semibold tabular-nums">{trabRelogio(ms)}</span>
           <span className="hidden md:inline max-w-[140px] truncate">{corre.tarefa.nome}</span>
         </button>
@@ -1999,7 +2047,20 @@ const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
         </button>
       </div>
-      {aberto && longo && pos && createPortal(
+      {aberto && pausa && pos && createPortal(
+        <div ref={refCaixa} role="dialog" aria-label="O cronómetro contou enquanto estiveste fora" style={{ position: 'fixed', top: pos.top, right: pos.right }} className={`z-[100] w-80 max-w-[calc(100vw-16px)] rounded-xl border p-3.5 shadow-2xl text-[13px] ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+          <p className="text-[15px] font-semibold">Estiveste fora {durTxt(pausa.ate - pausa.desde)}?</p>
+          <p className={`mt-1 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>O cronómetro de “{corre.tarefa.nome}” continuou a contar das <b className={claro ? 'text-slate-800' : 'text-slate-100'}>{diaHora(pausa.desde)}</b> às <b className={claro ? 'text-slate-800' : 'text-slate-100'}>{diaHora(pausa.ate)}</b> (o computador esteve parado, a app fechada ou estiveste longe do PC).</p>
+          <div className="mt-3 flex flex-col gap-1.5">
+            <button type="button" onClick={() => { if (onCortar) onCortar(new Date(pausa.desde).toISOString(), new Date(pausa.ate).toISOString()); setPausa(null); setAberto(false); }} className="w-full px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Tirar esse tempo e continuar a contar</button>
+            <button type="button" onClick={() => { if (onPararEm) onPararEm(new Date(pausa.desde).toISOString()); setPausa(null); setAberto(false); }} className={`w-full px-3 py-1.5 rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Tirar esse tempo e parar (parei às {hhmm(pausa.desde)})</button>
+            <button type="button" onClick={() => { setPausa(null); setAberto(false); }} className={`w-full px-3 py-1.5 rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/5'}`}>Foi trabalho — fica tudo</button>
+          </div>
+          {linkAusencia}
+        </div>,
+        document.body
+      )}
+      {aberto && longo && !pausa && pos && createPortal(
         <div ref={refCaixa} role="dialog" aria-label="Cronómetro ligado há muito tempo" style={{ position: 'fixed', top: pos.top, right: pos.right }} className={`z-[100] w-72 max-w-[calc(100vw-16px)] rounded-xl border p-3 shadow-2xl text-xs ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
           <p className="text-sm font-semibold">Esqueceste-te do cronómetro?</p>
           <p className={`mt-1 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Está ligado há <b className={claro ? 'text-slate-800' : 'text-slate-100'}>{trabRelogio(ms)}</b> (desde {passouMeiaNoite ? `${new Date(ini).getDate()}/${new Date(ini).getMonth() + 1} às ` : ''}{hhmm(ini)}) em “{corre.tarefa.nome}”.</p>
@@ -2012,6 +2073,7 @@ const CronoTopo = ({ trab, onParar, onPararEm, onAbrir, theme }) => {
             <button type="button" onClick={() => { onParar(); setAberto(false); }} className={`px-2.5 py-1 rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'}`}>Parar agora</button>
             <button type="button" onClick={continuar} className={`px-2.5 py-1 rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-400 hover:bg-white/5'}`}>Continuar a contar</button>
           </div>
+          {linkAusencia}
         </div>,
         document.body
       )}
@@ -2260,8 +2322,8 @@ export {
   trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
   pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, horasTipicas, estimarHorasTarefa,
   ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm,
-  CRONO_LONGO_H, CronoTopo, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar,
-  Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
-  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo, MenuTopo, TemaCtx,
+  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
