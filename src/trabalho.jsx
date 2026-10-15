@@ -1657,11 +1657,13 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
+            {t.pastaPC
+              ? <a href={linkAEPasta(trab, t, clientes)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)">Abrir pasta</a>
+              : <a href={linkAECriar(trab, t, clientes)} onClick={() => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } })))} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas e projeto</a>}
             {<a href={linkAE(trab, t, clientes)} className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>}
             <a href={`${linkAE(trab, t, clientes)}&escolher=1`} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title="Abriu o projeto errado? Mostra a lista para escolheres o desta tarefa (fica guardado)">Trocar projeto</a>
-            <a href={linkAECriar(trab, t, clientes)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa e fixa-a no Acesso rápido do Explorador. Se já existir, só a abre.`}>Criar pastas</a>
             {(() => { const np = nomeProjetoTarefa(trab, t); return np ? <a href={linkAERenomear(trab, t, clientes, np)} className="hidden sm:inline text-xs text-slate-400 hover:text-blue-400 px-1" title={`Mudar o nome da pasta do projeto, do .aep e do collect (@Source) para ${np} — fecha antes o projeto no After Effects`}>Mudar nome</a> : null; })()}
-            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] }))}>Duplicar</button>
+            <button type="button" className="text-xs text-slate-400 hover:text-blue-400 px-1.5" onClick={() => mudar(tr => ({ ...tr, tarefas: [...tr.tarefas, { ...t, id: trabId(), nome: t.nome + ' (cópia)', estado: 'todo', tempos: [], criada: agoraIso(), iniciada: null, review: null, feita: null, faturada: false, drive: null, link: '', trello: null, trelloSolto: false, entregaEm: null, pastaPC: null, ficheiros: t.ficheiros ? { conceito: t.ficheiros.conceito } : undefined }] }))}>Duplicar</button>
             <button type="button" className="text-xs text-slate-400 hover:text-red-400 px-1.5" onClick={() => { if (APAGAR.pedir) { APAGAR.pedir(t); return; } if (window.confirm(`Apagar esta tarefa?${(t.anexos || []).some(a => a.caminho) ? ' Os anexos dela também são apagados.' : ''}`)) {
               const outros = new Set((trab.tarefas || []).filter(o => o.id !== t.id).flatMap(o => (o.anexos || []).map(a => a.caminho)).filter(Boolean));
               (t.anexos || []).forEach(a => { if (a.caminho && !outros.has(a.caminho) && onApagarAnexo) onApagarAnexo(a.caminho); });
@@ -2250,6 +2252,8 @@ const exportDaTarefa = t => { const vs = versoesDrive(t.drive).slice().sort((x, 
 const linkAERenomear = (trab, t, clientes, novo, ficheiro) => { const f = ficheiro || exportDaTarefa(t); return linkAE(trab, t, clientes).replace('aeproj://abrir/?', 'aeproj://renomear/?') + `&novo=${encodeURIComponent(novo)}${f ? `&ficheiro=${encodeURIComponent(f)}` : ''}`; };
 // "Criar pastas no PC": o lançador cria a pasta do projeto (cliente › jogo › ano › Videos) com a tua estrutura e fixa-a no Acesso rápido
 const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Images', 'Projects/AE', 'Projects/PRE'];
+// Pastas dentro do projeto do After Effects (painel do projeto), criado na versão mais recente que tiveres instalada
+const ESTRUTURA_AE = ['00.MASTERCOMPS', '01.PRECOMPS', '02.ASSETS/AUDIO/MUSIC', '02.ASSETS/AUDIO/SFX', '02.ASSETS/FOOTAGE', '02.ASSETS/IMAGES', '02.ASSETS/PSD+AI', '03.AE'];
 const linkAECriar = (trab, t, clientes) => {
   const p = new URLSearchParams(linkAE(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, ''));
   const nf = nomesFicheiros(trab, t);
@@ -2259,8 +2263,12 @@ const linkAECriar = (trab, t, clientes) => {
   p.set('ano', String(anoP ? anoP.trim() : new Date(t.criada || Date.now()).getFullYear()));
   p.set('sub', ['BAN', 'ICO', 'FG', 'SS'].includes(nf.tipo) ? 'Statics' : 'Videos');
   p.set('estrutura', ESTRUTURA_PROJETO.join('|'));
+  p.set('ae', '1');
+  p.set('pastasAE', ESTRUTURA_AE.join('|'));
   return `aeproj://criar/?${p.toString()}`;
 };
+// "Abrir pasta": abre a pasta do projeto no Explorador (se não existir, o lançador pergunta se a cria)
+const linkAEPasta = (trab, t, clientes) => linkAECriar(trab, t, clientes).replace(/^aeproj:\/\/criar\//, 'aeproj://pasta/');
 const nomeProjetoTarefa = (trab, t) => {
   const nf = nomesFicheiros(trab, t);
   if (!nf.conceito) return '';
@@ -2731,7 +2739,7 @@ const procurarNaPasta = async (raiz, h) => {
 // NUNCA escreve por cima de outro ficheiro: se o nome novo já existir na pasta, pára e avisa.
 // Só apaga o original depois de confirmar que a cópia com o nome novo ficou com o mesmo tamanho.
 // ── Pasta do projeto no PC (a de cima da @Exports): nome "Conceito_V1_V2", ou "Conceito_V1_Variação" se só tiver uma versão ──
-const palavrasTitulo = x => { const txt = String(x || '').trim(); const tudoMaiusc = txt === txt.toUpperCase(); return txt.split(/[^A-Za-zÀ-ÿ0-9]+/).filter(Boolean).map(w => (!tudoMaiusc && w.length <= 4 && w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())).join('_'); };
+const palavrasTitulo = x => { const txt = String(x || '').trim(); const tudoMaiusc = txt === txt.toUpperCase() && txt.split(/[^A-Za-zÀ-ÿ0-9]+/).filter(Boolean).length > 1; /* uma sigla sozinha (ex.: GP) fica como está */ return txt.split(/[^A-Za-zÀ-ÿ0-9]+/).filter(Boolean).map(w => (!tudoMaiusc && w.length <= 4 && w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())).join('_'); };
 const nomePastaProjeto = (conceito, versoes, variacaoDe) => {
   const c = palavrasTitulo(conceito); if (!c) return '';
   const vs = [...new Set(versoes)].filter(n => n > 0).sort((a, b) => a - b);
@@ -2952,15 +2960,13 @@ const PreviewExport = ({ lista, claro, sub }) => {
     <div className="shrink-0 space-y-1.5" style={{ width: larg, maxWidth: '100%' }}>
       {ehImagemF(item.file)
         ? <img src={url} alt={`Pré-visualização ${item.formato || ''}`} className="rounded-lg object-contain bg-black" style={est} />
-        : <video ref={refV} key={url} src={url} controls muted playsInline preload="metadata" className="rounded-lg bg-black object-contain" style={est} aria-label={`Pré-visualização do ${item.formato || 'vídeo'}`} onTimeUpdate={e => setAgoraP(e.currentTarget.currentTime)} />}
+        : <div className="relative"><video ref={refV} key={url} src={url} controls muted playsInline preload="metadata" className="rounded-lg bg-black object-contain" style={est} aria-label={`Pré-visualização do ${item.formato || 'vídeo'}`} onTimeUpdate={e => setAgoraP(e.currentTarget.currentTime)} /><button type="button" onClick={() => { const v = refV.current; const tempo = v ? v.currentTime : 0; if (v) v.pause(); setGrande({ tempo }); }} title="Ver em grande" aria-label="Ver em grande" className="absolute top-1.5 right-1.5 z-[1] w-8 h-8 inline-flex items-center justify-center rounded-lg bg-black/60 hover:bg-black/80 text-white shadow"><IcoAmpliar /></button></div>}
       {!ehImagemF(item.file) && item.meta && item.meta.dur > 0 && <p className={`text-[11px] tabular-nums ${sub}`} aria-label="Duração">{agoraP > 0 ? <><b className={claro ? 'text-slate-700' : 'text-slate-200'}>{fmtDur(agoraP)}</b> / {fmtDur(item.meta.dur)}</> : <>Duração: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>{fmtDur(item.meta.dur)}</b></>}</p>}
       <div className="flex flex-wrap gap-1" role="group" aria-label="Ver outro formato">
         {vis.length > 1 && vis.map(x => (
           <button key={x.id} type="button" onClick={() => setEsc(x.id)} aria-pressed={x.id === item.id}
             className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${x.id === item.id ? 'bg-blue-600 border-blue-600 text-white' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{x.formato || '?'}</button>
         ))}
-        <button type="button" onClick={() => { const v = refV.current; const tempo = v ? v.currentTime : 0; if (v) v.pause(); setGrande({ tempo }); }} title="Ver em grande" aria-label="Ver em grande"
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}><IcoAmpliar /> Ampliar</button>
       </div>
       {grande && <VideoGrande url={url} imagem={ehImagemF(item.file)} formato={item.formato} nome={`${item.file.name}${item.meta && item.meta.dur ? ` · ${fmtDur(item.meta.dur)}` : ''}`} tempo={grande.tempo} opcoes={vis.map(x => ({ id: x.id, formato: x.formato }))} atual={item.id} onEscolher={id => setEsc(id)}
         onFechar={t2 => { setGrande(null); const v = refV.current; if (v && t2) { try { v.currentTime = t2; } catch (e) { /* */ } } }} />}
@@ -3835,6 +3841,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                       {lista.some(x => x.estado !== 'feito')
                         ? <span className={`shrink-0 text-[11px] ${sub}`} title="Envia primeiro — se a pasta mudar de nome antes, o browser perde os ficheiros">Envia primeiro</span>
                         : <a href={linkAERenomear(trab, t, null, (pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)).trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className={`${btn} shrink-0`}>Mudar no PC</a>}
+                      <a href={linkAEPasta(trab, t, TRAB_ATUAL.clientes)} className={`${btn} shrink-0`} title="Abrir a pasta do projeto no Explorador">Abrir pasta</a>
                     </div>
                   </div>
                 )}
@@ -4180,8 +4187,8 @@ const VerVideo = ({ conta, ficheiros, claro, sub, iniciar = false, largura }) =>
   return (
     <div className="shrink-0 space-y-1.5" style={{ width: larg, maxWidth: '100%' }}>
       {url ? (imagem ? <img src={url} alt={f.nome} className="rounded-lg bg-black object-contain" style={est} />
-        : <video ref={refV} key={url} src={url} controls autoPlay={!grande} playsInline className="rounded-lg bg-black object-contain" style={est} aria-label={`Vídeo ${f.formato || ''}`}
-            onLoadedMetadata={e => { const d = e.currentTarget.duration; if (isFinite(d)) setDur(d); }} onTimeUpdate={e => setAgoraT(e.currentTarget.currentTime)} />)
+        : <div className="relative"><video ref={refV} key={url} src={url} controls autoPlay={!grande} playsInline className="rounded-lg bg-black object-contain" style={est} aria-label={`Vídeo ${f.formato || ''}`}
+            onLoadedMetadata={e => { const d = e.currentTarget.duration; if (isFinite(d)) setDur(d); }} onTimeUpdate={e => setAgoraT(e.currentTarget.currentTime)} /><button type="button" onClick={() => { const v = refV.current; const tempo = v ? v.currentTime : 0; if (v) v.pause(); setTocar(true); setGrande({ tempo }); }} title="Ver em grande" aria-label="Ver em grande" className="absolute top-1.5 right-1.5 z-[1] w-8 h-8 inline-flex items-center justify-center rounded-lg bg-black/60 hover:bg-black/80 text-white shadow"><IcoAmpliar /></button></div>)
         : (
           <button type="button" onClick={() => setTocar(true)} disabled={prog != null} className="relative block rounded-lg overflow-hidden bg-slate-900 ring-1 ring-black/10" style={est} aria-label={`Ver o ${imagem ? 'banner' : 'vídeo'} ${f.formato || ''}`} title={f.nome}>
             <MiniaturaC fileId={f.id} conta={conta} claro={claro} className="absolute inset-0 w-full h-full object-cover opacity-80" />
@@ -4202,8 +4209,6 @@ const VerVideo = ({ conta, ficheiros, claro, sub, iniciar = false, largura }) =>
           <button key={x.id} type="button" onClick={() => { setEsc(x.id); setTocar(true); }} aria-pressed={x.id === f.id}
             className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${x.id === f.id ? 'bg-blue-600 border-blue-600 text-white' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{x.formato || '?'}</button>
         ))}
-        <button type="button" onClick={() => { const v = refV.current; const tempo = v ? v.currentTime : 0; if (v) v.pause(); setTocar(true); setGrande({ tempo }); }} title="Ver em grande" aria-label="Ver em grande"
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}><IcoAmpliar /> Ampliar</button>
       </div>
       {grande && <VideoGrande url={url} imagem={imagem} formato={f.formato} nome={`${f.nome}${dur ? ` · ${fmtDur(dur)}` : ''}`} tempo={grande.tempo} opcoes={fs.map(x => ({ id: x.id, formato: x.formato }))} atual={f.id} onEscolher={id => setEsc(id)}
         aCarregar={erro || (prog != null ? `A trazer do Drive… ${Math.round(prog * 100)}%` : 'A carregar…')}
@@ -4216,7 +4221,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const forte = claro ? 'text-slate-800' : 'text-slate-100';
   const borda = claro ? 'border-slate-200' : 'border-slate-700/60';
-  const cartao = `rounded-2xl border ${claro ? 'bg-white border-slate-200' : 'bg-slate-800/40 border-slate-700/60'}`;
+  const cartao = `rounded-2xl border ${claro ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/80 border-slate-600/50 shadow-lg shadow-black/25'}`;
   const btn = `inline-flex items-center gap-1.5 h-8 px-2.5 text-xs rounded-lg border whitespace-nowrap ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-700' : 'border-slate-700 hover:bg-white/5 text-slate-200'}`;
   const clis = clientes.filter(c => (trab.jogos || []).some(j => String(j.cid) === String(c.id) && !j.semJogo));
   const lerSel = () => { try { return JSON.parse(localStorage.getItem('criativos-sel')) || {}; } catch (e) { return {}; } };
@@ -4393,7 +4398,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
     return (
       <div key={x.k} className={`border-t ${claro ? 'border-slate-100' : 'border-slate-700/40'} ${abN ? (claro ? 'bg-blue-50/40' : 'bg-blue-500/[0.04]') : ''}`}>
         {/* Carregar na linha (fora dos botões) abre e fecha os detalhes */}
-        <div onClick={e => { if (e.target.closest && e.target.closest('a,button,select,input,label,[role=menu]')) return; alternar(setNomesAb, k); }} className="cursor-pointer flex flex-wrap sm:grid sm:grid-cols-[44px_minmax(0,1fr)_150px_52px_150px_auto] items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
+        <div onClick={e => { if (e.target.closest && e.target.closest('a,button,select,input,label,[role=menu]')) return; alternar(setNomesAb, k); }} className="cursor-pointer flex flex-wrap sm:grid sm:grid-cols-[44px_minmax(0,1fr)_150px_48px_52px_150px_auto] items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
           {chipV(x.v, ultimaV && !x.soDrive)}
           <div className="min-w-0 flex-1 sm:flex-none flex items-center gap-2.5">
             {x.ficheiros.some(f => f.id) && <MiniaturaVersao ficheiros={x.ficheiros} conta={conta} claro={claro} rotulo={`Ver o vídeo da V${x.v}`} onClick={() => { setTocarK(k); setNomesAb(s0 => { const n = new Set(s0); n.add(k); return n; }); }} />}
@@ -4408,6 +4413,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
             {faltam.map(f => <span key={f} className="text-[11px] px-1.5 rounded-md border border-dashed border-amber-500/70 text-amber-500" title={`Falta o ${f}? As outras versões deste conceito têm.`}>{f}?</span>)}
             {!temN && <span className={`text-[11px] ${sub}`}>{x.planeada && !(x.t && x.t.estado === 'feito') ? 'ainda sem ficheiros' : '—'}</span>}
           </div>
+          <span className={`text-xs tabular-nums ${claro ? 'text-slate-700' : 'text-slate-200'}`} title="Duração do vídeo">{(() => { const d = x.ficheiros.map(f => durDoNomeF(f.nome)).find(Boolean) || (x.t && Number(campoVersao(x.t.ficheiros || {}, x.v, 'duracao'))) || null; return d ? fmtDur(d) : ''; })()}</span>
           <span className={`text-xs tabular-nums ${sub}`}>{x.em ? dataCurta(x.em) : ''}</span>
           <label className="relative inline-flex items-center min-w-0" title="Estado desta versão (escolhe à mão: aprovada, ganhou nos testes…)">
             <span className="sr-only">Estado da V{x.v}</span>
@@ -4487,8 +4493,8 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
         </div>
         {ab && (
           <div>
-            <div className={`hidden sm:grid grid-cols-[44px_minmax(0,1fr)_150px_52px_150px_auto] gap-x-3 px-4 py-1.5 border-t text-[10.5px] uppercase tracking-wide ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>
-              <span>Versão</span><span>Variação · tarefa</span><span>Formatos</span><span>Data</span><span>Estado</span><span className="text-right">Atalhos</span>
+            <div className={`hidden sm:grid grid-cols-[44px_minmax(0,1fr)_150px_48px_52px_150px_auto] gap-x-3 px-4 py-1.5 border-t text-[10.5px] uppercase tracking-wide ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>
+              <span>Versão</span><span>Variação · tarefa</span><span>Formatos</span><span>Duração</span><span>Data</span><span>Estado</span><span className="text-right">Atalhos</span>
             </div>
             {l.map(x => linhaVersao(jogo, c, x, l, fmts))}
             {!l.length && <p className={`px-4 py-3 border-t text-xs ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>{estD === 'a ver' ? 'A ver o Drive…' : 'Ainda sem versões.'}</p>}
