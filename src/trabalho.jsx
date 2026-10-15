@@ -4762,6 +4762,59 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
     })();
     return () => { vivo = false; };
   }, [jogoId, conta]); // eslint-disable-line react-hooks/exhaustive-deps
+  // O que já se leu do Drive fica guardado neste computador: os criativos antigos aparecem logo, com miniaturas e vídeo
+  const drvCarregado = useRef(false);
+  useEffect(() => {
+    let vivo = true;
+    idbLer('criativos-drive').then(c => {
+      if (!vivo) return; drvCarregado.current = true;
+      if (!c) return;
+      if (c.conceitos) setDrvConceitos(o => ({ ...c.conceitos, ...o }));
+      if (c.versoes) setDrvVersoes(o => { const n = { ...c.versoes }; Object.entries(o).forEach(([k, v]) => { if (Array.isArray(v) || !n[k]) n[k] = v; }); return n; });
+    });
+    return () => { vivo = false; };
+  }, []);
+  useEffect(() => {
+    if (!drvCarregado.current) return undefined;
+    const tm = setTimeout(() => {
+      const versoes = {}; Object.entries(drvVersoes).forEach(([k, v]) => { if (Array.isArray(v)) versoes[k] = v; });
+      const conceitos = {}; Object.entries(drvConceitos).forEach(([k, v]) => { if (Array.isArray(v)) conceitos[k] = v.map(f => ({ id: f.id, name: f.name, webViewLink: f.webViewLink })); });
+      idbGravar('criativos-drive', { conceitos, versoes, em: Date.now() });
+    }, 800);
+    return () => clearTimeout(tm);
+  }, [drvVersoes, drvConceitos]);
+  // Importar tudo o que está no Drive deste cliente (todos os jogos, todos os conceitos e versões, mesmo de antes da app)
+  const [importa, setImporta] = useState(null); // { feitos, total, versoes, jogo } | null
+  const importarDrive = async () => {
+    if (importa) return;
+    const tk = await tokenDrive(conta).catch(() => null);
+    if (!tk) { if (showToast) showToast(`Preciso de acesso ao Drive com ${conta || 'a tua conta Google'}.`, 'error'); return; }
+    const jogos = (trab.jogos || []).filter(j => String(j.cid) === String(cid) && !j.semJogo && idPastaDrive(j.drive));
+    if (!jogos.length) { if (showToast) showToast('Nenhum jogo deste cliente tem a pasta do Drive preenchida (separador Jogos).', 'error'); return; }
+    setImporta({ feitos: 0, total: 0, versoes: 0, jogo: '' });
+    const fila = [];
+    for (const j of jogos) {
+      const raiz = idPastaDrive(j.drive);
+      setImporta(x => ({ ...x, jogo: j.nome }));
+      try {
+        const fs = await conceitosNoDrive(tk, raiz, true);
+        setDrvConceitos(o => ({ ...o, [raiz]: fs }));
+        fs.filter(f => { const k = slugF(f.name); return k && !/_V\d+$/.test(k); }).forEach(f => fila.push({ raiz, slug: slugF(f.name) }));
+      } catch (e) { /* sem acesso a este jogo */ }
+    }
+    setImporta(x => ({ ...x, total: fila.length }));
+    let feitos = 0, nv = 0;
+    const trabalhar = async () => {
+      while (fila.length) {
+        const it = fila.shift();
+        try { const l = await versoesComFicheirosNoDrive(tk, it.raiz, it.slug); nv += l.length; setDrvVersoes(o => ({ ...o, [`${it.raiz}|${it.slug}`]: l })); } catch (e) { /* salta */ }
+        feitos++; setImporta(x => (x ? { ...x, feitos, versoes: nv } : x));
+      }
+    };
+    await Promise.all([trabalhar(), trabalhar(), trabalhar(), trabalhar()]);
+    setImporta(null);
+    if (showToast) showToast(`Pronto: ${nv} ${nv === 1 ? 'versão' : 'versões'} do Drive em ${feitos} conceitos. Ficam guardadas neste computador.`, 'success');
+  };
   const verNoDrive = async (jogo, c, pedir) => {
     const raiz = raizDe(jogo, c.versoes[0] && c.versoes[0].tipoF === 'BAN' ? 'BAN' : 'VID'); if (!raiz) return;
     const k = `${raiz}|${c.slug}`;
@@ -4802,7 +4855,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
   const soDriveC = g && raizG && Array.isArray(drvConceitos[raizG]) ? drvConceitos[raizG].filter(f => { const k = slugF(f.name); return k && !g.conceitos.has(k) && !/_V\d+$/.test(k) && !(trab.jogos || []).some(j => String(j.cid) === String(g.jogo.cid) && j.id !== g.jogo.id && [j.nome, j.codigo].filter(Boolean).some(n => slugF(n) === k)); }) : [];
   const conceitosL = g ? [
     ...[...g.conceitos.values()].filter(c => tipoF === 'todos' || c.versoes.some(x => (tipoF === 'BAN' ? ['BAN', 'ICO', 'FG', 'SS'].includes(x.tipoF) : !['BAN', 'ICO', 'FG', 'SS'].includes(x.tipoF)))),
-    ...(tipoF === 'BAN' ? [] : soDriveC.map(f => ({ slug: slugF(f.name), nome: nomeBonitoC(f.name), versoes: [], tarefas: [], ultimo: '', soDrive: true, pastaUrl: f.webViewLink || `https://drive.google.com/drive/folders/${f.id}` }))),
+    ...(tipoF === 'BAN' ? [] : soDriveC.map(f => { const dv = drvVersoes[`${raizG}|${slugF(f.name)}`]; return { slug: slugF(f.name), nome: nomeBonitoC(f.name), versoes: [], tarefas: [], ultimo: Array.isArray(dv) ? dv.reduce((m, x) => (x.em > m ? x.em : m), '') : '', soDrive: true, pastaUrl: f.webViewLink || `https://drive.google.com/drive/folders/${f.id}` }; })),
   ].sort((a, b) => (ordem === 'nome' ? a.nome.localeCompare(b.nome, 'pt') : (b.ultimo || '').localeCompare(a.ultimo || '') || a.nome.localeCompare(b.nome, 'pt'))) : [];
   const [abertos, setAbertos] = useState(() => new Set());
   const [nomesAb, setNomesAb] = useState(() => new Set());
@@ -4845,14 +4898,19 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
     const out = [];
     clis.forEach(cl => {
       const d = cl.id === cid ? dados : criativosDoCliente(trab, cl.id, cu);
-      d.forEach(gg => gg.conceitos.forEach(c => c.versoes.forEach(x => {
-        const et = ((info[chaveVersaoC(gg.jogo.id, c.slug, x.v)] || {}).etiquetas || []).join(' ');
-        const txt = normJ([gg.jogo.nome, c.nome, c.slug.replace(/_/g, ' '), x.variacao, x.t && x.t.nome, et, ...x.ficheiros.map(f => f.nome.replace(/_/g, ' '))].join(' '));
-        if (palavras.every(p => txt.includes(p))) out.push({ jogo: gg.jogo, c, x, cliente: cl });
-      })));
+      d.forEach(gg => {
+        // também os conceitos e as versões que só estão no Drive (importados ou já vistos)
+        const raizV = raizDe(gg.jogo, 'VID');
+        const extra = raizV && Array.isArray(drvConceitos[raizV]) ? drvConceitos[raizV].filter(f => { const k = slugF(f.name); return k && !gg.conceitos.has(k) && !/_V\d+$/.test(k); }).map(f => ({ slug: slugF(f.name), nome: nomeBonitoC(f.name), versoes: [], tarefas: [], soDrive: true, pastaUrl: f.webViewLink || `https://drive.google.com/drive/folders/${f.id}` })) : [];
+        [...gg.conceitos.values(), ...extra].forEach(c => versoesDe(gg.jogo, c).forEach(x => {
+          const et = ((info[chaveVersaoC(gg.jogo.id, c.slug, x.v)] || {}).etiquetas || []).join(' ');
+          const txt = normJ([gg.jogo.nome, c.nome, c.slug.replace(/_/g, ' '), x.variacao, x.t && x.t.nome, et, ...x.ficheiros.map(f => f.nome.replace(/_/g, ' '))].join(' '));
+          if (palavras.every(p => txt.includes(p))) out.push({ jogo: gg.jogo, c, x, cliente: cl });
+        }));
+      });
     });
     return out.sort((a, b) => String(b.x.em || '').localeCompare(String(a.x.em || ''))).slice(0, 60);
-  }, [qn, trab.tarefas, trab.jogos, trab.versoesInfo, cid]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [qn, trab.tarefas, trab.jogos, trab.versoesInfo, cid, drvConceitos, drvVersoes]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selR, setSelR] = useState(0);
   useEffect(() => { setSelR(0); }, [qn]);
   const marcar = txt => {
@@ -5030,6 +5088,11 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
             <option value="VID" className={claro ? '' : 'bg-slate-800'}>Só vídeos</option>
             <option value="BAN" className={claro ? '' : 'bg-slate-800'}>Só banners</option>
           </select>
+        )}
+        {!qn && (
+          <button type="button" onClick={importarDrive} disabled={!!importa} className={`h-11 inline-flex items-center gap-2 px-3 rounded-xl border text-sm whitespace-nowrap ${claro ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-600 hover:bg-white/5'} disabled:opacity-80`} title="Lê do Drive todos os conceitos e versões deste cliente (também os de antes da app), com miniaturas e vídeo. Fica guardado neste computador.">
+            {importa ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" aria-hidden="true" />{importa.total ? `A importar… ${importa.feitos}/${importa.total}` : `A ler ${importa.jogo || 'o Drive'}…`}</> : <>⤓ Importar do Drive</>}
+          </button>
         )}
         {!qn && (
           <select value={ordem} onChange={e => setOrdem(e.target.value)} className={`h-11 rounded-xl border px-3 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Ordem">
