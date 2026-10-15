@@ -1,7 +1,7 @@
 // Separadores "Venda da Casa" e "Casamento". Só são descarregados quando se abrem.
 import React, { useState } from 'react';
 import {
-  meses, Ico, _fmtEUR, VC_DEFAULT, VC_DIAS_SEMANA, vcPrazosCPCV
+  meses, Ico, _fmtEUR, confirmar, VC_DEFAULT, VC_DIAS_SEMANA, vcPrazosCPCV
 } from './base';
 
 // ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
@@ -470,7 +470,7 @@ const Casamento = ({ G, uG, theme }) => {
     setNovo({ ...vazio, cat: novo.cat, conta: novo.conta });
   };
   const mudar = (id, patch) => set({ despesas: desp.map(d => (d.id === id ? { ...d, ...patch } : d)) });
-  const apagar = d => { if (window.confirm(`Apagar "${d.desc}"?`)) set({ despesas: desp.filter(x => x.id !== d.id) }); };
+  const apagar = async d => { if (await confirmar(`Apagar "${d.desc}"?`)) set({ despesas: desp.filter(x => x.id !== d.id) }); };
   const lista = desp.filter(d => !filtro || (d.cat || 'outros') === filtro).slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
 
 
