@@ -2253,7 +2253,7 @@ const linkAERenomear = (trab, t, clientes, novo, ficheiro) => { const f = fichei
 // "Criar pastas no PC": o lançador cria a pasta do projeto (cliente › jogo › ano › Videos) com a tua estrutura e fixa-a no Acesso rápido
 const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Images', 'Projects/AE', 'Projects/PRE'];
 // Pastas dentro do projeto do After Effects (painel do projeto), criado na versão mais recente que tiveres instalada
-const ESTRUTURA_AE = ['00.MASTERCOMPS', '01.PRECOMPS', '02.ASSETS/AUDIO/MUSIC', '02.ASSETS/AUDIO/SFX', '02.ASSETS/FOOTAGE', '02.ASSETS/IMAGES', '02.ASSETS/PSD+AI', '03.AE'];
+const ESTRUTURA_AE = ['00.MASTERCOMPS', '01.PRECOMPS', '02.ASSETS/AUDIO/MUSIC', '02.ASSETS/AUDIO/SFX', '02.ASSETS/AUDIO/VO', '02.ASSETS/FOOTAGE', '02.ASSETS/IMAGES', '02.ASSETS/PSD+AI', '03.AE'];
 const linkAECriar = (trab, t, clientes) => {
   const p = new URLSearchParams(linkAE(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, ''));
   const nf = nomesFicheiros(trab, t);
