@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { auth } from './firebase';
+import { confirmar } from './base';
 
 const nId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const agora = () => new Date().toISOString();
@@ -1309,7 +1310,7 @@ const CartaoSenha = ({ inicial, onMudar, claro, sub, avisar }) => {
       </div>
       <div className="space-y-2.5">
         {tipo.campos.map(([k, rot, modo]) => campo(k, rot, modo, d, v => set({ [k]: v }),
-          k === 'senha' ? <button type="button" onClick={() => { if (!d.senha || window.confirm('Trocar a palavra-passe por uma nova, gerada ao acaso?')) { set({ senha: gerarSenha() }); setVer(x => ({ ...x, senha: true })); } }} className={bt} title="Gerar uma palavra-passe forte">Gerar</button> : null))}
+          k === 'senha' ? <button type="button" onClick={async () => { if (!d.senha || await confirmar('Trocar a palavra-passe por uma nova, gerada ao acaso?')) { set({ senha: gerarSenha() }); setVer(x => ({ ...x, senha: true })); } }} className={bt} title="Gerar uma palavra-passe forte">Gerar</button> : null))}
         {extras.map((x, i) => (
           <div key={x.id || i} className="grid grid-cols-1 sm:grid-cols-[150px_minmax(0,1fr)] gap-1 sm:gap-3 items-center">
             <input {...semGuardar} value={x.nome || ''} onChange={e => set({ extras: extras.map((y, j) => (j === i ? { ...y, nome: e.target.value } : y)) })} placeholder="Nome do campo" className={`${ic} !py-1.5 text-xs sm:text-sm`} />
@@ -1331,7 +1332,7 @@ const CartaoSenha = ({ inicial, onMudar, claro, sub, avisar }) => {
         <div className={`rounded-xl border p-3 space-y-2.5 ${claro ? 'border-slate-200 bg-slate-50/60' : 'border-slate-700 bg-slate-900/30'}`}>
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium flex-1">Códigos 2FA deste site</p>
-            {d.otp && <button type="button" onClick={() => { if (window.confirm('Tirar o 2FA desta página? (No site, o 2FA continua ligado.)')) set({ otp: null }); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
+            {d.otp && <button type="button" onClick={async () => { if (await confirmar('Tirar o 2FA desta página? (No site, o 2FA continua ligado.)')) set({ otp: null }); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
           </div>
           {d.otp ? (
             <>
@@ -1955,7 +1956,7 @@ const PessoasCaderno = ({ c, claro, meuEmail, onJuntar, onTirar, onFechar }) => 
             <div key={m} className="flex items-center gap-2 px-3 py-2 text-sm">
               <span className="flex-1 min-w-0 truncate">{m}{m === meuEmail ? ' (tu)' : ''}</span>
               {m === c.dono && <span className={`text-[11px] ${claro ? 'text-slate-500' : 'text-slate-400'}`}>criou</span>}
-              {souDono && m !== meuEmail && <button type="button" onClick={() => { if (window.confirm(`Tirar o acesso a ${m}?`)) onTirar(m); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
+              {souDono && m !== meuEmail && <button type="button" onClick={async () => { if (await confirmar(`Tirar o acesso a ${m}?`)) onTirar(m); }} className="text-xs text-red-400 hover:text-red-300">Tirar</button>}
             </div>
           ))}
         </div>
@@ -2296,8 +2297,8 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
     setImportar(null);
     if (showToast && metas.length) showToast(`${metas.length} palavra${metas.length === 1 ? '' : 's'}-passe importada${metas.length === 1 ? '' : 's'} e cifrada${metas.length === 1 ? '' : 's'}. Apaga agora os ficheiros .md do computador.`, 'success', 8000);
   };
-  const apagarPaginaOp = p => {
-    if (!window.confirm(`Apagar a página "${tituloDe(p)}"?`)) return;
+  const apagarPaginaOp = async p => {
+    if (!await confirmar(`Apagar a página "${tituloDe(p)}"?`)) return;
     mudarIndice(i => ({ ...i, paginas: i.paginas.filter(x => x.id !== p.id) }));
     if (apagarPagina) apagarPagina(p.id).catch(() => {});
     if (pagId === p.id) { setPagId(null); setVista('paginas'); }
@@ -2341,9 +2342,9 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const novaSeccao = cid => setPedir({ titulo: 'Nova secção', campos: [{ k: 'n', ph: 'Nome (ex.: To do, Reuniões)' }], ok: v => { const n = v.n.trim(); if (!n) return 'Escreve um nome.'; const doC = seccoes.filter(s => s.cadernoId === cid); const s = { id: nId(), cadernoId: cid, nome: n, cor: CORES[(doC.length + 1) % CORES.length], ordem: doC.length }; mudarIndice(i => ({ ...i, seccoes: [...i.seccoes, s] })); setSecId(s.id); setFiltro(null); setVista('paginas'); setPedir(null); return ''; } });
   const renomear = (tipo, x) => setPedir({ titulo: tipo === 'caderno' ? 'Mudar o nome do caderno' : 'Mudar o nome da secção', campos: [{ k: 'n', valor: x.nome }], ok: v => { const n = v.n.trim(); if (!n) return 'Escreve um nome.'; mudarIndice(i => (tipo === 'caderno' ? { ...i, cadernos: i.cadernos.map(c => (c.id === x.id ? { ...c, nome: n } : c)) } : { ...i, seccoes: i.seccoes.map(s => (s.id === x.id ? { ...s, nome: n } : s)) })); setPedir(null); return ''; } });
   const mudarCor = (tipo, x) => { const i0 = CORES.indexOf(x.cor); const cor = CORES[(i0 + 1) % CORES.length]; mudarIndice(i => (tipo === 'caderno' ? { ...i, cadernos: i.cadernos.map(c => (c.id === x.id ? { ...c, cor } : c)) } : { ...i, seccoes: i.seccoes.map(s => (s.id === x.id ? { ...s, cor } : s)) })); };
-  const apagarSeccao = s => {
+  const apagarSeccao = async s => {
     const ps = (ix.paginas || []).filter(p => p.seccaoId === s.id);
-    if (!window.confirm(`Apagar a secção "${s.nome}"${ps.length ? ` e as ${ps.length} página${ps.length === 1 ? '' : 's'} dela` : ''}?`)) return;
+    if (!await confirmar(`Apagar a secção "${s.nome}"${ps.length ? ` e as ${ps.length} página${ps.length === 1 ? '' : 's'} dela` : ''}?`)) return;
     mudarIndice(i => ({ ...i, seccoes: i.seccoes.filter(x => x.id !== s.id), paginas: i.paginas.filter(p => p.seccaoId !== s.id) }));
     ps.forEach(p => apagarPagina && apagarPagina(p.id).catch(() => {}));
     if (secId === s.id) setSecId(null);
@@ -2354,11 +2355,11 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
     campos: [{ k: 'e', tipo: 'email', ph: 'email@gmail.com' }],
     ok: async v => { const r = await partilha.partilhar(c.id, v.e); if (r) return r; setPedir(null); setPessoas(c.id); if (showToast) showToast(`"${c.nome}" está partilhado`); return ''; },
   });
-  const sairDoCaderno = c => { if (!window.confirm(`Deixar de ver "${c.nome}"? Para voltar, quem o criou tem de te juntar outra vez.`)) return; partilha.sair(c.id); };
-  const apagarCaderno = c => {
+  const sairDoCaderno = async c => { if (!await confirmar(`Deixar de ver "${c.nome}"? Para voltar, quem o criou tem de te juntar outra vez.`)) return; partilha.sair(c.id); };
+  const apagarCaderno = async c => {
     const ss = seccoes.filter(s => s.cadernoId === c.id); const ids = new Set(ss.map(s => s.id));
     const ps = (ix.paginas || []).filter(p => ids.has(p.seccaoId));
-    if (!window.confirm(`Apagar o caderno "${c.nome}" (${ss.length} secç${ss.length === 1 ? 'ão' : 'ões'}, ${ps.length} página${ps.length === 1 ? '' : 's'})?${c.partilhado ? '\n\nEstá partilhado: desaparece também para as outras pessoas.' : ''}`)) return;
+    if (!await confirmar(`Apagar o caderno "${c.nome}" (${ss.length} secç${ss.length === 1 ? 'ão' : 'ões'}, ${ps.length} página${ps.length === 1 ? '' : 's'})?${c.partilhado ? '\n\nEstá partilhado: desaparece também para as outras pessoas.' : ''}`)) return;
     mudarIndice(i => ({ ...i, cadernos: i.cadernos.filter(x => x.id !== c.id), seccoes: i.seccoes.filter(s => !ids.has(s.id)), paginas: i.paginas.filter(p => !ids.has(p.seccaoId)) }));
     ps.forEach(p => apagarPagina && apagarPagina(p.id).catch(() => {}));
   };
@@ -2447,8 +2448,8 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
       },
     });
   };
-  const desligarBio = () => {
-    if (!window.confirm('Deixar de abrir o cofre com a biometria neste dispositivo?')) return;
+  const desligarBio = async () => {
+    if (!await confirmar('Deixar de abrir o cofre com a biometria neste dispositivo?')) return;
     mudarIndice(i => { const bio = { ...((i.cofre || {}).bio || {}) }; delete bio[bioId]; return { ...i, cofre: { ...(i.cofre || {}), bio } }; });
     try { localStorage.removeItem(BIO_LS); } catch (e) { /* sem armazenamento */ }
     setBioId(null);
@@ -2487,7 +2488,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   const desprotegerSeccao = s => {
     if ((ix.paginas || []).some(p => p.seccaoId === s.id && p.tipo === 'senha')) { if (showToast) showToast('Esta secção tem palavras-passe: passa-as primeiro para outra secção protegida.', 'error'); return; }
     const fazer = async () => {
-      if (!window.confirm(`Tirar a proteção de "${s.nome}"? As páginas voltam a ficar legíveis na base de dados.`)) return;
+      if (!await confirmar(`Tirar a proteção de "${s.nome}"? As páginas voltam a ficar legíveis na base de dados.`)) return;
       const ps = (ix.paginas || []).filter(p => p.seccaoId === s.id);
       try {
         const metas = {};
@@ -2512,10 +2513,10 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   };
   const abrirPagina = p => { setPagId(p.id); if (!mostrarSeccao) setSecId(p.seccaoId); setVista('pagina'); };
 
-  const apagarVarias = ids => {
+  const apagarVarias = async ids => {
     const lista = (ix.paginas || []).filter(p => ids.has(p.id));
     if (!lista.length) return;
-    if (!window.confirm(`Apagar ${lista.length} página${lista.length === 1 ? '' : 's'}?\n\n${lista.slice(0, 12).map(p => `• ${tituloDe(p)}`).join('\n')}${lista.length > 12 ? `\n… e mais ${lista.length - 12}` : ''}`)) return;
+    if (!await confirmar(`Apagar ${lista.length} página${lista.length === 1 ? '' : 's'}?\n\n${lista.slice(0, 12).map(p => `• ${tituloDe(p)}`).join('\n')}${lista.length > 12 ? `\n… e mais ${lista.length - 12}` : ''}`)) return;
     mudarIndice(i => ({ ...i, paginas: i.paginas.filter(x => !ids.has(x.id)) }));
     if (apagarPagina) lista.forEach(p => apagarPagina(p.id).catch(() => {}));
     if (ids.has(pagId)) setPagId(null);
