@@ -303,7 +303,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
   return (
     <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
-      <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
+      <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
         <NomeTarefa t={t} cu={cu} claro={claro} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
         {(mostrarPasta && nomePasta) && <span className={`block truncate text-[11px] ${claro ? 'text-slate-400' : 'text-slate-500'}`}>{nomePasta}</span>}
@@ -322,7 +322,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
       {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataCurta(t.prazo)}</span>}
       <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
       <span className={`hidden sm:inline w-16 text-right text-xs tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</span>
-      <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
+      <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
       {APAGAR.pedir && <button type="button" onClick={e => { e.stopPropagation(); APAGAR.pedir(t); }} className={`shrink-0 w-6 h-6 hidden sm:group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${claro ? 'text-slate-400' : 'text-slate-500'} hover:text-red-400`} title="Apagar a tarefa" aria-label="Apagar a tarefa">
         <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
       </button>}
@@ -441,7 +441,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
           <input type="checkbox" checked={marcada} onChange={() => {}} onClick={e => { e.stopPropagation(); onMarcar(t.id, e.shiftKey); }}
             className={`-ml-1 w-3.5 h-3.5 shrink-0 accent-blue-500 cursor-pointer ${marcada || algumaMarcada ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`} aria-label={`Selecionar ${t.nome}`} title="Selecionar (Shift para várias seguidas)" />
         )}
-        <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
+        <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
         {editar ? (
           <input autoFocus defaultValue={t.nome} onFocus={e => e.target.select()} onBlur={e => gravarNome(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.stopPropagation(); setEditar(false); } }}
@@ -469,7 +469,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
         <span className="inline-flex"><LinkDrive t={t} claro={claro} /></span>
         <span className="inline-flex"><LinkFolha t={t} claro={claro} /></span>
       </div>
-      <div className="flex justify-center"><EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} /></div>
+      <div className="flex justify-center"><EstadoPill estado={t.estado} theme={theme} onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} /></div>
       <div className="min-w-0 flex justify-center"><QuemFaz t={t} mudar={mudar} claro={claro} /></div>
       <div>
         {(() => { const pr = PRIORIDADES.find(x => x[0] === t.prioridade); return (
@@ -482,7 +482,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
       </div>
       {cheio && <div className={`text-center ${sub}`}>{haQuanto(t.criada)}</div>}
       <div className="flex items-center gap-2">
-        <BotaoCrono aCorrer={corre} theme={theme} pequeno onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
+        <BotaoCrono aCorrer={corre} theme={theme} pequeno onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
         <TempoSomar t={t} mudar={mudar} claro={claro} className={sub} />
       </div>
       <div className={`text-center tabular-nums ${atrasada ? 'text-red-400 font-medium' : sub}`}>{t.prazo ? dataCurta(t.prazo) : '—'}</div>
@@ -1654,7 +1654,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-0 sm:p-4 lg:p-6 animate-backdropIn backdrop-blur-md" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
       <div className={`w-full max-w-[1760px] h-full sm:h-auto sm:max-h-full overflow-y-auto xl:overflow-hidden xl:flex xl:flex-col shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
-          <EstadoPill estado={t.estado} theme={theme} onMudar={e => mudar(tr => opEstado(tr, t.id, e))} />
+          <EstadoPill estado={t.estado} theme={theme} onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
           {prio && <span className="text-xs font-medium" style={{ color: prio[2] }}>⚑ {prio[1]}</span>}
           <span className="flex-1" />
             {t.pastaPC
@@ -1670,7 +1670,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               mudar(tr => ({ ...tr, tarefas: tr.tarefas.filter(x => x.id !== t.id) })); onFechar();
             } }}>Apagar tarefa</button>
           <span className={`text-sm tabular-nums ${sub}`}><HorasVivas t={t} /></span>
-          <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => mudar(tr => opIniciar(tr, t.id))} onParar={() => mudar(opParar)} />
+          <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
           <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg text-slate-400 hover:bg-white/10" aria-label="Fechar">✕</button>
         </div>
         <div className={`p-4 lg:p-5 grid grid-cols-1 gap-4 lg:gap-5 items-start xl:items-stretch xl:flex-1 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)] ${comFicheiros ? 'lg:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,1.15fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]'}`}>
@@ -2265,7 +2265,21 @@ const linkAECriar = (trab, t, clientes) => {
   p.set('estrutura', ESTRUTURA_PROJETO.join('|'));
   p.set('ae', '1');
   p.set('pastasAE', ESTRUTURA_AE.join('|'));
+  p.set('estado', t.estado || 'todo'); // a pasta fica logo com a cor do estado
   return `aeproj://criar/?${p.toString()}`;
+};
+// Cor da pasta no PC pelo estado da tarefa (e "Feito" tira-a do Acesso rápido): só no Windows e só se a pasta foi criada pela app.
+// É chamado no próprio clique (o Chrome só abre links aeproj:// a partir de um clique).
+const ehWindows = () => typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
+const avisarEstadoPC = (t, estado) => {
+  if (!t || !t.pastaPC || !estado || estado === t.estado || !ehWindows() || !TRAB_ATUAL.trab) return;
+  try {
+    const p = new URLSearchParams(linkAECriar(TRAB_ATUAL.trab, t, TRAB_ATUAL.clientes).replace(/^aeproj:\/\/criar\/\?/, ''));
+    ['estrutura', 'pastasAE', 'ae'].forEach(k => p.delete(k));
+    p.set('estado', estado); p.set('antes', t.estado || 'todo');
+    const a = document.createElement('a'); a.href = `aeproj://estado/?${p.toString()}`; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { /* sem lançador: não faz mal */ }
 };
 // "Abrir pasta": abre a pasta do projeto no Explorador (se não existir, o lançador pergunta se a cria)
 const linkAEPasta = (trab, t, clientes) => linkAECriar(trab, t, clientes).replace(/^aeproj:\/\/criar\//, 'aeproj://pasta/');
@@ -3843,6 +3857,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                         : <a href={linkAERenomear(trab, t, null, (pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)).trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className={`${btn} shrink-0`}>Mudar no PC</a>}
                       <a href={linkAEPasta(trab, t, TRAB_ATUAL.clientes)} className={`${btn} shrink-0`} title="Abrir a pasta do projeto no Explorador">Abrir pasta</a>
                     </div>
+                    <a href="aeproj://modelo/" className={`inline-block text-[11px] ${sub} hover:text-blue-400`} title="Os projetos novos do After Effects passam a ser uma cópia deste .aep (com as tuas comps, pastas e definições). Os que já existem não mudam.">Escolher o meu projeto modelo do After Effects…</a>
                   </div>
                 )}
               </div>
