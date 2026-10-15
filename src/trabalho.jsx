@@ -21,6 +21,7 @@ const ICONES_T = {
   jogo: '<rect x="2.5" y="7" width="19" height="11" rx="5"/><path d="M7.5 10.5v4M5.5 12.5h4"/><circle cx="15.5" cy="11.5" r=".9"/><circle cx="17.5" cy="13.8" r=".9"/>',
   lapis: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/>',
   nota: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
+  criativos: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5 6 9M14 5l-2 4M20 5l-2 4"/><path d="m10.5 12 4 2.5-4 2.5z"/>',
 };
 const IcoT = ({ n, className = 'w-4 h-4' }) => (
   <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONES_T[n] || '' }} />
@@ -2717,6 +2718,160 @@ const renomearEm = async ({ dir, nome }, novo) => {
 const cacheEnvio = new Map();
 const cacheHist = new Map();
 const assinaturaLista = l => JSON.stringify(l.map(x => [x.id, x.formato, x.renomeado, x.nomeAntigo, x.handle ? x.handle.name : x.file && x.file.name]));
+// ── Fila de envios: os envios continuam quando mudas de tarefa ou de separador, um de cada vez, com um quadro no canto do ecrã ──
+const FILA = { itens: [], ouvir: new Set(), tema: null, abrir: null };
+const ENVIANDO = new Map(); // tarefaId → id do envio
+const filaAvisar = () => { FILA.ouvir.forEach(f => { try { f(); } catch (e) { /* */ } }); };
+const filaPor = (id, patch) => { FILA.itens = FILA.itens.map(x => (x.id === id ? { ...x, ...patch } : x)); filaAvisar(); };
+let filaCadeia = Promise.resolve();
+// Espera pela sua vez; devolve a função que deixa passar o seguinte
+const filaVez = () => { const antes = filaCadeia; let soltar; const minha = new Promise(ok => { soltar = ok; }); filaCadeia = antes.then(() => minha); return antes.then(() => soltar); };
+const filaAtivos = () => FILA.itens.filter(x => x.estado === 'na fila' || x.estado === 'a enviar');
+const avisoSair = e => { if (filaAtivos().length) { e.preventDefault(); e.returnValue = ''; } };
+let filaRaiz = null;
+const montarFila = () => {
+  if (filaRaiz || typeof document === 'undefined') return;
+  const el = document.createElement('div'); el.id = 'fila-envios'; document.body.appendChild(el);
+  filaRaiz = createRoot(el); filaRaiz.render(<FilaEnvios />);
+  window.addEventListener('beforeunload', avisoSair);
+};
+const filaNovo = item => { FILA.itens = [...FILA.itens.filter(x => x.estado === 'na fila' || x.estado === 'a enviar' || Date.now() - (x.fim || 0) < 30 * 60000), item]; montarFila(); filaAvisar(); };
+const avisarNoBrowser = (titulo, corpo) => {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!document.hidden && document.hasFocus()) return; // estás a ver a app: chega o quadro no canto
+    const n = new Notification(titulo, { body: corpo, tag: 'fila-envios' });
+    n.onclick = () => { try { window.focus(); n.close(); } catch (e) { /* */ } };
+  } catch (e) { /* sem notificações */ }
+};
+const FilaEnvios = () => {
+  const [, setTic] = useState(0);
+  const [min, setMin] = useState(false);
+  const [copiadoF, setCopiadoF] = useState('');
+  useEffect(() => { const f = () => setTic(x => x + 1); FILA.ouvir.add(f); return () => FILA.ouvir.delete(f); }, []);
+  const itens = FILA.itens;
+  if (!itens.length) return null;
+  const tema = FILA.tema || (() => { try { return localStorage.getItem('dashboard-theme') || 'dark'; } catch (e) { return 'dark'; } })();
+  const claro = tema === 'light';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const ativos = filaAtivos();
+  const nFich = l => l.reduce((a, x) => a + (x.total || 0), 0);
+  const feitosFich = ativos.reduce((a, x) => a + (x.feitos || 0), 0);
+  const titulo = ativos.length ? `A enviar ${Math.min(feitosFich + 1, nFich(ativos))} de ${nFich(ativos)} ficheiro${nFich(ativos) === 1 ? '' : 's'}` : itens.some(x => x.estado === 'erro') ? 'Envios com problemas' : 'Envios terminados';
+  const tirar = id => { FILA.itens = FILA.itens.filter(x => x.id !== id); filaAvisar(); };
+  return (
+    <div className={`fixed z-[90] right-3 bottom-20 sm:right-5 sm:bottom-24 w-[min(360px,calc(100vw-24px))] rounded-2xl border shadow-2xl ${claro ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'}`} role="region" aria-label="Fila de envios para o Drive">
+      <div className={`flex items-center gap-2 px-3.5 py-2.5 ${min ? '' : `border-b ${claro ? 'border-slate-100' : 'border-slate-800'}`}`}>
+        {ativos.length > 0 && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" aria-hidden="true" />}
+        <span className="flex-1 text-[13px] font-semibold" aria-live="polite">{titulo}</span>
+        <button type="button" onClick={() => setMin(m => !m)} className={`w-7 h-7 rounded-md text-sm ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label={min ? 'Mostrar a fila' : 'Esconder a fila'} aria-expanded={!min}>{min ? '▴' : '–'}</button>
+        {!ativos.length && <button type="button" onClick={() => { FILA.itens = []; filaAvisar(); }} className={`w-7 h-7 rounded-md text-sm ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar a fila">✕</button>}
+      </div>
+      {!min && (
+        <div className="max-h-[50vh] overflow-y-auto">
+          {itens.slice().reverse().map((x, i) => (
+            <div key={x.id} className={`px-3.5 py-2.5 space-y-1.5 ${i ? `border-t ${claro ? 'border-slate-100' : 'border-slate-800'}` : ''}`}>
+              <div className="flex items-center gap-2 text-[12.5px]">
+                {x.estado === 'feito' && <span className="text-emerald-500 shrink-0" aria-hidden="true">✓</span>}
+                {x.estado === 'erro' && <span className="text-red-400 shrink-0" aria-hidden="true">⚠</span>}
+                {FILA.abrir ? <button type="button" onClick={() => FILA.abrir && FILA.abrir(x.tarefaId)} className="flex-1 min-w-0 truncate text-left font-semibold hover:underline" title="Abrir a tarefa">{x.titulo}</button> : <span className="flex-1 min-w-0 truncate font-semibold">{x.titulo}</span>}
+                <span className={`shrink-0 tabular-nums ${sub}`}>{x.estado === 'a enviar' ? `${Math.round((x.prog || 0) * 100)}%` : x.estado === 'na fila' ? 'na fila' : x.estado === 'feito' ? `${x.feitos} enviado${x.feitos === 1 ? '' : 's'}` : ''}</span>
+                {(x.estado === 'feito' || x.estado === 'erro') && <button type="button" onClick={() => tirar(x.id)} className={`shrink-0 text-xs ${sub} hover:text-red-400`} aria-label={`Tirar ${x.titulo} da fila`}>✕</button>}
+              </div>
+              {x.estado === 'a enviar' && (
+                <>
+                  <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((x.prog || 0) * 100)}%` }} /></div>
+                  <p className={`text-[11px] ${sub}`}>{x.atual ? `${x.atual} · ` : ''}{x.feitos || 0} de {x.total} feito{x.total === 1 ? '' : 's'}</p>
+                </>
+              )}
+              {x.estado === 'erro' && <p className="text-[11px] text-red-400">{x.erro}</p>}
+              {x.estado === 'feito' && x.link && (
+                <div className="flex items-center gap-3 text-[11.5px]">
+                  <button type="button" onClick={() => { copiar(x.link); setCopiadoF(x.id); setTimeout(() => setCopiadoF(''), 1400); }} className="text-blue-500 hover:underline">{copiadoF === x.id ? '✓ link copiado' : 'Copiar link'}</button>
+                  <a href={x.link} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Abrir no Drive ↗</a>
+                </div>
+              )}
+            </div>
+          ))}
+          {ativos.length > 0 && <p className={`px-3.5 pb-2.5 text-[10.5px] ${sub}`}>Podes mudar de tarefa ou de separador: o envio continua. Não feches a app até acabar.</p>}
+        </div>
+      )}
+    </div>
+  );
+};
+// ── Exports novos encontrados sozinhos: a app procura a @Exports do projeto deste conceito na pasta dos projetos (ex.: C:\WORK) ──
+const EXT_EXPORT = /\.(mp4|mov|m4v|webm|png|jpe?g|webp|gif)$/i;
+const IGNORAR_PROJ = /^(\(Footage\)|@Source|Adobe After Effects Auto-Save|\$RECYCLE\.BIN|System Volume Information|node_modules|\..*)$/i;
+const palavrasP = x => normJ(x).split(' ').filter(w => w.length >= 3 && !/^v\d+$/.test(w) && !/^\d+$/.test(w));
+const permissaoLer = async (d, pedir) => { try { let p = await d.queryPermission({ mode: 'readwrite' }); if (p !== 'granted' && pedir) p = await d.requestPermission({ mode: 'readwrite' }); return p === 'granted'; } catch (e) { return false; } };
+const acharExportsConceito = async (raiz, { conceito, jogo, cliente }) => {
+  const pc = palavrasP(conceito), pj = palavrasP(jogo), pk = palavrasP(cliente);
+  if (!pc.length) return null;
+  const tem = (nome, ps) => { const n = ` ${normJ(nome)} `; return ps.filter(w => n.includes(` ${w} `) || n.includes(w)).length; };
+  const achados = [];
+  const fila = [[raiz, 0, []]]; let vistos = 0;
+  while (fila.length && vistos < 5000) {
+    const [dir, nivel, cam] = fila.shift(); vistos++;
+    const subs = [];
+    try {
+      for await (const [nome, e] of dir.entries()) {
+        if (e.kind !== 'directory') continue;
+        if (nome.toLowerCase() === '@exports') { achados.push({ dir: e, projeto: cam[cam.length - 1] || '', cam }); continue; }
+        if (IGNORAR_PROJ.test(nome) || nivel >= 7) continue;
+        subs.push([e, nome]);
+      }
+    } catch (e) { /* pasta sem acesso */ }
+    // À entrada, se houver uma pasta com o nome do cliente (ou do jogo), procura só aí
+    let escolher = subs;
+    if (nivel <= 1 && (pk.length || pj.length)) { const f = subs.filter(([, n]) => (pk.length && tem(n, pk) === pk.length) || (pj.length && tem(n, pj) === pj.length)); if (f.length) escolher = f; }
+    escolher.forEach(([e, n]) => fila.push([e, nivel + 1, [...cam, n]]));
+  }
+  const pontos = a => { const np = tem(a.projeto, pc) / pc.length; if (np < 1) return 0; return np + (pj.length ? tem(a.cam.join(' '), pj) / pj.length * 0.3 : 0); };
+  const l = achados.map(a => ({ ...a, p: pontos(a) })).filter(a => a.p > 0).sort((x, y) => y.p - x.p || x.projeto.length - y.projeto.length);
+  return l[0] || null;
+};
+const exportsNovos = async (dirExp, { desde, ignorar }) => {
+  const out = [];
+  for await (const [nome, e] of dirExp.entries()) {
+    if (e.kind !== 'file' || !EXT_EXPORT.test(nome) || ignorar.has(nome)) continue;
+    try { const f = await e.getFile(); if (f.lastModified >= desde) out.push({ handle: e, file: f }); } catch (err) { /* em uso */ }
+  }
+  return out.sort((a, b) => a.file.name.localeCompare(b.file.name));
+};
+// Pré-visualização do export (o 9:16 primeiro), logo que se arrastam os ficheiros — dá para trocar de formato
+const ehImagemF = f => !!f && (/^image\//.test(f.type || '') || /\.(png|jpe?g|webp|gif)$/i.test(f.name || ''));
+const ehVideoF = f => !!f && (/^video\//.test(f.type || '') || /\.(mp4|mov|m4v|webm)$/i.test(f.name || ''));
+const PreviewExport = ({ lista, claro, sub }) => {
+  const vis = lista.filter(x => x.file && (ehVideoF(x.file) || ehImagemF(x.file)));
+  const [esc, setEsc] = useState(null);
+  const item = vis.find(x => x.id === esc) || vis.find(x => x.formato === '9:16') || vis[0] || null;
+  const [url, setUrl] = useState(null);
+  const ficheiro = item ? item.file : null;
+  useEffect(() => {
+    if (!ficheiro) { setUrl(null); return undefined; }
+    const u = URL.createObjectURL(ficheiro); setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [ficheiro]);
+  if (!item || !url) return null;
+  const [fw, fh] = String(item.formato || '9:16').split(':').map(Number);
+  const larg = !fw || !fh ? 140 : fw / fh >= 1.3 ? 260 : fw / fh >= 0.95 ? 190 : fw / fh >= 0.75 ? 170 : 140;
+  const est = { width: larg, maxWidth: '100%', aspectRatio: fw && fh ? `${fw} / ${fh}` : undefined };
+  return (
+    <div className="shrink-0 space-y-1.5" style={{ width: larg, maxWidth: '100%' }}>
+      {ehImagemF(item.file)
+        ? <img src={url} alt={`Pré-visualização ${item.formato || ''}`} className="rounded-lg object-contain bg-black" style={est} />
+        : <video key={url} src={url} controls muted playsInline preload="metadata" className="rounded-lg bg-black object-contain" style={est} aria-label={`Pré-visualização do ${item.formato || 'vídeo'}`} />}
+      {vis.length > 1 && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Ver outro formato">
+          {vis.map(x => (
+            <button key={x.id} type="button" onClick={() => setEsc(x.id)} aria-pressed={x.id === item.id}
+              className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold border ${x.id === item.id ? 'bg-blue-600 border-blue-600 text-white' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`}>{x.formato || '?'}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLote, setVersaoLote, infoVersao, setInfoVersao }) => {
   const [lista, setLista] = useState(() => cacheEnvio.get(t.id) || []); // { id, file, meta, formato, estado, prog, erro }
   const [aEnviar, setAEnviarS] = useState(false);
@@ -3344,6 +3499,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
           {lista.length > 0 && (
             <div className="space-y-1.5">
               <p className={`text-[11px] uppercase tracking-wide ${sub}`}>{versoesTarefa.includes(Number(versaoDe(verSug))) ? `O que troca na V${versaoDe(verSug)}` : 'Nomes que vão ficar'}</p>
+              <div className="flex flex-col sm:flex-row gap-3 items-start">
+              <PreviewExport lista={lista} claro={claro} sub={sub} />
+              <div className="flex-1 min-w-0 w-full space-y-2">
               {lista.map(item => (
                 <div key={item.id} className="text-xs space-y-1">
                   <div className="flex items-center gap-2">
@@ -3359,6 +3517,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   <p className={`truncate text-[10px] opacity-70 ${sub}`}>{item.renomeado && item.nomeAntigo && item.nomeAntigo !== nomeDe(item) ? <>✓ renomeado no PC · era {item.nomeAntigo}</> : <>de {nomeDe(item)}</>}{item.meta && item.meta.w ? ` · ${item.meta.w}×${item.meta.h}` : ''}{item.meta && item.meta.dur ? ` · ${Math.round(item.meta.dur)}s` : ''}</p>
                 </div>
               ))}
+              </div>
+              </div>
               {repetidos.length > 0 && <p className="text-xs text-amber-500">Há dois ficheiros com o mesmo formato ({[...new Set(repetidos)].join(', ')}).</p>}
               {lista.some(x => !x.formato) && <p className="text-xs text-amber-500">Escolhe o formato dos ficheiros com "?".</p>}
               <div className={`rounded-lg border p-2.5 space-y-1.5 text-xs ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/40'}`}>
@@ -3626,6 +3786,472 @@ const VersoesConceito = ({ t, trab, conceito, raizD, contaD, claro, sub, mostrar
               {aVer ? 'A ver o Drive…' : semAcesso ? <button type="button" onClick={() => carregar(true)} className="text-blue-400 hover:text-blue-300">Ver também as que estão no Drive</button> : 'Ainda não há versões deste conceito.'}
             </p>
           )}
+        </div>
+      )}
+    </div>
+  );
+};
+// ── Criativos: todos os conceitos e versões de um cliente, por jogo — nomes dos ficheiros e atalhos para o After Effects ──
+const ESTADOS_V = [
+  { id: 'enviada', nome: 'Enviada', cor: '#60a5fa' },
+  { id: 'review', nome: 'Em review', cor: '#f59e0b' },
+  { id: 'feedback', nome: 'Com feedback', cor: '#fb923c' },
+  { id: 'aprovada', nome: 'Aprovada', cor: '#10b981' },
+  { id: 'ganhou', nome: 'Ganhou nos testes', cor: '#22c55e' },
+  { id: 'perdeu', nome: 'Não resultou', cor: '#94a3b8' },
+];
+const nomeBonitoC = s => { const x = String(s || '').trim(); return /[a-z]/.test(x) ? emTitulo(x) : emTitulo(x.toLowerCase().replace(/_/g, ' ')); };
+const chaveVersaoC = (jogoId, slug, v) => `${jogoId}|${slug}|${v || 0}`;
+const paramsAE = ({ trab, t, clientes, jogo, conceito, v }) => {
+  if (t) { const p = new URLSearchParams(linkAE(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, '')); if (v) p.set('versao', `V${v}`); return p; }
+  const cli = (clientes || []).find(c => String(c.id) === String(jogo && jogo.cid));
+  return new URLSearchParams({ id: '', cliente: (cli && cli.nome) || '', jogo: (jogo && jogo.nome) || '', conceito: conceito || '', versao: v ? `V${v}` : '' });
+};
+const linkAEPara = o => `aeproj://abrir/?${paramsAE(o).toString()}`;
+// "Abrir a pasta de exports" (lançador AbrirAE): encontra o projeto pelo nome de um export e abre a @Exports
+const linkExportsPara = (o, ficheiro) => { const p = paramsAE(o); if (ficheiro) p.set('ficheiro', ficheiro); return `aeproj://exports/?${p.toString()}`; };
+const abrirLinkExterno = url => { const a = document.createElement('a'); a.href = url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
+const versaoDoNomeT = (nome, cu) => { const m = /V(\d+)/i.exec(partesNomeTarefa(nome, cu).versao || ''); return m ? Number(m[1]) : null; };
+const criativosDoCliente = (trab, cid, cu) => {
+  const jogos = (trab.jogos || []).filter(j => String(j.cid) === String(cid) && !j.semJogo);
+  const porJogo = new Map(jogos.map(j => [j.id, { jogo: j, conceitos: new Map() }]));
+  (trab.tarefas || []).forEach(t => {
+    if (String(t.cid) !== String(cid)) return;
+    const j = jogoDaTarefa(trab, t);
+    if (!j || j.semJogo || !porJogo.has(j.id)) return;
+    const fx = t.ficheiros || {};
+    const nomeC = String(fx.conceito || conceitoDoNome(t.nome, cu) || '').trim();
+    const slug = slugF(nomeC);
+    if (!slug || /^\d+\s*x\s*\d+$/i.test(nomeC)) return;
+    const g = porJogo.get(j.id);
+    let c = g.conceitos.get(slug);
+    if (!c) { c = { slug, nome: nomeBonitoC(nomeC), versoes: [], tarefas: [], ultimo: '' }; g.conceitos.set(slug, c); }
+    c.tarefas.push(t);
+    const tipoF = tipoFicheiro(t);
+    const vsEnv = new Set();
+    versoesDrive(t.drive).forEach(d => {
+      if (d.conceito && slugF(d.conceito) !== slug) return;
+      const v = versaoDaPasta(d);
+      if (!v) return;
+      vsEnv.add(v);
+      c.versoes.push({ k: `${t.id}:${d.pastaId || v}`, v, t, pastaId: d.pastaId, url: d.url, em: d.em, tipoF, variacao: nomeBonitoC(campoVersao(fx, v, 'variacao', t) || ''), folha: d.folha, enviada: true,
+        ficheiros: (d.enviados || []).map(e => ({ nome: e.nome, id: e.id, formato: e.formato || formatoDoNomeF(e.nome) })) });
+    });
+    const vp = Number(fx.versao) || versaoDoNomeT(t.nome, cu) || 1; // sem versão no nome = V1 (a V1 não leva versão)
+    if (!vsEnv.size || (t.estado !== 'feito' && vp && !vsEnv.has(vp))) {
+      if (!(vp && vsEnv.has(vp))) c.versoes.push({ k: `${t.id}:plan`, v: vp, t, em: t.criada, tipoF, planeada: true, ficheiros: [],
+        variacao: nomeBonitoC((vp ? campoVersao(fx, vp, 'variacao', t) : fx.variacao) || partesNomeTarefa(t.nome, cu).variacao || '') });
+    }
+  });
+  porJogo.forEach(g => g.conceitos.forEach(c => {
+    c.versoes.sort((a, b) => (a.v || 999) - (b.v || 999) || String(a.em || '').localeCompare(String(b.em || '')));
+    c.ultimo = c.versoes.reduce((m, x) => (String(x.em || '') > m ? String(x.em || '') : m), '');
+  }));
+  return porJogo;
+};
+// A lista onde fica uma tarefa nova de um jogo: a do mês atual; senão a da última tarefa do jogo
+const pastaParaNovaC = (trab, jogo, tarefasJogo) => {
+  const hoje = new Date(); const ano = hoje.getFullYear(), mes = hoje.getMonth() + 1;
+  const folhas = (trab.pastas || []).filter(p => p.jogoId === jogo.id && !(trab.pastas || []).some(f => f.paiId === p.id));
+  const info = p => { const ch = caminho(trab, p.id); const m = ch.find(x => x.mesNum); const a = ch.find(x => /^\s*\d{4}\s*$/.test(x.nome)); return { p, ano: a ? Number(a.nome.trim()) : 0, mes: m ? m.mesNum : 0 }; };
+  const l = folhas.map(info);
+  const atual = l.find(x => x.ano === ano && x.mes === mes);
+  if (atual) return atual.p.id;
+  const ult = tarefasJogo.slice().sort((a, b) => String(b.criada || '').localeCompare(String(a.criada || '')))[0];
+  return ult ? ult.pastaId : null;
+};
+// Miniatura que o Drive gera para cada vídeo (pedida com a tua sessão; se falhar, não aparece)
+const cacheMiniaturas = new Map();
+const miniaturaDrive = async (token, fileId) => {
+  if (cacheMiniaturas.has(fileId)) return cacheMiniaturas.get(fileId);
+  const p = (async () => {
+    try {
+      const j = await driveApi(token, `${DRV}/${fileId}?fields=thumbnailLink&supportsAllDrives=true`);
+      if (!j || !j.thumbnailLink) return null;
+      const r = await fetch(j.thumbnailLink.replace(/=s\d+$/, '=s320'), { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return null;
+      return URL.createObjectURL(await r.blob());
+    } catch (e) { return null; }
+  })();
+  cacheMiniaturas.set(fileId, p);
+  return p;
+};
+const MiniaturaC = ({ fileId, conta, claro }) => {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => { const tk = tokenGuardadoDe(conta) || (ligadoSempre(conta || '_') ? await tokenDrive(conta).catch(() => null) : null); if (!tk || !fileId) return; const u = await miniaturaDrive(tk, fileId); if (vivo && u) setSrc(u); })();
+    return () => { vivo = false; };
+  }, [fileId, conta]);
+  if (!src) return null;
+  return <img src={src} alt="Miniatura do vídeo" className={`w-[72px] h-[72px] object-cover rounded-lg shrink-0 ring-1 ${claro ? 'ring-slate-200' : 'ring-white/10'}`} />;
+};
+const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, inputClass, focarProcura }) => {
+  const claro = useClaro(theme);
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const forte = claro ? 'text-slate-800' : 'text-slate-100';
+  const borda = claro ? 'border-slate-200' : 'border-slate-700/60';
+  const cartao = `rounded-2xl border ${claro ? 'bg-white border-slate-200' : 'bg-slate-800/40 border-slate-700/60'}`;
+  const btn = `inline-flex items-center gap-1.5 h-8 px-2.5 text-xs rounded-lg border whitespace-nowrap ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-700' : 'border-slate-700 hover:bg-white/5 text-slate-200'}`;
+  const clis = clientes.filter(c => (trab.jogos || []).some(j => String(j.cid) === String(c.id) && !j.semJogo));
+  const lerSel = () => { try { return JSON.parse(localStorage.getItem('criativos-sel')) || {}; } catch (e) { return {}; } };
+  const [selC, setSelC] = useState(lerSel);
+  const gravarSel = s => { setSelC(s); try { localStorage.setItem('criativos-sel', JSON.stringify(s)); } catch (e) { /* */ } };
+  // Cliente: o que escolheste; senão o da tarefa mais recente com jogo
+  const cidAuto = (() => { const t = (trab.tarefas || []).filter(x => (trab.jogos || []).some(j => String(j.cid) === String(x.cid))).sort((a, b) => String(b.criada || '').localeCompare(String(a.criada || '')))[0]; return t ? t.cid : (clis[0] && clis[0].id); })();
+  const cid = clis.some(c => String(c.id) === String(selC.cid)) ? selC.cid : cidAuto;
+  const dados = useMemo(() => criativosDoCliente(trab, cid, cu), [trab.tarefas, trab.jogos, trab.pastas, cid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const conta = contaDe(cid);
+  const info = trab.versoesInfo || {};
+  const [tipoF, setTipoF] = useState('todos'); // todos | VID | BAN
+  const [ordem, setOrdem] = useState('recentes');
+  const [q, setQ] = useState('');
+  const procRef = useRef(null);
+  useEffect(() => { if (focarProcura && procRef.current) procRef.current.focus(); }, [focarProcura]);
+  // Jogos, por estúdio, com o número de versões
+  const jogosL = [...dados.values()].map(g => ({ ...g, n: [...g.conceitos.values()].reduce((a, c) => a + c.versoes.length, 0), ultimo: [...g.conceitos.values()].reduce((m, c) => (c.ultimo > m ? c.ultimo : m), '') }));
+  const jogoAuto = jogosL.slice().sort((a, b) => b.ultimo.localeCompare(a.ultimo))[0];
+  const jogoId = jogosL.some(g => g.jogo.id === selC.jogoId) ? selC.jogoId : (jogoAuto && jogoAuto.jogo.id);
+  const g = dados.get(jogoId);
+  const estudios = [...new Set(jogosL.map(x => String(x.jogo.estudio || '').trim()))].sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b, 'pt'));
+  // Drive: conceitos e versões que só lá estão (pedidos ao abrir)
+  const [drvConceitos, setDrvConceitos] = useState({}); // raiz → [{ name, id, webViewLink }]
+  const [drvVersoes, setDrvVersoes] = useState({}); // raiz|slug → lista | 'a ver'
+  const raizDe = (jogo, tipo) => idPastaDrive(tipo === 'BAN' ? jogo.driveStatics : jogo.drive);
+  const tokenSemJanela = async () => tokenGuardadoDe(conta) || (ligadoSempre(conta || '_') ? tokenDrive(conta).catch(() => null) : null);
+  useEffect(() => {
+    if (!g) return undefined;
+    let vivo = true;
+    (async () => {
+      const raiz = raizDe(g.jogo, 'VID'); if (!raiz || drvConceitos[raiz]) return;
+      const tk = await tokenSemJanela(); if (!tk || !vivo) return;
+      try { const fs = await conceitosNoDrive(tk, raiz); if (vivo) setDrvConceitos(o => ({ ...o, [raiz]: fs })); } catch (e) { /* sem acesso */ }
+    })();
+    return () => { vivo = false; };
+  }, [jogoId, conta]); // eslint-disable-line react-hooks/exhaustive-deps
+  const verNoDrive = async (jogo, c, pedir) => {
+    const raiz = raizDe(jogo, c.versoes[0] && c.versoes[0].tipoF === 'BAN' ? 'BAN' : 'VID'); if (!raiz) return;
+    const k = `${raiz}|${c.slug}`;
+    if (drvVersoes[k] && !pedir) return;
+    const tk = (await tokenSemJanela()) || (pedir ? await tokenDrive(conta).catch(() => null) : null);
+    if (!tk) { setDrvVersoes(o => ({ ...o, [k]: 'sem acesso' })); return; }
+    setDrvVersoes(o => ({ ...o, [k]: 'a ver' }));
+    try { const l = await versoesComFicheirosNoDrive(tk, raiz, c.slug); setDrvVersoes(o => ({ ...o, [k]: l })); } catch (e) { setDrvVersoes(o => ({ ...o, [k]: 'sem acesso' })); }
+  };
+  // Junta as versões da app com as do Drive (o Drive manda nos nomes dos ficheiros)
+  const versoesDe = (jogo, c) => {
+    const raiz = raizDe(jogo, c.versoes[0] && c.versoes[0].tipoF === 'BAN' ? 'BAN' : 'VID');
+    const drv = Array.isArray(drvVersoes[`${raiz}|${c.slug}`]) ? drvVersoes[`${raiz}|${c.slug}`] : [];
+    const l = c.versoes.map(x => ({ ...x }));
+    drv.forEach(d => {
+      const igual = l.find(x => x.pastaId && x.pastaId === d.pastaId) || l.find(x => !x.pastaId && x.v === d.v && x.planeada && x.t && x.t.estado === 'feito');
+      if (igual) { if (d.ficheiros.length) igual.ficheiros = d.ficheiros; if (!igual.url) igual.url = d.url; if (!igual.pastaId) igual.pastaId = d.pastaId; }
+      else l.push({ ...d, k: `drv:${d.pastaId}`, soDrive: true, tipoF: 'VID', variacao: nomeBonitoC(d.variacao) });
+    });
+    return l.sort((a, b) => (a.v || 999) - (b.v || 999));
+  };
+  const estadoDe = (jogo, c, x) => {
+    const m = (info[chaveVersaoC(jogo.id, c.slug, x.v)] || {}).estado;
+    if (m) { const e = ESTADOS_V.find(y => y.id === m); if (e) return { ...e, manual: true }; }
+    if (x.soDrive) return { id: '', nome: 'Só no Drive', cor: '#94a3b8' };
+    const et = x.t ? x.t.estado : '';
+    if (x.planeada) return et === 'feito' ? { id: '', nome: 'Entregue (fora da app)', cor: '#94a3b8' } : et === 'review' ? { id: '', nome: 'Em review', cor: '#f59e0b' } : et === 'curso' ? { id: '', nome: 'Em curso', cor: '#3b82f6' } : { id: '', nome: 'Por começar', cor: '#94a3b8' };
+    return et === 'review' ? { id: '', nome: 'Em review', cor: '#f59e0b' } : et === 'feito' ? { id: '', nome: 'Entregue', cor: '#10b981' } : { id: '', nome: 'Enviada', cor: '#60a5fa' };
+  };
+  const mudarInfo = (jogo, c, v, patch) => mudar(tr => { const k = chaveVersaoC(jogo.id, c.slug, v); const cur = (tr.versoesInfo || {})[k] || {}; const novo = { ...cur, ...patch }; Object.keys(novo).forEach(x => { if (novo[x] == null || novo[x] === '' || (Array.isArray(novo[x]) && !novo[x].length)) delete novo[x]; }); const vi = { ...(tr.versoesInfo || {}) }; if (Object.keys(novo).length) vi[k] = novo; else delete vi[k]; return { ...tr, versoesInfo: vi }; });
+  const etiquetasDe = (jogo, c, v) => (info[chaveVersaoC(jogo.id, c.slug, v)] || {}).etiquetas || [];
+  // Formatos: os que as outras versões do conceito têm e esta não (pode faltar um tamanho)
+  const formatosConceito = l => { const cont = {}; l.forEach(x => [...new Set(x.ficheiros.map(f => f.formato).filter(Boolean))].forEach(f => { cont[f] = (cont[f] || 0) + 1; })); return Object.keys(cont).filter(f => cont[f] >= 2).sort((a, b) => ['9:16', '4:5', '1:1', '16:9'].indexOf(a) - ['9:16', '4:5', '1:1', '16:9'].indexOf(b)); };
+  // Conceitos que só estão no Drive (sem tarefas na app)
+  const raizG = g ? raizDe(g.jogo, 'VID') : null;
+  const soDriveC = g && raizG && Array.isArray(drvConceitos[raizG]) ? drvConceitos[raizG].filter(f => { const k = slugF(f.name); return k && !g.conceitos.has(k) && !/_V\d+$/.test(k) && !(trab.jogos || []).some(j => String(j.cid) === String(g.jogo.cid) && j.id !== g.jogo.id && [j.nome, j.codigo].filter(Boolean).some(n => slugF(n) === k)); }) : [];
+  const conceitosL = g ? [
+    ...[...g.conceitos.values()].filter(c => tipoF === 'todos' || c.versoes.some(x => (tipoF === 'BAN' ? ['BAN', 'ICO', 'FG', 'SS'].includes(x.tipoF) : !['BAN', 'ICO', 'FG', 'SS'].includes(x.tipoF)))),
+    ...(tipoF === 'BAN' ? [] : soDriveC.map(f => ({ slug: slugF(f.name), nome: nomeBonitoC(f.name), versoes: [], tarefas: [], ultimo: '', soDrive: true, pastaUrl: f.webViewLink || `https://drive.google.com/drive/folders/${f.id}` }))),
+  ].sort((a, b) => (ordem === 'nome' ? a.nome.localeCompare(b.nome, 'pt') : (b.ultimo || '').localeCompare(a.ultimo || '') || a.nome.localeCompare(b.nome, 'pt'))) : [];
+  const [abertos, setAbertos] = useState(() => new Set());
+  const [nomesAb, setNomesAb] = useState(() => new Set());
+  const alternar = (setF, k) => setF(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const primeiro = conceitosL[0] && conceitosL[0].slug;
+  const aberto = c => (abertos.has(`${jogoId}|${c.slug}`) ? true : abertos.has(`${jogoId}|${c.slug}|fechado`) ? false : c.slug === primeiro);
+  useEffect(() => { if (!g) return; conceitosL.filter(aberto).forEach(c => verNoDrive(g.jogo, c, false)); }, [jogoId, abertos, primeiro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [copiadoK, setCopiadoK] = useState('');
+  useEffect(() => { if (!copiadoK) return undefined; const i = setTimeout(() => setCopiadoK(''), 1400); return () => clearTimeout(i); }, [copiadoK]);
+  const copiarK = (txt, k) => { copiar(txt); setCopiadoK(k); };
+  // + Nova versão: cria a tarefa já com o conceito e a versão seguinte, na lista do mês do jogo
+  const [menuNova, setMenuNova] = useState(null);
+  useEffect(() => {
+    if (!menuNova) return undefined;
+    const fechar = e => { if (!(e.target.closest && e.target.closest('[data-menu-nova]'))) setMenuNova(null); };
+    document.addEventListener('mousedown', fechar); return () => document.removeEventListener('mousedown', fechar);
+  }, [menuNova]);
+  const novaVersao = (jogo, c, tipo) => {
+    setMenuNova(null);
+    const vs = versoesDe(jogo, c).map(x => x.v || 0);
+    const prox = Math.max(0, ...vs) + 1;
+    const tarefasJogo = (trab.tarefas || []).filter(t => { const j = jogoDaTarefa(trab, t); return j && j.id === jogo.id; });
+    const pastaId = pastaParaNovaC(trab, jogo, c.tarefas.length ? c.tarefas : tarefasJogo);
+    if (!pastaId) { if (showToast) showToast(`Não encontrei uma lista do ${jogo.nome} onde pôr a tarefa. Cria-a primeiro numa pasta do jogo.`, 'error'); return; }
+    const pecas = { [tipo]: 1 };
+    const fx = { conceito: c.nome, versao: String(prox) };
+    const nome = nomeBaseTarefa({ nome: c.nome, pecas, ficheiros: fx }, prox, true);
+    const id = trabId();
+    mudar(tr => opTarefa(opNovaTarefa(tr, { id, pastaId, cid: jogo.cid, nome, pecas }), id, x => ({ ...x, ficheiros: fx })));
+    const p = (trab.pastas || []).find(x => x.id === pastaId);
+    if (showToast) showToast(`Tarefa criada: ${nome}${p ? ` (em ${p.nome})` : ''}`, 'success');
+    if (onAbrir) setTimeout(() => onAbrir(id), 0);
+  };
+  // ── Pesquisa (em todos os clientes): conceitos, variações, nomes de ficheiros, tarefas e etiquetas ──
+  const qn = normJ(q).trim();
+  const resultados = useMemo(() => {
+    if (!qn) return [];
+    const palavras = qn.split(/\s+/).filter(Boolean);
+    const out = [];
+    clis.forEach(cl => {
+      const d = cl.id === cid ? dados : criativosDoCliente(trab, cl.id, cu);
+      d.forEach(gg => gg.conceitos.forEach(c => c.versoes.forEach(x => {
+        const et = ((info[chaveVersaoC(gg.jogo.id, c.slug, x.v)] || {}).etiquetas || []).join(' ');
+        const txt = normJ([gg.jogo.nome, c.nome, c.slug.replace(/_/g, ' '), x.variacao, x.t && x.t.nome, et, ...x.ficheiros.map(f => f.nome.replace(/_/g, ' '))].join(' '));
+        if (palavras.every(p => txt.includes(p))) out.push({ jogo: gg.jogo, c, x, cliente: cl });
+      })));
+    });
+    return out.sort((a, b) => String(b.x.em || '').localeCompare(String(a.x.em || ''))).slice(0, 60);
+  }, [qn, trab.tarefas, trab.jogos, trab.versoesInfo, cid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [selR, setSelR] = useState(0);
+  useEffect(() => { setSelR(0); }, [qn]);
+  const marcar = txt => {
+    const s = String(txt || ''); if (!qn) return s;
+    const ps = qn.split(/\s+/).filter(Boolean); const n = s.split('').map(ch => { const x = (ch.normalize('NFD')[0] || '').toLowerCase(); return /[a-z0-9]/.test(x) ? x : ' '; }).join('');
+    const marcas = new Array(s.length).fill(false);
+    ps.forEach(p => { let i = n.indexOf(p); while (i >= 0) { for (let k = i; k < i + p.length && k < s.length; k++) marcas[k] = true; i = n.indexOf(p, i + 1); } });
+    const out = []; let i = 0;
+    while (i < s.length) { const m = marcas[i]; let j = i; while (j < s.length && marcas[j] === m) j++; out.push(m ? <mark key={i} className={`rounded px-0.5 ${claro ? 'bg-amber-200 text-slate-900' : 'bg-amber-700/70 text-amber-50'}`}>{s.slice(i, j)}</mark> : <React.Fragment key={i}>{s.slice(i, j)}</React.Fragment>); i = j; }
+    return out;
+  };
+  const teclaProcura = e => {
+    if (!resultados.length) { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ(''); } return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelR(i => Math.min(i + 1, resultados.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelR(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault(); const r = resultados[selR]; if (!r) return;
+      if ((e.ctrlKey || e.metaKey) && r.x.t) { if (onAbrir) onAbrir(r.x.t.id); }
+      else abrirLinkExterno(linkAEPara({ trab, t: r.x.t, clientes, jogo: r.jogo, conceito: r.c.slug, v: r.x.v }));
+    } else if (e.key === 'Escape') { e.stopPropagation(); setQ(''); }
+  };
+  const chipV = (v, forte2) => <span className={`inline-flex items-center justify-center min-w-[34px] h-[22px] px-1.5 rounded-md text-xs font-semibold tabular-nums ${forte2 ? (claro ? 'bg-blue-100 text-blue-800' : 'bg-blue-500/25 text-blue-200') : claro ? 'bg-slate-100 text-slate-700' : 'bg-slate-700/60 text-slate-200'}`}>{v ? `V${v}` : 'V?'}</span>;
+  const pontoEstado = e => <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: e.cor }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: e.cor }} />{e.nome}</span>;
+  const listaNomes = (x, k) => (
+    <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/60 bg-slate-900/40'}`}>
+      {x.ficheiros.map((f, i) => (
+        <div key={f.nome + i} className={`group/n flex items-center gap-2 px-3 py-1.5 ${i ? `border-t ${claro ? 'border-slate-200' : 'border-slate-700/50'}` : ''}`}>
+          <span className={`w-9 shrink-0 text-[11px] font-semibold ${claro ? 'text-blue-700' : 'text-blue-300'}`}>{f.formato || '—'}</span>
+          <code className={`flex-1 min-w-0 break-all text-[11.5px] leading-snug ${claro ? 'text-slate-700' : 'text-slate-300'}`}>{qn ? marcar(f.nome) : f.nome}</code>
+          <button type="button" onClick={() => copiarK(f.nome, `${k}:${i}`)} className={`shrink-0 px-2 py-0.5 text-[11px] rounded-md border ${copiadoK === `${k}:${i}` ? 'border-emerald-400 text-emerald-500' : `${claro ? 'border-slate-200 hover:bg-white' : 'border-slate-700 hover:bg-white/5'} sm:opacity-0 sm:group-hover/n:opacity-100 focus:opacity-100`}`}>{copiadoK === `${k}:${i}` ? '✓' : 'Copiar'}</button>
+        </div>
+      ))}
+    </div>
+  );
+  const linhaVersao = (jogo, c, x, l, fmts) => {
+    const k = `${jogo.id}|${c.slug}|${x.k}`;
+    const e = estadoDe(jogo, c, x);
+    const temN = x.ficheiros.length > 0;
+    const abN = nomesAb.has(k);
+    const tem = new Set(x.ficheiros.map(f => f.formato));
+    const faltam = temN ? fmts.filter(f => !tem.has(f)) : [];
+    const ultimaV = l[l.length - 1] === x;
+    const ets = etiquetasDe(jogo, c, x.v);
+    const o = { trab, t: x.t, clientes, jogo, conceito: c.slug, v: x.v };
+    return (
+      <div key={x.k} className={`border-t ${claro ? 'border-slate-100' : 'border-slate-700/40'} ${abN ? (claro ? 'bg-blue-50/40' : 'bg-blue-500/[0.04]') : ''}`}>
+        <div className="flex flex-wrap sm:grid sm:grid-cols-[44px_minmax(0,1fr)_150px_52px_150px_auto] items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
+          {chipV(x.v, ultimaV && !x.soDrive)}
+          <div className="min-w-0 flex-1 sm:flex-none">
+            <p className={`text-[13.5px] truncate ${x.variacao ? '' : `italic ${sub}`}`} title={x.variacao || 'sem variação'}>{x.variacao ? (qn ? marcar(x.variacao) : x.variacao) : 'sem variação'}</p>
+            {x.t ? <button type="button" onClick={() => onAbrir && onAbrir(x.t.id)} className={`block max-w-full truncate text-[11.5px] text-left ${sub} hover:text-blue-400 hover:underline`} title={`Abrir a tarefa: ${x.t.nome}`}>{x.t.nome}</button> : <p className={`text-[11.5px] ${sub}`}>sem tarefa na app</p>}
+            {ets.length > 0 && <p className="flex flex-wrap gap-1 mt-0.5">{ets.map(et => <span key={et} className={`text-[10.5px] px-1.5 rounded-full ${claro ? 'bg-violet-100 text-violet-700' : 'bg-violet-500/15 text-violet-300'}`}>{et}</span>)}</p>}
+          </div>
+          <div className="flex flex-wrap gap-1 w-full sm:w-auto order-last sm:order-none">
+            {[...tem].filter(Boolean).map(f => <span key={f} className={`text-[11px] px-1.5 py-px rounded-md ${claro ? 'bg-slate-100 text-slate-700' : 'bg-slate-700/50 text-slate-200'}`}>{f}</span>)}
+            {faltam.map(f => <span key={f} className="text-[11px] px-1.5 rounded-md border border-dashed border-amber-500/70 text-amber-500" title={`Falta o ${f}? As outras versões deste conceito têm.`}>{f}?</span>)}
+            {!temN && <span className={`text-[11px] ${sub}`}>{x.planeada ? 'ainda sem ficheiros' : '—'}</span>}
+          </div>
+          <span className={`text-xs tabular-nums ${sub}`}>{x.em ? dataCurta(x.em) : ''}</span>
+          <label className="relative inline-flex items-center min-w-0" title="Estado desta versão (escolhe à mão: aprovada, ganhou nos testes…)">
+            <span className="sr-only">Estado da V{x.v}</span>
+            {pontoEstado(e)}
+            <select value={(info[chaveVersaoC(jogo.id, c.slug, x.v)] || {}).estado || ''} onChange={ev => mudarInfo(jogo, c, x.v, { estado: ev.target.value || null })} className="absolute inset-0 opacity-0 cursor-pointer" aria-label={`Estado da V${x.v}`}>
+              <option value="">Automático ({e.manual ? 'pela tarefa' : e.nome})</option>
+              {ESTADOS_V.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </label>
+          <div className="flex items-center justify-end gap-1.5 ml-auto">
+            <a href={linkAEPara(o)} className={btn} title="Abrir o projeto no After Effects">AE</a>
+            {x.url && <a href={urlAbrir(x.url, jogo.cid)} target="_blank" rel="noopener noreferrer" className={btn} title="Abrir a pasta desta versão no Drive">Drive</a>}
+            <button type="button" onClick={() => alternar(setNomesAb, k)} aria-expanded={abN} className={`${btn} ${abN ? (claro ? '!bg-blue-50 !border-blue-300 !text-blue-700' : '!bg-blue-500/15 !border-blue-500/50 !text-blue-200') : ''}`}>{temN ? 'Nomes' : 'Mais'}{abN ? ' ▴' : ''}</button>
+          </div>
+        </div>
+        {abN && (
+          <div className="px-3 sm:pl-[72px] sm:pr-4 pb-3 space-y-2">
+            <div className="flex gap-3 items-start">
+              {temN && x.ficheiros[0].id && <MiniaturaC fileId={x.ficheiros[0].id} conta={conta} claro={claro} />}
+              <div className="flex-1 min-w-0">{temN ? listaNomes(x, k) : <p className={`text-xs ${sub}`}>{x.planeada ? 'Esta versão ainda não foi enviada pela app.' : 'Sem nomes guardados.'}</p>}</div>
+            </div>
+            <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs ${sub}`}>
+              {temN && x.ficheiros.length > 1 && <button type="button" onClick={() => copiarK(x.ficheiros.map(f => f.nome).join('\n'), `${k}:todos`)} className="text-blue-500 hover:underline">{copiadoK === `${k}:todos` ? '✓ copiados' : `Copiar os ${x.ficheiros.length} nomes`}</button>}
+              {temN && <a href={linkExportsPara(o, x.ficheiros[0].nome)} className="text-blue-500 hover:underline" title="Abre a @Exports do projeto no Explorador (precisa do lançador AbrirAE atualizado)">Abrir a pasta de exports</a>}
+              {x.folha && x.folha.ok && <span>Spreadsheet: linha {x.folha.linha}</span>}
+              <label className="inline-flex items-center gap-1.5 min-w-[220px] flex-1">
+                <span className="shrink-0">Etiquetas</span>
+                <input key={ets.join(',')} defaultValue={ets.join(', ')} placeholder="ex.: voz feminina, UGC, hook" onBlur={ev => { const l2 = [...new Set(ev.target.value.split(',').map(s => s.trim()).filter(Boolean))]; if (l2.join(',') !== ets.join(',')) mudarInfo(jogo, c, x.v, { etiquetas: l2 }); }} onKeyDown={ev => { if (ev.key === 'Enter') ev.currentTarget.blur(); }} className={`${inputClass} flex-1 min-w-0 !py-1 text-xs`} aria-label={`Etiquetas da V${x.v}`} />
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+  const cartaoConceito = (jogo, c) => {
+    const kc = `${jogo.id}|${c.slug}`;
+    const ab = aberto(c);
+    const l = versoesDe(jogo, c);
+    const fmts = formatosConceito(l);
+    const raiz = raizDe(jogo, l[0] && l[0].tipoF === 'BAN' ? 'BAN' : 'VID');
+    const estD = drvVersoes[`${raiz}|${c.slug}`];
+    const prox = Math.max(0, ...l.map(x => x.v || 0)) + 1;
+    const ult = l.filter(x => x.t).slice(-1)[0];
+    const pastaC = c.pastaUrl || (raiz && Array.isArray(drvConceitos[raiz]) ? (() => { const f = drvConceitos[raiz].find(y => slugF(y.name) === c.slug); return f ? (f.webViewLink || `https://drive.google.com/drive/folders/${f.id}`) : null; })() : null);
+    const resumo = l.length ? l.slice(0, 4).map(x => `V${x.v || '?'}${x.variacao ? ` ${x.variacao}` : ''}`).join(' · ') + (l.length > 4 ? ` · +${l.length - 4}` : '') : (c.soDrive ? 'só no Drive (antes da app)' : '');
+    const o = { trab, t: ult ? ult.t : null, clientes, jogo, conceito: c.slug, v: ult ? ult.v : null };
+    return (
+      <section key={kc} className={cartao}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3">
+          <button type="button" onClick={() => { setAbertos(s => { const n = new Set(s); if (ab) { n.delete(kc); n.add(`${kc}|fechado`); } else { n.add(kc); n.delete(`${kc}|fechado`); } return n; }); if (!ab) verNoDrive(jogo, c, false); }} aria-expanded={ab} className="flex-1 min-w-[200px] flex items-center gap-2.5 text-left">
+            <svg width="12" height="12" viewBox="0 0 12 12" className={`shrink-0 transition-transform ${sub}`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <span className="min-w-0">
+              <span className={`block text-[15px] font-semibold truncate ${forte}`}>{c.nome}</span>
+              <span className={`block text-xs truncate ${sub}`}>{l.length ? `${l.length} ${l.length === 1 ? 'versão' : 'versões'} · ` : ''}{ab ? (c.ultimo ? `última a ${dataCurta(c.ultimo)}` : '') : resumo}</span>
+            </span>
+          </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {pastaC && <a href={urlAbrir(pastaC, jogo.cid)} target="_blank" rel="noopener noreferrer" className={btn}>Pasta do Drive ↗</a>}
+            <div className="relative" data-menu-nova="1">
+              <button type="button" onClick={() => setMenuNova(menuNova === kc ? null : kc)} aria-expanded={menuNova === kc} className={btn}>+ Nova versão (V{prox})</button>
+              {menuNova === kc && (
+                <div className={`absolute right-0 top-full mt-1 z-40 w-48 rounded-xl border shadow-2xl py-1 ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-100'}`} role="menu">
+                  <p className={`px-3 pt-1 pb-1.5 text-[11px] ${sub}`}>V{prox} de {c.nome} é…</p>
+                  {[['variacao', 'Variação'], ['iteracao', 'Iteração'], ['video', 'Vídeo novo'], ['banner_var', 'Variação de banner']].map(([id, txt]) => (
+                    <button key={id} type="button" role="menuitem" onClick={() => novaVersao(jogo, c, id)} className={`w-full px-3 py-2 text-sm text-left ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>{txt}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <a href={linkAEPara(o)} className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white`} title="Abrir o projeto deste conceito no After Effects">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M10 11l4 2.5-4 2.5z" /></svg>Abrir no AE</a>
+          </div>
+        </div>
+        {ab && (
+          <div>
+            <div className={`hidden sm:grid grid-cols-[44px_minmax(0,1fr)_150px_52px_150px_auto] gap-x-3 px-4 py-1.5 border-t text-[10.5px] uppercase tracking-wide ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>
+              <span>Versão</span><span>Variação · tarefa</span><span>Formatos</span><span>Data</span><span>Estado</span><span className="text-right">Atalhos</span>
+            </div>
+            {l.map(x => linhaVersao(jogo, c, x, l, fmts))}
+            {!l.length && <p className={`px-4 py-3 border-t text-xs ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>{estD === 'a ver' ? 'A ver o Drive…' : 'Ainda sem versões.'}</p>}
+            {(estD === 'a ver' || estD === 'sem acesso') && l.length > 0 && (
+              <p className={`px-4 py-2 border-t text-[11px] ${sub} ${claro ? 'border-slate-100' : 'border-slate-700/40'}`}>
+                {estD === 'a ver' ? 'A ver se há versões só no Drive…' : <button type="button" onClick={() => verNoDrive(jogo, c, true)} className="text-blue-500 hover:underline">Ver também as versões que estão no Drive</button>}
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  };
+  if (!clis.length) return <p className={`text-sm ${sub}`}>Ainda não tens jogos. Junta-os no separador Jogos de um cliente.</p>;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className={`flex-1 min-w-[260px] flex items-center gap-2 h-11 px-3 rounded-xl border ${claro ? 'bg-white border-slate-300 focus-within:border-blue-500' : 'bg-slate-900/60 border-slate-600 focus-within:border-blue-500'}`}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className={sub} aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <input ref={procRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={teclaProcura} placeholder="Procurar conceito, variação, nome de ficheiro, tarefa ou etiqueta…" aria-label="Procurar nos criativos" className="flex-1 min-w-0 bg-transparent outline-none text-sm" />
+          {q ? <button type="button" onClick={() => setQ('')} className={`text-xs ${sub} hover:text-blue-400`} aria-label="Limpar a procura">✕</button> : <kbd className={`hidden sm:inline text-[10.5px] font-mono px-1.5 py-0.5 rounded border ${claro ? 'border-slate-300 text-slate-500' : 'border-slate-600 text-slate-400'}`}>Ctrl K</kbd>}
+        </label>
+        {!qn && clis.length > 1 && (
+          <select value={String(cid)} onChange={e => gravarSel({ cid: e.target.value })} className={`h-11 rounded-xl border px-3 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Cliente">
+            {clis.map(c => <option key={c.id} value={String(c.id)} className={claro ? '' : 'bg-slate-800'}>{c.nome}</option>)}
+          </select>
+        )}
+        {!qn && (
+          <select value={tipoF} onChange={e => setTipoF(e.target.value)} className={`h-11 rounded-xl border px-3 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Tipo">
+            <option value="todos" className={claro ? '' : 'bg-slate-800'}>Vídeos e banners</option>
+            <option value="VID" className={claro ? '' : 'bg-slate-800'}>Só vídeos</option>
+            <option value="BAN" className={claro ? '' : 'bg-slate-800'}>Só banners</option>
+          </select>
+        )}
+        {!qn && (
+          <select value={ordem} onChange={e => setOrdem(e.target.value)} className={`h-11 rounded-xl border px-3 text-sm bg-transparent ${claro ? 'border-slate-300' : 'border-slate-600'}`} aria-label="Ordem">
+            <option value="recentes" className={claro ? '' : 'bg-slate-800'}>Mais recentes</option>
+            <option value="nome" className={claro ? '' : 'bg-slate-800'}>Por nome</option>
+          </select>
+        )}
+      </div>
+
+      {qn ? (
+        <div className="space-y-2">
+          <p className={`text-xs ${sub}`}>{resultados.length ? `${resultados.length === 60 ? '60+' : resultados.length} ${resultados.length === 1 ? 'versão' : 'versões'} · ↑ ↓ escolher · Enter abre no AE · Ctrl+Enter abre a tarefa` : 'Nada encontrado. Procura também por partes do nome do ficheiro (ex.: 9X16, V3).'}</p>
+          {resultados.length > 0 && (
+            <div className={`${cartao} overflow-hidden`}>
+              {resultados.map((r, i) => {
+                const k = `res|${r.jogo.id}|${r.c.slug}|${r.x.k}`;
+                const e = estadoDe(r.jogo, r.c, r.x);
+                const o = { trab, t: r.x.t, clientes, jogo: r.jogo, conceito: r.c.slug, v: r.x.v };
+                const abN = nomesAb.has(k);
+                return (
+                  <div key={k} className={`${i ? `border-t ${claro ? 'border-slate-100' : 'border-slate-700/40'}` : ''} ${i === selR ? (claro ? 'bg-blue-50' : 'bg-blue-500/10') : ''}`} onMouseEnter={() => setSelR(i)}>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
+                      {chipV(r.x.v, i === selR)}
+                      <div className="flex-1 min-w-[200px]">
+                        <p className="text-sm truncate"><b className="font-semibold">{marcar(r.c.nome)}</b>{r.x.variacao ? <> · {marcar(r.x.variacao)}</> : null}</p>
+                        <p className={`text-xs truncate ${sub}`}>{clis.length > 1 ? `${r.cliente.nome} · ` : ''}{r.jogo.nome} · {r.x.em ? dataCurta(r.x.em) : ''} · <span style={{ color: e.cor }}>{e.nome}</span></p>
+                      </div>
+                      <a href={linkAEPara(o)} className={i === selR ? 'inline-flex items-center h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white' : btn}>Abrir no AE</a>
+                      {r.x.t && <button type="button" onClick={() => onAbrir && onAbrir(r.x.t.id)} className={btn}>Tarefa</button>}
+                      {r.x.ficheiros.length > 0 && <button type="button" onClick={() => alternar(setNomesAb, k)} aria-expanded={abN} className={btn}>Nomes{abN ? ' ▴' : ''}</button>}
+                    </div>
+                    {(abN || (i === selR && r.x.ficheiros.some(f => normJ(f.nome.replace(/_/g, ' ')).includes(qn.split(/\s+/)[0])))) && r.x.ficheiros.length > 0 && <div className="px-3 sm:pl-[60px] pb-3">{listaNomes(r.x, k)}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)] gap-4 items-start">
+          <nav aria-label="Jogos" className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0 lg:sticky lg:top-[150px]">
+            {estudios.map(est => (
+              <React.Fragment key={est || '-'}>
+                {(estudios.length > 1 || est) && <p className={`hidden lg:block px-2 pt-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wide ${sub}`}>{est || 'Outros'}</p>}
+                {jogosL.filter(x => String(x.jogo.estudio || '').trim() === est).sort((a, b) => String(a.jogo.nome).localeCompare(String(b.jogo.nome), 'pt')).map(x => {
+                  const at = x.jogo.id === jogoId;
+                  return (
+                    <button key={x.jogo.id} type="button" onClick={() => gravarSel({ cid, jogoId: x.jogo.id })} aria-current={at ? 'true' : undefined}
+                      className={`shrink-0 flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm text-left ${at ? (claro ? 'bg-blue-50 text-blue-800 font-semibold' : 'bg-blue-500/15 text-blue-100 font-semibold') : claro ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/5 text-slate-300'}`}>
+                      <span className="truncate">{x.jogo.nome}</span><span className={`text-xs tabular-nums ${at ? '' : sub}`}>{x.n}</span>
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </nav>
+          <div className="min-w-0 space-y-3">
+            {g && (
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h3 className={`text-lg font-semibold ${forte}`}>{g.jogo.nome}</h3>
+                <span className={`text-xs ${sub}`}>{[g.jogo.codigo, g.jogo.estudio, `${conceitosL.length} conceito${conceitosL.length === 1 ? '' : 's'}`, `${[...g.conceitos.values()].reduce((a, c) => a + c.versoes.length, 0)} versões na app`].filter(Boolean).join(' · ')}</span>
+              </div>
+            )}
+            {g && conceitosL.map(c => cartaoConceito(g.jogo, c))}
+            {g && !conceitosL.length && <p className={`text-sm ${sub}`}>Ainda não há conceitos neste jogo. Aparecem quando escreves o conceito em "Nomes dos ficheiros" de uma tarefa.</p>}
+          </div>
         </div>
       )}
     </div>
@@ -5351,6 +5977,14 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   // Pedidos de outros sítios da app (ex.: o calendário de projetos abre uma lista)
   const setSelRef = useRef(null); setSelRef.current = v => { setSel(v); setAba('tarefas'); };
   useEffect(() => { const f = e => { const d = e.detail; if (!d) return; if (d.tipo && setSelRef.current) setSelRef.current(d); if (d.sel && setSelRef.current) setSelRef.current(d.sel); if (d.tarefa) setTarefaAbertaRef.current(d.tarefa); window.scrollTo({ top: 0 }); }; window.addEventListener('trab-ir', f); return () => window.removeEventListener('trab-ir', f); }, []);
+  // Ctrl+K (em qualquer separador): abre os Criativos com a procura pronta a escrever
+  const [focarCriativos, setFocarCriativos] = useState(() => { try { const f = localStorage.getItem('criativos-foco') === '1'; localStorage.removeItem('criativos-foco'); return f ? Date.now() : 0; } catch (e) { return 0; } });
+  useEffect(() => {
+    const f = () => { try { localStorage.removeItem('criativos-foco'); } catch (e) { /* */ } if (setSelRef.current) setSelRef.current({ tipo: 'criativos' }); setTarefaAbertaRef.current(null); setFocarCriativos(Date.now()); };
+    const k = e => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'k' || e.key === 'K') && !e.defaultPrevented) { const el = e.target; if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) { if (!(el.getAttribute && el.getAttribute('aria-label') === 'Procurar tarefas')) return; } e.preventDefault(); f(); } };
+    window.addEventListener('trab-criativos', f); window.addEventListener('keydown', k);
+    return () => { window.removeEventListener('trab-criativos', f); window.removeEventListener('keydown', k); };
+  }, []);
   const [abertas, setAbertas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-abertas')) || []); } catch (e) { return new Set(); } });
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
   const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || 'tarefas'; } catch (e) { return 'tarefas'; } });
@@ -5557,6 +6191,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
       <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'timesheet' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <IcoT n="relogio" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Timesheet
       </button>
+      <button type="button" onClick={() => setSel({ tipo: 'criativos' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'criativos' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+        <IcoT n="criativos" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Criativos
+      </button>
       {calendario && (
         <button type="button" onClick={() => setSel({ tipo: 'calendario' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'calendario' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
           <IcoT n="calendario" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Calendário de projetos
@@ -5633,7 +6270,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     </div>
   );
 
-  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : freeSel ? freeSel.nome : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
+  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'criativos' ? 'Criativos' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : freeSel ? freeSel.nome : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
@@ -5681,6 +6318,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               {sepM}
               <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={chip(sel.tipo === 'geral')}>{ic('casa')} Visão geral</button>
               <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={chip(sel.tipo === 'timesheet')}>{ic('relogio')} Timesheet</button>
+              <button type="button" onClick={() => setSel({ tipo: 'criativos' })} className={chip(sel.tipo === 'criativos')}>{ic('criativos')} Criativos</button>
               {calendario && <button type="button" onClick={() => setSel({ tipo: 'calendario' })} className={chip(sel.tipo === 'calendario')}>{ic('calendario')} Calendário</button>}
               {favs.length > 0 && sepM}
               {favs.map(p => <button key={p.id} type="button" onClick={() => setSel({ tipo: 'pasta', id: p.id })} className={chip(sel.tipo === 'pasta' && sel.id === p.id)}><span className="w-2 h-2 rounded-[3px]" style={{ background: p.cor || '#64748b' }} />{p.nome}{contar(p.id) > 0 && <span className="opacity-70 tabular-nums">{contar(p.id)}</span>}</button>)}
@@ -5816,6 +6454,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
           )}
           {sel.tipo === 'geral' && !procura.trim() && <VisaoGeral trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} ano={ano} mesNum={mesNum} />}
           {sel.tipo === 'timesheet' && !procura.trim() && <Timesheet trab={trab} mudar={mudar} clientes={clientes} theme={theme} onAbrir={setTarefaAberta} />}
+          {sel.tipo === 'criativos' && !procura.trim() && <Criativos trab={trab} mudar={mudar} clientes={clientes} cu={cu} theme={theme} onAbrir={setTarefaAberta} showToast={showToast} inputClass={inputClass} focarProcura={focarCriativos} />}
           {sel.tipo === 'calendario' && !procura.trim() && calendario}
           {freeSel && !procura.trim() && (
             <div className="flex flex-wrap items-center gap-2">
@@ -5942,4 +6581,3 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
 };
 
 export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
-export const FICHEIRO_APP = 'trabalho';
