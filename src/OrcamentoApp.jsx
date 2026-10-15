@@ -9,8 +9,8 @@ import {
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
   ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, isoDia,
-  planearMes, trabParar, trabPararEm, CronoTopo, MenuTopo, TemaCtx, Card, StatCard,
-  Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, MenuTopo, TemaCtx, Card,
+  StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -14029,7 +14029,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 )}
               </div>
 
-              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onPararEm={iso => mudarTrab(tr => trabPararEm(tr, iso))} onAbrir={() => {
+              <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onPararEm={iso => mudarTrab(tr => trabPararEm(tr, iso))} onCortar={(desde, ate) => mudarTrab(tr => trabCortarPausa(tr, desde, ate))} onAbrir={() => {
                 // Abre a lista (projeto) da tarefa que está a gravar
                 const c = trabACorrer(trabalho); const pid = c && c.tarefa && c.tarefa.pastaId;
                 const sel = pid ? { tipo: 'pasta', id: pid } : (c && c.tarefa && c.tarefa.cid != null ? { tipo: 'cliente', id: c.tarefa.cid } : null);
