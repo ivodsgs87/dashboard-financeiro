@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, writeBatch } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, writeBatch, runTransaction } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, reauthenticateWithPopup } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -126,6 +126,19 @@ export const guardarTrabalhoDocs = async (userId, mapa) => {
   Object.entries(mapa).forEach(([id, dados]) => b.set(doc(db, 'users', userId, 'trabalho', id), dados));
   await b.commit();
 };
+
+// Grava os documentos do Trabalho a ver primeiro o que está no servidor (numa transação): se outro dispositivo
+// gravou entretanto, juntar(id, meu, doServidor) junta as duas versões antes de gravar — nada se perde.
+// Devolve o que ficou gravado em cada documento. Sem rede, a transação falha (quem chama grava da maneira normal).
+export const guardarTrabalhoDocsJuntando = async (userId, mapa, juntar) => runTransaction(db, async (tx) => {
+  const ids = Object.keys(mapa);
+  const refs = ids.map(id => doc(db, 'users', userId, 'trabalho', id));
+  const snaps = [];
+  for (const r of refs) snaps.push(await tx.get(r)); // todas as leituras antes das escritas
+  const out = {};
+  ids.forEach((id, i) => { out[id] = juntar(id, mapa[id], snaps[i].exists() ? snaps[i].data() : null); tx.set(refs[i], out[id]); });
+  return out;
+});
 
 // Google Sheets API - Criar nova spreadsheet
 export const createGoogleSheet = async (title, sheetsData) => {
