@@ -5,7 +5,7 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "theme_color": "#3b82f6",
   "orientation": "portrait-primary",
   "icons": [
     {
@@ -25,5 +25,33 @@
     "finance",
     "productivity"
   ],
-  "lang": "pt-PT"
+  "lang": "pt-PT",
+  "shortcuts": [
+    {
+      "name": "Nota por voz",
+      "short_name": "Nota por voz",
+      "description": "Abre uma nota nova já a ouvir",
+      "url": "/?nota=voz",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Criativos",
+      "short_name": "Criativos",
+      "description": "Procurar conceitos e versões",
+      "url": "/?ir=criativos",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }
