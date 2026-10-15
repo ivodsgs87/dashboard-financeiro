@@ -3292,7 +3292,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const progressoInvestimentos = metas.investimentos > 0 ? (totaisAnuais.investAnual / metas.investimentos * 100) : 0;
    
    // Comparação com mês anterior
-   const mesAnteriorKey = mes === 'Janeiro' ? `${ano-1}-12` : `${ano}-${String(meses.indexOf(mes)).padStart(2,'0')}`;
+   const mesAnteriorKey = mes === 'Janeiro' ? `${ano-1}-12` : `${ano}-${meses.indexOf(mes)}`; // as chaves dos meses são "2026-9" (sem zero à esquerda)
    const dadosMesAnterior = M[mesAnteriorKey] || {};
    const receitasMesAnterior = (dadosMesAnterior.regCom || []).reduce((a, r) => a + r.val, 0) + (dadosMesAnterior.regSem || []).reduce((a, r) => a + r.val, 0);
    const variacaoReceitas = receitasMesAnterior > 0 ? ((totRec - receitasMesAnterior) / receitasMesAnterior * 100) : 0;
