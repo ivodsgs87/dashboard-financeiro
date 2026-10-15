@@ -277,19 +277,31 @@ const paraWav = (partes, n, taxa, alvo = 16000) => {
 };
 const blobBase64 = b => new Promise((ok, falha) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => falha(r.error); r.readAsDataURL(b); });
 // Se o Gemini estiver ocupado (503), tenta mais uma vez antes de avisar
-const transcreverAudio = async (wav, lingua) => {
-  try { return await transcreverAudio1(wav, lingua); }
-  catch (e) { if (!e.ocupado) throw e; await new Promise(ok => setTimeout(ok, 2500)); return transcreverAudio1(wav, lingua); }
+const transcreverAudio = async (wav, lingua, previa) => {
+  try { return await transcreverAudio1(wav, lingua, previa); }
+  catch (e) { if (!e.ocupado || previa) throw e; await new Promise(ok => setTimeout(ok, 2500)); return transcreverAudio1(wav, lingua); }
 };
-const transcreverAudio1 = async (wav, lingua) => {
+const transcreverAudio1 = async (wav, lingua, previa) => {
   const u = auth && auth.currentUser;
   if (!u) throw new Error('Entra na app primeiro.');
   let r;
-  try { r = await fetch(FN_TRANSCREVER, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ audio: await blobBase64(wav), mime: 'audio/wav', lingua }) }); }
+  try { r = await fetch(FN_TRANSCREVER, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ audio: await blobBase64(wav), mime: 'audio/wav', lingua, duracao: Math.round((wav.size - 44) / 32000), previa: !!previa }) }); }
   catch (e) { const er = new Error('Não consegui falar com a função «transcrever» do servidor da app. Se ainda não fizeste o deploy dela (firebase deploy --only functions:transcrever), é isso; senão, vê a internet.'); er.status = 0; throw er; }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(r.status === 404 ? 'A função «transcrever» ainda não está publicada — falta fazer o deploy das functions.' : (j.error && j.error.message) || `Erro ${r.status} a transcrever`); e.status = r.status; e.ocupado = !!(j.error && j.error.ocupado); throw e; }
-  return String(j.texto || '').replace(/\[?\(?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|→|–)\s*\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\)?\]?/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return limparTranscricao(j.texto);
+};
+// Tira o que o modelo às vezes junta sem ser fala: marcas de tempo, "(som de respiração)", "[música]" e frases repetidas em ciclo
+const limparTranscricao = t => {
+  let x = String(t || '')
+    .replace(/\[?\(?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|→|–|-)\s*\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\)?\]?/g, ' ')
+    .replace(/\b0{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\b/g, ' ')
+    .replace(/[([](?:som|sons|música|musica|ruído|ruido|respiração|respiracao|risos?|silêncio|silencio|inaudível|inaudivel|sound|music|noise|breathing|laughs?|silence|inaudible)[^)\]]{0,40}[)\]]/gi, ' ')
+    .replace(/\s{2,}/g, ' ').trim();
+  const frases = x.match(/[^.!?…]+[.!?…]*/g) || [];
+  const vistas = {}; const out = [];
+  frases.forEach(f => { const k = f.trim().toLowerCase(); if (!k) return; vistas[k] = (vistas[k] || 0) + 1; if (vistas[k] <= 1 || k.length < 4) out.push(f.trim()); });
+  return out.join(' ').replace(/\s{2,}/g, ' ').trim();
 };
 const BotaoFerr = ({ ic, on, fn, titulo, claro }) => (
   <button type="button" title={titulo} aria-label={titulo} aria-pressed={!!on} onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={fn}
@@ -556,7 +568,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     setDitar(d => (d ? { ...d, pendentes: (d.pendentes || 0) + 1 } : d));
     const pedido = transcreverAudio(wav, lingua);
     g.fila = g.fila.then(async () => {
-      try { const txt = await pedido; if (txt) { ultimoDitado.current = Date.now(); inserirDitado(txt, lingua); } }
+      try { const txt = await pedido; if (txt) { ultimoDitado.current = Date.now(); inserirDitado(txt, lingua); } setDitar(d => (d ? { ...d, provisorio: '' } : d)); }
       catch (e) { if (Date.now() - avisouErroApp.current > 8000) { avisouErroApp.current = Date.now(); if (showToast) showToast(e.message, 'error'); } if (e.status === 0 || e.status === 404 || e.status === 401 || e.status === 403) pararDitado(); }
       finally { setDitar(d => (d ? { ...d, pendentes: Math.max(0, (d.pendentes || 1) - 1) } : d)); }
     });
@@ -580,12 +592,21 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         const d = ev.inputBuffer.getChannelData(0); const copia = new Float32Array(d);
         let q = 0; for (let i = 0; i < d.length; i++) q += d[i] * d[i]; const rms = Math.sqrt(q / d.length);
         if (barraRef.current) barraRef.current.style.width = `${Math.min(100, Math.round(rms * 900))}%`;
-        const fala = rms > 0.012;
+        const fala = rms > 0.018;
         if (fala) { ouviuSom.current = Date.now(); if (!g.falou && g.antes) { g.partes.push(g.antes); g.amostras += g.antes.length; } g.falou = true; g.silencio = 0; }
         else if (!g.silencio) g.silencio = Date.now();
         if (g.falou) { g.partes.push(copia); g.amostras += copia.length; } else g.antes = copia; // um bocadinho de antes, para não comer a 1.ª sílaba
         const dur = g.amostras / g.taxa;
-        if (g.falou && ((g.silencio && Date.now() - g.silencio > 900 && dur > 0.8) || dur > 25)) enviarPedaco(g, lingua);
+        if (g.falou && ((g.silencio && Date.now() - g.silencio > 900 && dur > 0.8) || dur > 15)) { g.previaEm = 0; enviarPedaco(g, lingua); return; }
+        // Texto "ao vivo": enquanto falas, de ~2 em 2 s manda o que já disseste nesta frase e mostra-o (provisório) na barra
+        if (g.falou && dur > 1.5 && !g.previaAVer && Date.now() - (g.previaEm || 0) > 2000) {
+          g.previaAVer = true; g.previaEm = Date.now();
+          const n0 = g.amostras;
+          transcreverAudio(paraWav(g.partes.slice(), g.amostras, g.taxa), lingua, true)
+            .then(txt => { if (gravRef.current === g && g.amostras >= n0 && txt) setDitar(d => (d ? { ...d, provisorio: txt } : d)); })
+            .catch(() => { /* a pré-visualização pode falhar; o texto final vai na mesma */ })
+            .finally(() => { g.previaAVer = false; });
+        }
       };
       gravRef.current = g;
     }).catch(err => {
@@ -616,7 +637,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     let arrancou = 0, falhasSeguidas = 0, temResultados = false;
     rec.onstart = () => { arrancou = Date.now(); };
     rec.onresult = ev => {
-      temResultados = true; falhasSeguidas = 0;
+      temResultados = true; falhasSeguidas = 0; ultimoDitado.current = Date.now();
       let prov = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -640,7 +661,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     // O Chrome pára sozinho depois de uns segundos de silêncio: volta a ouvir até carregares em Parar (ou 1 minuto calado)
     rec.onend = () => {
       if (!ditarRef.current || recRef.current !== rec) return;
-      if (Date.now() - ultimoDitado.current > 60000) { pararDitado(); if (showToast) showToast('Parei o ditado (1 minuto sem falares).', 'info'); return; }
+      if (Date.now() - ultimoDitado.current > 10000) { pararDitado(); if (showToast) showToast('Desliguei o microfone (10 s sem te ouvir falar).', 'info'); return; }
       // Se o reconhecimento arranca e pára logo, várias vezes seguidas, sem nunca ouvir nada: o serviço de voz não está a funcionar
       if (!temResultados && (!arrancou || Date.now() - arrancou < 1500)) falhasSeguidas++; else falhasSeguidas = 0;
       if (falhasSeguidas >= 3) { if (showToast) showToast('O reconhecimento de voz deste browser não está a responder — passei para o ditado da app.', 'info'); comecarDitado(lingua, 'app'); return; }
@@ -662,12 +683,15 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   useEffect(() => {
     if (!ditar) { setSemPalavras(false); return undefined; }
     const iv = setInterval(() => {
+      const agora = Date.now(), ult = Math.max(ultimoDitado.current, ditar.inicio || 0);
+      const vozRecente = agora - (ouviuSom.current || 0) < 2000;
+      if (!ditar.pendentes && !ditar.provisorio && (agora - ult > (vozRecente ? 20000 : 10000))) { clearInterval(iv); pararDitado(); if (showToast) showToast(`Desliguei o microfone (${vozRecente ? '20 s com barulho, mas sem palavras' : '10 s sem te ouvir falar'}).`, 'info'); return; }
       const sp = ditar.motor !== 'app' && !!ouviuSom.current && !ditar.provisorio && Date.now() - ultimoDitado.current > 7000 && Date.now() - (ditar.inicio || 0) > 7000;
       if (sp) { clearInterval(iv); if (showToast) showToast('O reconhecimento de voz deste browser ouve mas não devolve palavras — passei para o ditado da app.', 'info'); comecarDitado(ditar.lingua, 'app'); return; }
       setSemPalavras(false);
     }, 1000);
     return () => clearInterval(iv);
-  }, [ditar && ditar.inicio, ditar && ditar.provisorio, ditar && ditar.motor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ditar && ditar.inicio, ditar && ditar.provisorio, ditar && ditar.motor, ditar && ditar.pendentes]); // eslint-disable-line react-hooks/exhaustive-deps
   // Atalho "Nota por voz" (ícone da app no telemóvel): a página nova abre já a ouvir
   useEffect(() => { if (!DITAR_AO_ABRIR.sim) return undefined; DITAR_AO_ABRIR.sim = false; const tm = setTimeout(() => comecarDitado(linguaDitado()), 350); return () => clearTimeout(tm); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // @menções
@@ -704,6 +728,17 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     setMencao(null); avisar();
   };
   const tecla = e => {
+    // Ctrl+A dentro de uma coluna: seleciona só essa coluna (carregar outra vez seleciona a página toda)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 'a') {
+      const col = dentroDe('div[data-col]');
+      if (col) {
+        const s0 = window.getSelection();
+        const r0 = s0 && s0.rangeCount ? s0.getRangeAt(0) : null;
+        const tudo = document.createRange(); tudo.selectNodeContents(col);
+        const jaTudo = r0 && !r0.collapsed && r0.compareBoundaryPoints(Range.START_TO_START, tudo) <= 0 && r0.compareBoundaryPoints(Range.END_TO_END, tudo) >= 0;
+        if (!jaTudo) { e.preventDefault(); s0.removeAllRanges(); s0.addRange(tudo); return; }
+      }
+    }
     if (mencao && opcoes.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setAtiva(a => (a + 1) % opcoes.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setAtiva(a => (a - 1 + opcoes.length) % opcoes.length); return; }
