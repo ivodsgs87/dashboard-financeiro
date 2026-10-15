@@ -2,15 +2,16 @@
 // patrimonio.jsx, patrimonioEcra.jsx e vendaCasa.jsx (têm de estar todas na mesma pasta src/).
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, confirmarIdentidade, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
+import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardarTrabalho, ouvirTrabalhoAnos, guardarTrabalhoDocs, confirmarIdentidade, enviarAnexo, apagarAnexo, ouvirNotas, guardarNotas, lerPaginaNota, guardarPaginaNota, apagarPaginaNota, ouvirPartilhas, guardarPartilha, apagarPartilha, lerPaginaPartilha, guardarPaginaPartilha, apagarPaginaPartilha, ouvirPaginaPartilha } from './firebase';
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
   mesDoRecibo, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt, copiasLocais,
   CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
   ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, isoDia,
-  planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, MenuTopo, TemaCtx, Card,
-  StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes,
+  VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button,
+  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -36,7 +37,7 @@ const quandoParado = f => (typeof window !== 'undefined' && window.requestIdleCa
 setTimeout(() => quandoParado(() => { carregarTrabalho().catch(() => {}); carregarNotas().catch(() => {}); }), 1500);
 setTimeout(() => quandoParado(() => { carregarVendaCasa().catch(() => {}); carregarPatrimonio().catch(() => {}); }), 4000);
 
-const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync }) => {
+const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSync, remoto }) => {
   
   // Mês e ano atual do sistema
   const hoje = new Date();
@@ -784,7 +785,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     } catch (e) { setPartErro(true); }
     return () => { vivo = false; if (parar) parar(); };
   }, [meuEmail]); // eslint-disable-line react-hooks/exhaustive-deps
-  const jsonEstavel = o => JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, kk) => { a[kk] = v[kk]; return a; }, {}) : v));
   const juntarPartilhas = (base, ps) => {
     const lista = Object.values(ps || {});
     if (!lista.length) return base;
@@ -1025,6 +1025,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     try { setCopiasLista(await copiasLocais.todas()); } catch (e) { showToast('Este browser não guarda cópias automáticas', 'error'); }
   };
   const isSavingRef = useRef(false);
+  const [verDados, setVerDados] = useState(false); // janela "Verificar dados"
+  const [conflito, setConflito] = useState(false); // outro dispositivo gravou enquanto aqui havia alterações por gravar
+  const conflitoRef = useRef(false);
+  const [erroGravar, setErroGravar] = useState(null); // a última gravação falhou (fica por gravar e tenta outra vez)
+  const erroGravarRef = useRef(null);
 
   // Categorias unificadas (derivadas do extrato, partilhadas com casal/pessoais)
   const cats = (G.categoriasExtrato || defG.categoriasExtrato).filter(c => c.id !== 'transferencia').map(c => c.nome);
@@ -1100,31 +1105,59 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
-    const dataToSave = JSON.stringify({ g: gRef.current, m: mRef.current });
+    const dataToSave = jsonEstavel({ g: gRef.current, m: mRef.current });
     if (dataToSave === lastSavedDataRef.current) {
       pendingChangesRef.current = false;
       return;
     }
 
-    if (isSavingRef.current) return;
+    if (conflitoRef.current) return; // outro dispositivo gravou: espera pela tua decisão (aviso no topo)
+    if (isSavingRef.current) { saveTimeoutRef.current = setTimeout(() => flushRef.current(), 1500); return; } // já está a gravar: volta a tentar logo a seguir
     isSavingRef.current = true;
 
     try {
       await onSaveData({ g: gRef.current, m: mRef.current });
       lastSavedDataRef.current = dataToSave;
-      pendingChangesRef.current = false;
+      pendingChangesRef.current = jsonEstavel({ g: gRef.current, m: mRef.current }) !== dataToSave;
+      if (erroGravarRef.current) { erroGravarRef.current = null; setErroGravar(null); }
     } catch (e) {
       console.error('Erro ao guardar:', e);
+      if (e && e.code === 'conflito') { conflitoRef.current = true; setConflito(true); }
+      else {
+        // Não gravou (sem internet, documento grande demais…): fica por gravar, avisa e tenta outra vez daqui a 20 s
+        const txt = String((e && e.message) || e || 'erro');
+        erroGravarRef.current = txt; setErroGravar(txt);
+        saveTimeoutRef.current = setTimeout(() => flushRef.current(), 20000);
+      }
     }
     isSavingRef.current = false;
   }, [onSaveData]);
+  const flushRef = useRef(flushSave); flushRef.current = flushSave;
+  // Outro dispositivo gravou: se aqui não houver nada por gravar, passa a mostrar os dados novos; se houver, pergunta
+  useEffect(() => {
+    if (!remoto || !dataLoaded) return;
+    const rem = { g: remoto.g || {}, m: remoto.m || {} };
+    let base = null; try { base = lastSavedDataRef.current ? JSON.parse(lastSavedDataRef.current) : null; } catch (e) { base = null; }
+    const junto = base && !isSavingRef.current ? juntarVersoes(base, { g: gRef.current, m: mRef.current }, rem) : null;
+    if (junto) {
+      // O que está agora no servidor passa a ser a base; o que mudaste aqui (noutras coisas) é gravado por cima dessa versão
+      lastSavedDataRef.current = jsonEstavel(rem);
+      adotarVersao(remoto.updatedAt);
+      setG(junto.g); setM(junto.m);
+    } else { conflitoRef.current = true; setConflito(true); }
+  }, [remoto]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gravarPorCima = async () => {
+    conflitoRef.current = false; setConflito(false);
+    try { await onSaveData({ g: gRef.current, m: mRef.current }, { forcar: true }); lastSavedDataRef.current = jsonEstavel({ g: gRef.current, m: mRef.current }); pendingChangesRef.current = false; erroGravarRef.current = null; setErroGravar(null); showToast('Gravado — a versão deste ecrã ficou na cloud'); }
+    catch (e) { const txt = String((e && e.message) || e); erroGravarRef.current = txt; setErroGravar(txt); }
+  };
 
   useEffect(() => {
     if (!dataLoaded) return;
     
     if (isFirstLoadRef.current) {
       isFirstLoadRef.current = false;
-      lastSavedDataRef.current = JSON.stringify({ g: G, m: M });
+      lastSavedDataRef.current = jsonEstavel({ g: G, m: M });
       return;
     }
     
@@ -1387,8 +1420,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const {clientes,taxa,contrib,alocAmort,alocFerias=0,ferias,despABanca,despPess,catsInv=defG.catsInv,sara,metas:metasRaw=defG.metas,credito=defG.credito} = G;
  // Reserva para impostos de um mês — a MESMA regra no ecrã, no relatório e nas exportações:
  // a tua % sobre os teus recibos (Com e Sem Taxas) + a retenção já feita nos recibos passados pela Sara.
- const reservaMes = md => [...((md && md.regCom) || []), ...((md && md.regSem) || [])]
-   .reduce((a, r) => a + (r.emitidoPorSara ? (Number(r.retIRS) || 0) : (Number(r.val) || 0) * ((Number(taxa) || 0) / 100)), 0);
+ // Reserva de impostos de UM recibo — a mesma regra em todo o lado (ecrã, PDF, Sheets, gráficos):
+ // os teus recibos reservam a taxa; os da Sara só a retenção dela; os reembolsos (ex.: "Reembolso IRS") não são rendimento
+ const _naoTributavel = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
+ const reservaRecibo = r => (!r || _naoTributavel.has(r.cid) ? 0 : r.emitidoPorSara ? (Number(r.retIRS) || 0) : (Number(r.val) || 0) * ((Number(taxa) || 0) / 100));
+ const reservaMes = md => [...((md && md.regCom) || []), ...((md && md.regSem) || [])].reduce((a, r) => a + reservaRecibo(r), 0);
  // Histórico do Portfolio calculado a partir dos meses guardados — já não depende do botão Snapshot
  const portfolioHist = patHistoricoPortfolio(G.portfolioHist, M);
   // Série do Património (a mesma do separador Património), para o dashboard e a Performance
@@ -1440,8 +1476,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const _somaOrc = f => regsOrc.reduce((a, r) => a + (Number(f(r)) || 0), 0);
  const totRecOrc = _somaOrc(r => r.val);
  const valTax = orcEntra.length || orcSai.length
-   ? _somaOrc(r => r.emitidoPorSara ? 0 : r.val) * (taxa/100) + _somaOrc(r => r.emitidoPorSara ? r.retIRS : 0)
-   : (inComOwn + inSemOwn) * (taxa/100) + retSara;
+   ? _somaOrc(reservaRecibo)
+   : [...regCom, ...regSem].reduce((a, r) => a + reservaRecibo(r), 0);
  const recLiq = (orcEntra.length || orcSai.length ? totRecOrc : totRec) - valTax;
  const totAB = despABanca.reduce((a,d)=>a+d.val,0);
  const minhaAB = totAB * (contrib/100);
@@ -3969,6 +4005,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  };
 
  // RECEITAS
+   // (Fica fora do separador Receitas: o Trabalho também o usa quando juntas o PDF a um recibo)
+   // Recibo verde → pasta pessoal do Google Drive (Definições → Recibos no Google Drive), por ano e trimestre
+   const enviarReciboDrive = async (k, id, f, rec) => {
+     const cfg = G.recibosDrive || {};
+     if (!cfg.pasta || !f) return;
+     const md = M[k] || {};
+     const r = rec || [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id) || {};
+     if (r.driveUrl) return;
+     const cli = (G.clientes || []).find(c => String(c.id) === String(r.cid));
+     const empresa = (cli && cli.fat && cli.fat.nomeLegal) || (cli && cli.nome) || r.desc || 'Recibo';
+     const [ky, km] = String(k).split('-').map(Number);
+     const data = /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? String(r.data).slice(0, 10) : `${ky}-${String(km).padStart(2, '0')}-01`;
+     try {
+       const mod = await carregarTrabalho();
+       const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
+       setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
+       showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
+     } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); }
+   };
  const Receitas = () => {
    const [editRecibo, setEditRecibo] = useState(null);
    const [showReciboModal, setShowReciboModal] = useState(false);
@@ -3987,29 +4042,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const t = y0 * 12 + (m0 - 1) + d, k = `${Math.floor(t / 12)}-${t % 12 + 1}`, md = M[k] || {};
        [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
          if (String(x.cid) !== String(cid)) return;
+         // Um recibo que já tem o recibo verde ou o PDF é de outro mês (ex.: avença com o mesmo valor todos os meses): não serve
+         // (o PDF da própria fatura não conta: esse registo está precisamente à espera do recibo verde)
+         if (x.reciboVerde || ((x.ficheiro || x.ficheiroUrl) && !x.faturaId)) return;
          const v = Number(x.valIliq ?? x.val) || 0;
-         if (Math.abs(v - ili) <= 1) out.push({ k, lista, r: x, comFicheiro: !!(x.ficheiro || x.ficheiroUrl) });
+         if (Math.abs(v - ili) <= 1) out.push({ k, lista, r: x, d: Math.abs(d), comFicheiro: false });
        }));
      });
-     return out.sort((a, b) => Number(a.comFicheiro) - Number(b.comFicheiro));
-   };
-   // Recibo verde → pasta pessoal do Google Drive (Definições → Recibos no Google Drive), por ano e trimestre
-   const enviarReciboDrive = async (k, id, f, rec) => {
-     const cfg = G.recibosDrive || {};
-     if (!cfg.pasta || !f) return;
-     const md = M[k] || {};
-     const r = rec || [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id) || {};
-     if (r.driveUrl) return;
-     const cli = (G.clientes || []).find(c => String(c.id) === String(r.cid));
-     const empresa = (cli && cli.fat && cli.fat.nomeLegal) || (cli && cli.nome) || r.desc || 'Recibo';
-     const [ky, km] = String(k).split('-').map(Number);
-     const data = /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? String(r.data).slice(0, 10) : `${ky}-${String(km).padStart(2, '0')}-01`;
-     try {
-       const mod = await carregarTrabalho();
-       const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
-       setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
-       showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
-     } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); }
+     return out.sort((a, b) => a.d - b.d); // o do próprio mês primeiro
    };
    const guardarFicheiroRecibo = async (k, id, f, rec) => {
      if (f) enviarReciboDrive(k, id, f, rec);
@@ -4725,7 +4765,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide text-xs sm:text-base">⋮⋮</div>
        <Select value={r.cid} onChange={e=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0 m-grow">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
-       <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regCom',regCom.map(x=>x.id===r.id?reciboComValor(x,v):x))}/>
        {(() => {
          const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.75, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · SS ≈ ${fmt(_e.ss)} · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
@@ -4766,7 +4806,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide text-xs sm:text-base">⋮⋮</div>
        <Select value={r.cid} onChange={e=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,cid:+e.target.value}:x))} className="w-16 sm:w-24 text-xs sm:text-sm flex-shrink-0 m-grow">{clientes.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
        <StableInput className={`flex-1 min-w-0 ${inputClass} text-xs sm:text-sm m-desc`} initialValue={r.desc} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,desc:v}:x))} placeholder="Descrição..."/>
-       <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?{...x,val:v}:x))}/>
+       <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${inputClass} text-right text-xs sm:text-sm`} initialValue={r.val} onSave={v=>uM('regSem',regSem.map(x=>x.id===r.id?reciboComValor(x,v):x))}/>
        {(() => {
          const _e = estimarImpostosRecibo({ valIliq: r.valIliq != null ? r.valIliq : r.val, retIRS: r.retIRS || 0, coef: G.coefSimpl ?? 0.75, taxaMarg: G.irsMarginal ?? 43.1, comSS: !r.emitidoPorSara });
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · sem SS · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
@@ -6143,7 +6183,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      height={220} 
      color="#3b82f6" 
      showValues={lineData.length <= 12}
-     formatValue={(v) => v >= 1000 ? `€${(v/1000).toFixed(0)}k` : `€${v}`}
+     formatValue={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k\u00a0€` : `${v}\u00a0€`}
    />
    
    {/* Estatísticas adicionais */}
@@ -11472,9 +11512,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Função para exportar PDF mensal
  const exportToPDF = () => {
    // Usar os dados do mês atual (mesD já está disponível no scope)
-   const totRec = inCom + inSem;
+   const totRec = orcEntra.length || orcSai.length ? totRecOrc : inCom + inSem; // o mesmo total do ecrã (com os recibos passados para o mês seguinte)
    const valTaxPDF = valTax; // mesma regra do ecrã principal (inclui regSem e retenções da Sara)
-   const recLiqPDF = totRec - valTaxPDF;
+   const recLiqPDF = recLiq;
    const totABPDF = despABanca.reduce((a,d)=>a+d.val,0);
    const minhaABPDF = totABPDF * (contrib/100);
    const totPessPDF = despPess.reduce((a,d)=>a+d.val,0);
@@ -11989,7 +12029,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        const inSemSaraMes = regSem.filter(r => r.emitidoPorSara).reduce((a, r) => a + r.val, 0);
        const retSaraMes = regCom.filter(r => r.emitidoPorSara).reduce((a, r) => a + (r.retIRS || 0), 0)
                         + regSem.filter(r => r.emitidoPorSara).reduce((a, r) => a + (r.retIRS || 0), 0);
-       const valTax = (inCom - inComSaraMes + inSem - inSemSaraMes) * (G.taxa / 100) + retSaraMes;
+       const valTax = reservaMes(md); // a mesma regra do ecrã e do resumo anual
        const recLiq = totRec - valTax;
        const totABanca = G.despABanca.reduce((a, d) => a + d.val, 0);
        const minhaABanca = totABanca * (G.contrib / 100);
@@ -12124,7 +12164,7 @@ ${transacoesOrdenadas.map(t => `<tr>
      saraData.push(['TOTAL DESPESAS', G.sara.desp.reduce((a, d) => a + d.val, 0)]);
      saraData.push([]);
      const cartaoRef = G.sara.rend.find(r => r.isCR)?.val || 0;
-     const segFilhos = G.despABanca.find(d => d.desc.toLowerCase().includes('seguro filhos'))?.val || 0;
+     const segFilhos = G.despABanca.find(d => d.desc.toLowerCase().includes('seguro filhos'))?.val ?? 60; // o mesmo valor do ecrã
      const parteABancaSara = (G.despABanca.reduce((a, d) => a + d.val, 0) * (1 - G.contrib / 100)) - cartaoRef - segFilhos;
      const sobraSara = G.sara.rend.reduce((a, r) => a + r.val, 0) - G.sara.desp.reduce((a, d) => a + d.val, 0) - parteABancaSara;
      saraData.push(['═══ RESUMO ═══', '']);
@@ -13785,6 +13825,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        <button onClick={() => { exportExtratoExcel(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato Excel</button>
        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
        <button onClick={() => { fazerBackup(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Cópia de segurança (descarregar){diasSemBackup != null ? ` · há ${diasSemBackup} ${diasSemBackup === 1 ? 'dia' : 'dias'}` : ''}</button>
+       <button onClick={() => { setVerDados(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>🩺 Verificar dados</button>
        <button onClick={() => { abrirCopias(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>🕘 Cópias automáticas{ultimaCopiaAuto ? ` · última ${new Date(ultimaCopiaAuto).toLocaleDateString('pt-PT')}` : ''}</button>
        <button onClick={() => { setShowImportCSV(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>📥 Importar CSV</button>
        <button onClick={() => { setShowExportMenu(false); abrirBackupJson(); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}>💾 Backup JSON</button>
@@ -13905,6 +13946,36 @@ ${transacoesOrdenadas.map(t => `<tr>
    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
  `}</style>
  
+ <DialogoHost theme={theme} />
+ {verDados && <VerificarDadosModal G={G} M={M} trab={trabalho} theme={theme} onFechar={() => setVerDados(false)}
+   onIrMes={k => { const [a, m] = String(k).split('-').map(Number); if (a && m) { setAno(a); setMes(meses[m - 1]); setTab('receitas'); setVerDados(false); window.scrollTo({ top: 0 }); } }}
+   opc={{
+     trabSeparado: trabModo === 'doc' && !!trabDoc,
+     acertarRecibo: (k, lista, id) => { saveUndo(); setM(p => { const md = p[k] || {}; return { ...p, [k]: { ...md, [lista]: (md[lista] || []).map(x => (x.id === id ? reciboComValor(x, x.val) : x)) } }; }); },
+     limparFaturaTarefa: id => mudarTrab(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id === id ? (({ faturaId, ...r }) => r)(x) : x)) })),
+     limparFreelancer: id => mudarTrab(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id === id ? { ...x, freelancerId: null } : x)) })),
+     pararExtra: () => mudarTrab(tr => { const corr = []; (tr.tarefas || []).forEach(x => (x.tempos || []).forEach(y => { if (!y.fim) corr.push({ tid: x.id, yid: y.id, ini: y.ini }); })); corr.sort((a, b) => String(b.ini).localeCompare(String(a.ini))); const fica = corr[0]; const agora = new Date().toISOString(); return { ...tr, tarefas: (tr.tarefas || []).map(x => ({ ...x, tempos: (x.tempos || []).map(y => (!y.fim && !(fica && x.id === fica.tid && y.id === fica.yid) ? { ...y, fim: agora } : y)) })) }; }),
+     tirarTrabalhoAntigo: () => { saveUndo(); setG(p => { const { trabalho: _t, ...resto } = p; return resto; }); },
+   }} />}
+ {(conflito || erroGravar) && (
+   <div role="alert" className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-[110] w-[min(640px,calc(100vw-24px))] rounded-2xl border shadow-2xl px-4 py-3 text-sm ${conflito ? (theme === 'light' ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-amber-950/95 border-amber-500/50 text-amber-100') : (theme === 'light' ? 'bg-red-50 border-red-300 text-red-900' : 'bg-red-950/95 border-red-500/50 text-red-100')}`}>
+     {conflito ? (
+       <>
+         <p className="font-semibold">Os teus dados foram mudados noutro dispositivo</p>
+         <p className="mt-0.5 opacity-80">Este ecrã tem alterações que ainda não foram gravadas, por isso não gravei por cima. Escolhe qual fica:</p>
+         <div className="mt-2.5 flex flex-wrap gap-2 justify-end">
+           <button type="button" onClick={() => window.location.reload()} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">Recarregar (fica a do outro dispositivo)</button>
+           <button type="button" onClick={gravarPorCima} className={`px-3 py-1.5 rounded-lg border ${theme === 'light' ? 'border-amber-300 hover:bg-amber-100' : 'border-amber-500/40 hover:bg-white/5'}`}>Gravar a deste ecrã por cima</button>
+         </div>
+       </>
+     ) : (
+       <div className="flex items-center gap-3">
+         <p className="flex-1"><b>Ainda não gravado.</b> <span className="opacity-80">Tento outra vez daqui a pouco — não feches a app até isto desaparecer. ({erroGravar})</span></p>
+         <button type="button" onClick={() => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); flushRef.current(); }} className={`shrink-0 px-3 py-1.5 rounded-lg border ${theme === 'light' ? 'border-red-300 hover:bg-red-100' : 'border-red-500/40 hover:bg-white/5'}`}>Tentar já</button>
+       </div>
+     )}
+   </div>
+ )}
  {/* Toast Notifications */}
  {toasts.length > 0 && (
    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
@@ -14169,6 +14240,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
    onCriarReciboFatura={({ cid, mesK, numero, valor, pdf, faturaId, mesFatura }) => {
      // Regista a fatura em Receitas (com as regras do recibo do cliente). O recibo verde continua a ser feito pela contabilidade.
+     // Já há um registo desta fatura em Receitas (ex.: gerada outra vez)? Não cria outro
+     if (faturaId) { for (const [k0, md0] of Object.entries(M || {})) for (const lista0 of ['regCom', 'regSem']) { const r0 = ((md0 && md0[lista0]) || []).find(x => x && x.faturaId === faturaId); if (r0) return { k: k0, id: r0.id, lista: lista0 }; } }
      const c = (G.clientes || []).find(x => String(x.id) === String(cid)) || {};
      const rc = c.recibo || {};
      const pais = rc.pais || 'PT';
@@ -14181,6 +14254,18 @@ ${transacoesOrdenadas.map(t => `<tr>
      saveUndo();
      setM(p => { const md = p[mesK] || defM; return { ...p, [mesK]: { ...md, [lista]: [...(md[lista] || []), novo] } }; });
      return { k: mesK, id, lista };
+   }}
+   onApagarReciboFatura={(rec, faturaId, pdfFatura) => {
+     // Anulaste a fatura: tira o registo que ela criou em Receitas — só se ainda não tiver o recibo verde nem PDF
+     if (!rec || !rec.k) return 'nada';
+     const md = M[rec.k] || {}; const lista = rec.lista || 'regCom';
+     const r = (md[lista] || []).find(x => x.id === rec.id);
+     if (!r) return 'nada';
+     const pdfProprio = r.ficheiro || ((r.ficheiroUrl || r.ficheiroCaminho) && !(pdfFatura && r.ficheiroCaminho === pdfFatura)); // um PDF que não é o da fatura
+     if (r.reciboVerde || pdfProprio || (faturaId && r.faturaId && r.faturaId !== faturaId)) return 'fica';
+     saveUndo();
+     setM(p => { const m2 = p[rec.k] || {}; return { ...p, [rec.k]: { ...m2, [lista]: (m2[lista] || []).filter(x => x.id !== rec.id) } }; });
+     return 'apagado';
    }}
    onJuntarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? async (k, id, f) => {
      const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
@@ -14217,7 +14302,12 @@ ${transacoesOrdenadas.map(t => `<tr>
      return ids;
    }}
    onCliente={(id, patch) => { saveUndo(); uG('clientes', (G.clientes || []).map(c => (c.id === id ? { ...c, ...patch } : c))); }}
-   onNovoCliente={(nome, extra = {}) => { saveUndo(); const id = Math.max(0, ...(G.clientes || []).map(c => Number(c.id) || 0)) + 1; const cores = ['#3b82f6', '#ec4899', '#10b981', '#f97316', '#8b5cf6', '#06b6d4']; uG('clientes', [...(G.clientes || []), { id, nome, cor: extra.cor || cores[(G.clientes || []).length % cores.length], ...(extra.aliases ? { aliases: extra.aliases } : {}) }]); return id; }}/></Suspense>}
+   onNovoCliente={(nome, extra = {}) => { saveUndo();
+     // Nunca reaproveita o número de um cliente apagado (senão o novo herdava os recibos, pastas e preços do antigo)
+     const usados = [...(G.clientes || []).map(c => Number(c.id) || 0), Number(G.ultimoIdCliente) || 0];
+     Object.values(M || {}).forEach(md => [...((md && md.regCom) || []), ...((md && md.regSem) || [])].forEach(r => usados.push(Number(r && r.cid) || 0)));
+     ((trabalho && trabalho.pastas) || []).forEach(p => usados.push(Number(p.cid) || 0)); ((trabalho && trabalho.tarefas) || []).forEach(x => usados.push(Number(x.cid) || 0));
+     const id = Math.max(0, ...usados.filter(Number.isFinite)) + 1; uG('ultimoIdCliente', id); const cores = ['#3b82f6', '#ec4899', '#10b981', '#f97316', '#8b5cf6', '#06b6d4']; uG('clientes', [...(G.clientes || []), { id, nome, cor: extra.cor || cores[(G.clientes || []).length % cores.length], ...(extra.aliases ? { aliases: extra.aliases } : {}) }]); return id; }}/></Suspense>}
  {tab==='patrimonio' && <Suspense fallback={<SeparadorCarregar/>}><Patrimonio G={G} uG={uG} M={M} mesKey={mesKey} portfolio={portfolio} temPortfolioProprio={!portfolioPorAtualizar} theme={theme} onIrParaMes={k => { const [y, m] = String(k).split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} onAbrirTab={setTab}/></Suspense>}
 
  {/* Modal: confirmar transações lidas de um ficheiro */}
