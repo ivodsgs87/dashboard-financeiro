@@ -1295,7 +1295,7 @@ const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
   useEffect(() => { let vivo = true; carregar().then(async m => { if (!vivo) return; setMod(m); m.carregarGis().catch(() => {}); await m.sincronizarSempre(); if (vivo) setLigado(m.ligadoSempre(conta || '_')); }).catch(() => {}); return () => { vivo = false; }; }, [conta]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!mod) return null;
   return ligado
-    ? <p className="text-xs text-emerald-500">🔒 Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>desligar</button></p>
+    ? <p className="text-xs text-emerald-500">🔒 Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>Desligar</button></p>
     : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
         className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">🔒 Manter sempre ligado</button>;
 };
@@ -1328,7 +1328,7 @@ const juntarTrabalho = docs => {
   if (chavesAnos.length) return { trab: { ...resto, tarefas: dosAnos }, migrar: true, anos: chavesAnos };
   return { trab: base ? { ...resto, tarefas: [] } : null, migrar: false, anos: [] };
 };
-const semCarimbo = o => JSON.stringify(o, (k, v) => (k === 'atualizado' ? undefined : v));
+const semCarimbo = o => JSON.stringify(o, (k, v) => (k === 'atualizado' ? undefined : v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, kk) => { a[kk] = v[kk]; return a; }, {}) : v)); // a ordem das chaves não conta
 
 export {
   PedirDados, txNumero, txR2, txParseCSV, txEhDegiro, txLerDegiro, TX_MESES, txEhTradeRepublic,
