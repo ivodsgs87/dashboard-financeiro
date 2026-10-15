@@ -49,24 +49,49 @@ export const logOut = () => {
 export const subscribeToAuth = (callback) => onAuthStateChanged(auth, callback);
 
 // Firestore operations
+// Documento principal (g + m). Para não se perderem dados entre dispositivos:
+//  • cada gravação marca o documento com "updatedAt";
+//  • esta app lembra-se da versão em que se baseia (a que leu ou a última que gravou) e ouve o servidor;
+//  • se outro dispositivo gravou entretanto, NÃO grava por cima — a app pergunta (erro com code 'conflito');
+//  • g e m são gravados inteiros (mergeFields), para o que apagas (ex.: uma página, um mês) sair mesmo do servidor.
+let versaoConhecida; // undefined = ainda não leu
+let versaoServidor;  // a última versão vista no servidor (pelo listener)
+const versoesMinhas = new Set();
 export const getUserData = async (userId) => {
   const docRef = doc(db, 'users', userId);
   const docSnap = await getDoc(docRef);
-  return docSnap.exists() ? docSnap.data() : null;
+  const d = docSnap.exists() ? docSnap.data() : null;
+  versaoConhecida = d ? (d.updatedAt || null) : null;
+  versaoServidor = versaoConhecida;
+  return d;
 };
 
-export const saveUserData = async (userId, data) => {
+export const saveUserData = async (userId, data, opcoes = {}) => {
+  if (!opcoes.forcar && versaoConhecida !== undefined && versaoServidor !== undefined && versaoServidor !== versaoConhecida) {
+    const e = new Error('Os dados foram mudados noutro dispositivo.'); e.code = 'conflito'; throw e;
+  }
   const docRef = doc(db, 'users', userId);
-  await setDoc(docRef, { ...data, updatedAt: new Date().toISOString() }, { merge: true });
+  const agora = new Date().toISOString();
+  versoesMinhas.add(agora);
+  await setDoc(docRef, { ...data, updatedAt: agora }, { mergeFields: [...Object.keys(data), 'updatedAt'] });
+  versaoConhecida = agora;
+  versaoServidor = agora;
+  return agora;
 };
+// Passa a basear-se nesta versão (depois de adotar os dados que vieram de outro dispositivo)
+export const adotarVersao = v => { versaoConhecida = v || null; versaoServidor = v || null; };
 
+// Ouve o documento principal: chama cb(dados) só quando outro dispositivo o mudou (as gravações desta app não contam)
 export const subscribeToUserData = (userId, callback) => {
   const docRef = doc(db, 'users', userId);
-  return onSnapshot(docRef, (doc) => {
-    if (doc.exists()) {
-      callback(doc.data());
-    }
-  });
+  return onSnapshot(docRef, (snap) => {
+    if (!snap.exists()) return;
+    const d = snap.data(); const v = d.updatedAt || null;
+    if (versoesMinhas.has(v)) return; // fui eu
+    if (snap.metadata.hasPendingWrites) return;
+    versaoServidor = v;
+    if (versaoConhecida !== undefined && v !== versaoConhecida) callback(d);
+  }, (e) => { console.error('Documento principal:', e); });
 };
 
 // Separador Trabalho (tarefas, pastas, tempos): documento à parte, users/<uid>/trabalho/dados,
