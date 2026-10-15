@@ -612,9 +612,9 @@ const PagamentosImpostos = memo(({ impostosPagos, anoAtual, theme, onAdd, onUpda
               <span className="text-[10px] text-slate-500">Tipo</span>
               <select ref={tipoRef} defaultValue="SS"
                 className={`${theme === 'light' ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-700/50 border-slate-600 text-white'} border rounded-lg px-2 py-1.5 text-xs`}>
-                <option value="SS">🏛 SS</option>
-                <option value="IVA">💶 IVA</option>
-                <option value="IRS">📋 IRS</option>
+                <option value="SS"><Ico e="🏛"/>SS</option>
+                <option value="IVA"><Ico e="💶"/>IVA</option>
+                <option value="IRS"><Ico e="📋"/>IRS</option>
               </select>
             </div>
             <div className="flex flex-col gap-1">
@@ -943,7 +943,14 @@ const ICO_SVG = {
   "⏭": '<path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/>',
   "⏺": '<circle cx="12" cy="12" r="6"/>',
   "🗺": '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
-  "ℹ": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
+  "ℹ": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  "🖨": '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
+  "🕘": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5H8"/>',
+  "🩺": '<path d="M6 3v6a4 4 0 0 0 8 0V3"/><path d="M10 13v3a5 5 0 0 0 10 0v-2"/><circle cx="20" cy="12" r="2"/>',
+  "🚨": '<path d="M6 18v-5a6 6 0 0 1 12 0v5"/><path d="M4 18h16v3H4zM12 3v2M4.2 6.2l1.4 1.4M19.8 6.2l-1.4 1.4"/>',
+  "🥇": '<circle cx="12" cy="15" r="6"/><path d="M8.5 10 6 3h4l2 5 2-5h4l-2.5 7"/>',
+  "💑": '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 8-4"/>',
+  "💪": '<path d="M7 20c-2-2-3-5-2-8l2-6 3 1-1 4 3 1c3-2 7-1 8 2 1 4-2 7-6 7z"/>'
   };
 // Ícone de linha a partir do emoji que já existia no texto; se não houver ícone para ele, mostra o emoji
 const Ico = ({ e, className = '' }) => {
@@ -1132,7 +1139,7 @@ const impCalc = (G, M, hoje = new Date()) => {
   const curto = i => nomeMes(i).substring(0, 3);
   const mesD = i => M[`${Math.floor(i / 12)}-${(i % 12) + 1}`] || {};
   const rv = r => impNum(r && r.valIliq != null && r.valIliq !== '' ? r.valIliq : r && r.val);
-  const naoTrab = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
+  const naoTrab = new Set((G.clientes || []).filter(c => ehNaoFaturacao(c)).map(c => c.id));
   // Clientes estrangeiros ("Sem taxas") contam igual para a SS e o IRS — só não têm retenção nem IVA
   const declSS = i => [...(mesD(i).regCom || []), ...(mesD(i).regSem || [])].filter(r => !r.emitidoPorSara && !naoTrab.has(r.cid)).reduce((a, r) => a + rv(r), 0);
   const ivaMes = i => (mesD(i).regCom || []).reduce((a, r) => a + impNum(r.iva), 0);
@@ -1184,7 +1191,7 @@ const impCalc = (G, M, hoje = new Date()) => {
   const cfg = { ...IRS_CFG_PADRAO, ...(G.irsConfig || {}) };
   const coef = impNum(G.coefSimpl) > 0 ? impNum(G.coefSimpl) : IRS_CFG_PADRAO.coef;
   // Clientes que não são trabalho (ex.: "Reembolso IRS") ficam fora das contas dos impostos
-  const naoTrabalho = new Set((G.clientes || []).filter(c => /reembolso/i.test(String(c.nome || ''))).map(c => c.id));
+  const naoTrabalho = new Set((G.clientes || []).filter(c => ehNaoFaturacao(c)).map(c => c.id));
   let recAte = 0, retAte = 0, ultimo = 0, totalPT = 0, totalUE = 0, totalForaUE = 0, totalSaraIliq = 0, totalSaraRetIRS = 0, totalIVA = 0;
   for (let m = 1; m <= 12; m++) {
     const d = M[`${ano}-${m}`] || {};
@@ -1444,10 +1451,10 @@ class ProtecaoErro extends React.Component {
     return (
       <div role="alert" className={`max-w-xl mx-auto my-10 rounded-2xl border p-6 text-center ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800/60 border-slate-700 text-slate-300'}`}>
         <p className="text-lg font-semibold mb-1">Algo correu mal neste separador</p>
-        <p className="text-sm opacity-80 mb-5">Os teus dados estão guardados. Podes tentar outra vez, ir para o Resumo ou recarregar a página.</p>
+        <p className="text-sm opacity-80 mb-5">Os teus dados estão guardados. Podes tentar outra vez, ir para «Este mês» ou recarregar a página.</p>
         <div className="flex flex-wrap justify-center gap-2">
           <button className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white" onClick={() => this.setState({ erro: null })}>Tentar outra vez</button>
-          {!this.props.inicio && <button className={btn} onClick={() => { this.setState({ erro: null }); this.props.onInicio?.(); }}>Ir para o Resumo</button>}
+          {!this.props.inicio && <button className={btn} onClick={() => { this.setState({ erro: null }); this.props.onInicio?.(); }}>Ir para «Este mês»</button>}
           <button className={btn} onClick={() => window.location.reload()}>Recarregar a página</button>
         </div>
         <details className="mt-5 text-left text-xs opacity-70">
@@ -2189,6 +2196,20 @@ const juntar3 = (base, meu, deles) => {
   return valor(base, meu, deles);
 };
 
+// Números com vírgula, à portuguesa: 17,5% · 158,3h (antes apareciam "17.5%" ao lado de "1 234,56 €")
+const fmtDec = (v, d = 1) => (Number(v) || 0).toLocaleString('pt-PT', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtPct = (v, d = 1) => `${fmtDec(v, d)}%`;
+
+// ── Clientes que não são faturação (ex.: «Reembolso IRS») ──
+// O dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, das projeções, do €/h e dos impostos.
+// Marca-se na ficha do cliente; os clientes com «reembolso» no nome contam sempre assim (como antes).
+const ehNaoFaturacao = c => !!c && (!!c.naoFaturacao || /reembolso/i.test(String(c.nome || '')));
+const idsNaoFaturacao = clientes => new Set((clientes || []).filter(ehNaoFaturacao).map(c => String(c.id)));
+// Faturação de um mês (recibos COM e SEM taxas), sem os clientes que não são faturação
+const faturacaoDoMes = (md, nf) => [...((md && md.regCom) || []), ...((md && md.regSem) || [])].reduce((a, r) => a + (r && !(nf && nf.has(String(r.cid))) ? (Number(r.val) || 0) : 0), 0);
+// Taxa de poupança: o que foi investido + amortizado, a dividir pelo que ficou depois da reserva para impostos — a mesma conta em toda a app
+const taxaPoupancaDe = (poupado, liquido) => (liquido > 0 ? Math.max(0, poupado) / liquido * 100 : 0);
+
 // ── País do cliente nos recibos e nas faturas ──
 // É o da ficha (Trabalho › cliente › Ficha › Regras dos recibos). Se ainda não foi escolhido, adivinha pelo NIF/VAT,
 // pela morada ou pelos recibos verdes que ele já tem — em vez de assumir Portugal (que põe IVA e retenção a quem não os leva).
@@ -2286,7 +2307,7 @@ const verificarDados = (G, M, trab, opc = {}) => {
   Object.values(porNome).filter(l => l.length > 1).forEach(l => add('Clientes', 'aviso', `Há ${l.length} clientes chamados «${l[0].nome}» — os recibos e as tarefas podem estar divididos entre eles.`));
   const comRecibos = new Set(recs.map(x => String(x.r.cid)));
   const provCli = {}; const provDe = c => { const k = String(c.id); if (!(k in provCli)) provCli[k] = paisDoCliente(c, recs.filter(x => String(x.r.cid) === k).map(x => x.r)); return provCli[k]; };
-  clientes.filter(c => comRecibos.has(String(c.id)) && !/reembolso/i.test(c.nome || '') && !(c.recibo && c.recibo.pais)).forEach(c => {
+  clientes.filter(c => comRecibos.has(String(c.id)) && !ehNaoFaturacao(c) && !(c.recibo && c.recibo.pais)).forEach(c => {
     const prov = provDe(c);
     if (prov) add('Clientes', 'info', `${c.nome} não tem o país escolhido na ficha — ${prov.txt} parece ${NOME_PAIS_RECIBO[prov.pais] || prov.pais}, e é isso que a app usa nos registos novos.`, { acao: opc.definirPaisCliente && { rotulo: `Fixar: ${prov.pais}`, fn: () => opc.definirPaisCliente(c.id, prov.pais) } });
     else add('Clientes', 'aviso', `${c.nome} não tem o país na ficha, nem NIF/VAT ou morada que o mostrem: os registos criados pelas faturas assumem Portugal, com IVA e retenção.`);
@@ -2294,7 +2315,7 @@ const verificarDados = (G, M, trab, opc = {}) => {
   // Registos com o país (ou IVA/retenção) diferente do país do cliente
   recs.forEach(x => {
     const r = x.r; if (r.emitidoPorSara) return;
-    const c = clientes.find(cc => String(cc.id) === String(r.cid)); if (!c || /reembolso/i.test(c.nome || '')) return;
+    const c = clientes.find(cc => String(cc.id) === String(r.cid)); if (!c || ehNaoFaturacao(c)) return;
     const prov = provDe(c); if (!prov || prov.fonte === 'recibos') return;
     const pr = r.pais || 'PT';
     const taxasPT = (Number(r.iva) || 0) > 0.004 || (Number(r.retIRS) || 0) > 0.004;
@@ -2415,7 +2436,7 @@ const DialogoHost = ({ theme }) => {
 // Barra de separadores do computador (com os menus que abrem ao passar o rato).
 // Fica num componente próprio para que abrir/fechar um menu não volte a desenhar
 // a página toda (fazia os gráficos "saltarem").
-const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
+const MenuTopo = ({ tabs, tab, setTab, theme, irInicio, ultimaSub = {} }) => {
  // Menu de cada grupo: abre ao passar o rato e fica aberto até passares por outro grupo,
  // escolheres um separador, clicares fora ou carregares em Esc.
  const [menuAberto, setMenuAberto] = useState(null);
@@ -2442,7 +2463,7 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
  return (
   <>
       <nav className={`hidden sm:flex gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 ${theme === 'light' ? 'bg-slate-100/95 border-slate-200' : 'bg-slate-900/95 border-slate-700/30'} border-b overflow-x-auto scrollbar-hide backdrop-blur-xl`}>
-        <button onClick={() => { setMenuAberto(null); irInicio(); }} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Resumo)" title="Início (Resumo) · tecla Esc"
+        <button onClick={() => { setMenuAberto(null); irInicio(); }} onMouseEnter={() => setMenuAberto(null)} aria-label="Início (Este mês)" title="Início (Este mês) · tecla Esc"
           className={`flex-shrink-0 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all ${theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
         </button>
@@ -2458,7 +2479,7 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
               aria-haspopup="menu" aria-expanded={menuAberto === t.id}
               onMouseEnter={e => abrirMenu(t.id, e.currentTarget)}
               onMouseLeave={fecharMenuDepois}
-              onClick={e => { if (menuAberto === t.id) setMenuAberto(null); else abrirMenu(t.id, e.currentTarget); }}
+              onClick={() => { setMenuAberto(null); const s = ultimaSub[t.id] || t.submenu[0].id; setTab(s); window.scrollTo({ top: 0 }); }} // um clique abre o último separador que usaste no grupo; passar o rato mostra os outros
               className={`flex-shrink-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
                 isSubActive
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
@@ -2476,6 +2497,23 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio }) => {
           );
         })}
       </nav>
+      {(() => {
+        // Os separadores do grupo em que estás, sempre à vista numa segunda linha (como no telemóvel)
+        const ativo = tabs.find(x => x.submenu && x.submenu.some(s => s.id === tab));
+        if (!ativo || ativo.submenu.length < 2) return null;
+        return (
+          <div role="tablist" aria-label={ativo.label} className={`hidden sm:flex gap-1 px-3 sm:px-6 py-1.5 border-b overflow-x-auto scrollbar-hide backdrop-blur-xl ${theme === 'light' ? 'bg-white/90 border-slate-200' : 'bg-slate-900/90 border-slate-700/30'}`}>
+            {ativo.submenu.map(sub => (
+              <button key={sub.id} role="tab" aria-selected={tab === sub.id} onClick={() => { setTab(sub.id); window.scrollTo({ top: 0 }); }}
+                className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${tab === sub.id
+                  ? (theme === 'light' ? 'bg-slate-200 text-slate-900 font-medium' : 'bg-white/10 text-white font-medium')
+                  : (theme === 'light' ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-white/5')}`}>
+                <Ico e={sub.icon} className="ico-nav"/>{sub.label}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
       {createPortal(<>
       {menuAberto && (() => {
         const g = tabs.find(t => t.id === menuAberto);
@@ -2654,10 +2692,11 @@ export {
   pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana,
   trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes,
   trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal,
-  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, PAISES_UE_COD, MORADA_PAISES,
-  semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal,
-  DIALOGO, confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard,
-  Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct,
+  ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos, nifPTValido,
+  NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO, confirmar,
+  avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button, ProgressBar,
+  Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData,
+  vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
