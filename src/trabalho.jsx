@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
-  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp,
+  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO,
 } from './base';
 import { auth } from './firebase';
 
@@ -6425,6 +6425,8 @@ const MESES_EN_F = ['January', 'February', 'March', 'April', 'May', 'June', 'Jul
 const MESES_PT_F = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const ORDEM_TIPOS_F = ['video', 'variacao', 'iteracao', 'hook', 'aso', 'ai_clip', 'video3d', 'banner', 'banner_var', 'icone', 'feature', 'screenshots'];
 const NOTA_IVA_UE = 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)';
+const NOTA_IVA_FORA_UE = 'VAT: 0% – Not subject to Portuguese VAT under Article 6 (6) (a) of the Portuguese VAT Code (services supplied to a business established outside the EU)';
+const notaIvaPais = pais => (pais === 'UE' ? NOTA_IVA_UE : pais === 'Fora UE' ? NOTA_IVA_FORA_UE : '');
 const dataEN = iso => { const [y, m, d] = String(iso || '').split('-').map(Number); return y ? `${MESES_EN_F[m - 1]} ${d}, ${y}` : ''; };
 const horasF = h => `${Math.round(h * 10) / 10}h`;
 const nomeTipoEN = (tipo, n, cu) => { const en = CU_NOMES_EN[tipo]; if (en) return en[n === 1 ? 0 : 1]; const t = tiposDe(cu, { [tipo]: 1 }).find(x => x.id === tipo); return t ? t.nome : tipo; };
@@ -6457,7 +6459,7 @@ const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
   });
 };
 const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
-const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa }) => {
+const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa, recibos = [] }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
@@ -6500,7 +6502,11 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const setManuais = f => setRasc(r => ({ ...r, manuais: typeof f === 'function' ? f(r.manuais || []) : f }));
   const linhas = [...auto.filter(l => !(edicoes[l.id] && edicoes[l.id].fora)).map(l => ({ ...l, ...(edicoes[l.id] || {}) })), ...manuais];
   const fat = c.fat || {};
-  const ivaTaxa = Number(fat.ivaFatura) || 0;
+  // País do cliente (o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes): decide o IVA e a frase da fatura
+  const provPais = paisDoCliente(c, recibos);
+  const paisCli = provPais ? provPais.pais : 'PT';
+  const recCli = c.recibo || {};
+  const ivaTaxa = fat.ivaFatura != null && fat.ivaFatura !== '' ? (Number(fat.ivaFatura) || 0) : paisCli === 'PT' ? (recCli.taxaIva != null && recCli.taxaIva !== '' ? Number(recCli.taxaIva) : 23) : 0;
   const subtotal = Math.round(linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0) * 100) / 100;
   const ivaValor = Math.round(subtotal * ivaTaxa) / 100;
   const total = Math.round((subtotal + ivaValor) * 100) / 100;
@@ -6533,7 +6539,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     data: dataEN(dFinal), numero: nFinal, cliente: linhasCliente,
     linhas: linhas.map(l => ({ titulo: l.titulo, resto: l.resto, valor: Number(l.valor) || 0 })),
     subtotal, ivaTaxa, ivaValor, total,
-    notaIva: fat.notaIva === '-' ? '' : fat.notaIva != null && fat.notaIva !== '' ? fat.notaIva : (ivaTaxa > 0 || ((c.recibo || {}).pais || 'PT') === 'PT' ? '' : NOTA_IVA_UE), // clientes portugueses: sem a frase da isenção
+    notaIva: fat.notaIva === '-' ? '' : fat.notaIva != null && fat.notaIva !== '' ? fat.notaIva : (ivaTaxa > 0 ? '' : notaIvaPais(paisCli)), // clientes portugueses: sem a frase da isenção
     pagamento: ['Payment via bank transfer to:', [em.iban ? `IBAN: ${em.iban}` : '', em.swift ? `SWIFT/BIC: ${em.swift}` : ''].filter(Boolean).join(' ')],
   });
   const nomeFicheiro = (n, iso) => { const [y, m] = String(iso).split('-').map(Number); return `${n}_Invoice_${MESES_EN_F[(m || 1) - 1]}_${String(y).slice(2)}.pdf`; };
@@ -6542,6 +6548,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const avisos = [];
   if (!em.nome || !em.iban) avisos.push('Faltam os teus dados (nome, morada, NIF, IBAN) — preenche em "Os meus dados".');
   if (!fat.nomeLegal) avisos.push('Falta o nome legal do cliente na Ficha → Faturação.');
+  if (!provPais) avisos.push(`Não sei o país do cliente (Ficha → Regras dos recibos, ou o VAT na Faturação): assumi Portugal${ivaTaxa ? `, com IVA de ${ivaTaxa}%` : ''}.`);
   if (faturas.some(f => Number(f.numero) === Number(nFinal))) avisos.push(`Já existe uma fatura nº ${nFinal} deste cliente.`);
   if (faturas.some(f => f.mes === mesK)) avisos.push(`Já fizeste uma fatura de ${MESES_PT_F[mes.m - 1]} para este cliente — esta junta só o que ficou de fora.`);
   const gerar = async () => {
@@ -6760,7 +6767,7 @@ const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text', list, o
     onBlur={e => { const v = e.target.value.trim(); if (v !== String(valor ?? '')) onGravar(v); }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
 );
-const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar, notas, onAbrirNota, onNovaNota }) => {
+const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar, notas, onAbrirNota, onNovaNota, recibos = [] }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
@@ -6785,7 +6792,9 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   const ic = `${inputClass} text-sm py-1.5`;
   const chip = on => `px-2.5 py-1 rounded-full text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
   const maxMes = Math.max(1, ...n.meses12);
-  const regime = rec.regime || ((rec.pais || 'PT') === 'Fora UE' ? 'sem' : 'com');
+  const provPais = paisDoCliente(c, recibos); // o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes
+  const paisEf = (provPais && provPais.pais) || 'PT';
+  const regime = rec.regime || (paisEf === 'Fora UE' ? 'sem' : 'com');
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
       <div className="space-y-4 min-w-0">
@@ -6831,8 +6840,8 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             <Campo rot="Lembretes" largo><label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente (não lembrar nos Passos do mês)</label></Campo>
             <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
             <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
-            <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder="0" onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
-            <Campo rot={`Nota do IVA na fatura (vazio = ${(rec.pais || 'PT') === 'PT' ? 'sem frase, por ser cliente português' : 'frase da isenção'}; "-" = nenhuma)`} largo><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={(rec.pais || 'PT') === 'PT' ? 'Sem frase' : 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)'} className={ic} /></Campo>
+            <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder={paisEf === 'PT' ? String(rec.taxaIva != null && rec.taxaIva !== '' ? rec.taxaIva : 23) : '0'} onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
+            <Campo rot={`Nota do IVA na fatura (vazio = ${paisEf === 'PT' ? 'sem frase, por ser cliente português' : 'frase da isenção'}; "-" = nenhuma)`} largo><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={paisEf === 'PT' ? 'Sem frase' : notaIvaPais(paisEf)} className={ic} /></Campo>
           </div>
         </div>
 
@@ -6841,18 +6850,23 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
           <p className={`text-xs mb-3 ${sub}`}>Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Campo rot="País do cliente">
-              <div className="flex flex-wrap gap-1.5">{PAISES_RECIBO.map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ pais: k, regime: k === 'Fora UE' ? 'sem' : (rec.regime === 'sem' && rec.pais === 'Fora UE' ? 'com' : rec.regime || 'com') })} className={chip((rec.pais || 'PT') === k)}>{nm}</button>)}</div>
+              <div className="flex flex-wrap gap-1.5">{PAISES_RECIBO.map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ pais: k, regime: k === 'Fora UE' ? 'sem' : (rec.regime === 'sem' && paisEf === 'Fora UE' ? 'com' : rec.regime || 'com') })} className={`${chip(paisEf === k)} ${!rec.pais && paisEf === k ? 'border-dashed' : ''}`}>{nm}</button>)}</div>
+              {!rec.pais && (
+                <p className={`text-xs mt-1.5 ${provPais ? sub : 'text-amber-500'}`}>
+                  {provPais ? <>Ainda não escolheste — {provPais.txt} parece {NOME_PAIS_RECIBO[provPais.pais] || provPais.pais}, e é isso que a app usa. <button type="button" onClick={() => setRec({ pais: provPais.pais, regime: rec.regime || (provPais.pais === 'Fora UE' ? 'sem' : 'com') })} className="text-blue-500 hover:underline">Confirmar</button></> : 'Ainda não escolheste, e o NIF/VAT e a morada não o mostram: assumo Portugal (com IVA e retenção).'}
+                </p>
+              )}
             </Campo>
             <Campo rot="Onde entram os recibos">
               <div className="flex flex-wrap gap-1.5">{[['com', 'Com taxas'], ['sem', 'Sem taxas']].map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ regime: k })} className={chip(regime === k)}>{nm}</button>)}</div>
             </Campo>
-            {(rec.pais || 'PT') === 'PT' && (
+            {paisEf === 'PT' && (
               <>
                 <Campo rot="IVA (%)"><NumIn valor={rec.taxaIva ?? null} placeholder="23" onGravar={v => setRec({ taxaIva: v })} className={ic} /></Campo>
                 <Campo rot="Retenção na fonte (%)"><NumIn valor={rec.taxaRet ?? null} placeholder="padrão" onGravar={v => setRec({ taxaRet: v })} className={ic} /></Campo>
               </>
             )}
-            {(rec.pais || 'PT') !== 'PT' && <p className={`text-xs sm:col-span-2 ${sub}`}>Fora de Portugal o recibo vai sem IVA nem retenção (autoliquidação / exportação de serviços).</p>}
+            {paisEf !== 'PT' && <p className={`text-xs sm:col-span-2 ${sub}`}>Fora de Portugal o recibo vai sem IVA nem retenção (autoliquidação / exportação de serviços).</p>}
           </div>
         </div>
       </div>
@@ -6885,7 +6899,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             ))}
           </div>
         </div>
-        <PorTipoPeca linhas={trabPorTipo(trab, cu, clientes, c.id)} cu={cu} claro={claro} sub={sub} caixa={caixa} titulo={`Por tipo de peça — ${c.nome}`} />
+        <PorTipoPeca estreito linhas={trabPorTipo(trab, cu, clientes, c.id)} cu={cu} claro={claro} sub={sub} caixa={caixa} titulo={`Por tipo de peça — ${c.nome}`} />
         <NotasLigadas lista={notas} onAbrir={onAbrirNota} onNova={onNovaNota ? () => onNovaNota('cliente', c.id, c.nome) : null} claro={claro} sub={sub} caixa={caixa} titulo={`Notas sobre ${c.nome}`} />
         <button type="button" onClick={onIrPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Preços de {c.nome} →</button>
         <p className={`text-[11px] ${sub}`}>O NIF e a morada ficam só na app — não vão no resumo do chat.</p>
@@ -6894,14 +6908,15 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   );
 };
 // Quanto tempo levas e quanto ganhas por hora em cada tipo de peça (tarefas feitas por ti, de um só tipo)
-const PorTipoPeca = ({ linhas, cu, claro, sub, caixa, titulo, nota }) => {
+const PorTipoPeca = ({ linhas, cu, claro, sub, caixa, titulo, nota, estreito = false }) => {
   if (!linhas || !linhas.length) return null;
   const tipos = tiposDe(cu);
   const nomeT = id => { const x = tipos.find(y => y.id === id); return x ? x.nome : id; };
   const tot = linhas.filter(o => o.valor > 0).reduce((a, o) => ({ v: a.v + o.valor, h: a.h + o.horas }), { v: 0, h: 0 }); // tipos sem preço não entram na média
   const media = tot.h > 0 ? tot.v / tot.h : 0;
   const ls = linhas.slice().sort((a, b) => b.tarefas - a.tarefas);
-  const cols = 'grid grid-cols-[minmax(0,1fr)_64px_84px_72px_72px] items-center gap-2';
+  // Na coluna estreita da ficha (340px) o nº de tarefas vai ao lado do nome, para o nome caber
+  const cols = estreito ? 'grid grid-cols-[minmax(0,1fr)_58px_54px_48px] items-center gap-1.5' : 'grid grid-cols-[minmax(0,1fr)_64px_84px_72px_72px] items-center gap-2';
   return (
     <div className={caixa}>
       <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -6909,14 +6924,16 @@ const PorTipoPeca = ({ linhas, cu, claro, sub, caixa, titulo, nota }) => {
         {media > 0 && <span className={`text-xs ${sub}`}>média {eur(media)}/h</span>}
       </div>
       <div className={`${cols} text-[11px] pb-1 border-b ${claro ? 'border-slate-200' : 'border-slate-700'} ${sub}`}>
-        <span>Tipo</span><span className="text-right">Tarefas</span><span className="text-right" title="Mediana do tempo por peça">Tempo/peça</span><span className="text-right">€/peça</span><span className="text-right">€/h</span>
+        <span>Tipo</span>{!estreito && <span className="text-right">Tarefas</span>}<span className="text-right" title="Mediana do tempo por peça">{estreito ? 'Tempo' : 'Tempo/peça'}</span><span className="text-right">€/peça</span><span className="text-right">€/h</span>
       </div>
       {ls.map(o => {
         const baixo = media > 0 && o.valor > 0 && o.tarefas >= 2 && o.eurHora < media * 0.75;
         return (
           <div key={o.tipo} className={`${cols} py-1.5 text-sm tabular-nums border-b last:border-b-0 ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
-            <span className="truncate">{nomeT(o.tipo)}</span>
-            <span className={`text-right ${sub}`}>{o.tarefas}</span>
+            {estreito
+              ? <span className="min-w-0 flex items-baseline gap-1"><span className="truncate">{nomeT(o.tipo)}</span><span className={`shrink-0 text-[11px] ${sub}`} title={`${o.tarefas} tarefas`}>×{o.tarefas}</span></span>
+              : <span className="truncate">{nomeT(o.tipo)}</span>}
+            {!estreito && <span className={`text-right ${sub}`}>{o.tarefas}</span>}
             <span className="text-right">{tempoTxt(o.horasPorPeca)}</span>
             <span className={`text-right ${sub}`}>{o.valor > 0 ? eur(o.valorPorPeca) : '—'}</span>
             <span className={`text-right font-medium ${baixo ? 'text-amber-500' : ''}`} title={o.valor <= 0 ? 'Sem preço para este tipo' : baixo ? 'Bem abaixo da tua média: o preço deste tipo pode estar baixo (ou estas peças demoram mais do que contas)' : `${eur(o.valor)} em ${tempoTxt(o.horas)}`}>{o.valor > 0 ? eur(o.eurHora) : '—'}</span>
@@ -7852,11 +7869,11 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
+          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
-            <FichaCliente c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
+            <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
               onCliente={onCliente} onIrPrecos={() => setAba('precos')} notas={notasDe ? notasDe('cliente', cliente.id) : []} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} onApagar={onApagarCliente ? id => { onApagarCliente(id); setSel({ tipo: 'clientes' }); } : null}
               onCriarDoClickUp={() => {
                 const velho = cliente.id;
