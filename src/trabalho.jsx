@@ -1493,6 +1493,8 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
                   <button type="button" onClick={() => setVerImagem(a)} className="block w-full aspect-[4/3] bg-black/20" title={a.nome}><img src={a.url} alt={a.nome} loading="lazy" className="w-full h-full object-cover" /></button>
                 ) : tp === 'video' ? (
                   <button type="button" onClick={() => setPrevia(a)} className="block w-full aspect-[4/3] bg-black/40" title={a.nome}><video src={`${a.url}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover pointer-events-none" /></button>
+                ) : tp === 'link' && tipoGoogle(a.url) && googleId(a.url) ? (
+                  <button type="button" onClick={() => setPrevia(a)} className={`block w-full ${slides ? 'aspect-video' : 'aspect-[4/3]'} overflow-hidden`} title={`Ver ${a.nome} em grande (editar, copiar o texto, descarregar os vídeos)`}><MiniLink a={a} sub={sub} cid={t.cid} inteiro={slides} /></button>
                 ) : tp === 'link' ? (
                   <a href={urlAbrir(a.url, t.cid)} target="_blank" rel="noopener noreferrer" className={`block w-full ${slides ? 'aspect-video' : 'aspect-[4/3]'} overflow-hidden`} title={`Abrir ${a.nome}`}><MiniLink a={a} sub={sub} cid={t.cid} inteiro={slides} /></a>
                 ) : (
@@ -1523,7 +1525,8 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
       ) : (
         <p className={`text-[11px] ${sub}`}>Ou arrasta para aqui um PDF, imagens ou vídeos.</p>
       )}
-      {previa && (
+      {previa && tipoAnexo(previa) === 'link' && tipoGoogle(previa.url) && googleId(previa.url) && <PreviaGoogle a={previa} cid={t.cid} onFechar={() => setPrevia(null)} />}
+      {previa && !(tipoAnexo(previa) === 'link' && tipoGoogle(previa.url) && googleId(previa.url)) && (
         <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col p-2 sm:p-6 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setPrevia(null); }}>
           <div className="flex items-center gap-2 mb-2 text-white">
             <p className="flex-1 min-w-0 text-sm font-medium truncate">{previa.nome}</p>
@@ -1543,6 +1546,167 @@ const AnexosTarefa = ({ t, trab, mudar, onEnviar, onApagarFicheiro, claro, sub, 
           <img src={verImagem.url} alt={verImagem.nome} className="max-w-full max-h-full rounded-lg shadow-2xl" />
         </div>
       )}
+    </div>
+  );
+};
+// ── Brief do Google em grande: editar aqui mesmo, copiar o texto e descarregar os vídeos que estão nos slides ──
+const tipoGoogle = url => (/docs\.google\.com\/presentation/.test(url || '') ? 'slides' : /docs\.google\.com\/document/.test(url || '') ? 'docs' : /docs\.google\.com\/spreadsheets/.test(url || '') ? 'sheets' : /drive\.google\.com\/(file|open|uc)/.test(url || '') ? 'drive' : null);
+const urlEditarGoogle = (url, cid) => {
+  const id = googleId(url), tg = tipoGoogle(url);
+  if (!id || !tg) return null;
+  if (tg === 'drive') return comConta(`https://drive.google.com/file/d/${id}/preview`, cid);
+  const sl = tg === 'slides' ? slideDoLink(url) : null;
+  const gid = tg === 'sheets' ? (/[#&?]gid=(\d+)/.exec(url) || [])[1] : null;
+  return comConta(`https://docs.google.com/${{ slides: 'presentation', docs: 'document', sheets: 'spreadsheets' }[tg]}/d/${id}/edit${gid ? `?gid=${gid}` : ''}`, cid) + (sl ? `#slide=id.${sl}` : gid ? `#gid=${gid}` : '');
+};
+// Pedido às APIs da Google com a conta dos links do cliente (se o acesso expirou, pede outro e tenta de novo)
+const pedirGoogle = async (conta, url, comoTexto) => {
+  const ir = async forcar => fetch(url, { headers: { Authorization: `Bearer ${await tokenDrive(conta, forcar)}` } });
+  let r = await ir(false);
+  if (r.status === 401) r = await ir(true);
+  if (!r.ok) {
+    let m = `Erro ${r.status} da Google`;
+    try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ }
+    const er = new Error(r.status === 404 ? 'Não encontrei este ficheiro (foi apagado, ou não está partilhado com esta conta).' : r.status === 403 && !/api/i.test(m) ? `A conta ${conta || 'Google'} não tem acesso a este ficheiro.` : m);
+    er.status = r.status; er.ativar = (/(https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"]+)/.exec(m) || [])[1] || '';
+    throw er;
+  }
+  return comoTexto ? r.text() : r.json();
+};
+const textoDoGoogle = async (conta, url) => {
+  const mime = tipoGoogle(url) === 'sheets' ? 'text/csv' : 'text/plain';
+  const t = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(googleId(url))}/export?mimeType=${encodeURIComponent(mime)}`, true);
+  return String(t || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+// Vídeos metidos nos slides (precisa da API do Google Slides ligada no projeto Google da app)
+const videosDoSlides = async (conta, url) => {
+  const j = await pedirGoogle(conta, `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(googleId(url))}?fields=${encodeURIComponent('slides(pageElements(video(id,source,url),elementGroup))')}`);
+  const out = [], visto = new Set();
+  const ver = (els, n) => (els || []).forEach(e => {
+    if (e.video && e.video.id && !visto.has(e.video.source + e.video.id)) { visto.add(e.video.source + e.video.id); out.push({ slide: n, id: e.video.id, fonte: e.video.source, url: e.video.url || '' }); }
+    if (e.elementGroup) ver(e.elementGroup.children, n);
+  });
+  (j.slides || []).forEach((sl, i) => ver(sl.pageElements, i + 1));
+  await Promise.all(out.filter(v => v.fonte === 'DRIVE').map(async v => {
+    try { const f = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(v.id)}?fields=name,size,thumbnailLink&supportsAllDrives=true`); Object.assign(v, { nome: f.name, tamanho: Number(f.size) || 0, mini: f.thumbnailLink || '' }); }
+    catch (e) { v.erro = e.message; }
+  }));
+  return out;
+};
+// Guarda um ficheiro do Drive no PC: escolhes a pasta (ex.: Assets\Footage do projeto) e vai direto para lá, sem passar pela memória
+const guardarDoDrive = async (conta, f, onProg) => {
+  let token = await tokenDrive(conta); // 1.º o acesso (pode abrir a janela da Google), depois a janela de guardar
+  let destino = null;
+  if (window.showSaveFilePicker) {
+    try { destino = await window.showSaveFilePicker({ id: 'brief-videos', suggestedName: f.nome || 'video.mp4' }); }
+    catch (e) { if (e && e.name === 'AbortError') return false; destino = null; }
+  }
+  const ir = tk => fetch(`${DRV}/${encodeURIComponent(f.id)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${tk}` } });
+  let r = await ir(token);
+  if (r.status === 401) { token = await tokenDrive(conta, true); r = await ir(token); }
+  if (!r.ok) throw new Error(r.status === 403 || r.status === 404 ? `A conta ${conta || 'Google'} não tem acesso a este ficheiro.` : `Erro ${r.status} do Drive`);
+  const total = Number(r.headers.get('Content-Length')) || f.tamanho || 0;
+  let n = 0;
+  const contar = new TransformStream({ transform(ch, ctl) { n += ch.length; if (onProg && total) onProg(Math.min(1, n / total)); ctl.enqueue(ch); } });
+  if (destino) { await r.body.pipeThrough(contar).pipeTo(await destino.createWritable()); return true; }
+  const blob = await new Response(r.body.pipeThrough(contar)).blob();
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = u; a.download = f.nome || 'video.mp4'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+  return true;
+};
+const PreviaGoogle = ({ a, cid, onFechar }) => {
+  const tg = tipoGoogle(a.url);
+  const conta = contaDe(cid);
+  const abas = tg === 'slides' ? [['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
+  const [aba, setAba] = useState('editar');
+  const [texto, setTexto] = useState(null); // { txt } | { erro }
+  const [videos, setVideos] = useState(null); // [..] | { erro, ativar }
+  const [aCarregar, setACarregar] = useState(false);
+  const [prog, setProg] = useState({}); // id → 0..1 | 'ok' | 'erro:…'
+  const [verV, setVerV] = useState(null);
+  const [copiado, setCopiado] = useState(false);
+  const abrir = async qual => {
+    setAba(qual);
+    if (qual === 'texto' && (!texto || texto.erro)) { setACarregar(true); try { setTexto({ txt: await textoDoGoogle(conta, a.url) }); } catch (e) { setTexto({ erro: e.message }); } setACarregar(false); }
+    if (qual === 'videos' && (!videos || videos.erro)) { setACarregar(true); try { setVideos(await videosDoSlides(conta, a.url)); } catch (e) { setVideos({ erro: e.message, ativar: e.ativar }); } setACarregar(false); }
+  };
+  const descarregar = async v => {
+    setProg(p => ({ ...p, [v.id]: 0 }));
+    try { const ok = await guardarDoDrive(conta, v, x => setProg(p => ({ ...p, [v.id]: x }))); setProg(p => ({ ...p, [v.id]: ok ? 'ok' : undefined })); }
+    catch (e) { setProg(p => ({ ...p, [v.id]: `erro:${e.message}` })); }
+  };
+  const descarregarFicheiro = async () => {
+    const id = googleId(a.url);
+    try { const f = await pedirGoogle(conta, `${DRV}/${encodeURIComponent(id)}?fields=name,size&supportsAllDrives=true`); await descarregar({ id, nome: f.name, tamanho: Number(f.size) || 0 }); }
+    catch (e) { setProg(p => ({ ...p, [id]: `erro:${e.message}` })); }
+  };
+  const copiar = async () => { try { await navigator.clipboard.writeText(texto.txt); setCopiado(true); setTimeout(() => setCopiado(false), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
+  const estadoProg = x => (x == null ? null : x === 'ok' ? <span className="text-emerald-400">✓ Guardado</span> : String(x).startsWith('erro:') ? <span className="text-red-300">{String(x).slice(5)}</span> : <span className="tabular-nums">{Math.round(x * 100)}%</span>);
+  const btn = 'px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25 text-white';
+  const idF = googleId(a.url);
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/85 flex flex-col p-2 sm:p-5 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
+      <div className="flex flex-wrap items-center gap-2 mb-2 text-white">
+        <p className="min-w-0 flex-1 text-sm font-medium truncate">{a.nome}</p>
+        {abas.length > 1 && (
+          <div role="tablist" className="flex rounded-lg bg-white/10 p-0.5">
+            {abas.map(([k, n]) => <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => abrir(k)} className={`px-3 py-1 text-xs rounded-md ${aba === k ? 'bg-white text-slate-900 font-medium' : 'text-white/80 hover:text-white'}`}>{n}</button>)}
+          </div>
+        )}
+        {tg === 'drive' && <button type="button" onClick={descarregarFicheiro} className={btn}>Descarregar {estadoProg(prog[idF])}</button>}
+        <a href={urlAbrir(a.url, cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no Google ↗</a>
+        <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
+      </div>
+      <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-white">
+        {aba === 'editar' && <iframe src={urlEditarGoogle(a.url, cid)} title={a.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-read; clipboard-write" allowFullScreen />}
+        {aba !== 'editar' && (
+          <div className="h-full overflow-auto bg-slate-900 text-slate-100 p-4 sm:p-6">
+            {aCarregar && <p className="text-sm text-white/70">A carregar…</p>}
+            {aba === 'texto' && texto && !aCarregar && (texto.erro
+              ? <p className="text-sm text-red-300">Não consegui ler o texto: {texto.erro}</p>
+              : (
+                <div className="max-w-3xl mx-auto space-y-3">
+                  <div className="flex items-center justify-between gap-2"><p className="text-xs text-white/60">Seleciona o que quiseres e Ctrl+C — ou copia tudo.</p><button type="button" onClick={copiar} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{copiado ? '✓ Copiado' : 'Copiar tudo'}</button></div>
+                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed select-text">{texto.txt || '(sem texto)'}</pre>
+                </div>
+              ))}
+            {aba === 'videos' && videos && !aCarregar && (videos.erro ? (
+              <div className="max-w-xl space-y-2 text-sm">
+                {videos.ativar
+                  ? <>
+                      <p>Para ver os vídeos que estão nos slides, falta ligar a <strong>API do Google Slides</strong> no projeto Google da app. É grátis e só se faz uma vez: abre o link, carrega em <strong>Ativar</strong> e espera 1 minuto.</p>
+                      <div className="flex gap-2"><a href={videos.ativar} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Ligar a API do Google Slides ↗</a><button type="button" onClick={() => abrir('videos')} className={btn}>Tentar outra vez</button></div>
+                    </>
+                  : <><p className="text-red-300">Não consegui ver os vídeos: {videos.erro}</p><button type="button" onClick={() => abrir('videos')} className={btn}>Tentar outra vez</button></>}
+              </div>
+            ) : !videos.length ? <p className="text-sm text-white/70">Não há vídeos metidos nestes slides.</p> : (
+              <div className="max-w-3xl mx-auto space-y-2">
+                {videos.map(v => (
+                  <div key={v.fonte + v.id} className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {v.mini ? <img src={v.mini} alt="" referrerPolicy="no-referrer" className="w-20 h-12 object-cover rounded-md bg-black" /> : <span className="w-20 h-12 rounded-md bg-black/40 inline-flex items-center justify-center"><IcoA n="video" className="w-5 h-5" /></span>}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{v.nome || (v.fonte === 'YOUTUBE' ? 'Vídeo do YouTube' : 'Vídeo')}</p>
+                        <p className="text-xs text-white/60">Slide {v.slide}{v.tamanho ? ` · ${tamanhoTxt(v.tamanho)}` : ''}{v.erro ? ` · ${v.erro}` : ''}</p>
+                      </div>
+                      {v.fonte === 'DRIVE' && !v.erro && <>
+                        <button type="button" onClick={() => setVerV(verV === v.id ? null : v.id)} className={btn}>{verV === v.id ? 'Fechar' : '▶ Ver'}</button>
+                        <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[v.id] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">Descarregar</button>
+                      </>}
+                      {v.fonte === 'YOUTUBE' && <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no YouTube ↗</a>}
+                      {prog[v.id] != null && <span className="text-xs">{estadoProg(prog[v.id])}</span>}
+                    </div>
+                    {verV === v.id && <VerVideo conta={conta} ficheiros={[{ id: v.id, nome: v.nome }]} claro={false} sub="text-white/60" iniciar />}
+                  </div>
+                ))}
+                <p className="text-[11px] text-white/50">Ao descarregar, escolhes a pasta (por exemplo a Assets\Footage do projeto) — o browser lembra-se da última.</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {aba === 'editar' && <p className="mt-2 text-[11px] text-white/60">{`Se aparecer em branco ou a pedir para entrar, o ficheiro não está partilhado com ${conta || 'a conta Google principal deste browser'} (ou essa conta não tem sessão neste browser) — usa «Abrir no Google».`}</p>}
     </div>
   );
 };
