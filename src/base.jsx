@@ -2133,6 +2133,121 @@ const juntarVersoes = (base, local, remota) => {
   return out;
 };
 
+// ── Junta três versões de um valor (JSON): a que havia (base), a deste ecrã (meu) e a do outro dispositivo (deles) ──
+// Usado no Trabalho, que pode ser mexido em dois sítios ao mesmo tempo (PC e portátil, dois separadores…).
+// • O que só um dos lados mudou, fica.  • Listas de coisas com id (tarefas, pastas, faturas, tempos) juntam-se item a item:
+//   uma tarefa nova de cada lado fica, uma apagada de um lado e mudada do outro também fica (não se perde trabalho).
+// • Quando os dois mudaram o MESMO campo da mesma coisa, ganha este ecrã.
+const juntar3 = (base, meu, deles) => {
+  const cache = new WeakMap();
+  const J = v => { if (v && typeof v === 'object') { let s = cache.get(v); if (s === undefined) { s = jsonEstavel(v); cache.set(v, s); } return s; } return jsonEstavel(v); };
+  const ehObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const chaveItem = x => (ehObj(x) ? (x.id != null ? `id:${x.id}` : x.ini != null ? `ini:${x.ini}` : null) : `v:${J(x)}`);
+  const mapa = l => { const m = new Map(); for (const x of l) { const k = chaveItem(x); if (k == null || m.has(k)) return null; m.set(k, x); } return m; };
+  const listas = (b, m, d) => {
+    const mb = mapa(b), mm = mapa(m), md = mapa(d);
+    if (!mb || !mm || !md) return m; // lista sem ids (ou com repetidos): não dá para juntar item a item — ganha este ecrã
+    const decidir = k => {
+      const inB = mb.has(k), inM = mm.has(k), inD = md.has(k);
+      if (inM && inD) return valor(inB ? mb.get(k) : undefined, mm.get(k), md.get(k));
+      if (inM) return inB && J(mm.get(k)) === J(mb.get(k)) ? undefined : mm.get(k); // apagado lá e aqui não mexi → sai; senão fica
+      if (inD) return inB && J(md.get(k)) === J(mb.get(k)) ? undefined : md.get(k); // apagado aqui e lá não mexeram → sai
+      return undefined;
+    };
+    // A ordem é a deste ecrã; o que só existe lá entra logo a seguir ao item que o antecede lá
+    const res = []; const visto = new Set();
+    m.forEach(x => { const k = chaveItem(x); visto.add(k); const v = decidir(k); if (v !== undefined) res.push([k, v]); });
+    let antes = null;
+    d.forEach(x => {
+      const k = chaveItem(x);
+      if (visto.has(k)) { antes = k; return; }
+      visto.add(k); const v = decidir(k); if (v === undefined) return;
+      const i = antes == null ? -1 : res.findIndex(([kk]) => kk === antes);
+      res.splice(i + 1, 0, [k, v]); antes = k;
+    });
+    return res.map(([, v]) => v);
+  };
+  const valor = (b, m, d) => {
+    const jb = J(b), jm = J(m), jd = J(d);
+    if (jm === jd || jd === jb) return m; // iguais, ou só este ecrã mudou
+    if (jm === jb) return d; // só o outro mudou
+    if (Array.isArray(m) && Array.isArray(d)) return listas(Array.isArray(b) ? b : [], m, d);
+    if (ehObj(m) && ehObj(d)) {
+      const bb = ehObj(b) ? b : {}; const out = {};
+      for (const k of new Set([...Object.keys(m), ...Object.keys(d), ...Object.keys(bb)])) {
+        const inB = k in bb, inM = k in m, inD = k in d;
+        if (!inM && !inD) continue;
+        if (!inM) { if (!(inB && J(d[k]) === J(bb[k]))) out[k] = d[k]; continue; } // apagado aqui: sai, a não ser que lá tenham mudado
+        if (!inD) { if (!(inB && J(m[k]) === J(bb[k]))) out[k] = m[k]; continue; }
+        const v = valor(inB ? bb[k] : undefined, m[k], d[k]);
+        if (v !== undefined) out[k] = v;
+      }
+      return out;
+    }
+    return m; // o mesmo valor mudado nos dois lados: ganha este ecrã
+  };
+  return valor(base, meu, deles);
+};
+
+// ── País do cliente nos recibos e nas faturas ──
+// É o da ficha (Trabalho › cliente › Ficha › Regras dos recibos). Se ainda não foi escolhido, adivinha pelo NIF/VAT,
+// pela morada ou pelos recibos verdes que ele já tem — em vez de assumir Portugal (que põe IVA e retenção a quem não os leva).
+const PAISES_UE_COD = ['AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'EL', 'GR', 'ES', 'FI', 'FR', 'HR', 'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'RO', 'SE', 'SI', 'SK'];
+// Primeiro os nomes de países (contam mais), depois cidades e o código postal português (1234-567)
+const MORADA_PAISES = [
+  ['PT', /\b(portugal)\b/],
+  ['UE', /\b(alemanha|germany|deutschland|espanha|spain|espana|franca|france|italia|italy|holanda|netherlands|nederland|paises baixos|belgica|belgium|belgique|belgie|irlanda|ireland|austria|osterreich|oesterreich|polonia|poland|polska|suecia|sweden|sverige|dinamarca|denmark|danmark|finlandia|finland|suomi|estonia|eesti|letonia|latvia|lituania|lithuania|malta|chipre|cyprus|luxemburgo|luxembourg|republica checa|czech republic|czechia|eslovaquia|slovakia|eslovenia|slovenia|croacia|croatia|hrvatska|hungria|hungary|romenia|romania|bulgaria|grecia|greece)\b/],
+  ['Fora UE', /\b(reino unido|united kingdom|uk|england|inglaterra|scotland|escocia|wales|estados unidos|united states|usa|eua|canada|suica|switzerland|schweiz|suisse|noruega|norway|norge|israel|turquia|turkey|turkiye|brasil|brazil|singapura|singapore|australia|ucrania|ukraine|emirados|united arab emirates|uae|japao|japan|china|hong kong|india|servia|serbia|armenia|cazaquistao|kazakhstan|gibraltar|isle of man|jersey|guernsey|mexico|argentina|chile|nova zelandia|new zealand|south africa|africa do sul|korea|coreia|taiwan|vietnam|tailandia|thailand|filipinas|philippines|indonesia|malasia|malaysia)\b/],
+  ['PT', /\b(lisboa|lisbon|porto|oporto|braga|coimbra|aveiro|faro|setubal|leiria|viseu|evora|funchal|madeira|acores|azores|carnaxide|oeiras|cascais|sintra|amadora|almada)\b|\b\d{4}-\d{3}\b/],
+  ['UE', /\b(berlin|berlim|hamburg|munchen|munich|koln|cologne|frankfurt|paris|madrid|barcelona|valencia|amsterdam|rotterdam|dublin|wien|vienna|viena|warszawa|warsaw|varsovia|krakow|stockholm|estocolmo|copenhagen|kobenhavn|helsinki|tallinn|riga|vilnius|praha|prague|praga|bratislava|ljubljana|zagreb|budapest|bucuresti|bucharest|sofia|athens|atenas|nicosia|limassol|larnaca|valletta|sliema|msida|milano|milan|roma|rome|bruxelles|brussels|bruxelas|antwerpen)\b/],
+  ['Fora UE', /\b(london|londres|manchester|toronto|vancouver|zurich|geneva|oslo|tel aviv|istanbul|sydney|melbourne|kyiv|kiev|dubai|tokyo|shanghai|beijing|belgrade|san francisco|new york|los angeles|california|delaware|texas|washington)\b/],
+];
+const semAcentos = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const nifPTValido = n => { if (!/^[1235689]\d{8}$/.test(n)) return false; let s = 0; for (let i = 0; i < 8; i++) s += Number(n[i]) * (9 - i); const r = 11 - (s % 11); return (r >= 10 ? 0 : r) === Number(n[8]); };
+const NOME_PAIS_RECIBO = { PT: 'Portugal', UE: 'da UE', 'Fora UE': 'de fora da UE' };
+// → { pais: 'PT' | 'UE' | 'Fora UE', fonte: 'ficha' | 'nif' | 'morada' | 'recibos', txt } ou null (não dá para saber)
+const paisDoCliente = (c, recibos = []) => {
+  if (!c) return null;
+  const rc = c.recibo || {}, fat = c.fat || {};
+  if (rc.pais) return { pais: rc.pais, fonte: 'ficha', txt: 'escolhido na ficha' };
+  const nif = String(fat.nif || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (/^[A-Z]{2}[A-Z0-9]{2,}$/.test(nif)) {
+    const p = nif.slice(0, 2);
+    if (p === 'PT') return { pais: 'PT', fonte: 'nif', txt: `pelo NIF ${fat.nif}` };
+    return { pais: PAISES_UE_COD.includes(p) ? 'UE' : 'Fora UE', fonte: 'nif', txt: `pelo VAT ${fat.nif}` };
+  }
+  // Na morada conta o último nome de país (vem no fim); só sem país nenhum é que vê as cidades
+  const mor = semAcentos(fat.morada);
+  for (const nivel of [MORADA_PAISES.slice(0, 3), MORADA_PAISES.slice(3)]) {
+    let melhor = null;
+    nivel.forEach(([p, re]) => { const g = new RegExp(re.source, 'g'); let m; while ((m = g.exec(mor))) { if (!melhor || m.index >= melhor.i) melhor = { p, i: m.index }; if (!m[0]) g.lastIndex++; } });
+    if (melhor) return { pais: melhor.p, fonte: 'morada', txt: 'pela morada' };
+  }
+  if (nifPTValido(nif)) return { pais: 'PT', fonte: 'nif', txt: `pelo NIF ${fat.nif}` };
+  const verdes = (recibos || []).filter(r => r && r.reciboVerde && r.pais && !r.emitidoPorSara);
+  if (verdes.length) {
+    const n = {}; verdes.forEach(r => { n[r.pais] = (n[r.pais] || 0) + 1; });
+    return { pais: Object.entries(n).sort((a, b) => b[1] - a[1])[0][0], fonte: 'recibos', txt: 'pelos recibos verdes dele' };
+  }
+  return null;
+};
+// Todos os recibos de um cliente (com o mês e a lista onde estão)
+const recibosDoCliente = (M, cid) => {
+  const out = [];
+  Object.entries(M || {}).forEach(([k, md]) => [['regCom', 'com'], ['regSem', 'sem']].forEach(([lista, tipo]) => ((md && md[lista]) || []).forEach(r => { if (r && String(r.cid) === String(cid)) out.push({ ...r, k, lista, tipo }); })));
+  return out;
+};
+// Regras para um registo novo deste cliente: país, lista (Com/Sem taxas), IVA e retenção
+const regrasRecibo = (c, recibos, coefSimpl) => {
+  const rc = (c && c.recibo) || {};
+  const prov = paisDoCliente(c, recibos);
+  const pais = prov ? prov.pais : 'PT';
+  const regime = rc.regime || (pais === 'Fora UE' ? 'sem' : 'com');
+  const taxaIva = pais === 'PT' ? (rc.taxaIva != null && rc.taxaIva !== '' ? Number(rc.taxaIva) : 23) : 0;
+  const taxaRet = pais === 'PT' ? (rc.taxaRet != null && rc.taxaRet !== '' ? Number(rc.taxaRet) : retencaoPadrao(coefSimpl ?? 0.75)) : 0;
+  return { pais, fonte: prov ? prov.fonte : null, txt: prov ? prov.txt : 'sem dados — assumi Portugal', regime, lista: regime === 'sem' ? 'regSem' : 'regCom', taxaIva, taxaRet };
+};
+
 // ── Verificar dados: procura duplicados, ligações partidas e valores que não batem certo ──
 // Só lê; as correções são botões (cada uma com Ctrl+Z). Devolve [{ grupo, nivel: 'erro'|'aviso'|'info', txt, acao?, ir? }]
 const verificarDados = (G, M, trab, opc = {}) => {
@@ -2170,7 +2285,24 @@ const verificarDados = (G, M, trab, opc = {}) => {
   const porNome = {}; clientes.forEach(c => { const n = String(c.nome || '').trim().toLowerCase(); if (n) (porNome[n] = porNome[n] || []).push(c); });
   Object.values(porNome).filter(l => l.length > 1).forEach(l => add('Clientes', 'aviso', `Há ${l.length} clientes chamados «${l[0].nome}» — os recibos e as tarefas podem estar divididos entre eles.`));
   const comRecibos = new Set(recs.map(x => String(x.r.cid)));
-  clientes.filter(c => comRecibos.has(String(c.id)) && !/reembolso/i.test(c.nome || '') && !(c.recibo && c.recibo.pais)).forEach(c => add('Clientes', 'info', `${c.nome} não tem o país definido na ficha (Recibos): os registos criados pelas faturas assumem Portugal, com IVA e retenção.`));
+  const provCli = {}; const provDe = c => { const k = String(c.id); if (!(k in provCli)) provCli[k] = paisDoCliente(c, recs.filter(x => String(x.r.cid) === k).map(x => x.r)); return provCli[k]; };
+  clientes.filter(c => comRecibos.has(String(c.id)) && !/reembolso/i.test(c.nome || '') && !(c.recibo && c.recibo.pais)).forEach(c => {
+    const prov = provDe(c);
+    if (prov) add('Clientes', 'info', `${c.nome} não tem o país escolhido na ficha — ${prov.txt} parece ${NOME_PAIS_RECIBO[prov.pais] || prov.pais}, e é isso que a app usa nos registos novos.`, { acao: opc.definirPaisCliente && { rotulo: `Fixar: ${prov.pais}`, fn: () => opc.definirPaisCliente(c.id, prov.pais) } });
+    else add('Clientes', 'aviso', `${c.nome} não tem o país na ficha, nem NIF/VAT ou morada que o mostrem: os registos criados pelas faturas assumem Portugal, com IVA e retenção.`);
+  });
+  // Registos com o país (ou IVA/retenção) diferente do país do cliente
+  recs.forEach(x => {
+    const r = x.r; if (r.emitidoPorSara) return;
+    const c = clientes.find(cc => String(cc.id) === String(r.cid)); if (!c || /reembolso/i.test(c.nome || '')) return;
+    const prov = provDe(c); if (!prov || prov.fonte === 'recibos') return;
+    const pr = r.pais || 'PT';
+    const taxasPT = (Number(r.iva) || 0) > 0.004 || (Number(r.retIRS) || 0) > 0.004;
+    if (pr === prov.pais && !(prov.pais !== 'PT' && taxasPT)) return;
+    const como = `está como ${NOME_PAIS_RECIBO[pr] || pr}${taxasPT ? ', com IVA/retenção' : ''}, mas ${c.nome} é ${NOME_PAIS_RECIBO[prov.pais] || prov.pais} (${prov.txt})`;
+    if (r.reciboVerde) add('Receitas', 'info', `«${r.desc || 'recibo'}» (${nomeMes(x.k)}) ${como}. Se o recibo verde saiu mesmo assim, está certo; senão, confirma no Portal das Finanças.`, { ir: x.k });
+    else add('Receitas', 'aviso', `«${r.desc || 'recibo'}» (${nomeMes(x.k)}, ${eu(r.val)}) ${como} — conta IVA e retenção que não vão existir.`, { ir: x.k, acao: opc.corrigirPaisRecibo && { rotulo: `Passar a ${prov.pais}`, fn: () => opc.corrigirPaisRecibo(x.k, x.lista, r.id, c.id) } });
+  });
   // ── Trabalho ──
   const T = (trab && trab.tarefas) || []; const P = (trab && trab.pastas) || []; const F = (trab && trab.faturas) || [];
   if (trab) {
@@ -2522,9 +2654,10 @@ export {
   pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana,
   trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes,
   trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal,
-  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, verificarDados, VerificarDadosModal, DIALOGO,
-  confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button,
-  ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
-  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, PAISES_UE_COD, MORADA_PAISES,
+  semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal,
+  DIALOGO, confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard,
+  Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
