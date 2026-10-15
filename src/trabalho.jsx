@@ -295,6 +295,20 @@ const TempoSomar = ({ t, mudar, claro, className = '' }) => {
       className={`${className} rounded px-1 -mx-1 tabular-nums ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`}><HorasVivas t={t} /></button>
   );
 };
+// Carregar em qualquer parte da linha abre a tarefa — menos no que já faz outra coisa (botões, caixas, menus, links, ícones)
+const ALVOS_DA_LINHA = 'button, a, input, select, textarea, label, summary, [role], [contenteditable="true"], [data-sem-abrir]';
+const cliqueNaLinha = (e, abrir) => {
+  const linha = e.currentTarget;
+  if (e.defaultPrevented || e.button !== 0 || !linha.contains(e.target)) return; // cliques que vêm de menus noutra camada (portais) não contam
+  for (let n = e.target; n && n !== linha; n = n.parentElement) {
+    if (n.matches && n.matches(ALVOS_DA_LINHA)) return;
+    const pos = window.getComputedStyle(n).position;
+    if (pos === 'absolute' || pos === 'fixed') return; // dentro de um menu/popover aberto a partir da linha
+  }
+  const sel = window.getSelection && window.getSelection();
+  if (sel && !sel.isCollapsed && linha.contains(sel.anchorNode)) return; // estavas a selecionar texto
+  abrir();
+};
 const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nomePasta }) => {
   const claro = useClaro(theme);
   const corre = (t.tempos || []).some(x => !x.fim);
@@ -302,7 +316,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
   const hoje = trabDia(new Date().toISOString());
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
   return (
-    <div className={`group flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
+    <div onClick={e => cliqueNaLinha(e, () => onAbrir(t.id))} className={`group cursor-pointer flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
       <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
         <NomeTarefa t={t} cu={cu} claro={claro} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
@@ -433,9 +447,10 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const [editar, setEditar] = useState(false);
+  const editavaNoClique = useRef(false); // carregar na linha para acabar de mudar o nome não abre a tarefa
   const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
-    <div className={`${cheio ? COLS : COLS_CURTO} group px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50 border-red-100 shadow-[inset_3px_0_0_0_#ef4444]' : 'bg-red-500/[0.09] border-red-500/10 shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+    <div onMouseDownCapture={() => { editavaNoClique.current = editar; }} onClick={e => { if (!editar && !editavaNoClique.current) cliqueNaLinha(e, () => onAbrir(t.id)); }} className={`${cheio ? COLS : COLS_CURTO} group ${editar ? '' : 'cursor-pointer'} px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50 border-red-100 shadow-[inset_3px_0_0_0_#ef4444]' : 'bg-red-500/[0.09] border-red-500/10 shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         {onMarcar && (
           <input type="checkbox" checked={marcada} onChange={() => {}} onClick={e => { e.stopPropagation(); onMarcar(t.id, e.shiftKey); }}
@@ -2939,12 +2954,13 @@ const nomesFicheiros = (trab, t, vForcada) => {
 };
 // "Abrir no After Effects": link aeproj:// tratado pelo lançador AbrirAE instalado no PC (procura o .aep pelo conceito,
 // também no disco de arquivo, e lembra-se do projeto escolhido para cada tarefa)
+const temaApp = () => { try { return document.documentElement.dataset.tema === 'claro' ? 'claro' : 'escuro'; } catch (e) { return 'escuro'; } };
 const linkAE = (trab, t, clientes) => {
   const nf = nomesFicheiros(trab, t);
   const cli = (clientes || []).find(c => String(c.id) === String(t.cid));
   // só a versão que tu escolheste (ou a da pasta enviada para o Drive) — sem isso não desempata por versão
   const v = String((t.ficheiros && t.ficheiros.versao) || (/_V(\d+)(?:_|$)/.exec(String((t.drive && t.drive.pasta) || '')) || [])[1] || '').replace(/^v/i, '');
-  const p = new URLSearchParams({ id: String(t.id), cliente: (cli && cli.nome) || '', jogo: (nf.jogo && nf.jogo.nome) || '', conceito: nf.conceito || '', versao: v ? `V${v}` : '', ...(t.pastaPC ? { pc: '1' } : {}), estado: t.estado || 'todo' }); // pc=1: a pasta foi criada pela app (o lançador procura-a pela marca da tarefa)
+  const p = new URLSearchParams({ id: String(t.id), cliente: (cli && cli.nome) || '', jogo: (nf.jogo && nf.jogo.nome) || '', conceito: nf.conceito || '', versao: v ? `V${v}` : '', ...(t.pastaPC ? { pc: '1' } : {}), estado: t.estado || 'todo', tema: temaApp() }); // pc=1: a pasta foi criada pela app (o lançador procura-a pela marca da tarefa)
   return `aeproj://abrir/?${p.toString()}`;
 };
 // "Mudar o nome no PC": o lançador muda a pasta do projeto, o .aep mais recente e o collect da @Source para este nome
@@ -4667,7 +4683,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                         : <a href={linkAERenomear(trab, t, null, (pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)).trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className={`${btn} shrink-0`}>Mudar no PC</a>}
                       <a href={linkAEPasta(trab, t, TRAB_ATUAL.clientes)} className={`${btn} shrink-0`} title="Abrir a pasta do projeto no Explorador">Abrir pasta</a>
                     </div>
-                    <a href="aeproj://modelo/" className={`inline-block text-[11px] ${sub} hover:text-blue-400`} title="Os projetos novos do After Effects passam a ser uma cópia deste .aep (com as tuas comps, pastas e definições). Os que já existem não mudam.">Escolher o meu projeto modelo do After Effects…</a>
+                    <a href={`aeproj://modelo/?tema=${temaApp()}`} className={`inline-block text-[11px] ${sub} hover:text-blue-400`} title="Os projetos novos do After Effects passam a ser uma cópia deste .aep (com as tuas comps, pastas e definições). Os que já existem não mudam.">Escolher o meu projeto modelo do After Effects…</a>
                   </div>
                 )}
               </div>
@@ -4837,7 +4853,7 @@ const chaveVersaoC = (jogoId, slug, v) => `${jogoId}|${slug}|${v || 0}`;
 const paramsAE = ({ trab, t, clientes, jogo, conceito, v }) => {
   if (t) { const p = new URLSearchParams(linkAEAbrir(trab, t, clientes).replace(/^aeproj:\/\/abrir\/\?/, '')); if (v) p.set('versao', `V${v}`); return p; }
   const cli = (clientes || []).find(c => String(c.id) === String(jogo && jogo.cid));
-  return new URLSearchParams({ id: '', cliente: (cli && cli.nome) || '', jogo: (jogo && jogo.nome) || '', conceito: conceito || '', versao: v ? `V${v}` : '' });
+  return new URLSearchParams({ id: '', cliente: (cli && cli.nome) || '', jogo: (jogo && jogo.nome) || '', conceito: conceito || '', versao: v ? `V${v}` : '', tema: temaApp() });
 };
 const linkAEPara = o => `aeproj://abrir/?${paramsAE(o).toString()}`;
 // "Abrir a pasta de exports" (lançador AbrirAE): encontra o projeto pelo nome de um export e abre a @Exports
