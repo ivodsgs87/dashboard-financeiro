@@ -2,6 +2,7 @@
 // notas/reuniões e orçamento automático. Substitui o ClickUp. Só é descarregado quando se abre.
 // Os dados (trab) vêm do OrcamentoApp, que os guarda no Firestore; aqui só se lê e se pede para mudar.
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
@@ -2881,6 +2882,9 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   // Se a tarefa mudar por fora (ex.: a spreadsheet foi conferida, ou outro dispositivo), o painel acompanha
   const aEnviarRef = useRef(false);
   useEffect(() => { if (!aEnviarRef.current) setResultado(r0 => (t.drive ? { ...t.drive, ...(r0 && r0.trelloN && r0.pastaId === t.drive.pastaId ? { trelloN: r0.trelloN } : {}) } : null)); }, [t.drive]);
+  // Envio desta tarefa a decorrer de uma abertura anterior do painel (fechaste e voltaste): acompanha pela fila
+  const [, setTicF] = useState(0);
+  useEffect(() => { const f = () => { setTicF(x => x + 1); if (!aEnviarRef.current && (ENVIANDO.has(t.id) || cacheEnvio.has(t.id))) setLista(cacheEnvio.get(t.id) || []); }; FILA.ouvir.add(f); return () => FILA.ouvir.delete(f); }, [t.id]);
   const [verSug, setVerSug] = useState(null);
   const [renomeados, setRenomeados] = useState(null); // itens enviados que ainda podem mudar de nome no PC
   const [noDrive, setNoDrive] = useState(null); // ficheiros na pasta do Drive desta tarefa
@@ -2971,6 +2975,52 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   // Com sessão da Google aberta, a app vai logo ver as versões quando o conceito muda
   useEffect(() => { if (raiz && r.conceito && (tokenGuardado() || ligadoSempre(conta || '_'))) verVersoes(); }, [raiz, r.conceito]); // eslint-disable-line react-hooks/exhaustive-deps
   const tokenGuardado = () => tokenGuardadoDe(conta);
+  // Exports novos na @Exports do projeto (pasta dos projetos escolhida uma vez; o Chrome lembra-se)
+  const [achados, setAchados] = useState(null); // { projeto, dir, itens: [{ handle, file }], nada }
+  const [estadoExp, setEstadoExp] = useState(''); // '' | 'sem-raiz' | 'sem-licenca' | 'a procurar'
+  const [expDesligado, setExpDesligado] = useState(() => { try { return localStorage.getItem('exp-auto-off') === '1'; } catch (e) { return false; } });
+  const ignoradosRef = useRef(new Set());
+  const procurarExports = async (pedir, novaRaiz = false) => {
+    if (!r.conceito || typeof window === 'undefined' || !window.showDirectoryPicker || expDesligado) return;
+    let raizP = novaRaiz ? null : await idbLer('raiz-projetos');
+    if (!raizP) {
+      if (!pedir) { setEstadoExp('sem-raiz'); return; }
+      try { raizP = await window.showDirectoryPicker({ id: 'projetos', mode: 'readwrite' }); await idbGravar('raiz-projetos', raizP); } catch (e) { return; }
+    }
+    if (!(await permissaoLer(raizP, pedir))) { setEstadoExp('sem-licenca'); return; }
+    setEstadoExp('a procurar');
+    try {
+      const kc = `exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`;
+      let alvo = novaRaiz ? null : await idbLer(kc);
+      let dirExp = alvo && alvo.dir;
+      if (dirExp) { try { const it = dirExp.entries(); await it.next(); } catch (e) { dirExp = null; } } // a pasta mudou de nome ou de sítio: procura outra vez
+      if (!dirExp) {
+        const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(t.cid));
+        const a = await acharExportsConceito(raizP, { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '' });
+        if (a) { dirExp = a.dir; alvo = { dir: a.dir, projeto: a.projeto }; await idbGravar(kc, { ...alvo, em: Date.now() }); }
+      }
+      if (!dirExp) { setAchados({ projeto: '', itens: [], nada: true }); setEstadoExp(''); return; }
+      const ignorar = new Set([...ignoradosRef.current, ...versoesDoConceito(trab, t, slugF(r.conceito)).flatMap(x => x.ficheiros.map(f => f.nome)), ...lista.map(x => nomeDe(x))]);
+      const ult = Math.max(0, ...versoesDrive(t.drive).map(d => Date.parse(d.em) || 0));
+      const desde = ult ? ult + 1000 : (Date.parse(t.criada) || 0) - 12 * 3600000;
+      const itens = await exportsNovos(dirExp, { desde, ignorar });
+      setAchados({ projeto: (alvo && alvo.projeto) || dirExp.name, dir: dirExp, itens });
+    } catch (e) { /* sem acesso */ }
+    setEstadoExp('');
+  };
+  useEffect(() => { setAchados(null); setEstadoExp(''); if (!lista.length && !aEnviarRef.current) procurarExports(false); }, [t.id, r.conceito]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ao voltar do After Effects (a janela da app volta a ter foco), vê outra vez
+  useEffect(() => {
+    let ult = 0;
+    const f = () => { if (Date.now() - ult < 15000 || aEnviarRef.current) return; ult = Date.now(); if (!(cacheEnvio.get(t.id) || []).length) procurarExports(false); };
+    window.addEventListener('focus', f); return () => window.removeEventListener('focus', f);
+  }, [t.id, r.conceito, expDesligado]); // eslint-disable-line react-hooks/exhaustive-deps
+  const usarAchados = async () => {
+    const a = achados; if (!a || !a.itens.length) return;
+    setAchados(null);
+    if (a.dir) await lembrarPasta(a.dir, chaves);
+    await juntar(a.itens.map(x => x.file), a.itens.map(x => x.handle));
+  };
   const juntar = async (fs, handles = []) => {
     setMsg('');
     const novos = [];
@@ -3253,7 +3303,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     }
     setAApagar(null); setOcupadoDrive(false);
   };
-  const mudarItem =(id, patch) => setLista(l => l.map(x => (x.id === id ? { ...x, ...patch } : x)));
+  // Também na memória da app: se fechares a tarefa a meio do envio, ao voltar vês o ponto em que está
+  const mudarItem = (id, patch) => { const f = l => l.map(x => (x.id === id ? { ...x, ...patch } : x)); cacheEnvio.set(t.id, f(cacheEnvio.get(t.id) || lista)); setLista(f); };
   const repetidos = lista.filter(x => x.formato).map(x => x.formato).filter((f, i, a) => a.indexOf(f) !== i);
   // Vídeo novo com uma versão que já existe no Drive (e que não é a desta tarefa): não deixa avançar
   // "Esta entrega é…": nova versão ou substituir uma enviada (é o que decide a versão dos ficheiros)
@@ -3322,8 +3373,16 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
   const versaoOcupada = !!(novoVideo && ((infoAtual && infoAtual.versoes.includes(versaoEscolhida)) || outrasV.includes(versaoEscolhida)) && String(versaoAnterior || '') !== String(versaoEscolhida) && !versoesTarefa.includes(versaoEscolhida));
   const pronto = lista.length > 0 && lista.every(x => x.formato && x.file) && !repetidos.length && raiz && r.conceito && !versaoOcupada;
   const enviar = async (subst = {}, opcoes = {}) => {
-    if (!pronto || aEnviar) return null;
-    setAEnviar(true); setMsg('A entrar na Google…');
+    if (!pronto || aEnviar || ENVIANDO.has(t.id)) return null;
+    setAEnviar(true);
+    // Fila: um envio de cada vez; os outros esperam (e continuam mesmo que feches a tarefa)
+    const idF = `${t.id}:${Date.now()}`;
+    ENVIANDO.set(t.id, idF);
+    filaNovo({ id: idF, tarefaId: t.id, titulo: `${nomeBonitoC(r.conceito)} V${versaoDe(verSug)}`, total: lista.length, feitos: 0, prog: 0, estado: 'na fila', em: Date.now() });
+    if (filaAtivos().length > 1) setMsg('Na fila: começa quando acabar o envio que está a decorrer (vê o quadro no canto).');
+    const soltar = await filaVez();
+    filaPor(idF, { estado: 'a enviar' });
+    setMsg('A entrar na Google…');
     try {
       let token;
       try { token = await tokenDrive(conta); } catch (e) { throw e; }
@@ -3372,8 +3431,10 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         if (!ficheiro) { mudarItem(item.id, { estado: 'erro', erro: 'Já não encontro este ficheiro no PC (a pasta ou o nome mudaram depois de o arrastares). Tira-o (✕) e arrasta-o outra vez.' }); continue; }
         mudarItem(item.id, { estado: 'a enviar', prog: 0, file: ficheiro });
         setMsg(`A enviar ${nome}…`);
+        const nFeitos = enviados.length;
+        filaPor(idF, { titulo: `${nomeBonitoC(r.conceito)} V${v}`, atual: item.formato || '', feitos: nFeitos, prog: nFeitos / lista.length });
         try {
-          const res = await enviarParaDrive(token, { file: ficheiro, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => mudarItem(item.id, { prog: p }));
+          const res = await enviarParaDrive(token, { file: ficheiro, nome, pasta: pVersao.id, idExistente: ex ? ex.id : null }, p => { mudarItem(item.id, { prog: p }); filaPor(idF, { prog: (nFeitos + p) / lista.length }); });
           mudarItem(item.id, { estado: 'feito', prog: 1, substituido: !!ex }); if (ex) nSubst++;
           enviados.push({ nome, id: res.id || (ex && ex.id) || null, formato: item.formato });
           if (item.handle && !item.renomeado && item.handle.name !== nome) paraRenomear.push({ handle: item.handle, nomeNovo: nome });
@@ -3411,17 +3472,26 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         set({ drive: novo }); setResultado({ ...novo, trelloN: res.n });
       }
       setMsg(enviados.length === lista.length ? `✓ ${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} no Drive${nSubst ? ` (${nSubst === enviados.length ? 'todos substituídos' : `${nSubst} substituído${nSubst === 1 ? '' : 's'}`} — o link é o mesmo)` : ''}` : `Enviei ${enviados.length} de ${lista.length}. Vê os erros em baixo e tenta outra vez.`);
-      if (enviados.length === lista.length) { setLista([]); setVersaoLote(null); setEscolha(null); }
-      setAEnviar(false);
+      if (enviados.length === lista.length) { setLista([]); cacheEnvio.set(t.id, []); idbGravar(`envio-${t.id}`, null); setVersaoLote(null); setEscolha(null); }
+      const tudo = enviados.length === lista.length;
+      filaPor(idF, tudo ? { estado: 'feito', feitos: enviados.length, prog: 1, link: url, fim: Date.now() } : { estado: 'erro', feitos: enviados.length, erro: `Enviei ${enviados.length} de ${lista.length}. Abre a tarefa para ver os erros.`, fim: Date.now() });
+      avisarNoBrowser(tudo ? `✓ ${nomeBonitoC(r.conceito)} V${v} no Drive` : `⚠ ${nomeBonitoC(r.conceito)} V${v}: envio incompleto`, tudo ? `${enviados.length} ficheiro${enviados.length === 1 ? '' : 's'} enviado${enviados.length === 1 ? '' : 's'}. O link está na fila (canto do ecrã).` : `Enviei ${enviados.length} de ${lista.length}.`);
+      setAEnviar(false); ENVIANDO.delete(t.id); soltar();
       return reg;
-    } catch (e) { setMsg(`⚠ ${e.message || e}`); }
-    setAEnviar(false);
+    } catch (e) {
+      setMsg(`⚠ ${e.message || e}`);
+      filaPor(idF, { estado: 'erro', erro: String(e.message || e), fim: Date.now() });
+      avisarNoBrowser(`⚠ O envio de ${nomeBonitoC(r.conceito)} falhou`, String(e.message || e));
+    }
+    setAEnviar(false); ENVIANDO.delete(t.id); soltar();
     return null;
   };
   // Um só botão: muda o nome no PC (se escolheste) e envia; a spreadsheet só se marcaste a caixa
   const [mudarNoPc, setMudarNoPc] = useState(true);
   const [juntarAFolha, setJuntarAFolha] = useState(false);
   const renomearEEnviar = async () => {
+    // Para avisar no fim, mesmo que estejas noutra janela (o browser pergunta uma vez)
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch (e) { /* */ }
     const subst = {};
     const porMudar = mudarNoPc ? comHandle.filter(x => !x.renomeado && x.handle && x.handle.name !== nomeFinal(x)) : [];
     if (porMudar.length) {
@@ -3447,6 +3517,41 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
       </div>
       {!raiz ? <p className={`text-xs ${sub}`}>Junta o link da pasta do Drive {statics ? 'dos banners/statics' : 'dos vídeos'} no jogo {jogo.nome} (cliente → Jogos).</p> : (
         <>
+          {ENVIANDO.has(t.id) && !aEnviar && <p className="text-xs text-blue-400">A enviar esta tarefa… acompanha no quadro no canto do ecrã (podes continuar a trabalhar).</p>}
+          {!lista.length && !aEnviar && !expDesligado && (() => {
+            const linha = `flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] ${sub}`;
+            const lnk = 'text-blue-500 hover:underline';
+            if (achados && achados.itens.length) return (
+              <div className={`rounded-xl border ${claro ? 'border-blue-200 bg-blue-50/60' : 'border-blue-500/40 bg-blue-500/[0.07]'}`}>
+                <div className="flex items-start gap-2.5 px-3 pt-3 pb-2">
+                  <IcoT n="pasta" className={`w-5 h-5 mt-0.5 ${claro ? 'text-blue-600' : 'text-blue-300'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">Encontrei {achados.itens.length} export{achados.itens.length === 1 ? '' : 's'} novo{achados.itens.length === 1 ? '' : 's'}</p>
+                    <p className={`text-[11.5px] ${sub}`}>Na @Exports de <code className={claro ? 'text-slate-700' : 'text-slate-200'}>{achados.projeto}</code> · desde o último envio</p>
+                  </div>
+                </div>
+                <div className="px-3">
+                  {achados.itens.map(x => (
+                    <div key={x.file.name} className={`flex items-center gap-2 py-1.5 border-t text-xs ${claro ? 'border-blue-100' : 'border-blue-500/15'}`}>
+                      <span className={`w-10 shrink-0 font-semibold ${claro ? 'text-blue-700' : 'text-blue-300'}`}>{formatoDoFicheiro(x.file.name, null) || '?'}</span>
+                      <code className="flex-1 min-w-0 truncate" title={x.file.name}>{x.file.name}</code>
+                      <span className={`shrink-0 tabular-nums ${sub}`}>{(x.file.size / 1048576).toFixed(0)} MB · {haQuanto(new Date(x.file.lastModified).toISOString())}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 px-3 py-2.5">
+                  <button type="button" onClick={() => { achados.itens.forEach(x => ignoradosRef.current.add(x.file.name)); setAchados({ ...achados, itens: [] }); }} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>Ignorar</button>
+                  <button type="button" onClick={usarAchados} className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Usar {achados.itens.length === 1 ? 'este' : `estes ${achados.itens.length}`}</button>
+                </div>
+              </div>
+            );
+            if (estadoExp === 'a procurar') return <p className={linha}>A procurar exports novos na pasta dos projetos…</p>;
+            if (estadoExp === 'sem-raiz') return <p className={linha}>A app pode encontrar os exports novos sozinha. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Escolher a pasta dos projetos</button><button type="button" onClick={() => { setExpDesligado(true); try { localStorage.setItem('exp-auto-off', '1'); } catch (e) { /* */ } }} className={`${sub} hover:text-red-400`} aria-label="Não mostrar mais">✕</button></p>;
+            if (estadoExp === 'sem-licenca') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk}>Procurar exports novos</button><span>(o browser pede autorização à pasta dos projetos)</span></p>;
+            if (achados && achados.nada) return <p className={linha}>Não encontrei o projeto de {nomeBonitoC(r.conceito)} na pasta dos projetos. <button type="button" onClick={() => procurarExports(true, true)} className={lnk}>Escolher outra pasta</button></p>;
+            if (achados) return <p className={linha}>Sem exports novos em <code>{achados.projeto}</code>. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button></p>;
+            return null;
+          })()}
           <div
             onDragOver={e => { e.preventDefault(); if (!arrastarD) setArrastarD(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setArrastarD(false); }} onDrop={e => {
               e.preventDefault(); setArrastarD(false);
@@ -3530,7 +3635,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
                 {(() => { const vA = Number(versaoDe(verSug)); const sub2 = versoesTarefa.includes(vA); const vaiMudar = mudarNoPc && comHandle.some(x => !x.renomeado && x.handle && x.handle.name !== nomeFinal(x));
-                  return <button type="button" disabled={!pronto || aEnviar} onClick={renomearEEnviar} className={`px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40 ${sub2 ? 'bg-amber-600 hover:bg-amber-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{aEnviar ? 'A enviar…' : sub2 ? `${vaiMudar ? 'Renomear e substituir' : 'Substituir'} ${lista.length} na V${vA}` : `${vaiMudar ? 'Renomear e enviar' : 'Enviar'} V${vA}`}</button>; })()}
+                  return <button type="button" disabled={!pronto || aEnviar || ENVIANDO.has(t.id)} onClick={renomearEEnviar} className={`px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40 ${sub2 ? 'bg-amber-600 hover:bg-amber-500' : 'bg-blue-600 hover:bg-blue-500'}`}>{aEnviar ? 'A enviar…' : sub2 ? `${vaiMudar ? 'Renomear e substituir' : 'Substituir'} ${lista.length} na V${vA}` : `${vaiMudar ? 'Renomear e enviar' : 'Enviar'} V${vA}`}</button>; })()}
               </div>
             </div>
           )}
@@ -5953,6 +6058,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
   FREE.lista = trab.freelancers || [];
   TRAB_ATUAL.trab = trab;
+  FILA.tema = theme;
+  useEffect(() => { filaAvisar(); }, [theme]);
+  useEffect(() => { FILA.abrir = id => { if (setTarefaAbertaRef.current) setTarefaAbertaRef.current(id); }; filaAvisar(); return () => { FILA.abrir = null; filaAvisar(); }; }, []);
   TRAB_ATUAL.cu = cu;
   RESERVA.taxa = Number.isFinite(Number(taxaReserva)) ? Number(taxaReserva) : null;
   CONTA_LINKS.padrao = trab.contaGoogle || '';
@@ -5970,6 +6078,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     });
     return [...app, ...Object.values(extra)];
   }, [clientesIn, trabIn]);
+  TRAB_ATUAL.clientes = clientes;
   const [sel, setSelEstado] = useState(() => { try { return JSON.parse(localStorage.getItem('trab-sel')) || { tipo: 'geral' }; } catch (e) { return { tipo: 'geral' }; } });
   const historico = useRef([]);
   const irPara = v => { setSelEstado(v); setArvoreMob(false); try { localStorage.setItem('trab-sel', JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } };
@@ -6581,3 +6690,4 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
 };
 
 export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis };
+export const FICHEIRO_APP = 'trabalho';
