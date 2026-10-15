@@ -2243,7 +2243,7 @@ const linkAE = (trab, t, clientes) => {
   const cli = (clientes || []).find(c => String(c.id) === String(t.cid));
   // só a versão que tu escolheste (ou a da pasta enviada para o Drive) — sem isso não desempata por versão
   const v = String((t.ficheiros && t.ficheiros.versao) || (/_V(\d+)(?:_|$)/.exec(String((t.drive && t.drive.pasta) || '')) || [])[1] || '').replace(/^v/i, '');
-  const p = new URLSearchParams({ id: String(t.id), cliente: (cli && cli.nome) || '', jogo: (nf.jogo && nf.jogo.nome) || '', conceito: nf.conceito || '', versao: v ? `V${v}` : '' });
+  const p = new URLSearchParams({ id: String(t.id), cliente: (cli && cli.nome) || '', jogo: (nf.jogo && nf.jogo.nome) || '', conceito: nf.conceito || '', versao: v ? `V${v}` : '', ...(t.pastaPC ? { pc: '1' } : {}) }); // pc=1: a pasta foi criada pela app (o lançador procura-a pela marca da tarefa)
   return `aeproj://abrir/?${p.toString()}`;
 };
 // "Mudar o nome no PC": o lançador muda a pasta do projeto, o .aep mais recente e o collect da @Source para este nome
