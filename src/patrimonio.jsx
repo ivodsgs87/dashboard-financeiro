@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  GraficoBarras, meses, Ico, anos, _fmtEUR, CU_TIPOS, trabDia, trabMsTempo,
-  trabEntrega, trabPecas, trabValor, TemaCtx, VC_DEFAULT
+  StableInput, GraficoBarras, meses, Ico, anos, _fmtEUR, CU_TIPOS, trabDia,
+  trabMsTempo, trabEntrega, trabPecas, trabValor, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
+  TemaCtx, VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -544,7 +545,7 @@ const patRascunho = ({ registos, key, portfolio, G, M }) => {
     existe: false, importado: false, fechadoEm: null,
     investItens: patInvestDoPortfolio(portfolio),
     liquidez: prev ? copia(prev.rec.liquidez) : PAT_CONTAS_BASE.map(n => ({ id: patId(), nome: n, val: '' })),
-    imoveis: prev ? copia(prev.rec.imoveis) : imoveisCredito,
+    imoveis: prev && (prev.rec.imoveis || []).some(x => patNum(x.val) > 0) ? copia(prev.rec.imoveis) : imoveisCredito, // sem imóveis no mês anterior: vai buscar a casa ao separador Crédito
     outros: prev ? copia(prev.rec.outros) : [],
     dividas: [...dividasCredito, ...copia(manuais)],
     aportes: z(mov.aportes), levantamentos: z(mov.levantamentos), amortizacao: z(mov.amortizacao), origemMov: mov.origem, reservado: '', nota: ''
@@ -714,11 +715,12 @@ const patRegistosEfetivos = (G, M) => {
 // juros/dividendos e património. Por defeito compara os mesmos meses dos dois anos.
 const cmpDadosAno = (G, M, y, ateMes) => {
   const recMes = Array(12).fill(0), porCliente = {};
+  const nfCmp = idsNaoFaturacao(G && G.clientes); // reembolsos e afins não são faturação
   let horas = 0, alocado = 0;
   Object.entries(M || {}).forEach(([k, v]) => {
     const [a, m] = String(k).split('-').map(Number);
     if (a !== y || !(m >= 1 && m <= ateMes) || !v) return;
-    [...(v.regCom || []), ...(v.regSem || [])].forEach(r => { const x = patNum(r.val); recMes[m - 1] += x; porCliente[r.cid] = (porCliente[r.cid] || 0) + x; });
+    [...(v.regCom || []), ...(v.regSem || [])].forEach(r => { if (nfCmp.has(String(r.cid))) return; const x = patNum(r.val); recMes[m - 1] += x; porCliente[r.cid] = (porCliente[r.cid] || 0) + x; });
     horas += patNum(v.horasTrabalhadas);
     alocado += (v.inv || []).reduce((s2, i) => s2 + patNum(i.val), 0);
   });
@@ -900,7 +902,7 @@ const ChatGemini = ({ aberto, onFechar, mensagens, setMensagens, obterContexto, 
     <div className={`fixed z-[70] bottom-0 right-0 sm:bottom-4 sm:right-4 w-full sm:w-[400px] h-[80vh] sm:h-[600px] flex flex-col rounded-t-2xl sm:rounded-2xl border shadow-2xl ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700 text-slate-100'}`} role="dialog" aria-label="Chat com o Gemini">
       <div className={`flex items-center justify-between px-4 py-3 border-b ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
         <div>
-          <p className="font-semibold">✨ Perguntar ao Gemini</p>
+          <p className="font-semibold"><Ico e="✨"/>Perguntar ao Gemini</p>
           <button onClick={() => setVerResumo(!verResumo)} className="text-[11px] text-blue-400 hover:text-blue-300">{verResumo ? 'esconder' : 'ver'} o que é enviado</button>
         </div>
         <div className="flex items-center gap-1">
@@ -964,7 +966,8 @@ const AnoNum = ({ rot, val, cor, nota, barra, ir, onIr }) => {
 };
 // ── "O meu ano": o essencial do ano num só ecrã ──
 // Componente ao nível do módulo (não remonta quando a app redesenha). Só lê dados; para mexer, os links levam aos separadores.
-const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab = null }) => {
+const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab = null, onMeta = null }) => {
+  const [editarMetas, setEditarMetas] = useState(false);
   const claro = theme === 'light';
   const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
@@ -974,7 +977,8 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
   const hoje = new Date();
   const anoHoje = hoje.getFullYear(), mesHoje = hoje.getMonth() + 1;
   const ateMes = ano < anoHoje ? 12 : ano === anoHoje ? mesHoje : 0;
-  const recDe = (y, m) => { const d = M[`${y}-${m}`] || {}; return [...(d.regCom || []), ...(d.regSem || [])].reduce((a, r) => a + (Number(r.val) || 0), 0); };
+  const nfAno = idsNaoFaturacao(G.clientes); // reembolsos e afins não são faturação
+  const recDe = (y, m) => faturacaoDoMes(M[`${y}-${m}`], nfAno);
   const recMes = Array.from({ length: 12 }, (_, i) => (i < ateMes ? recDe(ano, i + 1) : 0));
   const rec = recMes.reduce((a, v) => a + v, 0);
   let ultMesDados = 0; recMes.forEach((v, i) => { if (v > 0) ultMesDados = i + 1; });
@@ -992,7 +996,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
   const pFim = [...serie].reverse().find(s => s.idx <= ano * 12 + 11 && Math.floor(s.idx / 12) === ano) || null;
   const dPat = pIni && pFim && pFim !== pIni ? pFim.capital - pIni.capital : null;
   // Clientes (sem reembolsos)
-  const clis = Object.entries(totais.receitasPorCliente || {}).map(([id, c]) => ({ ...c, id })).filter(c => c.total > 0 && !/reembolso/i.test(c.nome || '')).sort((a, b) => b.total - a.total);
+  const clis = Object.entries(totais.receitasPorCliente || {}).map(([id, c]) => ({ ...c, id })).filter(c => c.total > 0 && !ehNaoFaturacao(c)).sort((a, b) => b.total - a.total);
   const totCli = clis.reduce((a, c) => a + c.total, 0);
   // Horas: as do Trabalho (cronómetro/registos) quando existem; senão as escritas à mão
   let horasMao = 0; for (let m = 1; m <= 12; m++) horasMao += Number((M[`${ano}-${m}`] || {}).horasTrabalhadas) || 0;
@@ -1044,13 +1048,14 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
     const v = pi.irsAPagarReceber;
     (v >= 0 ? bom : aviso)(`IRS de ${ano}: com o que já foi retido, deves ${v >= 0 ? 'receber' : 'pagar'} cerca de ${f(Math.abs(v))} em ${ano + 1}.`, 'resumo');
   }
-  if (rec > 0 && poupado > 0) {
-    const t = poupado / rec * 100;
-    (t >= 20 ? bom : info)(`Puseste de lado ${f(poupado)} (investido + amortizado): ${pct(t)} do que faturaste.`, 'invest');
+  const liqAno = Number(totais.liquidoAnual) || 0;
+  if (liqAno > 0 && poupado > 0) {
+    const t = taxaPoupancaDe(poupado, liqAno);
+    (t >= 20 ? bom : info)(`Puseste de lado ${f(poupado)} (investido + amortizado): ${pct(t)} do que ficou depois dos impostos.`, 'invest');
   }
   if (dIni > 0 && dAtual > 0 && dIni > dAtual) bom(`A dívida da casa desceu ${f(dIni - dAtual)} este ano (agora ${f(dAtual)}).`, 'credito');
   if (dPat != null) (dPat >= 0 ? bom : aviso)(`Investimentos + dinheiro: ${dPat >= 0 ? '+' : '−'}${f(Math.abs(dPat))} desde ${patRotulo(pIni.idx)} (${f(pFim.capital)} em ${patRotulo(pFim.idx)}).`, 'patrimonio');
-  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas${tw.horas > 0 ? ' (registadas no Trabalho)' : ''} · ${_fmtEUR.format(rec / horas)} por hora.`, tw.horas > 0 ? 'trabalho' : 'performance');
+  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas${tw.horas > 0 ? ' (registadas no Trabalho)' : ''} · ${_fmtEUR.format(rec / horas)}/h faturado.`, tw.horas > 0 ? 'trabalho' : 'performance');
   if (pecasTxt.length) info(`Entregaste ${pecasTxt.slice(0, 3).join(', ')}${pecasTxt.length > 3 ? ' e mais' : ''}.`, 'trabalho');
   if (jogosTop.length) info(`O jogo que mais rendeu foi ${jogosTop[0].j.nome} (${f(jogosTop[0].v)}).`, 'trabalho');
   if (tw.custoSub > 0) info(`Subcontrataste ${f(tw.custoSub)}: margem de ${f(tw.valorSub - tw.custoSub)} nesse trabalho.`, 'trabalho');
@@ -1079,7 +1084,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
         <AnoNum onIr={onIr} rot={`Impostos de ${ano}`} val={pi ? f(pi.totalImpostos) : '—'} cor="text-orange-400" ir="resumo"
           nota={pi ? `SS ${f(pi.ssAnual)} · IVA ${f(pi.ivaAPagar)} · IRS ${f(pi.irsEstimado)}` : pagosAno > 0 ? `Pagaste ${f(pagosAno)} durante ${ano}` : 'Previsão só para o ano corrente'} />
         <AnoNum onIr={onIr} rot="Posto de lado" val={f(poupado)} cor="text-violet-400" ir="invest"
-          nota={rec > 0 ? `${pct(poupado / rec * 100)} do faturado · investido ${f(totais.investAnual)} + amortizado ${f(totais.amortAnual)}` : 'Investido + amortizado'} />
+          nota={(Number(totais.liquidoAnual) || 0) > 0 ? `${pct(taxaPoupancaDe(poupado, Number(totais.liquidoAnual)))} do que ficou depois dos impostos · investido ${f(totais.investAnual)} + amortizado ${f(totais.amortAnual)}` : 'Investido + amortizado'} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -1118,8 +1123,19 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <AnoCaixa>
-          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🎯"/>Metas</h3><AnoVer onIr={onIr} tab="resumo" t="editar" /></div>
-          {metasL.length ? (
+          <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🎯"/>Metas</h3>{onMeta ? <button onClick={() => setEditarMetas(v => !v)} className="text-xs text-blue-400 hover:text-blue-300">{editarMetas ? 'feito' : 'editar'}</button> : <AnoVer onIr={onIr} tab="resumo" t="editar" />}</div>
+          {editarMetas && onMeta ? (
+            <div className="space-y-2.5">
+              {[['receitas', 'Faturação (€)'], ['investimentos', 'Investimentos (€)'], ['amortizacao', 'Amortização (€)'], ['horasMensais', 'Horas por mês']].map(([k, rot]) => (
+                <label key={k} className="flex items-center justify-between gap-3 text-sm">
+                  <span className={sub}>{rot}</span>
+                  <StableInput key={`meta-ano-${k}-${ano}`} type="number" initialValue={Number(metas && metas[k]) || 0} onSave={v => onMeta(k, Math.max(0, Number(v) || 0))}
+                    className={`w-28 rounded-lg px-2 py-1 text-right tabular-nums border ${claro ? 'bg-white border-slate-300' : 'bg-slate-900/60 border-slate-600'}`} />
+                </label>
+              ))}
+              <p className={`text-[11px] ${sub}`}>Metas de {ano}. Gravam quando sais do campo.</p>
+            </div>
+          ) : metasL.length ? (
             <div className="space-y-3">
               {metasL.map(x => {
                 const p = x.v / x.m * 100, esperado = fracao * 100;
@@ -1132,7 +1148,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
                 );
               })}
             </div>
-          ) : <p className={`text-sm ${sub}`}>Define metas no Resumo para as veres aqui.</p>}
+          ) : <p className={`text-sm ${sub}`}>Ainda não tens metas para {ano} — carrega em «editar».</p>}
         </AnoCaixa>
         <AnoCaixa>
           <div className="flex items-center justify-between gap-2 mb-3"><h3 className={`font-semibold ${forte}`}><Ico e="🏛"/>Património</h3><AnoVer onIr={onIr} tab="patrimonio" /></div>
@@ -1164,8 +1180,8 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
                 </div>
               ))}
               {clis.length > 4 && <p className={`text-xs ${sub}`}>+{clis.length - 4} outros</p>}
-              {horas > 0 && <p className={`text-xs pt-1 ${sub}`}>{Math.round(horas)} h trabalhadas · {_fmtEUR.format(rec / horas)}/h</p>}
-              {tw.horas > 0 && clis.some(c => tw.horasCli[c.id] > 0) && <p className={`text-xs ${sub}`}>€/h por cliente: {clis.filter(c => tw.horasCli[c.id] > 0).slice(0, 4).map(c => `${c.nome} ${_fmtEUR.format(c.total / tw.horasCli[c.id])}`).join(' · ')}</p>}
+              {horas > 0 && <p className={`text-xs pt-1 ${sub}`} title="€/h faturado = o que faturaste ÷ as horas registadas">{Math.round(horas)} h trabalhadas · {_fmtEUR.format(rec / horas)}/h faturado</p>}
+              {tw.horas > 0 && clis.some(c => tw.horasCli[c.id] > 0) && <p className={`text-xs ${sub}`}>€/h faturado por cliente: {clis.filter(c => tw.horasCli[c.id] > 0).slice(0, 4).map(c => `${c.nome} ${_fmtEUR.format(c.total / tw.horasCli[c.id])}`).join(' · ')}</p>}
             </div>
           ) : <p className={`text-sm ${sub}`}>Sem recibos neste ano.</p>}
         </AnoCaixa>
@@ -1244,8 +1260,9 @@ html[data-tema="claro"] .text-purple-300 { color: #7e22ce; } html[data-tema="cla
 .ico { width: 1.05em; height: 1.05em; display: inline-block; vertical-align: -0.16em; margin-right: .45em; flex-shrink: 0; opacity: .85; }
 .ico-nav { margin-right: .35em; }
 .ico-solo { margin-right: 0; }
-html[data-tema="escuro"] .tile { background: rgba(15, 23, 42, .45); border: 1px solid rgba(71, 85, 105, .5); }
-html[data-tema="claro"] .tile { background: #f8fafc; border: 1px solid #e2e8f0; }
+/* Caixas dentro de cartões: só o fundo, sem contorno (menos linhas — o aspeto de «O meu ano») */
+html[data-tema="escuro"] .tile { background: rgba(15, 23, 42, .42); border: 1px solid transparent; }
+html[data-tema="claro"] .tile { background: #f1f5f9; border: 1px solid transparent; }
 html[data-tema="escuro"] { --graf-grelha: rgba(148, 163, 184, .12); --graf-base: rgba(148, 163, 184, .35); --graf-eixo: #8a97ab; --graf-texto: #f1f5f9; --graf-fundo: #1e293b; --graf-caixa: #0f172a; --graf-caixa-borda: #334155; }
 html[data-tema="claro"] { --graf-grelha: #eef2f6; --graf-base: #cbd5e1; --graf-eixo: #64748b; --graf-texto: #0f172a; --graf-fundo: #ffffff; --graf-caixa: #ffffff; --graf-caixa-borda: #e2e8f0; }
 /* Tema claro: peças antigas que tinham cores escuras fixas passam a claras */
@@ -1295,9 +1312,9 @@ const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
   useEffect(() => { let vivo = true; carregar().then(async m => { if (!vivo) return; setMod(m); m.carregarGis().catch(() => {}); await m.sincronizarSempre(); if (vivo) setLigado(m.ligadoSempre(conta || '_')); }).catch(() => {}); return () => { vivo = false; }; }, [conta]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!mod) return null;
   return ligado
-    ? <p className="text-xs text-emerald-500">🔒 Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>Desligar</button></p>
+    ? <p className="text-xs text-emerald-500"><Ico e="🔒"/>Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>Desligar</button></p>
     : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
-        className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50">🔒 Manter sempre ligado</button>;
+        className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50"><Ico e="🔒"/>Manter sempre ligado</button>;
 };
 // ── Trabalho guardado por anos: um documento base (pastas, jogos, freelancers…) e um por ano com as tarefas ──
 // Cada tarefa fica no ano em que foi criada (não muda de ano). Assim nenhum documento chega ao limite de 1 MB.
