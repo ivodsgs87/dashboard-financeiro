@@ -291,6 +291,34 @@ const transcreverAudio1 = async (wav, lingua, previa) => {
   if (!r.ok) { const e = new Error(r.status === 404 ? 'A função «transcrever» ainda não está publicada — falta fazer o deploy das functions.' : (j.error && j.error.message) || `Erro ${r.status} a transcrever`); e.status = r.status; e.ocupado = !!(j.error && j.error.ocupado); throw e; }
   return limparTranscricao(j.texto);
 };
+// ── Ditado AO VIVO (Gemini Live, modelo de transcrição): o servidor da app dá um "bilhete" de uso único e a app
+// fala diretamente com a Google por WebSocket, a mandar o som em bocadinhos de 0,1 s; o texto vem enquanto falas.
+const pedirTokenVoz = async lingua => {
+  const u = auth && auth.currentUser;
+  if (!u) throw new Error('Entra na app primeiro.');
+  let r;
+  try { r = await fetch(FN_TRANSCREVER, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ acao: 'token', lingua }) }); }
+  catch (e) { throw new Error('Não consegui falar com o servidor da app.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.token) throw new Error((j.error && j.error.message) || (r.status === 404 ? 'A função «transcrever» não está publicada.' : `Erro ${r.status}`));
+  return j;
+};
+const WS_VIVO = [
+  'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained',
+  'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained',
+];
+const textoDaMsg = async d => (typeof d === 'string' ? d : d instanceof Blob ? d.text() : new TextDecoder().decode(d));
+// Abre a ligação e espera pelo "setupComplete" (até 6 s). Devolve o WebSocket pronto, ou rebenta.
+const ligarVivo = (url, token, setup) => new Promise((ok, falha) => {
+  let ws; try { ws = new WebSocket(`${url}?access_token=${encodeURIComponent(token)}`); } catch (e) { falha(e); return; }
+  ws.binaryType = 'arraybuffer';
+  const tm = setTimeout(() => { try { ws.close(); } catch (e) { /* */ } falha(new Error('A Google não respondeu a tempo.')); }, 6000);
+  ws.onopen = () => ws.send(JSON.stringify({ setup }));
+  ws.onmessage = async ev => { let m = null; try { m = JSON.parse(await textoDaMsg(ev.data)); } catch (e) { return; } if (m && m.setupComplete) { clearTimeout(tm); ws.onmessage = null; ws.onerror = null; ws.onclose = null; ok(ws); } };
+  ws.onerror = () => { clearTimeout(tm); falha(new Error('A ligação ao Gemini falhou.')); };
+  ws.onclose = ev => { clearTimeout(tm); falha(new Error(ev.reason || `A Google fechou a ligação (${ev.code}).`)); };
+});
+const pcmBase64 = i16 => { const b = new Uint8Array(i16.buffer, i16.byteOffset, i16.byteLength); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 // Tira o que o modelo às vezes junta sem ser fala: marcas de tempo, "(som de respiração)", "[música]" e frases repetidas em ciclo
 const limparTranscricao = t => {
   let x = String(t || '')
@@ -576,8 +604,70 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   const pararGravacao = (enviarResto, lingua) => {
     const g = gravRef.current; gravRef.current = null; if (!g) return;
     try { g.proc.onaudioprocess = null; g.proc.disconnect(); } catch (e) { /* */ }
+    if (g.ws) { // ao vivo: avisa que acabou, espera pelas últimas palavras e fecha
+      const ws = g.ws; ws.onclose = null;
+      try { if (ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch (e) { /* */ }
+      setTimeout(() => { try { ws.close(); } catch (e) { /* */ } }, enviarResto ? 2500 : 0);
+    }
     if (enviarResto && g.falou && g.amostras / g.taxa > 0.4) enviarPedaco(g, lingua);
     try { g.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* */ } try { g.ctx.close(); } catch (e) { /* */ }
+  };
+  // Ao vivo: o texto aparece enquanto falas (provisório na barra) e entra na nota no fim de cada frase
+  const comecarVivo = async lingua => {
+    let st;
+    try {
+      st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (err) {
+      if (showToast) showToast(err && err.name === 'NotAllowedError' ? 'O browser não deixou usar o microfone. Carrega no cadeado ao lado do endereço › Microfone › Permitir.' : 'Não consegui abrir o microfone (está a ser usado por outra app, ou o Windows está a bloqueá-lo em Definições › Privacidade › Microfone).', 'error');
+      pararDitado(); return;
+    }
+    if (!ditarRef.current) { st.getTracks().forEach(t => t.stop()); return; }
+    let ws = null, tk = null, erro = null;
+    try {
+      tk = await pedirTokenVoz(lingua);
+      for (const url of WS_VIVO) { try { ws = await ligarVivo(url, tk.token, tk.setup); break; } catch (e) { erro = e; } }
+    } catch (e) { erro = e; }
+    if (!ditarRef.current) { st.getTracks().forEach(t => t.stop()); try { if (ws) ws.close(); } catch (e) { /* */ } return; }
+    if (!ws) {
+      st.getTracks().forEach(t => t.stop());
+      if (showToast) showToast(`O ditado ao vivo não arrancou (${(erro && erro.message) || 'erro'}). Passei para o ditado às frases.`, 'info');
+      setDitar(d => (d ? { ...d, motor: 'app', aoVivo: false } : d));
+      comecarGravacao(lingua); return;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC(); const src = ctx.createMediaStreamSource(st);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    src.connect(proc); proc.connect(ctx.destination);
+    const g = { stream: st, ctx, proc, ws, taxa: ctx.sampleRate, buf: [], nbuf: 0, vivo: true, lingua, aberta: Date.now() };
+    ws.onmessage = async ev => {
+      let m = null; try { m = JSON.parse(await textoDaMsg(ev.data)); } catch (e) { return; }
+      const sc = m && m.serverContent; if (!sc) return;
+      if (sc.interimInputTranscription && sc.interimInputTranscription.text) { ultimoDitado.current = Date.now(); const t = sc.interimInputTranscription.text; setDitar(d => (d ? { ...d, provisorio: t } : d)); }
+      if (sc.inputTranscription && sc.inputTranscription.text) {
+        const t = limparTranscricao(sc.inputTranscription.text);
+        ultimoDitado.current = Date.now();
+        if (t) inserirDitado(t, lingua);
+        setDitar(d => (d ? { ...d, provisorio: '' } : d));
+      }
+    };
+    // As sessões da Google duram até 10 min: se fechar e ainda estiveres a ditar, volta a ligar sozinho
+    ws.onclose = () => { if (gravRef.current === g && ditarRef.current) { pararGravacao(false); comecarVivo(lingua); } };
+    proc.onaudioprocess = ev => {
+      const d = ev.inputBuffer.getChannelData(0);
+      let q = 0; for (let i = 0; i < d.length; i++) q += d[i] * d[i]; const rms = Math.sqrt(q / d.length);
+      if (barraRef.current) barraRef.current.style.width = `${Math.min(100, Math.round(rms * 900))}%`;
+      if (rms > 0.018) ouviuSom.current = Date.now();
+      // 48 kHz → 16 kHz (média de cada janela) em PCM de 16 bits; manda de 0,1 em 0,1 s
+      const r = g.taxa / 16000, m2 = Math.floor(d.length / r), pcm = new Int16Array(m2);
+      for (let i = 0; i < m2; i++) { const a = Math.floor(i * r), b = Math.min(d.length, Math.floor((i + 1) * r)); let sm = 0; for (let k = a; k < b; k++) sm += d[k]; const v = Math.max(-1, Math.min(1, sm / Math.max(1, b - a))); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff; }
+      g.buf.push(pcm); g.nbuf += pcm.length;
+      if (g.nbuf >= 1600 && ws.readyState === 1) {
+        const tudo = new Int16Array(g.nbuf); let o = 0; g.buf.forEach(x => { tudo.set(x, o); o += x.length; }); g.buf = []; g.nbuf = 0;
+        try { ws.send(JSON.stringify({ realtimeInput: { audio: { data: pcmBase64(tudo), mimeType: 'audio/pcm;rate=16000' } } })); } catch (e) { /* ligação a fechar */ }
+      }
+    };
+    gravRef.current = g;
+    setDitar(d => (d ? { ...d, aoVivo: true } : d));
   };
   const comecarGravacao = lingua => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { if (showToast) showToast('Este browser não deixa usar o microfone.', 'error'); pararDitado(); return; }
@@ -627,9 +717,9 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     try { localStorage.setItem('notas-ditado-lingua', lingua); if (motorPedido) localStorage.setItem('notas-ditado-motor', motorPedido); } catch (e) { /* sem armazenamento */ }
     if (motor === 'app' || !SR) {
       ditarRef.current = { lingua }; ultimoDitado.current = Date.now(); ouviuSom.current = 0;
-      setDitar({ lingua, provisorio: '', inicio: Date.now(), motor: 'app', pendentes: 0 });
+      setDitar({ lingua, provisorio: '', inicio: Date.now(), motor: 'app', pendentes: 0, aoVivo: null });
       prep();
-      comecarGravacao(lingua);
+      comecarVivo(lingua);
       return;
     }
     const rec = new SR();
@@ -844,7 +934,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
             <span className="relative flex w-2.5 h-2.5 shrink-0" aria-hidden="true"><span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" /><span className="relative w-2.5 h-2.5 rounded-full bg-red-500" /></span>
             <span className="shrink-0 font-medium">A ouvir…</span>
             <span className={`shrink-0 w-12 h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} title="Nível do microfone"><span ref={barraRef} className="block h-full w-0 bg-emerald-500 transition-[width] duration-75" /></span>
-            <span className={`flex-1 min-w-0 truncate italic ${semPalavras ? 'text-amber-500 not-italic' : claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (ditar.motor === 'app' && ditar.pendentes ? 'A escrever o que disseste…' : semPalavras ? 'O microfone está a ouvir, mas o reconhecimento de voz não está a devolver palavras.' : ditar.motor === 'app' ? (ditar.lingua.startsWith('pt') ? 'Fala à vontade — o texto aparece a cada pausa. Podes dizer "nova linha".' : 'Speak now — text appears at each pause. Say "new line".') : ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
+            <span className={`flex-1 min-w-0 truncate italic ${semPalavras ? 'text-amber-500 not-italic' : claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (ditar.motor === 'app' && ditar.aoVivo === null ? 'A ligar ao Gemini…' : ditar.motor === 'app' && ditar.aoVivo ? (ditar.lingua.startsWith('pt') ? 'Ao vivo — fala à vontade. Podes dizer "nova linha".' : 'Live — speak now. Say "new line".') : ditar.motor === 'app' && ditar.pendentes ? 'A escrever o que disseste…' : semPalavras ? 'O microfone está a ouvir, mas o reconhecimento de voz não está a devolver palavras.' : ditar.motor === 'app' ? (ditar.lingua.startsWith('pt') ? 'Fala à vontade — o texto aparece a cada pausa. Podes dizer "nova linha".' : 'Speak now — text appears at each pause. Say "new line".') : ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
             {SR && (
               <span className={`shrink-0 inline-flex rounded-md overflow-hidden ring-1 ${claro ? 'ring-slate-300' : 'ring-slate-600'}`} role="group" aria-label="Motor do ditado">
                 {[['browser', 'Browser', 'Reconhecimento do Chrome/Edge: ao vivo, mas só funciona no Chrome e no Edge'], ['app', 'App', 'A app grava e transcreve a cada pausa: funciona em qualquer browser ou app']].map(([m, txt, tt]) => (
