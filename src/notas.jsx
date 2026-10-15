@@ -276,15 +276,20 @@ const paraWav = (partes, n, taxa, alvo = 16000) => {
   return new Blob([buf], { type: 'audio/wav' });
 };
 const blobBase64 = b => new Promise((ok, falha) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => falha(r.error); r.readAsDataURL(b); });
+// Se o Gemini estiver ocupado (503), tenta mais uma vez antes de avisar
 const transcreverAudio = async (wav, lingua) => {
+  try { return await transcreverAudio1(wav, lingua); }
+  catch (e) { if (!e.ocupado) throw e; await new Promise(ok => setTimeout(ok, 2500)); return transcreverAudio1(wav, lingua); }
+};
+const transcreverAudio1 = async (wav, lingua) => {
   const u = auth && auth.currentUser;
   if (!u) throw new Error('Entra na app primeiro.');
   let r;
   try { r = await fetch(FN_TRANSCREVER, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ audio: await blobBase64(wav), mime: 'audio/wav', lingua }) }); }
   catch (e) { const er = new Error('Não consegui falar com a função «transcrever» do servidor da app. Se ainda não fizeste o deploy dela (firebase deploy --only functions:transcrever), é isso; senão, vê a internet.'); er.status = 0; throw er; }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(r.status === 404 ? 'A função «transcrever» ainda não está publicada — falta fazer o deploy das functions.' : (j.error && j.error.message) || `Erro ${r.status} a transcrever`); e.status = r.status; throw e; }
-  return String(j.texto || '').trim();
+  if (!r.ok) { const e = new Error(r.status === 404 ? 'A função «transcrever» ainda não está publicada — falta fazer o deploy das functions.' : (j.error && j.error.message) || `Erro ${r.status} a transcrever`); e.status = r.status; e.ocupado = !!(j.error && j.error.ocupado); throw e; }
+  return String(j.texto || '').replace(/\[?\(?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|→|–)\s*\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\)?\]?/g, ' ').replace(/\s{2,}/g, ' ').trim();
 };
 const BotaoFerr = ({ ic, on, fn, titulo, claro }) => (
   <button type="button" title={titulo} aria-label={titulo} aria-pressed={!!on} onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()} onClick={fn}
