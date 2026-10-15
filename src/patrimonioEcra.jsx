@@ -5,9 +5,9 @@ import {
 } from './base';
 import {
   txDuplicadosProvaveis, PAT_COMP, patChave, patEhLiquidez, patItemLiq, patRegras, patId, patNum,
-  patIdx, patSoma, patIso, patDataAceite, patCorte, patRotulo, patTotais, patSerie,
-  patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patTxLiquido, patTxEntre, patVida, patRetorno,
-  patCreditoNoMes, patRascunho, patLimpar, patMovimentos, patEstadoMeses, patRegistosEfetivos
+  patStr, patIdx, patSoma, patIso, patDataAceite, patCorte, patRotulo, patTotais,
+  patSerie, patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patTxLiquido, patTxEntre, patVida,
+  patRetorno, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patMovimentos, patEstadoMeses, patRegistosEfetivos
 } from './patrimonio';
 
 const patFmtK = v => {
@@ -790,6 +790,16 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             <span className="text-sm font-medium">{mais ? '▾' : '▸'} Casa, dívidas e outros</span>
             <span className={`text-xs ${sub}`}>Imóveis {f(tDraft.imoveis)} · Dívidas {f(tDraft.dividas)}{tDraft.outros ? ` · Outros ${f(tDraft.outros)}` : ''}</span>
           </button>
+          {(() => {
+            // Há dívida da casa mas o imóvel está a 0: o valor da casa já está no separador Crédito
+            const casaCred = patListaCreditos(G).filter(c => c.estado !== 'planeado' && (c.tipo || 'habitacao') === 'habitacao' && patNum(c.valorBem) > 0);
+            if (tDraft.imoveis >= 0.5 || !casaCred.length) return null;
+            return (
+              <p className={`text-xs mt-1.5 ${sub}`}>A casa está a 0 €, mas o Crédito diz que vale {f(patNum(casaCred[0].valorBem))}.{' '}
+                <button onClick={() => setDraft({ ...draft, imoveis: casaCred.map(c => ({ id: patId(), nome: 'Casa', val: patStr(patNum(c.valorBem)) })) })} className="text-blue-400 hover:underline">Usar esse valor</button>
+              </p>
+            );
+          })()}
           {mais && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5 mt-4">
               <PatLinhas titulo="Imóveis" cor="#d97706" linhas={draft.imoveis} onChange={l => setDraft({ ...draft, imoveis: l })} inp={inp} sub={sub} placeholder="Imóvel" />
