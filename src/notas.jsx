@@ -37,7 +37,7 @@ const limparHtml = (html, { semBlob = false } = {}) => {
       if (n.nodeType === 3) return;
       if (n.nodeType !== 1) { n.remove(); return; }
       const tag = n.tagName;
-      if (PROIBIDAS.has(tag)) { n.remove(); return; }
+      if (PROIBIDAS.has(tag) || (tag === 'SPAN' && n.hasAttribute('data-prov'))) { n.remove(); return; } // data-prov: texto provisório do ditado ao vivo
       andar(n);
       if (!PERMITIDAS.has(tag)) { n.replaceWith(...Array.from(n.childNodes)); return; }
       Array.from(n.attributes).forEach(a => {
@@ -140,6 +140,7 @@ const CSS_NOTAS = `
 .nota-ed pre,.nota-ed code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:rgba(148,163,184,.14);border-radius:6px;padding:.1em .35em}
 .nota-ed pre{padding:.6em .8em;white-space:pre-wrap}
 .nota-ed mark{background:rgba(250,204,21,.38);color:inherit;border-radius:3px;padding:0 .1em}
+.nota-ed span[data-prov]{opacity:.55;font-style:italic}
 .nota-ed hr{border:0;border-top:1px solid rgba(148,163,184,.35);margin:.9em 0}
 .nota-ed div[data-cols]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:.5em 0}
 .nota-ed div[data-cols="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -601,13 +602,38 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
       finally { setDitar(d => (d ? { ...d, pendentes: Math.max(0, (d.pendentes || 1) - 1) } : d)); }
     });
   };
+  // Texto provisório do ditado ao vivo, escrito já na nota (em cinzento), no sítio do cursor; a frase final substitui-o
+  const provRef = useRef(null);
+  const mostrarProvisorio = txt => {
+    const el = ref.current; if (!el) return;
+    let sp = provRef.current;
+    if (!sp || !el.contains(sp)) {
+      prep();
+      const s0 = window.getSelection(); if (!s0 || !s0.rangeCount) return;
+      const r = s0.getRangeAt(0); if (!el.contains(r.startContainer)) return;
+      r.collapse(false);
+      sp = document.createElement('span'); sp.setAttribute('data-prov', '1'); sp.setAttribute('contenteditable', 'false');
+      r.insertNode(sp);
+      const depois = document.createRange(); depois.setStartBefore(sp); depois.collapse(true); s0.removeAllRanges(); s0.addRange(depois);
+      provRef.current = sp;
+    }
+    const antes = sp.previousSibling ? String(sp.previousSibling.textContent || '') : '';
+    sp.textContent = (antes && !/[\s\u00a0]$/.test(antes) ? ' ' : '') + txt;
+  };
+  const tirarProvisorio = () => {
+    const sp = provRef.current; provRef.current = null;
+    if (!sp || !sp.parentNode) return;
+    const r = document.createRange(); r.setStartBefore(sp); r.collapse(true);
+    sp.remove();
+    const s0 = window.getSelection(); if (s0) { s0.removeAllRanges(); s0.addRange(r); }
+  };
   const pararGravacao = (enviarResto, lingua) => {
     const g = gravRef.current; gravRef.current = null; if (!g) return;
     try { g.proc.onaudioprocess = null; g.proc.disconnect(); } catch (e) { /* */ }
     if (g.ws) { // ao vivo: avisa que acabou, espera pelas últimas palavras e fecha
       const ws = g.ws; ws.onclose = null;
       try { if (ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch (e) { /* */ }
-      setTimeout(() => { try { ws.close(); } catch (e) { /* */ } }, enviarResto ? 2500 : 0);
+      setTimeout(() => { try { ws.close(); } catch (e) { /* */ } tirarProvisorio(); }, enviarResto ? 2500 : 0);
     }
     if (enviarResto && g.falou && g.amostras / g.taxa > 0.4) enviarPedaco(g, lingua);
     try { g.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* */ } try { g.ctx.close(); } catch (e) { /* */ }
@@ -642,10 +668,11 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     ws.onmessage = async ev => {
       let m = null; try { m = JSON.parse(await textoDaMsg(ev.data)); } catch (e) { return; }
       const sc = m && m.serverContent; if (!sc) return;
-      if (sc.interimInputTranscription && sc.interimInputTranscription.text) { ultimoDitado.current = Date.now(); const t = sc.interimInputTranscription.text; setDitar(d => (d ? { ...d, provisorio: t } : d)); }
+      if (sc.interimInputTranscription && sc.interimInputTranscription.text) { ultimoDitado.current = Date.now(); const t = sc.interimInputTranscription.text; mostrarProvisorio(t); setDitar(d => (d ? { ...d, provisorio: t } : d)); }
       if (sc.inputTranscription && sc.inputTranscription.text) {
         const t = limparTranscricao(sc.inputTranscription.text);
         ultimoDitado.current = Date.now();
+        tirarProvisorio();
         if (t) inserirDitado(t, lingua);
         setDitar(d => (d ? { ...d, provisorio: '' } : d));
       }
@@ -934,7 +961,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
             <span className="relative flex w-2.5 h-2.5 shrink-0" aria-hidden="true"><span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" /><span className="relative w-2.5 h-2.5 rounded-full bg-red-500" /></span>
             <span className="shrink-0 font-medium">A ouvir…</span>
             <span className={`shrink-0 w-12 h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`} title="Nível do microfone"><span ref={barraRef} className="block h-full w-0 bg-emerald-500 transition-[width] duration-75" /></span>
-            <span className={`flex-1 min-w-0 truncate italic ${semPalavras ? 'text-amber-500 not-italic' : claro ? 'text-slate-500' : 'text-slate-400'}`}>{ditar.provisorio || (ditar.motor === 'app' && ditar.aoVivo === null ? 'A ligar ao Gemini…' : ditar.motor === 'app' && ditar.aoVivo ? (ditar.lingua.startsWith('pt') ? 'Ao vivo — fala à vontade. Podes dizer "nova linha".' : 'Live — speak now. Say "new line".') : ditar.motor === 'app' && ditar.pendentes ? 'A escrever o que disseste…' : semPalavras ? 'O microfone está a ouvir, mas o reconhecimento de voz não está a devolver palavras.' : ditar.motor === 'app' ? (ditar.lingua.startsWith('pt') ? 'Fala à vontade — o texto aparece a cada pausa. Podes dizer "nova linha".' : 'Speak now — text appears at each pause. Say "new line".') : ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
+            <span className={`flex-1 min-w-0 truncate italic ${semPalavras ? 'text-amber-500 not-italic' : claro ? 'text-slate-500' : 'text-slate-400'}`}>{(ditar.motor === 'app' && ditar.aoVivo && ditar.provisorio ? (ditar.lingua.startsWith('pt') ? 'A escrever na nota…' : 'Writing into the note…') : ditar.provisorio) || (ditar.motor === 'app' && ditar.aoVivo === null ? 'A ligar ao Gemini…' : ditar.motor === 'app' && ditar.aoVivo ? (ditar.lingua.startsWith('pt') ? 'Ao vivo — fala à vontade. Podes dizer "nova linha".' : 'Live — speak now. Say "new line".') : ditar.motor === 'app' && ditar.pendentes ? 'A escrever o que disseste…' : semPalavras ? 'O microfone está a ouvir, mas o reconhecimento de voz não está a devolver palavras.' : ditar.motor === 'app' ? (ditar.lingua.startsWith('pt') ? 'Fala à vontade — o texto aparece a cada pausa. Podes dizer "nova linha".' : 'Speak now — text appears at each pause. Say "new line".') : ditar.lingua.startsWith('pt') ? 'Fala à vontade. Diz "vírgula", "ponto final" ou "nova linha".' : 'Speak now. Say "comma", "full stop" or "new line".')}</span>
             {SR && (
               <span className={`shrink-0 inline-flex rounded-md overflow-hidden ring-1 ${claro ? 'ring-slate-300' : 'ring-slate-600'}`} role="group" aria-label="Motor do ditado">
                 {[['browser', 'Browser', 'Reconhecimento do Chrome/Edge: ao vivo, mas só funciona no Chrome e no Edge'], ['app', 'App', 'A app grava e transcreve a cada pausa: funciona em qualquer browser ou app']].map(([m, txt, tt]) => (
