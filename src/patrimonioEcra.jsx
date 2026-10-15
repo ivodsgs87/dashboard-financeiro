@@ -1,7 +1,7 @@
 // Ecrã do separador Património (gráfico e formulário). Só é descarregado quando se abre o separador.
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  meses, Ico, _fmtEUR
+  meses, Ico, _fmtEUR, confirmar
 } from './base';
 import {
   txDuplicadosProvaveis, PAT_COMP, patChave, patEhLiquidez, patItemLiq, patRegras, patId, patNum,
