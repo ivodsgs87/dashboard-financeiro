@@ -18,9 +18,10 @@ import {
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
-  patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
-  patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos,
-  novoIdRecibo, idDriveDe, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, dividirTrabalho, juntarTrabalho, semCarimbo
+  patHistoricoPortfolio, patRotulo, rotuloAnoMes, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida,
+  patInvestDoPortfolio, patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE,
+  LigacaoDriveRecibos, novoIdRecibo, idDriveDe, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, dividirTrabalho, juntarTrabalho,
+  semCarimbo
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -2644,7 +2645,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const dif = it.dia - D.hDia;
    if (dif === 0) return { txt: 'hoje', cor: 'text-amber-500 font-medium' };
    if (dif === 1) return { txt: 'amanhã', cor: 'text-amber-500' };
-   if (dif < 0) return { txt: it.espera ? `desde dia ${it.dia}` : `há ${-dif} dia${dif === -1 ? '' : 's'}`, cor: it.espera ? '' : 'text-red-400' };
+   if (dif < 0) return it.na ? { txt: 'quando houver', cor: '' } : { txt: it.espera ? `desde dia ${it.dia}` : `há ${-dif} dia${dif === -1 ? '' : 's'}`, cor: it.espera ? '' : 'text-red-400' }; // «na»: ainda não há nada para fazer (ex.: nada para alocar) — não está atrasado
    if (dif <= 7) return { txt: `${AG_DSEM[new Date(it.y, it.m - 1, it.dia).getDay()]} ${it.dia}`, cor: '' };
    return { txt: `dia ${it.dia}`, cor: '' };
  };
@@ -5377,7 +5378,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
  <div>
- <h3 className="text-lg font-semibold"><Ico e="📈"/>Alocação de Investimentos</h3>
+ <h3 className="text-lg font-semibold"><Ico e="📈"/>Alocação de investimentos</h3>
  <p className="text-xs text-slate-500">Categorias: {catsInv.join(', ')}</p>
  </div>
  <div className="flex gap-2 justify-end">
@@ -5419,7 +5420,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {totInv > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Distribuição por categoria</h3>
  <div className="space-y-3">
  {catsInv.map(cat => {
    const catTotal = inv.filter(i => i.cat === cat).reduce((a,i) => a + i.val, 0);
@@ -6445,7 +6446,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {mostra('distrib') && (<>
  {porCat.length > 0 && (
  <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="📊"/>Distribuição por categoria</h3>
  <div className="flex flex-col lg:flex-row gap-6">
  <div className="flex-shrink-0">
    <PieChart data={pieData} size={180}/>
@@ -7451,7 +7452,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* LISTA DE CRÉDITOS */}
  <Card className="col-toda">
    <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold"><Ico e="🏦"/>Os Meus Créditos</h3>
+     <h3 className="text-lg font-semibold"><Ico e="🏦"/>Os meus créditos</h3>
      <div className="flex gap-2">
        {usarCreditoAntigo && (
          <button onClick={migrarCreditoAntigo} className="px-3 py-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-sm hover:bg-amber-500/30">
@@ -7459,7 +7460,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </button>
        )}
        <button onClick={() => setShowAddCredito(true)} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm hover:bg-blue-500/30">
-         + Adicionar Crédito
+         + Adicionar crédito
        </button>
      </div>
    </div>
@@ -7481,7 +7482,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {/* Lista de créditos */}
    <div className="space-y-2">
      {creditos.length === 0 && !usarCreditoAntigo && (
-       <p className="text-center text-slate-500 py-8">Nenhum crédito registado. Clica em "+ Adicionar Crédito" para começar.</p>
+       <p className="text-center text-slate-500 py-8">Nenhum crédito registado. Clica em "+ Adicionar crédito" para começar.</p>
      )}
      
      {usarCreditoAntigo && creditos.length === 0 && (
@@ -7566,7 +7567,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    </div>
  </Card>
  
- {/* Modal Adicionar Crédito */}
+ {/* Modal Adicionar crédito */}
  {showAddCredito && (
    <>
      <div className="animate-backdropIn fixed inset-0 bg-black/70 z-40" onClick={() => setShowAddCredito(false)} />
@@ -7594,7 +7595,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          <div className="grid grid-cols-3 gap-4">
            <div>
-             <label className="text-sm text-slate-400 block mb-1">Valor do Bem (€)</label>
+             <label className="text-sm text-slate-400 block mb-1">Valor do bem (€)</label>
              <input type="number" className={`w-full ${inputClass}`} placeholder="365000" value={novoCredito.valorBem} onChange={e => setNovoCredito({...novoCredito, valorBem: e.target.value})} />
            </div>
            <div>
@@ -7639,7 +7640,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              <input type="date" className={`w-full ${inputClass}`} value={novoCredito.dataInicio} onChange={e => setNovoCredito({...novoCredito, dataInicio: e.target.value})} />
            </div>
            <div>
-             <label className="text-sm text-slate-400 block mb-1">Data Fim Prevista</label>
+             <label className="text-sm text-slate-400 block mb-1">Data fim Prevista</label>
              <input type="date" className={`w-full ${inputClass}`} value={novoCredito.dataFim} onChange={e => setNovoCredito({...novoCredito, dataFim: e.target.value})} />
            </div>
          </div>
@@ -7651,7 +7652,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          <div className="flex gap-3 pt-2">
            <button onClick={() => setShowAddCredito(false)} className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl">Cancelar</button>
-           <button onClick={() => adicionarCredito(novoCredito)} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-xl font-medium">Adicionar Crédito</button>
+           <button onClick={() => adicionarCredito(novoCredito)} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-xl font-medium">Adicionar crédito</button>
          </div>
        </div>
      </div>
@@ -7691,18 +7692,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <>
  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 col-toda">
  <StatCard label="Dívida Atual" value={fmt(dividaAtual)} color="text-red-400" icon="🏠"/>
- <StatCard label="Prestação + Seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
- <StatCard label="Taxa de Juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
- <StatCard label="Prazo Restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={dataFim ? `Termina: ${fimCredito.toLocaleDateString('pt-PT')}` : ''} icon="⏱"/>
- <StatCard label="Já Amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${String(pctCredito).replace('.', ',')}% crédito · ${String(pctCasa).replace('.', ',')}% casa`} icon="✅"/>
+ <StatCard label="Prestação + seguros" value={fmt(custoMensal)} color="text-orange-400" sub={`${fmt(prestacao)} + ${fmt(seguros)}`} icon="💳"/>
+ <StatCard label="Taxa de juro" value={`${taxaJuro}%`} color="text-blue-400" sub="Taxa fixa" icon="📊"/>
+ <StatCard label="Prazo restante" value={`${anosRestantes}a ${mesesRestantes}m`} color="text-purple-400" sub={dataFim ? `Termina: ${fimCredito.toLocaleDateString('pt-PT')}` : ''} icon="⏱"/>
+ <StatCard label="Já amortizado" value={fmt(montanteInicial - dividaAtual)} color="text-emerald-400" sub={`${String(pctCredito).replace('.', ',')}% crédito · ${String(pctCasa).replace('.', ',')}% casa`} icon="✅"/>
  </div>
 
  <Card key={`credito-dados-${creditoSelecionado || 'antigo'}-${dividaAtual}`}>
- <h3 className="text-lg font-semibold mb-4"><Ico e="📋"/>Dados do Crédito {creditoEmUso?.nome && `- ${creditoEmUso.nome}`}</h3>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="📋"/>Dados do crédito {creditoEmUso?.nome && `- ${creditoEmUso.nome}`}</h3>
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <div className="space-y-2">
  <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400 text-sm">Valor do Bem</span>
+ <span className="text-slate-400 text-sm">Valor do bem</span>
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} text-right`} initialValue={valorCasaFinal} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'valorBem', v) : uC('valorCasa',v)}/>
  </div>
  <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
@@ -7715,7 +7716,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="flex justify-between items-center gap-3 px-3 py-2 tile rounded-xl">
  <div>
-   <span className="text-slate-300 text-sm">Data Fim</span>
+   <span className="text-slate-300 text-sm">Data fim</span>
    {dataFim && (() => {
      const hoje = new Date();
      const fim = new Date(dataFim);
@@ -7731,11 +7732,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
  <div className="space-y-2">
  <div className="flex justify-between items-center gap-3 px-3 py-2 tile rounded-xl">
- <span className="text-slate-300 font-medium text-sm">Dívida Atual</span>
+ <span className="text-slate-300 font-medium text-sm">Dívida atual</span>
  <StableInput type="number" className={`w-28 sm:w-32 ${inputClass} !border-red-500/40 !text-red-400 font-bold text-right`} initialValue={dividaAtual} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'dividaAtual', v) : uC('dividaAtual',v)}/>
  </div>
  <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
- <span className="text-slate-400 text-sm">Taxa de Juro Atual (%)</span>
+ <span className="text-slate-400 text-sm">Taxa de juro atual (%)</span>
  <StableInput type="number" className={`w-32 ${inputClass} text-right`} initialValue={taxaJuro} onSave={v => creditoSelecionado ? atualizarCredito(creditoSelecionado, 'taxaJuro', v) : uC('taxaJuro',v)} step="0.1"/>
  </div>
  <div className="flex justify-between items-center gap-3 px-3 py-2 bg-slate-700/30 rounded-xl">
@@ -7752,7 +7753,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
 
  <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="📈"/>Evolução Mensal da Dívida</h3>
+ <h3 className="text-lg font-semibold mb-4"><Ico e="📈"/>Evolução mensal da dívida</h3>
  {historico.length < 2 ? (
  <div className="text-center py-8 text-slate-500">
  <p>Adiciona pelo menos 2 registos para ver a evolução.</p>
@@ -7765,12 +7766,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="p-3 bg-slate-700/30 rounded-xl text-center">
  <p className="text-xs text-slate-500">Primeiro registo</p>
  <p className="font-bold text-slate-300">{fmt(historico[0]?.divida || 0)}</p>
- <p className="text-xs text-slate-500">{historico[0]?.date}</p>
+ <p className="text-xs text-slate-500">{rotuloAnoMes(historico[0]?.date)}</p>
  </div>
  <div className="p-3 bg-slate-700/30 rounded-xl text-center">
  <p className="text-xs text-slate-500">Último registo</p>
  <p className="font-bold text-slate-300">{fmt(historico[historico.length-1]?.divida || 0)}</p>
- <p className="text-xs text-slate-500">{historico[historico.length-1]?.date}</p>
+ <p className="text-xs text-slate-500">{rotuloAnoMes(historico[historico.length-1]?.date)}</p>
  </div>
  <div className="p-3 tile rounded-xl text-center">
  <p className="text-xs text-slate-500">Total amortizado</p>
@@ -7785,7 +7786,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* Histórico de Dívida */}
  <Card key={`historico-${creditoSelecionado || 'antigo'}-${historico.length}`}>
    <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold flex items-center gap-2"><span><Ico e="📈"/>Histórico de Dívida</span><Info>O histórico é usado para calcular a amortização anual. Certifica-te de ter um registo de dezembro do ano anterior.</Info></h3>
+     <h3 className="text-lg font-semibold flex items-center gap-2"><span><Ico e="📈"/>Histórico da dívida</span><Info>O histórico é usado para calcular a amortização anual. Certifica-te de ter um registo de dezembro do ano anterior.</Info></h3>
      <button 
        onClick={() => {
          setFormAction({
@@ -8328,11 +8329,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {/* Header com estatísticas */}
        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
          <Card className="bg-green-500/10 border-green-500/30">
-           <p className="text-xs text-slate-400 mb-1"><Ico e="💰"/>Total Compras</p>
+           <p className="text-xs text-slate-400 mb-1"><Ico e="💰"/>Total compras</p>
            <p className="text-xl font-bold text-green-400">{fmt(totalCompras)}</p>
          </Card>
          <Card className="bg-red-500/10 border-red-500/30">
-           <p className="text-xs text-slate-400 mb-1"><Ico e="📤"/>Total Vendas</p>
+           <p className="text-xs text-slate-400 mb-1"><Ico e="📤"/>Total vendas</p>
            <p className="text-xl font-bold text-red-400">{fmt(totalVendas)}</p>
          </Card>
          <Card className="bg-amber-500/10 border-amber-500/30">
@@ -8350,7 +8351,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
          {/* Por Corretora */}
          <Card>
-           <h3 className="text-lg font-semibold mb-3"><Ico e="🏦"/>Por Corretora</h3>
+           <h3 className="text-lg font-semibold mb-3"><Ico e="🏦"/>Por corretora</h3>
            {porCorretora.length === 0 ? (
              <p className="text-slate-500 text-sm">Nenhuma transação registada</p>
            ) : (
@@ -8383,7 +8384,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          
          {/* Por Categoria */}
          <Card>
-           <h3 className="text-lg font-semibold mb-3"><Ico e="📁"/>Por Categoria</h3>
+           <h3 className="text-lg font-semibold mb-3"><Ico e="📁"/>Por categoria</h3>
            {porCategoria.length === 0 ? (
              <p className="text-slate-500 text-sm">Nenhuma transação registada</p>
            ) : (
@@ -8408,7 +8409,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {/* Lista de Transações */}
        <Card>
          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-           <h3 className="text-lg font-semibold"><Ico e="📝"/>Histórico de Transações</h3>
+           <h3 className="text-lg font-semibold"><Ico e="📝"/>Histórico de transações</h3>
            <div className="flex flex-wrap gap-2">
              <label className="cursor-pointer px-4 py-2 rounded-xl text-sm font-medium bg-slate-700/60 hover:bg-slate-600/60 border border-slate-600 transition-colors" title="Ficheiro de transações da Degiro em CSV ou extrato da Trade Republic em PDF">
                📥 Importar ficheiro
@@ -9573,7 +9574,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <input type="date" value={novasFerias.dataInicio} onChange={e => setNovasFerias({ ...novasFerias, dataInicio: e.target.value })} className={inputClass + ' w-full'} />
                  </div>
                  <div>
-                   <label className="text-xs text-slate-400 mb-1 block">Data Fim</label>
+                   <label className="text-xs text-slate-400 mb-1 block">Data fim</label>
                    <input type="date" value={novasFerias.dataFim} onChange={e => setNovasFerias({ ...novasFerias, dataFim: e.target.value })} className={inputClass + ' w-full'} />
                  </div>
                </div>
@@ -9695,7 +9696,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    <input type="date" value={novoProjeto.dataInicio} onChange={e => setNovoProjeto({ ...novoProjeto, dataInicio: e.target.value })} className={inputClass + ' w-full'} />
                  </div>
                  <div>
-                   <label className="text-xs text-slate-400 mb-1 block">Data Fim</label>
+                   <label className="text-xs text-slate-400 mb-1 block">Data fim</label>
                    <input type="date" value={novoProjeto.dataFim} onChange={e => setNovoProjeto({ ...novoProjeto, dataFim: e.target.value })} className={inputClass + ' w-full'} />
                  </div>
                </div>
@@ -12047,13 +12048,13 @@ th{background:#f1f5f9;font-weight:600}
 <div class="summary-card"><h3>📊 Comissões</h3><div class="value purple">${fmt(totalComissoes)}</div></div>
 </div>
 
-<h2><Ico e="🏦"/>Por Corretora</h2>
+<h2><Ico e="🏦"/>Por corretora</h2>
 <table>
 <tr><th>Corretora</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
 ${porCorretora.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
 </table>
 
-<h2><Ico e="📁"/>Por Categoria</h2>
+<h2><Ico e="📁"/>Por categoria</h2>
 <table>
 <tr><th>Categoria</th><th>Compras</th><th>Vendas</th><th>Líquido</th></tr>
 ${porCategoria.map(c => `<tr><td>${c.nome}</td><td class="compra">+${fmt(c.compras)}</td><td class="venda">${c.vendas > 0 ? '-' + fmt(c.vendas) : '-'}</td><td><strong>${fmt(c.compras - c.vendas)}</strong></td></tr>`).join('')}
@@ -12336,7 +12337,7 @@ ${transacoesOrdenadas.map(t => `<tr>
          data.push(['Dívida Atual', creditoAtual.dividaAtual || 0]);
          data.push(['Prestação Mensal', creditoAtual.prestacao || 0]);
          data.push(['Taxa de Juro', `${creditoAtual.taxaJuro || 0}%`]);
-         data.push(['Data Fim', creditoAtual.dataFim || '-']);
+         data.push(['Data fim', creditoAtual.dataFim || '-']);
        }
        
        const headerRows = [];

@@ -331,6 +331,8 @@ const patHistoricoPortfolio = (guardado, M) => {
   return Object.keys(mapa).map(Number).sort((a, b) => a - b).map(i => ({ date: patKey(i), total: mapa[i] }));
 };
 const patRotulo = idx => `${meses[idx % 12].slice(0, 3)}/${String(Math.floor(idx / 12)).slice(2)}`;
+// «2026-09» → «Set/26» (datas do histórico da dívida)
+const rotuloAnoMes = ym => { const m = /^(\d{4})-(\d{1,2})/.exec(String(ym || '')); return m ? patRotulo(Number(m[1]) * 12 + Number(m[2]) - 1) : (ym || ''); };
 
 const patTotais = rec => {
   const r = rec || {};
@@ -1699,13 +1701,13 @@ export {
   txLerTradeRepublic, txDias, txParecida, txMaisProxima, txMarcarDuplicados, txDuplicadosProvaveis, txTextoPDF, txLerFicheiro,
   PAT_COMP, PAT_CONTAS_BASE, PAT_CATS_LIQUIDEZ, patChave, patEhLiquidez, patItemLiq, patRegras, patId,
   patNum, patStr, patIdx, patKey, patSoma, patIso, patFimMes, patDataAceite,
-  PAT_DATAS_INICIAIS, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio, patRotulo, patTotais, patSerie,
-  patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
-  patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
-  patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, LS_EH_OCULTOS, EH_CORES,
-  EuroHoraClientes, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe,
-  dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho,
-  semCarimbo
+  PAT_DATAS_INICIAIS, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio, patRotulo, rotuloAnoMes, patTotais,
+  patSerie, patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido,
+  patTxEntre, patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar,
+  patSugestaoAportes, patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS,
+  ChatTexto, ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, LS_EH_OCULTOS,
+  EH_CORES, EuroHoraClientes, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS,
+  idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho,
+  juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
