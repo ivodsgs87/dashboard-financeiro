@@ -913,6 +913,50 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         if (n.nodeType === 3) { if (tras ? o === 0 : o === n.length) viz = tras ? n.previousSibling : n.nextSibling; }
         else viz = tras ? n.childNodes[o - 1] : n.childNodes[o];
         if (viz && viz.nodeType === 1 && viz.classList && viz.classList.contains('ntag')) { e.preventDefault(); viz.remove(); setTagMenu(null); avisar(); return; }
+        const vazioAntes = (el) => { const ate = document.createRange(); ate.setStart(el, 0); ate.setEnd(r.startContainer, r.startOffset); return !ate.toString().replace(/​/g, '').length && !ate.cloneContents().querySelector('img,span.ntag,hr'); };
+        const cursorEm = (no, fim) => { const c = document.createRange(); if (no.nodeType === 3) c.setStart(no, fim ? no.length : 0); else c.setStart(no, fim ? no.childNodes.length : 0); c.collapse(true); s.removeAllRanges(); s.addRange(c); };
+        // Apagar no início de um ponto da lista: tira o ponto (fica uma linha normal) — não sobe para a linha de cima
+        const li = tras ? dentroDe('li') : null;
+        if (li && vazioAntes(li)) {
+          e.preventDefault();
+          const lista = li.parentElement;
+          const paiLi = lista && lista.parentElement && lista.parentElement.tagName === 'LI' ? lista.parentElement : null;
+          const depois = []; for (let x = li.nextSibling; x; x = x.nextSibling) depois.push(x);
+          if (paiLi) {
+            // ponto dentro de outro ponto: sobe um nível
+            if (depois.length) { const sub2 = lista.cloneNode(false); depois.forEach(x => sub2.appendChild(x)); li.appendChild(sub2); }
+            paiLi.after(li);
+            if (!lista.querySelector('li')) lista.remove();
+            li.removeAttribute('data-ok');
+            cursorEm(li.firstChild || li, false);
+          } else {
+            const linha = document.createElement('div');
+            while (li.firstChild) linha.appendChild(li.firstChild);
+            if (!linha.childNodes.length) linha.appendChild(document.createElement('br'));
+            lista.after(linha);
+            if (depois.length) { const resto = lista.cloneNode(false); depois.forEach(x => resto.appendChild(x)); linha.after(resto); }
+            li.remove();
+            if (!lista.querySelector('li')) lista.remove();
+            cursorEm(linha.firstChild && linha.firstChild.nodeName !== 'BR' ? linha.firstChild : linha, false);
+          }
+          avisar(); return;
+        }
+        // Apagar no início de uma linha cuja linha de cima tem uma etiqueta (@Pool…): junta as duas sem apagar a etiqueta
+        if (tras) {
+          let bl = r.startContainer.nodeType === 3 ? r.startContainer.parentNode : r.startContainer;
+          bl = bl && bl.closest ? bl.closest('div,p,h1,h2,h3,blockquote') : null;
+          const ant = bl && ref.current && ref.current.contains(bl) && bl !== ref.current ? bl.previousElementSibling : null;
+          if (ant && /^(DIV|P|H1|H2|H3|BLOCKQUOTE)$/.test(ant.tagName) && !ant.hasAttribute('data-cols') && !ant.hasAttribute('data-semana') && !ant.hasAttribute('data-col') && !bl.hasAttribute('data-col') && !bl.hasAttribute('data-semana') && ant.querySelector('span.ntag') && vazioAntes(bl)) {
+            e.preventDefault();
+            while (ant.lastChild && ant.lastChild.nodeName === 'BR') ant.lastChild.remove();
+            const fimAnt = ant.lastChild;
+            const vazio = !bl.textContent.replace(/​/g, '').trim() && !bl.querySelector('img,span.ntag,hr');
+            if (!vazio) { while (bl.firstChild) { if (bl.firstChild.nodeName === 'BR' && !bl.firstChild.nextSibling) { bl.firstChild.remove(); break; } ant.appendChild(bl.firstChild); } }
+            bl.remove();
+            if (fimAnt) { const c = document.createRange(); c.setStartAfter(fimAnt); c.collapse(true); s.removeAllRanges(); s.addRange(c); } else cursorEm(ant, true);
+            avisar(); return;
+          }
+        }
         // Não deixa juntar uma coluna à outra (apagar no início / fim de uma coluna, ou "puxar" a coluna para a linha de cima)
         const col = dentroDe('div[data-col], div[data-semana]');
         const vazioAte = (ini, fim) => { const ate = document.createRange(); ate.setStart(...ini); ate.setEnd(...fim); return !ate.toString().length && !ate.cloneContents().querySelector('img,span.ntag,hr'); };
