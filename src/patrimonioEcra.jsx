@@ -1,7 +1,7 @@
 // Ecrã do separador Património (gráfico e formulário). Só é descarregado quando se abre o separador.
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  meses, Ico, _fmtEUR, confirmar
+  meses, Ico, _fmtEUR, confirmar, Info
 } from './base';
 import {
   txDuplicadosProvaveis, PAT_COMP, patChave, patEhLiquidez, patItemLiq, patRegras, patId, patNum,
@@ -552,7 +552,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                         </tbody>
                       </table>
                     </div>
-                    <p className={`mt-1 text-xs ${sub}`}>Só é fiel se as Transações tiverem todas as compras dessa categoria e a categoria tiver o mesmo nome no Portfolio.</p>
+                    <p className={`mt-1 text-xs ${sub} inline-flex items-center gap-1`}>Nota <Info>Só é fiel se as Transações tiverem todas as compras dessa categoria e a categoria tiver o mesmo nome no Portfolio.</Info></p>
                   </div>
                 )}
                 <div>
@@ -596,7 +596,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
       {det.length > 0 && (
         <div className={`${card} col-esq`}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h3 className="font-semibold">{verMercado ? 'O que o mercado rendeu (acumulado)' : `Evolução — ${nomeVista}`}</h3>
+            <h3 className="font-semibold flex items-center gap-2">{verMercado ? 'O que o mercado rendeu (acumulado)' : `Evolução — ${nomeVista}`}{verMercado && pontosMercado.length > 1 && <Info>Ganho ou perda dos investimentos sem contar o dinheiro que lá puseste. Começa em zero em {patRotulo(pontosMercado[0].idx)}{pontosMercado[0].idx > (visiveis[0] ? visiveis[0].idx : 0) ? ', o primeiro mês com detalhe neste período' : ''}.</Info>}</h3>
             <div className="flex items-center gap-2">
               <div className="flex gap-1.5" role="group" aria-label="O que o gráfico mostra">
                 <button className={chip(!verMercado)} aria-pressed={!verMercado} onClick={() => setGraf('valor')}>Valor</button>
@@ -608,7 +608,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           {verMercado ? (
             pontosMercado.length > 1 ? (<>
               <PatChart key="mercado" pontos={pontosMercado} eventos={evOrd} theme={theme} />
-              <p className={`text-xs mt-1 ${sub}`}>Ganho ou perda dos investimentos sem contar o dinheiro que lá puseste. Começa em zero em {patRotulo(pontosMercado[0].idx)}{pontosMercado[0].idx > (visiveis[0] ? visiveis[0].idx : 0) ? ', o primeiro mês com detalhe neste período' : ''}.</p>
             </>) : <p className={`text-sm py-6 text-center ${sub}`}>Ainda não há meses com detalhe neste período para separar o mercado do dinheiro que puseste.</p>
           ) : pontos.length > 1 ? <PatChart key="valor" pontos={pontos} eventos={evOrd} theme={theme} />
             : <p className={`text-sm py-6 text-center ${sub}`}>O gráfico aparece a partir do segundo registo.</p>}
@@ -620,7 +619,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         <div className={`${card} col-esq`}>
           <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
             <div>
-              <h3 className="font-semibold">Poupança</h3>
+              <h3 className="font-semibold flex items-center gap-2">Poupança <Info>Dinheiro que ficou nas contas ou foi investido, mais a dívida que desceu. As receitas são antes de impostos, por isso a percentagem real sobre o que recebes é mais alta.</Info></h3>
               <p className={`text-xs ${sub}`}>{periodo ? (periodo === 1 ? 'último mês' : `últimos ${periodo} meses`) : 'desde o início'} · o que ficou teu sem contar o mercado</p>
             </div>
             <div className="flex items-baseline gap-4">
@@ -640,7 +639,6 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               ))}
             </div>
           )}
-          <p className={`text-xs mt-2 ${sub}`}>Dinheiro que ficou nas contas ou foi investido, mais a dívida que desceu. As receitas são antes de impostos, por isso a percentagem real sobre o que recebes é mais alta.</p>
         </div>
       )}
 
@@ -718,7 +716,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               );
             })}
           </div>
-          <p className={`text-[11px] mt-1.5 ${sub}`}>✓ Portfolio atualizado · = igual ao mês anterior (confirma se atualizaste) · ✕ por atualizar · "tr." = transações registadas nesse mês. Clica num mês para o abrir.</p>
+          <p className={`text-[11px] mt-1.5 ${sub} inline-flex items-center gap-1`}>Legenda <Info>✓ Portfolio atualizado · = igual ao mês anterior (confirma se atualizaste) · ✕ por atualizar · "tr." = transações registadas nesse mês. Clica num mês para o abrir.</Info></p>
         </div>
 
         {estSel && (estSel.portfolio === 'falta' || estSel.portfolio === 'igual') && (
@@ -816,7 +814,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           <input type="date" value={corteSel} min={patIso(new Date(Math.floor(idxSel / 12), idxSel % 12, 1))} max={patIso(new Date(Math.floor(idxSel / 12), (idxSel % 12) + 1, 20))}
             onChange={e => { if (patDataAceite(idxSel, e.target.value)) setPat({ datas: { ...(pat.datas || {}), [mesKey]: e.target.value } }); }}
             className={`${inp} !w-auto !py-1 text-xs`} aria-label="Dia a que se referem os valores do Portfolio" />
-          <span>· compras até este dia contam para {patRotulo(idxSel)}, as seguintes para o mês a seguir</span>
+          <Info>As compras até este dia contam para {patRotulo(idxSel)}; as seguintes para o mês a seguir.</Info>
         </label>
           {!anterior ? (
             <p className={`text-sm ${sub}`}>Primeiro registo. A partir do próximo, a app mostra quanto puseste e quanto o mercado rendeu.</p>
@@ -828,7 +826,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
                   {saidasDraft > 0 && <> e tiraste <strong>{f(saidasDraft)}</strong></>}
                   {patNum(draft.amortizacao) > 0 && <span className={sub}> ({f(patNum(draft.amortizacao))} para amortizar crédito)</span>}
                   .{anterior.rec.importado
-                    ? <span className={sub}> O mês anterior é um snapshot antigo sem detalhe, por isso o rendimento do mercado só é calculado a partir do próximo.</span>
+                    ? <span className={sub}> <Info>O mês anterior é um snapshot antigo sem detalhe, por isso o rendimento do mercado só é calculado a partir do próximo.</Info></span>
                     : <> O mercado {mercadoDraft >= 0 ? 'rendeu' : 'tirou'} <strong className={corDelta(mercadoDraft)}>{f(Math.abs(mercadoDraft))}</strong>.</>}
                 </p>
                 <button onClick={() => setEditMov(!editMov)} aria-expanded={editMov} className="text-xs text-blue-400 hover:text-blue-300">{editMov ? 'fechar' : 'corrigir'}</button>
@@ -873,7 +871,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
           <textarea value={draft.nota} onChange={e => setDraft({ ...draft, nota: e.target.value })} rows={1} placeholder="O que explica os números deste mês?" className={`${inp} w-full resize-y`} />
         </label>
 
-        {ehAuto && <p className={`text-xs mt-3 ${sub}`}>Este mês já está no histórico, calculado sozinho a partir do Portfolio. Não precisas de guardar nada — só se corrigires algum valor.</p>}
+        {ehAuto && <p className={`text-xs mt-3 ${sub} inline-flex items-center gap-1`}>Já está no histórico <Info>Este mês já está no histórico, calculado sozinho a partir do Portfolio. Não precisas de guardar nada — só se corrigires algum valor.</Info></p>}
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t ${linhaB}`}>
           <div><p className={`text-xs ${sub}`}>Património financeiro</p><p className="font-bold">{f(tDraft.capital)}</p></div>
           <div><p className={`text-xs ${sub}`}>Património total</p><p className="font-bold">{f(tDraft.total)}</p></div>
@@ -979,7 +977,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               </div>
             );
           })}
-          <p className={`text-[11px] mt-2 ${sub}`}>auto = calculado sozinho a partir do Portfolio · imp. = snapshot antigo · clica numa linha para abrir esse mês.</p>
+          <p className={`text-[11px] mt-2 ${sub} inline-flex items-center gap-1`}>Legenda <Info>auto = calculado sozinho a partir do Portfolio · imp. = snapshot antigo · clica numa linha para abrir esse mês.</Info></p>
           </div>)}
         </div>
       )}

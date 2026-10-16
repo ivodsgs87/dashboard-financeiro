@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
-  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO, ehNaoFaturacao, PROCESS_INVOICE_URLS,
+  meses, Card, Info, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO, ehNaoFaturacao, PROCESS_INVOICE_URLS,
 } from './base';
 import { auth } from './firebase';
 
@@ -1061,7 +1061,7 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
         </div>
         {/* Subcontratações */}
         <div className={`border-t px-2 sm:px-3 pt-3 pb-2 ${claro ? 'border-slate-200 bg-slate-50/60' : 'border-white/[0.08] bg-black/10'}`}>
-          <p className="text-sm font-semibold">Subcontratações <span className={`font-normal text-[11px] ${sub}`}>o que pagas a outros freelancers — desconta no que te fica</span></p>
+          <p className="text-sm font-semibold flex items-center gap-1.5">Subcontratações <Info>O que pagas a outros freelancers — desconta no que te fica.</Info></p>
           <div className="mt-1.5">
             {custosTarefas.map(c => (
               <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_104px] items-center gap-2 py-1 text-sm">
@@ -1080,7 +1080,7 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
             ))}
           </div>
           <button type="button" className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => setOrc({ custos: [...(orc.custos || []), { quem: '', desc: '', val: '', data: trabDia(new Date().toISOString()) }] })}>+ Subcontratação</button>
-          {!custosTarefas.length && !custosMao.length && <p className={`mt-1 text-[11px] ${sub}`}>Também podes pôr o custo dentro de cada tarefa (campo Outsourcing) — aparece aqui sozinho.</p>}
+          {!custosTarefas.length && !custosMao.length && <Info className="ml-1.5 align-middle">Também podes pôr o custo dentro de cada tarefa (campo Outsourcing) — aparece aqui sozinho.</Info>}
           {totalCustos > 0 && (
             <div className="mt-2 pt-2 border-t border-dashed border-slate-500/30 grid grid-cols-[minmax(0,1fr)_104px] gap-2 text-sm">
               <span className={sub}>Total subcontratado</span><span className="text-right tabular-nums text-red-400">−{eur(totalCustos)}</span>
@@ -1103,13 +1103,11 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
         )}
         {final != null && Math.abs(final - total) >= 1 && <p className={`text-xs ${sub}`}>Diferença para o calculado: {final > total ? '+' : '−'}{eur(Math.abs(final - total))}</p>}
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
-          <span className={`text-xs ${sub} mr-1`} title="Só para te organizares; não muda as contas">Orçamento:</span>
+          <span className={`text-xs ${sub} mr-1 inline-flex items-center gap-1`}>Orçamento <Info>Marca em que ponto está o orçamento (rascunho, enviado ao cliente, aprovado, faturado). É só para te organizares — não muda as contas. As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas; as subcontratações descontam nesse mês.</Info></span>
           {estados.map(([k, n]) => (
             <button key={k} type="button" onClick={() => setOrc({ estado: k })} className={`px-2.5 py-1 rounded-full text-xs border ${(orc.estado || 'rascunho') === k ? 'border-violet-400 bg-violet-500/15 text-violet-400' : claro ? 'border-slate-200 text-slate-500' : 'border-slate-700 text-slate-400'}`}>{n}</button>
           ))}
         </div>
-        <p className={`text-[11px] ${sub}`}>Marca em que ponto está o orçamento (rascunho, enviado ao cliente, aprovado, faturado). É só para te organizares — não muda as contas.</p>
-        <p className={`text-[11px] ${sub}`}>As quantidades vêm das tarefas desta pasta; escreve por cima para mudar. As linhas à parte entram nas receitas estimadas no mês da data delas; as subcontratações descontam nesse mês.</p>
         {onVerPrecos && <button type="button" onClick={onVerPrecos} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"><IcoT n="lapis" className="w-3.5 h-3.5" /> Mudar os preços de {nomeCliente || 'este cliente'} →</button>}
       </div>
     </div>
@@ -1131,7 +1129,7 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
   };
   return (
     <div className="space-y-3 max-w-3xl">
-      <p className={`text-sm ${sub}`}>Preços de <strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{nome}</strong>. Contam no valor de cada tarefa, nos orçamentos e nas receitas estimadas. Vazio = usa o padrão.</p>
+      <p className={`text-sm ${sub} flex items-center gap-1.5`}><span>Preços de <strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{nome}</strong></span> <Info>Contam no valor de cada tarefa, nos orçamentos e nas receitas estimadas. Vazio = usa o padrão.</Info></p>
       <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
         {[...tiposDe(cu), ...CAMPOS_EXTRA_PRECO].map(t => {
           const base = pre[t.id] != null ? pre[t.id] : padrao[t.id];
@@ -1987,7 +1985,7 @@ const BlocoTextosAE = ({ slide, copiar, copiado }) => {
   );
   return (
     <div className="rounded-xl p-3 sm:p-4 bg-blue-500/10 ring-1 ring-blue-400/40 space-y-3">
-      <p className="text-[11px] uppercase tracking-wide text-blue-200 font-semibold">Para o After — textos do slide {slide.n}</p>
+      <p className="text-[11px] uppercase tracking-wide text-blue-200 font-semibold flex items-center gap-1.5">Para o After — textos do slide {slide.n} <Info>«Copiar os …» copia um por linha — no After, cola numa layer de texto e cada linha fica numa linha.</Info></p>
       {ecra.length > 0 && (
         <div>
           <div className="flex items-center justify-between gap-2"><p className="text-xs font-medium">Textos no ecrã <span className="text-white/50 font-normal">(cartões, end card, hooks)</span></p><button type="button" onClick={() => copiar(ecra.join('\n'), 'ae-ecra')} className="text-[11px] text-blue-300 hover:underline">{copiado === 'ae-ecra' ? '✓ Copiados' : `Copiar os ${ecra.length}`}</button></div>
@@ -2006,7 +2004,6 @@ const BlocoTextosAE = ({ slide, copiar, copiado }) => {
           ))}</ul>
         </div>
       )}
-      <p className="text-[11px] text-white/45">«Copiar os …» copia um por linha — no After, cola numa layer de texto e cada linha fica numa linha.</p>
     </div>
   );
 };
@@ -2821,7 +2818,7 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
       <div className={`flex flex-wrap items-center gap-2 text-xs ${sub}`}>
         <span>Emails aos freelancers saem da conta</span>
         <TxtIn type="email" valor={trab.contaEmailFree} onGravar={v => mudar(tr => ({ ...tr, contaEmailFree: v }))} placeholder="o-teu@gmail.com" className={`${inputClass} !w-60 text-sm py-1.5`} />
-        <span className="text-[11px]">(o Gmail abre com esta conta — tem de ter sessão iniciada neste browser)</span>
+        <Info>O Gmail abre com esta conta — tem de ter sessão iniciada neste browser.</Info>
       </div>
       <form onSubmit={e => { e.preventDefault(); if (nome.trim()) { mudar(tr => opNovoFreelancer(tr, nome.trim())); setNome(''); } }} className="flex flex-wrap gap-2">
         <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do freelancer" className={`${inputClass} !w-56 text-sm py-1.5`} />
@@ -4881,8 +4878,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                 {/* Pasta e projeto no PC: no fim, quando tudo estiver enviado */}
                 {nomeProjetoTarefa(trab, t) && (
                   <div className={`rounded-xl border p-3 space-y-2 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/70 bg-slate-800/40'}`}>
-                    <p className="text-sm font-medium">Pasta e projeto no PC</p>
-                    <p className={`text-[11px] ${sub}`}>Muda o nome da pasta do projeto, do .aep e do collect da @Source. Fecha antes o projeto no After Effects — o lançador mostra-te o que vai mudar antes de mexer.</p>
+                    <p className="text-sm font-medium flex items-center gap-1.5">Pasta e projeto no PC <Info>Muda o nome da pasta do projeto, do .aep e do collect da @Source. Fecha antes o projeto no After Effects — o lançador mostra-te o que vai mudar antes de mexer.</Info></p>
                     <div className="flex items-center gap-2">
                       <input value={pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)} onChange={e => setPastaProj({ novo: e.target.value })} aria-label="Nome novo da pasta e do projeto" className={`${inputClass} flex-1 min-w-0 text-xs py-1.5 font-mono`} />
                       {lista.some(x => x.estado !== 'feito')
@@ -4899,7 +4895,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
           {noDrive && (
             <div className={`rounded-lg border ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
               <div className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${claro ? 'border-slate-200' : 'border-slate-700'}`}>
-                <span className="font-medium flex-1 min-w-0 truncate">No Drive · {(verPasta || resultado || {}).pasta}</span>
+                <span className="font-medium min-w-0 truncate">No Drive · {(verPasta || resultado || {}).pasta}</span><Info>Para substituir um vídeo, arrasta a versão nova para cima: fica com o mesmo nome e troca a antiga.</Info><span className="flex-1" />
                 {noDrive.length > 1 && (aApagar === '*' ? (
                   <>
                     <button type="button" disabled={ocupadoDrive} onClick={apagarTodosNoDrive} className="shrink-0 px-2 py-0.5 rounded-md bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">{ocupadoDrive ? 'A apagar…' : `Apagar os ${noDrive.length}`}</button>
@@ -4924,7 +4920,6 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   ))}
                 </div>
               )}
-              <p className={`px-3 py-1.5 text-[10px] ${sub}`}>Para substituir um vídeo, arrasta a versão nova para cima: fica com o mesmo nome e troca a antiga.</p>
             </div>
           )}
           <div className={`flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs ${sub}`}>
@@ -6080,6 +6075,7 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
         </form>
         {semJogo.length > 0 && <button type="button" onClick={() => mudar(tr => opDetetarJogos(tr, cid))} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoT n="jogo" className="w-3.5 h-3.5" /> Detetar os jogos pelos nomes das listas ({semJogo.length})</button>}
         {jogos.length > 0 && !novaFolha && <button type="button" onClick={() => setNovaFolha(true)} className={`px-3 py-1.5 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'} inline-flex items-center gap-1.5`}><IcoFolha s={13} /> Criar spreadsheet para vários jogos</button>}
+        <Info>As listas novas com o nome do jogo (ex.: "45 - Mahjong - Nov") ligam-se sozinhas e ficam com a cor dele. O código, a pasta do Drive e a spreadsheet vão servir para dar nome aos ficheiros e fazer o upload automático mais tarde.</Info>
       </div>
       {novaFolha && <CriarFolha key={String(novaFolha)} cid={cid} jogos={jogos} mudar={mudar} claro={claro} sub={sub} inputClass={inputClass} estudioInicial={typeof novaFolha === 'string' ? novaFolha : ''} onFechar={() => setNovaFolha(false)} />}
       {!jogos.length && <p className={`text-sm ${sub}`}>Ainda não há jogos. Cria um, ou deteta-os pelos nomes das listas (ex.: "44 - Mahjong - Oct" → Mahjong).</p>}
@@ -6142,7 +6138,6 @@ const JogosCliente = ({ cid, trab, cu, clientes, ano, theme, inputClass, mudar, 
           </div>
         );
       })()}
-      <p className={`text-[11px] ${sub}`}>As listas novas com o nome do jogo (ex.: "45 - Mahjong - Nov") ligam-se sozinhas e ficam com a cor dele. O código, a pasta do Drive e a spreadsheet vão servir para dar nome aos ficheiros e fazer o upload automático mais tarde.</p>
     </div>
   );
 };
@@ -6426,7 +6421,7 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
   );
   return (
     <div className="space-y-3">
-      <p className={`text-sm ${sub}`}>Os tipos que escolhes em cada tarefa, com o preço padrão e o de cada cliente. Vazio = usa o valor cinzento (o padrão ou a tabela do cliente). Estes preços alimentam o valor das tarefas, os orçamentos e as receitas estimadas.</p>
+      <p className={`text-sm ${sub} flex items-center gap-1.5`}>Os tipos de tarefa, com o preço padrão e o de cada cliente. <Info>Vazio = usa o valor cinzento (o padrão ou a tabela do cliente). Estes preços alimentam o valor das tarefas, os orçamentos e as receitas estimadas.</Info></p>
       <div className={`rounded-xl border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
         <div style={{ minWidth: minW }}>
           <div className={`grid items-end gap-2 px-3 h-10 pb-1.5 border-b text-[11px] font-medium ${claro ? 'border-slate-200 text-slate-400' : 'border-white/[0.08] text-slate-500'}`} style={cols}>
@@ -6839,7 +6834,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       <div className={`rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}
         onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); }}
         onDrop={e => { if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); juntarRecibos(e.dataTransfer.files); } }}>
-        <p className="text-sm font-medium">Importar recibos verdes</p>
+        <p className="text-sm font-medium flex items-center gap-1.5">Importar recibos verdes <Info>A IA lê a data, o valor, o IVA e a retenção. Se já houver um registo deste cliente com o mesmo valor (por exemplo, o que a fatura criou), o recibo junta-se a esse; senão, cria um registo novo «com taxas» no mês da data. O PDF fica guardado na app e vai para a pasta dos recibos no Drive.</Info></p>
         <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer text-center ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
           <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={e => { juntarRecibos(e.target.files); e.target.value = ''; }} />
           <span>📎</span><span>Escolhe os PDFs dos recibos (podes escolher vários) ou arrasta-os para aqui</span>
@@ -6878,7 +6873,6 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
             })}
           </div>
         )}
-        <p className={`text-[11px] ${sub}`}>A IA lê a data, o valor, o IVA e a retenção. Se já houver um registo deste cliente com o mesmo valor (por exemplo, o que a fatura criou), o recibo junta-se a esse; senão, cria um registo novo «com taxas» no mês da data. O PDF fica guardado na app e vai para a pasta dos recibos no Drive.</p>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={guardarImp} disabled={imp.aGuardar || lendo > 0 || !vai} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{imp.aGuardar ? 'A importar…' : lendo ? `A ler ${lendo} PDF${lendo === 1 ? '' : 's'}…` : `Importar ${vai || ''} recibo${vai === 1 ? '' : 's'}`}</button>
           <button type="button" onClick={() => setImp(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
@@ -6935,7 +6929,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       </button>
       {abertoCfg && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-          <CampoF rot="Pasta dos recibos no Drive (link)">
+          <CampoF rot={<>Pasta dos recibos no Drive (link) <Info>É a mesma pasta para todos os clientes (também está em Definições). Cada recibo com PDF vai para lá em <strong>Cliente / Ano / Nº_Trimestre</strong>; e os PDFs que lá pões juntam-se sozinhos ao registo certo em Receitas (mesmo cliente e valor, perto da data). As pastas que a app usa ficam verdes no Drive. A app nunca apaga nada no Drive.</Info></>}>
             <TxtIn valor={cfgD.pasta} onGravar={v => onCfgDrive({ pasta: String(v || '').trim() })} placeholder="https://drive.google.com/drive/folders/…" className={icI} />
             {cfgD.pasta && !idPastaDrive(cfgD.pasta) && <span className="text-[11px] text-red-400">Este link não parece de uma pasta do Drive.</span>}
           </CampoF>
@@ -6948,7 +6942,6 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                 <button type="button" disabled={aLigarR} onClick={ligarSempreR} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aLigarR ? 'A ligar…' : 'Manter sempre ligado'}</button>
               </p>)}
           {cfgD.pasta && itensDriveTodos && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={cfgD.pasta} conta={cfgD.conta} itens={typeof itensDriveTodos === 'function' ? itensDriveTodos() : itensDriveTodos} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta dos recibos" /></div>}
-          <p className={`sm:col-span-2 text-[11px] ${sub}`}>É a mesma pasta para todos os clientes (também está em Definições). Cada recibo com PDF vai para lá em <strong>Cliente / Ano / Nº_Trimestre</strong>; e os PDFs que lá pões juntam-se sozinhos ao registo certo em Receitas (mesmo cliente e valor, perto da data). As pastas que a app usa ficam verdes no Drive. A app nunca apaga nada no Drive.</p>
         </div>
       )}
     </div>
@@ -6987,7 +6980,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
         setAEnviar(null);
       }} />
       <div className="flex flex-wrap items-start gap-2">
-        {semPdf > 0 ? <p className={`flex-1 min-w-0 text-xs ${sub}`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app. Usa «+ PDF» num recibo, ou «+ Importar recibos» para juntar vários de uma vez.</p> : <span className="flex-1" />}
+        {semPdf > 0 ? <p className={`flex-1 min-w-0 text-xs ${sub} flex items-center gap-1.5`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app <Info>Usa «+ PDF» num recibo, ou «+ Importar recibos» para juntar vários de uma vez.</Info></p> : <span className="flex-1" />}
         {barraImp}
       </div>
       {avisoDrive}
@@ -6997,7 +6990,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
           <p>⚠ {paraPassar.length === 1 ? '1 recibo está guardado' : `${paraPassar.length} recibos estão guardados`} em Receitas num mês diferente do da emissão: {paraPassar.map(r => `${dataTxt(r)} (está em ${nomeMesK(r.k)})`).join(', ')}. Para o IVA, a SS e o IRS conta o mês em que o recibo foi emitido.</p>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => { onMesEmissao(paraPassar.map(r => ({ k: r.k, id: r.id }))); if (showToast) showToast(`${paraPassar.length === 1 ? 'Recibo passado' : `${paraPassar.length} recibos passados`} para o mês da emissão (Ctrl+Z desfaz)`); }} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Passar para o mês da emissão</button>
-            <span className="opacity-80">O dinheiro continua a contar para investir no mês seguinte, como até agora.</span>
+            <Info>O dinheiro continua a contar para investir no mês seguinte, como até agora (fica marcado «investir no mês seguinte»).</Info>
           </div>
         </div>
       )}
@@ -7647,13 +7640,12 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             <CampoF rot="Morada (linha 1)"><TxtIn valor={em.morada1} onGravar={v => setEm({ morada1: v })} placeholder="Rua…" className={ic} /></CampoF>
             <CampoF rot="Morada (linha 2)"><TxtIn valor={em.morada2} onGravar={v => setEm({ morada2: v })} placeholder="Código postal, localidade" className={ic} /></CampoF>
             <CampoF rot="NIF"><TxtIn valor={em.nif} onGravar={v => setEm({ nif: v })} placeholder="PT…" className={ic} /></CampoF>
-            <CampoF rot={'Tipo de trabalho por defeito ("FOR:") — cada cliente pode ter o seu na Ficha'}><TxtIn valor={em.para != null ? em.para : 'Motion Graphics'} onGravar={v => setEm({ para: v })} className={ic} /></CampoF>
-            <CampoF rot="IBAN"><TxtIn valor={em.iban} onGravar={v => setEm({ iban: v })} placeholder="PT50 …" className={ic} /></CampoF>
+            <CampoF rot={<>Tipo de trabalho por defeito ("FOR:") <Info>Cada cliente pode ter o seu na Ficha.</Info></>}><TxtIn valor={em.para != null ? em.para : 'Motion Graphics'} onGravar={v => setEm({ para: v })} className={ic} /></CampoF>
+            <CampoF rot={<>IBAN <Info>Os teus dados ficam só na tua base de dados da app (não no código). O nome legal, o VAT e a morada do cliente vêm da Ficha → Faturação; o IVA e a nota do IVA também se mudam lá.</Info></>}><TxtIn valor={em.iban} onGravar={v => setEm({ iban: v })} placeholder="PT50 …" className={ic} /></CampoF>
             <CampoF rot="SWIFT/BIC"><TxtIn valor={em.swift} onGravar={v => setEm({ swift: v })} className={ic} /></CampoF>
-            <p className={`sm:col-span-2 text-[11px] ${sub}`}>Ficam só na tua base de dados da app (não no código). O nome legal, o VAT e a morada do cliente vêm da Ficha → Faturação; o IVA e a nota do IVA também se mudam lá.</p>
             <div className={`sm:col-span-2 mt-1 pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-3 ${claro ? 'border-slate-100' : 'border-white/[0.06]'}`}>
               <p className="sm:col-span-2 text-sm font-semibold">☁ Faturas no Google Drive</p>
-              <CampoF rot="Pasta das faturas no Drive (link)">
+              <CampoF rot={<>Pasta das faturas no Drive (link) <Info>Cada fatura fica em <strong>pasta das faturas / Cliente / Ano / Nº_Trimestre</strong>, pela data da fatura (se guardares uma solta na pasta principal, a app arruma-a). O nº e o mês vêm do nome do ficheiro (ex.: 8_Invoice_October_26.pdf). As pastas que a app usa ficam verdes no Drive. A app nunca apaga nada no Drive.</Info></>}>
                 <TxtIn valor={fd.pasta} onGravar={v => setFD({ pasta: String(v || '').trim() })} placeholder="https://drive.google.com/drive/folders/…" className={ic} />
                 {fd.pasta && !idPastaDrive(fd.pasta) && <span className="text-[11px] text-red-400">Este link não parece de uma pasta do Drive.</span>}
               </CampoF>
@@ -7662,7 +7654,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
               </CampoF>
               <label className="sm:col-span-2 flex items-start gap-2 text-xs">
                 <input type="checkbox" checked={fd.auto !== false} onChange={e => setFD({ auto: e.target.checked })} className="accent-blue-500 mt-0.5" />
-                <span>Juntar sozinho as faturas novas que aparecerem nessa pasta (por exemplo, as que guardas no PC numa pasta sincronizada com o Drive). Se a mesma fatura for guardada outra vez (corrigida), atualiza a que já existe — nunca fica a dobrar.</span>
+                <span>Juntar sozinho as faturas novas que aparecem nesta pasta <Info>Por exemplo, as que guardas no PC numa pasta sincronizada com o Drive. Se a mesma fatura for guardada outra vez (corrigida), atualiza a que já existe — nunca fica a dobrar.</Info></span>
               </label>
               {fd.pasta && fd.auto !== false && !sempreFD && (
                 <p className="sm:col-span-2 text-xs text-amber-500 flex flex-wrap items-center gap-2">Para a app ver o Drive sozinha, esta conta tem de ficar sempre ligada.
@@ -7671,7 +7663,6 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
               )}
               {fd.pasta && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={fd.pasta} conta={contaFD} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta das faturas" resolver={resolverFaturaSolta} onLigar={ligarSoltas}
                 itens={(trab.faturas || []).filter(f => f.drive && f.drive.id).map(f => { const cl = (clientes || []).find(x => String(x.id) === String(f.cid)); return { id: f.drive.id, cliente: cl ? cl.nome : '', data: f.data || ultimoDiaDe(f.mes) }; }).filter(x => x.cliente)} /></div>}
-              <p className={`sm:col-span-2 text-[11px] ${sub}`}>Cada fatura fica em <strong>pasta das faturas / Cliente / Ano / Nº_Trimestre</strong>, pela data da fatura (se guardares uma solta na pasta principal, a app arruma-a). O nº e o mês vêm do nome do ficheiro (ex.: 8_Invoice_October_26.pdf). As pastas que a app usa ficam verdes no Drive, para se ver que estão ligadas à app. A app nunca apaga nada no Drive.</p>
             </div>
           </div>
         )}
@@ -7711,7 +7702,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             <div className={`mb-3 rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}
               onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); }}
               onDrop={e => { if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); juntarFicheiros(e.dataTransfer.files); } }}>
-              <p className="text-sm font-medium">Juntar faturas feitas fora da app</p>
+              <p className="text-sm font-medium flex items-center gap-1.5">Juntar faturas feitas fora da app <Info>O nº e o mês vêm do nome do ficheiro (ex.: 4_Invoice_September_26) e a IA lê o valor e a data do PDF — confirma antes de juntar. Não cria nada em Receitas: as faturas antigas normalmente já lá estão.</Info></p>
               <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer text-center ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
                 <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={e => { juntarFicheiros(e.target.files); e.target.value = ''; }} />
                 <span>📎</span><span>Escolhe os PDFs (podes escolher vários) ou arrasta-os para aqui</span>
@@ -7741,7 +7732,6 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                   <span>Dar como faturadas as {nT} tarefa{nT === 1 ? '' : 's'} entregue{nT === 1 ? '' : 's'} em {mesesSel.map(nomeMes).join(', ')} que ainda estão por faturar</span>
                 </label>
               )}
-              <p className={`text-[11px] ${sub}`}>O nº e o mês vêm do nome do ficheiro (ex.: 4_Invoice_September_26) e a IA lê o valor e a data do PDF — confirma antes de juntar. Não cria nada em Receitas: as faturas antigas normalmente já lá estão.</p>
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" onClick={guardarAntigas} disabled={antigas.aGuardar || lendo > 0 || !L.length} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{antigas.aGuardar ? 'A guardar…' : lendo ? `A ler ${lendo} PDF${lendo === 1 ? '' : 's'}…` : `Juntar ${L.length || ''} fatura${L.length === 1 ? '' : 's'}`}</button>
                 <button type="button" onClick={() => setAntigas(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
@@ -7918,7 +7908,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             <Campo rot="Lembretes" largo><label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente (não lembrar nos Passos do mês)</label></Campo>
             <Campo rot="Não é faturação" largo>
               <label className="inline-flex items-start gap-2 text-sm"><input type="checkbox" checked={ehNaoFaturacao(c)} disabled={/reembolso/i.test(c.nome || '')} onChange={e => set({ naoFaturacao: e.target.checked })} className="accent-blue-500 mt-1" />
-                <span>Não é trabalho (ex.: reembolso do IRS) — o dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, do €/h e dos impostos.{/reembolso/i.test(c.nome || '') && <span className={`block text-xs ${sub}`}>Já está assim por ter «reembolso» no nome.</span>}</span>
+                <span>Não é trabalho (ex.: reembolso do IRS) <Info>O dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, do €/h e dos impostos.</Info>{/reembolso/i.test(c.nome || '') && <span className={`block text-xs ${sub}`}>Já está assim por ter «reembolso» no nome.</span>}</span>
               </label>
             </Campo>
             <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
@@ -7929,8 +7919,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
         </div>
 
         <div className={caixa}>
-          <p className="text-sm font-semibold">Regras dos recibos</p>
-          <p className={`text-xs mb-3 ${sub}`}>Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos.</p>
+          <p className="text-sm font-semibold mb-3 flex items-center gap-1.5">Regras dos recibos <Info>Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos.</Info></p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Campo rot="País do cliente">
               <div className="flex flex-wrap gap-1.5">{PAISES_RECIBO.map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ pais: k, regime: k === 'Fora UE' ? 'sem' : (rec.regime === 'sem' && paisEf === 'Fora UE' ? 'com' : rec.regime || 'com') })} className={`${chip(paisEf === k)} ${!rec.pais && paisEf === k ? 'border-dashed' : ''}`}>{nm}</button>)}</div>
@@ -8202,7 +8191,7 @@ const Timesheet = ({ trab, mudar, clientes, theme, onAbrir }) => {
           <button type="button" onClick={() => setInicio(maisDias(inicio, -7))} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} aria-label="Semana anterior">‹</button>
           <button type="button" onClick={() => setInicio(maisDias(inicio, 7))} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`} aria-label="Semana seguinte">›</button>
         </div>
-        <h3 className="text-lg font-semibold">{tituloSem}</h3>
+        <h3 className="text-lg font-semibold flex items-center gap-2">{tituloSem}<Info>Carrega numa célula para escrever o tempo desse dia (ex.: 1h30, 45m, 2:15). Se baixares, tira-se do fim dos registos desse dia. A barra fica vermelha acima das 8h.</Info></h3>
         {!estaSemana && <button type="button" onClick={() => setInicio(segundaDe(new Date()))} className={`px-2.5 py-1 text-xs rounded-lg border ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Esta semana</button>}
         <div className="flex-1" />
         <select value={soCli} onChange={e => setSoCli(e.target.value)} className={`text-xs rounded-lg border px-2 py-1.5 ${claro ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'}`} aria-label="Cliente">
@@ -8294,7 +8283,6 @@ const Timesheet = ({ trab, mudar, clientes, theme, onAbrir }) => {
           </div>
         </div>
       </div>
-      <p className={`text-[11px] ${sub}`}>Carrega numa célula para escrever o tempo desse dia (ex.: 1h30, 45m, 2:15). Se baixares, tira-se do fim dos registos desse dia. A barra fica vermelha acima das 8h.</p>
     </div>
   );
 };
@@ -9058,7 +9046,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
                       <option value="todas">Feitas: todas</option>
                       <option value="nao">Sem as feitas</option>
                     </select>
-                    <span className={`text-xs ${sub}`}>{tarefas.length} tarefa{tarefas.length === 1 ? '' : 's'}<span className="hidden min-[900px]:inline"> · marca várias para mudar o estado, o prazo ou a prioridade de uma vez</span></span>
+                    <span className={`text-xs ${sub} inline-flex items-center gap-1.5`}>{tarefas.length} tarefa{tarefas.length === 1 ? '' : 's'} <Info>Marca várias para mudar o estado, o prazo ou a prioridade de uma vez.</Info></span>
                   </div>
                 );
               })()}

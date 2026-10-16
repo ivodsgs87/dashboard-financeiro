@@ -12,8 +12,8 @@ import {
   isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
   juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
   paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
-  Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcPrazosCPCV
+  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -4853,7 +4853,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* Configuração: impostos dos recibos (usa-se pouco, por isso fica no fim). Os clientes estão em Trabalho → Clientes */}
  <div>
  <Card>
- <h3 className="text-lg font-semibold mb-4"><Ico e="🧮"/>Impostos dos recibos</h3>
+ <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><span><Ico e="🧮"/>Impostos dos recibos</span><Info>A taxa é a parte de cada recibo que pões de lado para o IRS e a Segurança Social (não é a retenção na fonte). A estimativa usa o coeficiente do regime simplificado e a tua taxa marginal de IRS.</Info></h3>
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
  <div className="flex flex-wrap items-center content-center gap-2 p-2 sm:p-3 tile rounded-xl">
  <span className="text-xs text-slate-300">Taxa:</span>
@@ -4866,7 +4866,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    if (Math.abs(alvo - taxa) < 1) return <span className="text-xs text-emerald-400 w-full sm:w-auto">✓ Bate com a previsão de IRS e SS deste ano</span>;
    return (
      <span className="text-xs text-slate-400 w-full sm:w-auto">
-       Pela previsão deste ano, os teus recibos custam ~{s.total.toFixed(0)}% (IRS {s.irs.toFixed(0)}% + SS {s.ss.toFixed(0)}%).
+       Previsão: ~{s.total.toFixed(0)}% <Info>Pela previsão deste ano, os teus recibos custam ~{s.total.toFixed(0)}% (IRS {s.irs.toFixed(0)}% + SS {s.ss.toFixed(0)}%).</Info>
        <button onClick={() => uG('taxa', alvo)} className="ml-1.5 px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>
      </span>
    );
@@ -4875,7 +4875,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  {/* Parâmetros da estimativa de IRS por recibo */}
  <div className="flex flex-wrap items-center content-center gap-3 p-2 sm:p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl text-xs">
- <span className="text-slate-300">Estimativa:</span>
+ <span className="text-slate-300 inline-flex items-center gap-1">Estimativa <Info>Confirma a tua taxa marginal real com o contabilista.</Info></span>
  <label className="flex items-center gap-1.5">
    <span className="text-slate-400">Coef.</span>
    <Select value={G.coefSimpl ?? 0.75} onChange={e=>uG('coefSimpl', parseFloat(e.target.value))} className="text-xs !py-1">
@@ -4890,7 +4890,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      className={`w-16 ${inputClass} text-xs !py-1 text-right`}/>
    <span className="text-slate-400">%</span>
  </label>
- <span className="text-slate-500 hidden sm:inline">Confirma a tua taxa marginal real com o contabilista</span>
  </div>
  </div>
  </Card>
@@ -4970,7 +4969,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {investFilhos > 0 && (
      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border bg-pink-500/10 border-pink-500/30 text-sm">
        <span>Transferes para a ABanca <strong className="text-pink-400">{fmt(Math.max(0, minhaAB - investFilhos))}</strong></span>
-       <span className="text-xs text-slate-500">a tua parte {fmt(minhaAB)} − {fmt(investFilhos)} dos investimentos dos filhos, que pagas direto do Activo (a parte da Sara fica na ABanca a pagar despesas)</span>
+       <span className="text-xs text-slate-500 inline-flex items-center gap-1">a tua parte {fmt(minhaAB)} − {fmt(investFilhos)} <Info>Tiras os investimentos dos filhos, que pagas direto do Activo (a parte da Sara fica na ABanca a pagar despesas).</Info></span>
      </div>
    )}
    <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
@@ -5743,7 +5742,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Anos passados: pagamentos registados. Ano atual (est.): o que já pagaste mais a previsão do que falta. IRS ↓ = reembolso.</p>
+   <p className="text-[11px] text-slate-500 mt-3 inline-flex items-center gap-1">Legenda <Info>Anos passados: pagamentos registados. Ano atual (est.): o que já pagaste mais a previsão do que falta. IRS ↓ = reembolso.</Info></p>
  </Card>
  </>)}
 
@@ -5832,7 +5831,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Desp. casal = a tua parte ({contrib}%). Sobra = receitas − impostos − despesas do casal − pessoais, em % das receitas (a taxa de poupança, investido + amortizado, está lá em cima).</p>
+   <p className="text-[11px] text-slate-500 mt-3 inline-flex items-center gap-1">Legenda <Info>Desp. casal = a tua parte ({contrib}%). Sobra = receitas − impostos − despesas do casal − pessoais, em % das receitas (a taxa de poupança, investido + amortizado, está lá em cima).</Info></p>
  </Card>
  </>)}
 
@@ -5921,7 +5920,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Juros estimados com base na taxa {((creditoAtual.taxaJuro ?? 2))}% sobre dívida em início de ano. Progresso = % do capital inicial amortizado.</p>
+   <p className="text-[11px] text-slate-500 mt-3 inline-flex items-center gap-1">Legenda <Info>Juros estimados com base na taxa {((creditoAtual.taxaJuro ?? 2))}% sobre dívida em início de ano. Progresso = % do capital inicial amortizado.</Info></p>
  </Card>
  )}
  </>)}
@@ -5993,7 +5992,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </tbody>
      </table>
    </div>
-   <p className="text-[10px] text-slate-500 mt-3">Pat. líquido = equity imóvel + investimentos. Δ YoY = variação face ao ano anterior. Valores de fim de ano.</p>
+   <p className="text-[11px] text-slate-500 mt-3 inline-flex items-center gap-1">Legenda <Info>Pat. líquido = equity imóvel + investimentos. Δ YoY = variação face ao ano anterior. Valores de fim de ano.</Info></p>
  </Card>
  </>)}
 
@@ -6438,10 +6437,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  }}
  />
- <div className="mt-4 p-3 bg-slate-700/20 rounded-xl text-xs text-slate-500">
- <p><Ico e="💡"/><strong>Performance:</strong> Mostra a variação percentual em relação ao mês anterior, descontando o valor investido este mês.</p>
- <p className="mt-1">No fim de cada mês põe os valores de hoje (ou «Copiar Mês Anterior» se não mudaram) e carrega em «Marcar Atualizado»: assim a performance do mês seguinte fica certa.</p>
- </div>
+ <p className="mt-3 text-xs text-slate-500 inline-flex items-center gap-1">Como funciona <Info><strong>Performance:</strong> mostra a variação percentual em relação ao mês anterior, descontando o valor investido este mês. No fim de cada mês põe os valores de hoje (ou «Copiar Mês Anterior» se não mudaram) e carrega em «Marcar Atualizado»: assim a performance do mês seguinte fica certa.</Info></p>
  </Card>
 
  {/* ===== SIMULADORES ===== */}
@@ -6757,7 +6753,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                </p>
              </div>
 
-             <p className="text-[10px] text-slate-500"><Ico e="⚠"/>Simulação simplificada. Não considera impostos sobre mais-valias (~28%), inflação, variação de taxas, ou o benefício fiscal da amortização antecipada.</p>
+             <p className="text-[11px] text-slate-500 inline-flex items-center gap-1">Simulação simplificada <Info>Não considera impostos sobre mais-valias (~28%), inflação, variação de taxas, ou o benefício fiscal da amortização antecipada.</Info></p>
            </div>
          )}
 
@@ -7008,9 +7004,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
 
              <div className={`p-3 rounded-xl text-xs space-y-1 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-700/20'}`}>
-               <p className="text-slate-500">🦩 <strong>Flamingo FIRE</strong> = atingir metade do FIRE number, depois reduzir trabalho.</p>
-               <p className="text-slate-500">O portfolio cresce sozinho durante a fase Flamingo (sem novos aportes). Tu trabalhas apenas o suficiente para cobrir {flamingoPctTrabalho}% das despesas correntes.</p>
-               <p className="text-slate-500">Ideal para freelancers: reduz horas em vez de parar totalmente.</p>
+               <p className="text-slate-500 flex items-center gap-1.5">🦩 <strong>Flamingo FIRE</strong> = metade do FIRE number, depois reduzir trabalho <Info>O portfolio cresce sozinho durante a fase Flamingo (sem novos aportes). Tu trabalhas apenas o suficiente para cobrir {flamingoPctTrabalho}% das despesas correntes. Ideal para freelancers: reduz horas em vez de parar totalmente.</Info></p>
              </div>
            </div>
            );
@@ -7649,7 +7643,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  {/* Histórico de Dívida */}
  <Card key={`historico-${creditoSelecionado || 'antigo'}-${historico.length}`}>
    <div className="flex justify-between items-center mb-4">
-     <h3 className="text-lg font-semibold"><Ico e="📈"/>Histórico de Dívida</h3>
+     <h3 className="text-lg font-semibold flex items-center gap-2"><span><Ico e="📈"/>Histórico de Dívida</span><Info>O histórico é usado para calcular a amortização anual. Certifica-te de ter um registo de dezembro do ano anterior.</Info></h3>
      <button 
        onClick={() => {
          setFormAction({
@@ -7697,9 +7691,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        + Adicionar
      </button>
    </div>
-   <p className="text-xs text-slate-500 mb-3">
-     O histórico é usado para calcular a amortização anual. Certifica-te de ter um registo de dezembro do ano anterior.
-   </p>
+   <div className="mb-3" />
    <div className="space-y-2">
      {historico.length === 0 ? (
        <p className="text-slate-500 text-sm text-center py-4">Nenhum registo no histórico</p>
@@ -9179,7 +9171,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    })}
                  </div>
                  <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-700/50">
-                   <p className="text-[11px] text-slate-500 flex-1 min-w-[220px]">{P.antigas > 0 ? `Deixei de fora ${P.antigas} tarefa${P.antigas === 1 ? '' : 's'} com prazo de há mais de mês e meio (fecha-as ou dá-lhes prazo novo). ` : ''}As horas vêm da <b>Estimativa</b> de cada tarefa ou, se não tiver, da média das tuas tarefas do mesmo tipo (menos o tempo já registado). Primeiro o que tem prazo mais cedo e prioridade mais alta.</p>
+                   <p className="text-[11px] text-slate-500 flex-1 min-w-[220px]">{P.antigas > 0 ? `Deixei de fora ${P.antigas} tarefa${P.antigas === 1 ? '' : 's'} com prazo de há mais de mês e meio (fecha-as ou dá-lhes prazo novo). ` : ''}<span className="inline-flex items-center gap-1 align-middle">Como se faz o plano <Info>As horas vêm da <b>Estimativa</b> de cada tarefa ou, se não tiver, da média das tuas tarefas do mesmo tipo (menos o tempo já registado). Primeiro o que tem prazo mais cedo e prioridade mais alta.</Info></span></p>
                    {planoGuardado && <button onClick={() => { mudarTrab(tr => { const { plano, ...resto } = tr; return resto; }); showToast('Plano tirado do calendário'); }} className="px-3 py-1.5 text-xs rounded-lg text-slate-400 hover:text-red-400">Tirar o plano do calendário</button>}
                    <button onClick={() => { mudarTrab(tr => ({ ...tr, plano: P })); setShowPlano(true); setPlanoAberto(false); showToast('Plano posto no calendário (tracejado). Refaz quando quiseres.'); }} className="px-4 py-2 text-sm font-medium rounded-lg bg-violet-600 hover:bg-violet-500 text-white">Pôr no calendário</button>
                  </div>
@@ -10943,10 +10935,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          {/* Auto-generate from Casal + Pessoais */}
          <Card>
            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setExtOrcGenCollapsed(prev => !prev)}>
-             <h4 className="font-semibold"><Ico e="⚡"/>Gerar Orçamentos do Planeamento</h4>
+             <h4 className="font-semibold flex items-center gap-2"><span><Ico e="⚡"/>Gerar Orçamentos do Planeamento</span><Info>Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</Info></h4>
              <span className={`text-slate-400 text-xs transition-transform ${extOrcGenCollapsed ? '' : 'rotate-180'}`}>▼</span>
            </div>
-           {!extOrcGenCollapsed && <><p className="text-xs text-slate-500 mt-2 mb-3">Cria orçamentos agrupados por conta: ABanca (Mercado, Habitação, Resto) com 100% das despesas de casal + Activo Bank por categoria das despesas pessoais.</p>
+           {!extOrcGenCollapsed && <><div className="mt-3" />
            {(() => {
              // Mapeamento: cat planeamento → cat extrato
              // Mapeamento: nome da categoria → id do extrato (agora uniforme)
@@ -11280,8 +11272,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      {extratoTab === 'regras' && (
        <div className="space-y-4">
          <Card>
-           <h4 className="font-semibold mb-3"><Ico e="🤖"/>Regras de Categorização Automática</h4>
-           <p className="text-xs text-slate-500 mb-4">Quando categorizas uma transação, a app cria uma regra automática. Ao mudar a categoria aqui, todas as transações com essa descrição são actualizadas.</p>
+           <h4 className="font-semibold mb-4 flex items-center gap-2"><span><Ico e="🤖"/>Regras de Categorização Automática</span><Info>Quando categorizas uma transação, a app cria uma regra automática. Ao mudar a categoria aqui, todas as transações com essa descrição são atualizadas.</Info></h4>
            
            {/* Add manual rule */}
            <div className={`flex gap-2 mb-4 p-3 rounded-lg ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
@@ -13808,8 +13799,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  ) : (
  <>
  <p className="text-sm text-slate-400 mb-3">
- Dados formatados para Excel/Google Sheets. Copia e cola numa folha de cálculo.
- <br /><span className="text-xs text-slate-500">Dica: Ao colar, usa "Colar especial" → "Separado por ponto e vírgula"</span>
+ Copia e cola numa folha de cálculo (Excel/Google Sheets). <Info>Ao colar, usa "Colar especial" → "Separado por ponto e vírgula".</Info>
  </p>
  <textarea 
  className="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-xs font-mono text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -14255,10 +14245,9 @@ ${transacoesOrdenadas.map(t => `<tr>
         <div className="animate-backdropIn fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" onMouseDown={e => { if (e.target === e.currentTarget) setCopiasLista(null); }}>
           <div className={`animate-modalIn ${modalBg} w-full max-w-md rounded-2xl border ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'} p-4 space-y-3`}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold"><Ico e="📦"/>Cópias automáticas</h3>
+              <h3 className="font-semibold flex items-center gap-2"><span><Ico e="📦"/>Cópias automáticas</span><Info>A app guarda sozinha uma cópia por semana neste browser (ficam as 6 mais recentes). Para voltar atrás, escolhe uma e confirma em «Importar Dados». Se te enganares, o ↩ desfaz.</Info></h3>
               <button onClick={() => setCopiasLista(null)} aria-label="Fechar" className="text-slate-400 px-2">✕</button>
             </div>
-            <p className="text-xs text-slate-500">A app guarda sozinha uma cópia por semana neste browser (ficam as 6 mais recentes). Para voltar atrás, escolhe uma e confirma em «Importar Dados». Se te enganares, o ↩ desfaz.</p>
             {copiasLista.length === 0 ? <p className="text-sm text-slate-500 py-4 text-center">Ainda não há cópias. A primeira é feita uns segundos depois de abrires a app.</p> : (
               <div className="space-y-2">
                 {copiasLista.map(c => (
@@ -14441,7 +14430,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            Encontrei <strong className={theme === 'light' ? 'text-slate-800' : 'text-white'}>{txImport.linhas.length}</strong> {txImport.linhas.length === 1 ? 'transação' : 'transações'}, de {fmtD(datas[0])} a {fmtD(datas[datas.length - 1])}.
            {dups > 0 && <> {dups === 1 ? 'Uma já está' : `${dups} já estão`} na app e {dups === 1 ? 'fica' : 'ficam'} de fora, para não {dups === 1 ? 'contar' : 'contarem'} a dobrar.</>}
          </p>
-         {txImport.origem === 'Trade Republic' && <p className="text-xs text-slate-500">Entram compras e vendas de investimentos, e os juros e dividendos recebidos (que não contam como dinheiro que puseste). Depósitos, transferências, pagamentos com cartão e o fundo onde está o dinheiro parado ficam de fora.</p>}
+         {txImport.origem === 'Trade Republic' && <p className="text-xs text-slate-500 inline-flex items-center gap-1">O que entra <Info>Entram compras e vendas de investimentos, e os juros e dividendos recebidos (que não contam como dinheiro que puseste). Depósitos, transferências, pagamentos com cartão e o fundo onde está o dinheiro parado ficam de fora.</Info></p>}
          <div className="flex flex-wrap gap-2 text-xs">
            <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: !l.dup })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Só as novas</button>
            <button onClick={() => setTxImport(p => ({ ...p, linhas: p.linhas.map(l => ({ ...l, sel: true })) }))} className="px-2.5 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600/60">Todas</button>
@@ -14568,8 +14557,8 @@ ${transacoesOrdenadas.map(t => `<tr>
                    <span className="text-xs text-slate-500">%</span>
                  </div>
                </div>
-               {(() => { const sg = previsaoImpostos.taxaReservaSugerida; if (!sg) return <p className="text-[11px] text-slate-500 -mt-1">A parte de cada recibo posta de lado para o IRS e a Segurança Social (não é a retenção na fonte).</p>; const alvo = Math.ceil(sg.total) + 2; return (
-                 <p className="text-[11px] text-slate-500 -mt-1">Guardada de cada recibo para IRS e SS (não é a retenção na fonte). Pela previsão deste ano, os teus recibos custam ~{sg.total.toFixed(0)}% (IRS {sg.irs.toFixed(0)}% + SS {sg.ss.toFixed(0)}%).{Math.abs(alvo - taxa) >= 1 && <button onClick={() => { saveUndo(); uG('taxa', alvo); }} className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>}</p>
+               {(() => { const sg = previsaoImpostos.taxaReservaSugerida; if (!sg) return <p className="text-[11px] text-slate-500 -mt-1 inline-flex items-center gap-1">O que é <Info>A parte de cada recibo posta de lado para o IRS e a Segurança Social (não é a retenção na fonte).</Info></p>; const alvo = Math.ceil(sg.total) + 2; return (
+                 <p className="text-[11px] text-slate-500 -mt-1">Os teus recibos custam ~{sg.total.toFixed(0)}% <Info>A parte guardada de cada recibo para IRS e SS (não é a retenção na fonte). Pela previsão deste ano, os teus recibos custam ~{sg.total.toFixed(0)}% (IRS {sg.irs.toFixed(0)}% + SS {sg.ss.toFixed(0)}%).</Info>{Math.abs(alvo - taxa) >= 1 && <button onClick={() => { saveUndo(); uG('taxa', alvo); }} className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300">Usar {alvo}%</button>}</p>
                ); })()}
                <div className="flex items-center justify-between">
                  <span className="text-sm">Contribuição SS</span>
@@ -14584,9 +14573,8 @@ ${transacoesOrdenadas.map(t => `<tr>
            
            {/* Recibos verdes no Google Drive pessoal */}
            <div>
-             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Recibos no Google Drive</h4>
+             <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>Recibos no Google Drive <Info>Cada recibo verde com PDF vai sozinho para esta pasta, em Cliente / Ano / Nº_Trimestre, com o nome legal da empresa e a data (ex.: Empresa_Lda_2026-10-13.pdf).</Info></h4>
              <div className={`p-4 rounded-xl space-y-2 ${theme === 'light' ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-               <p className="text-[11px] text-slate-500">Cada recibo verde com PDF vai sozinho para esta pasta, em Ano / Nº_Trimestre, com o nome legal da empresa e a data (ex.: Anorak_Games_GmbH_2026-10-13.pdf).</p>
                <input key={'rd' + ((G.recibosDrive || {}).pasta || '')} defaultValue={(G.recibosDrive || {}).pasta || ''} placeholder="Link da pasta RECIBOS VERDES no Drive"
                  className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
                  onBlur={e => { const v = e.target.value.trim(); if (v !== ((G.recibosDrive || {}).pasta || '')) uG('recibosDrive', { ...(G.recibosDrive || {}), pasta: v }); }} />
@@ -14910,8 +14898,7 @@ ${transacoesOrdenadas.map(t => `<tr>
            return (
              <div className={`p-4 rounded-xl text-sm space-y-3 ${claroS ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                <div>
-                 <h4 className="font-semibold">Espaço na base de dados</h4>
-                 <p className="text-xs text-slate-500">Cada bloco pode ter até 1 MB. Se algum passar dos 80%, avisa-me para arquivarmos coisas antigas.</p>
+                 <h4 className="font-semibold flex items-center gap-2">Espaço na base de dados <Info>Cada bloco pode ter até 1 MB. Se algum passar dos 80%, avisa-me para arquivarmos coisas antigas.</Info></h4>
                </div>
                {docs.map(d => {
                  const pct = Math.min(100, d.b / LIM * 100);
