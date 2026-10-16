@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import {
   TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega,
   cuPreco, trabValor, trabValorAuto, trabPecas, trabRelogio, cuPecas, CU_TIPOS, CU_NOMES_EN, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, cuPresetCliente, cuEur, cuLerHoras, cuHorasTxt,
-  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO, ehNaoFaturacao,
+  meses, Card, trabParar, trabPorTipo, trabSugerirEstimativa, confirmar, avisoApp, paisDoCliente, NOME_PAIS_RECIBO, ehNaoFaturacao, PROCESS_INVOICE_URLS,
 } from './base';
 import { auth } from './firebase';
 
@@ -6469,6 +6469,35 @@ const gerarPdfFatura = d => {
 
 // ── Faturas do mês (Trabalho → cliente → Faturas): tarefas entregues no mês, agrupadas por jogo ──
 const MESES_EN_F = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// "4_Invoice_September_26.pdf" → { numero: '4', mes: '2026-09' } (também nomes em português e meses abreviados)
+const lerNomeFatura = nome => {
+  const sx = String(nome || '').replace(/\.[a-z0-9]{2,4}$/i, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const nM = /^\s*(\d{1,5})(?!\d)/.exec(sx) || /(?:invoice|fatura|factura|n[o.º°])\s*[_\-\s#]*(\d{1,5})(?!\d)/.exec(sx);
+  const en = MESES_EN_F.map(x => x.toLowerCase()), pt = MESES_PT_F.map(x => x.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+  const tok = sx.split(/[^a-z0-9]+/).filter(Boolean);
+  let mes = null;
+  for (let i = 0; i < tok.length && !mes; i++) {
+    const t = tok[i]; if (t.length < 3) continue;
+    let m = en.findIndex(x => x === t || (t.length === 3 && x.startsWith(t))); if (m < 0) m = pt.findIndex(x => x === t || (t.length === 3 && x.startsWith(t)));
+    const y = tok[i + 1] || '';
+    if (m >= 0 && /^(\d{2}|\d{4})$/.test(y)) mes = `${y.length === 2 ? 2000 + Number(y) : Number(y)}-${String(m + 1).padStart(2, '0')}`;
+  }
+  return { numero: nM ? String(Number(nM[1])) : '', mes };
+};
+// Lê a fatura com a IA (a mesma função do «Importar Fatura» das Receitas): valor sem IVA e data
+const lerFaturaIA = async file => {
+  const base64 = await new Promise((ok, falha) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => falha(r.error); r.readAsDataURL(file); });
+  for (const url of PROCESS_INVOICE_URLS || []) {
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { base64, mediaType: file.type || 'application/pdf' } }) });
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (j && j.result && j.result.success && j.result.data) return j.result.data;
+    } catch (e) { /* tenta o endereço seguinte */ }
+  }
+  return null;
+};
+const ultimoDiaDe = mes => { const [a, m] = String(mes).split('-').map(Number); return a && m ? `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}` : ''; };
 const MESES_PT_F = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const ORDEM_TIPOS_F = ['video', 'variacao', 'iteracao', 'hook', 'aso', 'ai_clip', 'video3d', 'banner', 'banner_var', 'icone', 'feature', 'screenshots'];
 const NOTA_IVA_UE = 'VAT: 0% – Exempt under Article 6 (6) (a) of the Portuguese VAT Code (Intra-Community supply of services)';
@@ -6638,26 +6667,52 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some(e => e.faturaId === f.id) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map(e => (e.faturaId === f.id ? (({ faturaId, ...r }) => r)(e) : e)) } } : p)),
     }));
   };
-  const [antiga, setAntiga] = useState(null); // { ficheiro, numero, data, mes, valor, marcar, aGuardar }
-  const novaAntiga = () => { const hoje = new Date(); const d = new Date(hoje.getFullYear(), hoje.getMonth(), 0); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; setAntiga({ ficheiro: null, numero: '', data: iso, mes: iso.slice(0, 7), valor: '', marcar: true }); };
-  const tarefasDoMesAntiga = m => doCliente.filter(t => !jaFat(t) && trabEntrega(t).startsWith(`${m}-`));
-  const guardarAntiga = async () => {
-    const a = antiga; if (!a) return;
-    const valor = Number(String(a.valor).replace(',', '.')) || 0;
-    if (!a.numero || !a.data || !(valor > 0)) { if (showToast) showToast('Põe o número, a data e o valor da fatura.', 'error'); return; }
-    if (faturas.some(f => Number(f.numero) === Number(a.numero))) { if (showToast) showToast(`Já existe uma fatura nº ${a.numero} deste cliente.`, 'error'); return; }
-    setAntiga({ ...a, aGuardar: true });
-    let pdf = null;
-    if (a.ficheiro && onEnviarAnexo) {
-      try { const nome = a.ficheiro.name || `${a.numero}_Invoice.pdf`; const r = await onEnviarAnexo(`faturas/${cid}/${trabId()}-${nome.replace(/[^\w.\-]+/g, '_')}`, a.ficheiro); pdf = { url: r.url, caminho: r.caminho, nome }; }
-      catch (e) { console.error('Fatura antiga PDF:', e); setAntiga({ ...a, aGuardar: false }); if (showToast) showToast('Não consegui guardar o PDF (vê a ligação ao Storage).', 'error'); return; }
+  // Faturas antigas (feitas fora da app): várias de uma vez; o nº e o mês vêm do nome do ficheiro, o valor e a data a IA lê do PDF
+  const [antigas, setAntigas] = useState(null); // { linhas: [{ id, ficheiro, numero, data, mes, valor, lendo, lido }], marcar, aGuardar }
+  const mudarLinhaA = (id, patch) => setAntigas(x => (x ? { ...x, linhas: x.linhas.map(l => (l.id === id ? { ...l, ...(typeof patch === 'function' ? patch(l) : patch) } : l)) } : x));
+  const juntarFicheiros = async lista => {
+    const novas = Array.from(lista || []).map(f => { const n = lerNomeFatura(f.name); return { id: trabId() + Math.random().toString(36).slice(2, 6), ficheiro: f, numero: n.numero, mes: n.mes || '', data: n.mes ? ultimoDiaDe(n.mes) : '', valor: '', lendo: true, mesDoNome: !!n.mes }; });
+    if (!novas.length) return;
+    setAntigas(x => ({ marcar: true, ...(x || {}), linhas: [...((x && x.linhas) || []), ...novas] }));
+    // Três de cada vez (é mais rápido e não sobrecarrega a função)
+    const fila = [...novas];
+    const ler = async () => { for (let l = fila.shift(); l; l = fila.shift()) await lerUma(l); };
+    const lerUma = async l => {
+      let d = null; try { d = await lerFaturaIA(l.ficheiro); } catch (e) { d = null; }
+      const v = d ? Number(d.valorIliquido) || Number(d.totalDocumento) || 0 : 0;
+      const dIA = String((d && d.data) || '');
+      const dataIA = /^\d{4}-\d{2}-\d{2}$/.test(dIA) && (() => { const [aa, mm, dd] = dIA.split('-').map(Number); const t = new Date(aa, mm - 1, dd); return t.getFullYear() === aa && t.getMonth() === mm - 1 && t.getDate() === dd; })() ? dIA : '';
+      mudarLinhaA(l.id, x => ({ lendo: false, lido: !!d, valor: x.valor !== '' ? x.valor : (v > 0 ? String(Math.round(v * 100) / 100) : ''), data: dataIA || x.data, mes: x.mesDoNome ? x.mes : (dataIA ? dataIA.slice(0, 7) : x.mes) }));
+    };
+    await Promise.all([ler(), ler(), ler()]);
+  };
+  const novaAntiga = () => setAntigas({ marcar: true, linhas: [] });
+  const linhaSemPdf = () => { const m = new Date(); m.setDate(0); const mes = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`; setAntigas(x => ({ ...x, linhas: [...x.linhas, { id: trabId() + 'm', ficheiro: null, numero: '', mes, data: ultimoDiaDe(mes), valor: '', lendo: false }] })); };
+  const tarefasDoMesAntiga = m => (m ? doCliente.filter(t => !jaFat(t) && trabEntrega(t).startsWith(`${m}-`)) : []);
+  const guardarAntigas = async () => {
+    const A = antigas; if (!A || !A.linhas.length) return;
+    const nums = A.linhas.map(l => Number(l.numero));
+    const falta = A.linhas.find(l => !l.numero || !l.data || !l.mes || !(Number(String(l.valor).replace(',', '.')) > 0));
+    if (falta) { if (showToast) showToast(`Falta o nº, a data, o mês ou o valor${falta.ficheiro ? ` em ${falta.ficheiro.name}` : ''}.`, 'error'); return; }
+    const rep = A.linhas.find((l, i) => faturas.some(f => Number(f.numero) === Number(l.numero)) || nums.indexOf(Number(l.numero)) !== i);
+    if (rep) { if (showToast) showToast(`A fatura nº ${rep.numero} já existe (ou está repetida).`, 'error'); return; }
+    setAntigas({ ...A, aGuardar: true });
+    const regs = []; const usadas = new Set(); let erroPdf = 0;
+    for (const l of A.linhas) {
+      let pdf = null;
+      if (l.ficheiro && onEnviarAnexo) {
+        try { const nome = l.ficheiro.name || `${l.numero}_Invoice.pdf`; const r = await onEnviarAnexo(`faturas/${cid}/${trabId()}-${nome.replace(/[^\w.\-]+/g, '_')}`, l.ficheiro); pdf = { url: r.url, caminho: r.caminho, nome }; }
+        catch (e) { console.error('Fatura antiga PDF:', e); erroPdf += 1; }
+      }
+      const valor = Number(String(l.valor).replace(',', '.')) || 0;
+      const ids = A.marcar ? tarefasDoMesAntiga(l.mes).map(t => t.id).filter(id => !usadas.has(id)) : [];
+      ids.forEach(id => usadas.add(id));
+      regs.push({ id: trabId() + regs.length, cid, numero: Number(l.numero), data: l.data, mes: l.mes, para: '', linhas: [{ titulo: `Fatura nº ${l.numero}`, resto: '', valor }], subtotal: valor, ivaTaxa: 0, ivaValor: 0, total: valor, tarefas: ids, extras: [], pdf, antiga: true, criada: new Date().toISOString() });
     }
-    const ids = a.marcar ? tarefasDoMesAntiga(a.mes).map(t => t.id) : [];
-    const reg = { id: trabId(), cid, numero: Number(a.numero), data: a.data, mes: a.mes, para: '', linhas: [{ titulo: `Fatura nº ${a.numero}`, resto: '', valor }], subtotal: valor, ivaTaxa: 0, ivaValor: 0, total: valor, tarefas: ids, extras: [], pdf, antiga: true, criada: new Date().toISOString() };
-    const idsS = new Set(ids);
-    mudar(tr => ({ ...tr, faturas: [...(tr.faturas || []), reg], tarefas: (tr.tarefas || []).map(t => (idsS.has(t.id) ? { ...t, faturaId: reg.id } : t)) }));
-    setAntiga(null);
-    if (showToast) showToast(`Fatura nº ${a.numero} junta${ids.length ? ` · ${ids.length} tarefa${ids.length === 1 ? '' : 's'} dada${ids.length === 1 ? '' : 's'} como faturada${ids.length === 1 ? '' : 's'}` : ''}`);
+    const daFat = {}; regs.forEach(r => r.tarefas.forEach(id => { daFat[id] = r.id; }));
+    mudar(tr => ({ ...tr, faturas: [...(tr.faturas || []), ...regs], tarefas: (tr.tarefas || []).map(t => (daFat[t.id] ? { ...t, faturaId: daFat[t.id] } : t)) }));
+    setAntigas(null);
+    if (showToast) showToast(`${regs.length} fatura${regs.length === 1 ? '' : 's'} junta${regs.length === 1 ? '' : 's'}${usadas.size ? ` · ${usadas.size} tarefa${usadas.size === 1 ? '' : 's'} dada${usadas.size === 1 ? '' : 's'} como faturada${usadas.size === 1 ? '' : 's'}` : ''}${erroPdf ? ` · ${erroPdf} PDF não ${erroPdf === 1 ? 'ficou guardado' : 'ficaram guardados'}` : ''}`, erroPdf ? 'error' : undefined);
   };
   const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
   const chip = `px-2 py-0.5 rounded-md text-[11px]`;
@@ -6785,39 +6840,58 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       <div className={caixa}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <p className="text-sm font-semibold">Faturas emitidas</p>
-          {!antiga && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Uma fatura que fizeste fora da app: fica aqui com o PDF, para a teres à mão">+ Juntar fatura antiga</button>}
+          {!antigas && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Faturas que fizeste fora da app: ficam aqui com o PDF, para as teres à mão">+ Juntar faturas antigas</button>}
         </div>
-        {antiga && (() => {
-          const nT = tarefasDoMesAntiga(antiga.mes).length;
-          const [am, mm] = antiga.mes.split('-').map(Number);
+        {antigas && (() => {
+          const L = antigas.linhas;
+          const lendo = L.filter(l => l.lendo).length;
+          const nums = L.map(l => Number(l.numero));
+          const mesesSel = [...new Set(L.map(l => l.mes).filter(Boolean))];
+          const nT = new Set(mesesSel.flatMap(m => tarefasDoMesAntiga(m).map(t => t.id))).size;
+          const nomeMes = m => { const [a, mm] = String(m).split('-').map(Number); return a && mm ? `${MESES_PT_F[mm - 1]} ${a}` : ''; };
           return (
-            <div className={`mb-3 rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}>
-              <p className="text-sm font-medium">Juntar uma fatura feita fora da app</p>
-              <label className={`flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm cursor-pointer ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
-                <input type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) setAntiga(x => ({ ...x, ficheiro: f, numero: x.numero || ((/(\d+)/.exec(f.name) || [])[1] || '') })); e.target.value = ''; }} />
-                <span>📎</span><span className="truncate">{antiga.ficheiro ? antiga.ficheiro.name : 'Escolher o PDF da fatura (opcional)'}</span>
+            <div className={`mb-3 rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}
+              onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); }}
+              onDrop={e => { if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); juntarFicheiros(e.dataTransfer.files); } }}>
+              <p className="text-sm font-medium">Juntar faturas feitas fora da app</p>
+              <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer text-center ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
+                <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={e => { juntarFicheiros(e.target.files); e.target.value = ''; }} />
+                <span>📎</span><span>Escolhe os PDFs (podes escolher vários) ou arrasta-os para aqui</span>
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <CampoF rot="Fatura nº"><input type="number" value={antiga.numero} onChange={e => setAntiga(x => ({ ...x, numero: e.target.value }))} className={ic} /></CampoF>
-                <CampoF rot="Data"><input type="date" value={antiga.data} onChange={e => { const v = e.target.value; setAntiga(x => ({ ...x, data: v, mes: v ? v.slice(0, 7) : x.mes })); }} className={ic} /></CampoF>
-                <CampoF rot="Valor (sem IVA)"><input type="number" step="0.01" value={antiga.valor} onChange={e => setAntiga(x => ({ ...x, valor: e.target.value }))} placeholder="0,00" className={`${ic} text-right tabular-nums`} /></CampoF>
-                <CampoF rot="Trabalho de"><input type="month" value={antiga.mes} onChange={e => setAntiga(x => ({ ...x, mes: e.target.value || x.mes }))} className={ic} /></CampoF>
-              </div>
+              {L.length > 0 && (
+                <div className={`rounded-lg border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/40'}`}>
+                  <div className={`hidden sm:grid grid-cols-[minmax(0,1fr)_70px_140px_110px_170px_24px] gap-2 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${sub}`}><span>Ficheiro</span><span>Nº</span><span>Data</span><span className="text-right">Valor s/ IVA</span><span>Trabalho de</span><span /></div>
+                  {L.map((l, i) => {
+                    const repetida = l.numero && (faturas.some(f => Number(f.numero) === Number(l.numero)) || nums.indexOf(Number(l.numero)) !== i);
+                    return (
+                      <div key={l.id} className={`grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_70px_140px_110px_170px_24px] gap-2 px-2 py-1.5 items-center border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+                        <span className="col-span-2 sm:col-span-1 text-xs truncate" title={l.ficheiro ? l.ficheiro.name : ''}>{l.ficheiro ? l.ficheiro.name : <span className={sub}>sem PDF</span>}{l.lendo ? <span className="ml-2 text-blue-400">a ler…</span> : l.ficheiro && !l.lido ? <span className="ml-2 text-amber-500" title="A IA não conseguiu ler este PDF: põe o valor à mão">não li o valor</span> : null}</span>
+                        <input type="number" value={l.numero} onChange={e => mudarLinhaA(l.id, { numero: e.target.value })} aria-label="Fatura nº" placeholder="nº" className={`${ic} ${repetida ? '!ring-2 !ring-red-500' : ''}`} title={repetida ? 'Já existe uma fatura com este nº' : undefined} />
+                        <input type="date" value={l.data} onChange={e => mudarLinhaA(l.id, { data: e.target.value })} aria-label="Data" className={ic} />
+                        <input type="number" step="0.01" value={l.valor} onChange={e => mudarLinhaA(l.id, { valor: e.target.value })} aria-label="Valor sem IVA" placeholder={l.lendo ? 'a ler…' : '0,00'} className={`${ic} text-right tabular-nums`} />
+                        <input type="month" value={l.mes} onChange={e => mudarLinhaA(l.id, { mes: e.target.value })} aria-label="Trabalho de" className={ic} />
+                        <button type="button" onClick={() => setAntigas(x => ({ ...x, linhas: x.linhas.filter(y => y.id !== l.id) }))} className={`text-xs ${sub} hover:text-red-400`} aria-label="Tirar esta linha">✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <button type="button" onClick={linhaSemPdf} className={`text-xs ${sub} hover:text-blue-400`}>+ Uma sem PDF</button>
               {nT > 0 && (
-                <label className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={antiga.marcar} onChange={e => setAntiga(x => ({ ...x, marcar: e.target.checked }))} className="accent-blue-500" />
-                  Dar como faturadas as {nT} tarefa{nT === 1 ? '' : 's'} entregue{nT === 1 ? '' : 's'} em {MESES_PT_F[(mm || 1) - 1]} {am} que ainda estão por faturar
+                <label className="flex items-start gap-2 text-xs">
+                  <input type="checkbox" checked={antigas.marcar} onChange={e => setAntigas(x => ({ ...x, marcar: e.target.checked }))} className="accent-blue-500 mt-0.5" />
+                  <span>Dar como faturadas as {nT} tarefa{nT === 1 ? '' : 's'} entregue{nT === 1 ? '' : 's'} em {mesesSel.map(nomeMes).join(', ')} que ainda estão por faturar</span>
                 </label>
               )}
-              <p className={`text-[11px] ${sub}`}>Fica só na lista (com o PDF, se o juntares). Não cria nada em Receitas: as faturas antigas normalmente já lá estão.</p>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={guardarAntiga} disabled={antiga.aGuardar} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{antiga.aGuardar ? 'A guardar…' : 'Juntar'}</button>
-                <button type="button" onClick={() => setAntiga(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
+              <p className={`text-[11px] ${sub}`}>O nº e o mês vêm do nome do ficheiro (ex.: 4_Invoice_September_26) e a IA lê o valor e a data do PDF — confirma antes de juntar. Não cria nada em Receitas: as faturas antigas normalmente já lá estão.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={guardarAntigas} disabled={antigas.aGuardar || lendo > 0 || !L.length} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{antigas.aGuardar ? 'A guardar…' : lendo ? `A ler ${lendo} PDF${lendo === 1 ? '' : 's'}…` : `Juntar ${L.length || ''} fatura${L.length === 1 ? '' : 's'}`}</button>
+                <button type="button" onClick={() => setAntigas(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
               </div>
             </div>
           );
         })()}
-        {!faturas.length ? (!antiga && <p className={`text-sm ${sub}`}>Ainda nenhuma.</p>) : (
+        {!faturas.length ? (!antigas && <p className={`text-sm ${sub}`}>Ainda nenhuma.</p>) : (
           <div className="space-y-1">
             {faturas.map(f => (
               <div key={f.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>
