@@ -1870,7 +1870,7 @@ const CofreGrelha = ({ paginas, tituloDe, chave, lerPagina, claro, sub, avisar, 
   const botao = `inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] ${claro ? 'bg-slate-100 hover:bg-slate-200 text-slate-600' : 'bg-white/5 hover:bg-white/10 text-slate-300'}`;
   const parar = fn => e => { e.stopPropagation(); fn(); };
   return (
-    <div className={`rounded-2xl border p-3 lg:p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`}>
+    <div className={`rounded-2xl border p-3 lg:p-4 hover-lift ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`}>
       {cabecalho}
       {!chave ? (
         <div className={`py-12 text-center text-sm ${sub}`}>
@@ -2643,7 +2643,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
   if (modo === 'carregar') return <div className="py-16 text-center text-slate-400 text-sm">A carregar as notas…</div>;
 
   const linhaBtn = ativo => `w-full flex items-center gap-2 px-2 py-2 lg:py-1.5 rounded-lg text-sm text-left ${ativo ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`;
-  const painel = `rounded-2xl border ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`;
+  const painel = `rounded-2xl border hover-lift ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`;
 
   // Coluna 1: procura, atalhos, cadernos e secções
   const procuraEl = (

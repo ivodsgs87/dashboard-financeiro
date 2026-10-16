@@ -376,7 +376,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
 
   // ── estilos ──
   const escuro = theme !== 'light';
-  const card = `rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50' : 'bg-white/80 border-slate-200 shadow-sm'}`;
+  const card = `rounded-2xl border p-4 sm:p-5 ${escuro ? 'bg-slate-800/50 border-slate-700/50 hover-lift' : 'bg-white/80 border-slate-200 shadow-sm hover-lift'}`;
   const inp = escuro
     ? 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50'
     : 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50';

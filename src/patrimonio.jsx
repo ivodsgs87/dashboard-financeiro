@@ -945,7 +945,7 @@ const ChatGemini = ({ aberto, onFechar, mensagens, setMensagens, obterContexto, 
 // Peças do "O meu ano" (ao nível do módulo para não remontarem a cada render)
 const AnoCaixa = ({ children, className = '' }) => {
   const claro = useContext(TemaCtx) === 'light';
-  return <div className={`rounded-2xl border p-4 sm:p-5 ${claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} ${className}`}>{children}</div>;
+  return <div className={`rounded-2xl border p-4 sm:p-5 ${claro ? 'bg-white/80 border-slate-200 shadow-sm hover-lift' : 'bg-slate-800/50 border-slate-700/50 hover-lift'} ${className}`}>{children}</div>;
 };
 const AnoVer = ({ onIr, tab, t = 'ver detalhe' }) => <button onClick={() => onIr(tab)} className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">{t} →</button>;
 const AnoBarra = ({ v, cor }) => {
@@ -1084,7 +1084,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
   const [insAberto, setInsAberto] = useState(null); // a frase do «Em resumo» que está aberta
   const [verJogos, setVerJogos] = useState(false);
   const claro = theme === 'light';
-  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
+  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm hover-lift' : 'bg-slate-800/50 border-slate-700/50 hover-lift';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const forte = claro ? 'text-slate-900' : 'text-white';
   const f = v => _fmtEUR.format(isFinite(v) ? Math.round(v) : 0);
