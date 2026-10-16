@@ -12,6 +12,8 @@ const agora = () => new Date().toISOString();
 const NOTAS_VAZIO = { v: 1, cadernos: [], seccoes: [], paginas: [] };
 const CORES = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#64748b'];
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const isoDia = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const segundaDe = d => { const x = new Date(d); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
 const dataLonga = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`; };
 const horaTxt = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const haQuanto = iso => {
@@ -45,7 +47,7 @@ const limparHtml = (html, { semBlob = false } = {}) => {
         const k = a.name.toLowerCase();
         const ok = (tag === 'A' && k === 'href') || (tag === 'IMG' && (k === 'src' || k === 'alt'))
           || (tag === 'LI' && k === 'data-ok') || (tag === 'UL' && k === 'data-chk')
-          || (tag === 'DIV' && (k === 'data-cols' || k === 'data-col'))
+          || (tag === 'DIV' && (k === 'data-cols' || k === 'data-col' || (k === 'data-semana' && /^\d{4}-\d{2}-\d{2}$/.test(a.value))))
           || (tag === 'SPAN' && (k === 'data-tipo' || k === 'data-id' || k === 'class'));
         if (!ok) n.removeAttribute(a.name);
       });
@@ -145,6 +147,10 @@ const CSS_NOTAS = `
 .nota-ed hr{border:0;border-top:1px solid rgba(148,163,184,.35);margin:.9em 0}
 .nota-ed div[data-cols]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:.5em 0}
 .nota-ed div[data-cols="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+.nota-ed div[data-semana]{position:relative;margin:.6em 0;padding:.55em .9em .65em;border-radius:12px;border:1px solid rgba(148,163,184,.32)}
+.nota-ed div[data-semana]:focus-within{border-color:rgba(96,165,250,.55)}
+.nota-ed div[data-semana]>h3:first-child{margin:0 6.5rem .2em 0}
+.nota-ed div[data-semana]::before{position:absolute;top:.75em;right:.9em;font-size:12px;line-height:1.6;font-weight:600;padding:0 .55em;border-radius:999px;pointer-events:none}
 .nota-ed div[data-col]{min-width:0;min-height:2.2em;margin:0;padding:.3em .7em;border-radius:10px;border:1px dashed rgba(148,163,184,.28)}
 .nota-ed div[data-col]:focus-within{border-color:rgba(96,165,250,.55)}
 .nota-ed div[data-col]>:first-child{margin-top:0}
@@ -178,6 +184,7 @@ const IC = {
   link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
   imagem: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>', arroba: '<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.4 6.8"/>',
   colunas: '<rect x="3" y="4" width="7.5" height="16" rx="1.5"/><rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>',
+  semana: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M7 14h2M11 14h2M15 14h2M7 17.5h2M11 17.5h2"/>',
   google: '<path d="M20.5 12.2c0-.6-.1-1.2-.2-1.7H12v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.6-3.9 2.6-6.5z"/><path d="M12 21c2.4 0 4.5-.8 5.9-2.2L15 16.6c-.8.5-1.8.9-3 .9-2.3 0-4.3-1.6-5-3.7H4v2.3A9 9 0 0 0 12 21z"/><path d="M7 13.8a5.4 5.4 0 0 1 0-3.5V8H4a9 9 0 0 0 0 8.1z"/><path d="M12 6.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 4 8l3 2.3c.7-2.1 2.7-3.7 5-3.7z"/>',
   micro: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   linha: '<path d="M4 12h16"/>', limpar: '<path d="M6 19h8M10 5h8M14 5l-4 14M4 4l16 16"/>', desfazer: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', refazer: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
@@ -468,6 +475,36 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
     avisar(); atualizarEstados();
   };
   const nColunas = () => { const b = dentroDe('div[data-cols]'); return b ? b.children.length : 0; };
+  // ── Semana: uma caixa com as datas da semana e uma checklist para o que há a fazer.
+  // A semana em curso fica marcada "Esta semana" (pelo estilo, não fica escrito, por isso nunca fica errado).
+  // Se a página já tiver esta semana, faz a seguinte.
+  const novaSemana = () => {
+    setMenuCols(null);
+    prep();
+    const el = ref.current; if (!el) return;
+    const seg = segundaDe(new Date());
+    while (el.querySelector(`div[data-semana="${isoDia(seg)}"]`)) seg.setDate(seg.getDate() + 7);
+    const dom = new Date(seg); dom.setDate(seg.getDate() + 6);
+    const ano = dom.getFullYear() !== new Date().getFullYear() ? ` de ${dom.getFullYear()}` : '';
+    const titulo = seg.getMonth() === dom.getMonth()
+      ? `Semana de ${seg.getDate()} a ${dom.getDate()} de ${MESES[seg.getMonth()]}${ano}`
+      : `Semana de ${seg.getDate()} de ${MESES[seg.getMonth()]} a ${dom.getDate()} de ${MESES[dom.getMonth()]}${ano}`;
+    const caixa = document.createElement('div'); caixa.setAttribute('data-semana', isoDia(seg));
+    caixa.innerHTML = `<h3>${escHtml(titulo)}</h3><ul data-chk="1"><li data-ok="0"><br></li></ul>`;
+    // Entra a seguir ao bloco de topo onde está o cursor (uma linha vazia é substituída)
+    const s = window.getSelection();
+    let no = s && s.rangeCount ? s.getRangeAt(0).startContainer : null;
+    while (no && no.parentNode !== el) no = no.parentNode;
+    const vazio = no && no.nodeType === 1 && !no.textContent.trim() && !no.querySelector('img,span.ntag') && !/^(UL|OL|HR)$/.test(no.tagName) && !no.hasAttribute('data-semana');
+    if (!no) el.appendChild(caixa);
+    else if (vazio) no.replaceWith(caixa);
+    else no.after(caixa);
+    if (!caixa.nextSibling) { const p = document.createElement('div'); p.innerHTML = '<br>'; caixa.after(p); }
+    const li = caixa.querySelector('li');
+    const r = document.createRange(); r.setStart(li, 0); r.collapse(true); s.removeAllRanges(); s.addRange(r);
+    if (li.scrollIntoView) li.scrollIntoView({ block: 'nearest' });
+    avisar(); atualizarEstados();
+  };
   // Mantém as colunas inteiras: cada coluna tem sempre um parágrafo; um bloco com menos de 2 colunas volta a texto normal
   const arrumarColunas = () => {
     const el = ref.current; if (!el) return;
@@ -485,6 +522,10 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         if (!p.parentNode) c.appendChild(p);
         if (guardado) { try { const r = document.createRange(); r.setStart(guardado[0], guardado[1]); r.collapse(true); s.removeAllRanges(); s.addRange(r); } catch (e) { /* sem cursor */ } }
       });
+      if (!b.nextSibling) { const p = document.createElement('div'); p.innerHTML = '<br>'; b.after(p); }
+    });
+    el.querySelectorAll('div[data-semana]').forEach(b => {
+      if (!b.firstElementChild && !b.textContent) b.innerHTML = '<div><br></div>';
       if (!b.nextSibling) { const p = document.createElement('div'); p.innerHTML = '<br>'; b.after(p); }
     });
   };
@@ -848,7 +889,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
   const tecla = e => {
     // Ctrl+A dentro de uma coluna: seleciona só essa coluna (carregar outra vez seleciona a página toda)
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 'a') {
-      const col = dentroDe('div[data-col]');
+      const col = dentroDe('div[data-col], div[data-semana]');
       if (col) {
         const s0 = window.getSelection();
         const r0 = s0 && s0.rangeCount ? s0.getRangeAt(0) : null;
@@ -873,7 +914,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         else viz = tras ? n.childNodes[o - 1] : n.childNodes[o];
         if (viz && viz.nodeType === 1 && viz.classList && viz.classList.contains('ntag')) { e.preventDefault(); viz.remove(); setTagMenu(null); avisar(); return; }
         // Não deixa juntar uma coluna à outra (apagar no início / fim de uma coluna, ou "puxar" a coluna para a linha de cima)
-        const col = dentroDe('div[data-col]');
+        const col = dentroDe('div[data-col], div[data-semana]');
         const vazioAte = (ini, fim) => { const ate = document.createRange(); ate.setStart(...ini); ate.setEnd(...fim); return !ate.toString().length && !ate.cloneContents().querySelector('img,span.ntag,hr'); };
         if (col) {
           let topo = r.startContainer; while (topo && topo.parentNode !== col) topo = topo.parentNode;
@@ -882,7 +923,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
         } else if (!tras && ref.current) {
           let topo = r.startContainer; while (topo && topo.parentNode !== ref.current) topo = topo.parentNode;
           const prox = topo && topo.nextSibling;
-          if (prox && prox.nodeType === 1 && prox.hasAttribute('data-cols') && vazioAte([r.startContainer, r.startOffset], [topo, topo.nodeType === 3 ? topo.length : topo.childNodes.length])) { e.preventDefault(); return; }
+          if (prox && prox.nodeType === 1 && (prox.hasAttribute('data-cols') || prox.hasAttribute('data-semana')) && vazioAte([r.startContainer, r.startOffset], [topo, topo.nodeType === 3 ? topo.length : topo.childNodes.length])) { e.preventDefault(); return; }
         }
       }
     }
@@ -953,6 +994,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           <BotaoFerr claro={claro} ic="link" titulo="Link (Ctrl+K)" fn={juntarLink} />
           <BotaoFerr claro={claro} ic="imagem" titulo="Imagem ou ficheiro" fn={() => fichRef.current && fichRef.current.click()} />
           <span data-menu-cols="1" className="contents"><BotaoFerr claro={claro} ic="colunas" titulo="Colunas" on={estados.cols || !!menuCols} fn={e => { if (menuCols) { setMenuCols(null); return; } const rc = e.currentTarget.getBoundingClientRect(); setMenuCols({ x: rc.left, y: rc.bottom + 4, n: nColunas() }); }} /></span>
+          <BotaoFerr claro={claro} ic="semana" titulo="Esta semana: grelha com os dias para as tarefas" fn={novaSemana} />
           <BotaoFerr claro={claro} ic="linha" titulo="Linha" fn={() => cmd('insertHorizontalRule')} />
           <BotaoFerr claro={claro} ic="limpar" titulo="Limpar formatação" fn={() => { cmd('removeFormat'); cmd('formatBlock', 'p'); }} />
           <input ref={fichRef} type="file" multiple className="hidden" onChange={e => { inserirFicheiros(e.target.files); e.target.value = ''; }} />
@@ -981,6 +1023,7 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           </div>
         )}
       </div>
+      <style>{(() => { const esta = isoDia(segundaDe(new Date())); const prox = segundaDe(new Date()); prox.setDate(prox.getDate() + 7); return `.nota-ed div[data-semana="${esta}"]{border-color:rgba(96,165,250,.6)}.nota-ed div[data-semana="${esta}"]::before{content:'Esta semana';background:rgba(59,130,246,.15);color:${claro ? '#2563eb' : '#93c5fd'}}.nota-ed div[data-semana="${isoDia(prox)}"]::before{content:'Próxima semana';background:rgba(148,163,184,.15);color:${claro ? '#64748b' : '#94a3b8'}}`; })()}</style>
       <div ref={ref} className="nota-ed pt-4" contentEditable suppressContentEditableWarning data-ph={placeholder || 'Escreve aqui… usa @ para marcar um cliente, jogo ou tarefa'}
         spellCheck autoCorrect="on" autoCapitalize="sentences"
         onInput={() => { arrumarColunas(); avisar(); verMencao(); }} onKeyDown={tecla} onKeyUp={() => { atualizarEstados(); if (!mencao) verMencao(); }}
