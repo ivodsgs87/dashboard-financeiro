@@ -383,7 +383,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const sub = escuro ? 'text-slate-400' : 'text-slate-500';
   const linhaB = escuro ? 'border-slate-700/50' : 'border-slate-200';
   const tile = `rounded-xl p-3 ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`;
-  const chip = on => `px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${on ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : (escuro ? 'bg-slate-700/40 border-slate-600 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500')}`;
+  const chip = on => `px-1.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium border transition-all whitespace-nowrap ${on ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : (escuro ? 'bg-slate-700/40 border-slate-600 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500')}`;
   const corDelta = v => v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : '';
   const seta = v => v > 0 ? '▲ ' : v < 0 ? '▼ ' : '';
 
@@ -407,13 +407,13 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               {vista === 'invest' ? 'Só o que está exposto ao mercado (ETF, cripto, PPR…) — sem o dinheiro nas contas nem a Trade Republic.' : vista === 'capital' ? 'Investimentos + dinheiro nas contas (inclui a Trade Republic) — sem casa nem dívida.' : 'Todos os ativos, incluindo imóveis, menos as dívidas.'}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-wrap justify-end gap-2">
-              <button className={chip(vista === 'invest')} onClick={() => setVista('invest')}>Só investimentos</button>
-              <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}>Património financeiro</button>
-              <button className={chip(vista === 'total')} onClick={() => setVista('total')}>Património total</button>
+          <div className="flex flex-col items-stretch sm:items-end gap-2 w-full sm:w-auto">
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:justify-end sm:gap-2">
+              <button className={chip(vista === 'invest')} onClick={() => setVista('invest')}><span className="sm:hidden">Investimentos</span><span className="hidden sm:inline">Só investimentos</span></button>
+              <button className={chip(vista === 'capital')} onClick={() => setVista('capital')}><span className="sm:hidden">Financeiro</span><span className="hidden sm:inline">Património financeiro</span></button>
+              <button className={chip(vista === 'total')} onClick={() => setVista('total')}><span className="sm:hidden">Total</span><span className="hidden sm:inline">Património total</span></button>
             </div>
-            <div className="flex gap-1.5" role="group" aria-label="Período da caixa do meio e do gráfico">
+            <div className="grid grid-cols-6 gap-1 sm:flex sm:gap-1.5" role="group" aria-label="Período da caixa do meio e do gráfico">
               {[[1, '1M'], [3, '3M'], [6, '6M'], [12, '1A'], [36, '3A'], [0, 'Tudo']].map(([m, l]) => (
                 <button key={l} className={chip(periodo === m)} aria-pressed={periodo === m} onClick={() => setPeriodo(m)}>{l}</button>
               ))}
@@ -427,14 +427,14 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
         </div>
 
         {!ultimo ? (
-          <p className={`text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
+          <p className={`text-xs sm:text-sm ${sub}`}>Ainda não há dados. Assim que atualizares o Portfolio de um mês, ele aparece aqui sozinho.</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3">
             {/* 1 — Quanto tens */}
-            <div className={`${tile} !p-4`}>
-              <p className={`text-sm ${sub}`}>Tens hoje</p>
-              <p className="text-3xl font-bold tabular-nums mt-1">{f(ultimo[campo])}</p>
-              <p className={`text-sm mt-2 ${sub}`}>
+            <div className={`${tile} !p-3 sm:!p-4 col-span-2 md:col-span-1`}>
+              <p className={`text-xs sm:text-sm ${sub}`}>Tens hoje</p>
+              <p className="text-2xl sm:text-2xl sm:text-3xl font-bold tabular-nums mt-0.5 sm:mt-1">{f(ultimo[campo])}</p>
+              <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>
                 {vista === 'invest'
                   ? (() => {
                       const porCat = {};
@@ -448,11 +448,11 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               </p>
             </div>
             {/* 2 — O que mudou no período */}
-            <div className={`${tile} !p-4`}>
-              <p className={`text-sm ${sub}`} title={recuou ? `O Portfolio de ${patRotulo(ultimo.idx - periodo)} não foi atualizado, por isso a comparação parte do último mês com valores certos.` : undefined}>Mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}{recuou ? ' *' : ''}</p>
-              {!primeiro || primeiro === ultimo ? <p className="text-3xl font-bold mt-1">—</p> : (<>
-                <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
-                <p className={`text-sm mt-2 ${sub}`}>
+            <div className={`${tile} !p-3 sm:!p-4 min-w-0`}>
+              <p className={`text-xs sm:text-sm ${sub}`} title={recuou ? `O Portfolio de ${patRotulo(ultimo.idx - periodo)} não foi atualizado, por isso a comparação parte do último mês com valores certos.` : undefined}>Mudou {primeiro && primeiro !== ultimo ? `desde ${patRotulo(primeiro.idx)}` : ''}{recuou ? ' *' : ''}</p>
+              {!primeiro || primeiro === ultimo ? <p className="text-xl sm:text-3xl font-bold mt-1">—</p> : (<>
+                <p className={`text-xl sm:text-3xl font-bold tabular-nums mt-1 ${corDelta(varTotal)}`}>{sinal(varTotal)}</p>
+                <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>
                   {mud.nCom > 0
                     ? <><button onClick={() => setGraf(graf === 'mercado' ? 'valor' : 'mercado')} aria-pressed={graf === 'mercado'} title="Ver no gráfico só o que o mercado rendeu" className={`underline decoration-dotted underline-offset-4 hover:text-blue-400 ${graf === 'mercado' ? 'text-blue-400' : ''}`}>mercado</button> <strong className={corDelta(mud.mercado)}>{sinal(mud.mercado)}</strong> · {(() => {
                         const resto = varTotal - mud.mercado;
@@ -467,24 +467,24 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
               </>)}
             </div>
             {/* 3 — Os investimentos estão a render? Com "Tudo": desde a primeira compra. Com um período: só esse período. */}
-            <div className={`${tile} !p-4`}>
+            <div className={`${tile} !p-3 sm:!p-4 min-w-0`}>
               {periodo > 0 ? (<>
-                <p className={`text-sm ${sub}`}>Investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
+                <p className={`text-xs sm:text-sm ${sub}`}>Investimentos renderam{ret.periodos ? ` desde ${patRotulo(ret.inicio)}` : ''}</p>
                 {ret.periodos ? (<>
-                  <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(ret.resultado)}`}>{sinal(ret.resultado)}{ret.twr != null && <span className="text-base font-semibold"> {pct(ret.twr)}</span>}</p>
-                  <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ret.aportes)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong></p>
+                  <p className={`text-xl sm:text-3xl font-bold tabular-nums mt-1 ${corDelta(ret.resultado)}`}>{sinal(ret.resultado)}{ret.twr != null && <span className="text-sm sm:text-base font-semibold"> {pct(ret.twr)}</span>}</p>
+                  <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ret.aportes)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(ultimo.invest)}</strong></p>
                 </>) : (<>
-                  <p className="text-3xl font-bold mt-1">—</p>
-                  <p className={`text-sm mt-2 ${sub}`}>sem detalhe neste período</p>
+                  <p className="text-xl sm:text-3xl font-bold mt-1">—</p>
+                  <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>sem detalhe neste período</p>
                 </>)}
               </>) : (<>
-                <p className={`text-sm ${sub}`}>Investimentos renderam{vida.cats.length > 0 ? ` desde ${rotData(vida.desde)}` : ''}</p>
+                <p className={`text-xs sm:text-sm ${sub}`}>Investimentos renderam{vida.cats.length > 0 ? ` desde ${rotData(vida.desde)}` : ''}</p>
                 {vida.cats.length > 0 ? (<>
-                  <p className={`text-3xl font-bold tabular-nums mt-1 ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-base font-semibold"> {pct(vida.pct)}</span>}</p>
-                  <p className={`text-sm mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.posto)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.valor)}</strong></p>
+                  <p className={`text-xl sm:text-3xl font-bold tabular-nums mt-1 ${corDelta(vida.ganho)}`}>{sinal(vida.ganho)}{vida.pct != null && <span className="text-sm sm:text-base font-semibold"> {pct(vida.pct)}</span>}</p>
+                  <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>puseste <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.posto)}</strong> · valem <strong className={escuro ? 'text-slate-200' : 'text-slate-700'}>{f(vida.valor)}</strong></p>
                 </>) : (<>
-                  <p className="text-3xl font-bold mt-1">—</p>
-                  <p className={`text-sm mt-2 ${sub}`}>importa as transações para ver</p>
+                  <p className="text-xl sm:text-3xl font-bold mt-1">—</p>
+                  <p className={`text-xs sm:text-sm mt-1 sm:mt-2 ${sub}`}>importa as transações para ver</p>
                 </>)}
               </>)}
             </div>
