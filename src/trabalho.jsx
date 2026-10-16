@@ -6380,7 +6380,7 @@ const VisorPdf = ({ dados, cheio, onAmpliar, claro }) => {
     return () => { vivo = false; if (doc) doc.destroy(); };
   }, [dados]);
   // No painel: a página ocupa a largura toda; no ecrã inteiro: grande, mas não mais do que dá para ler sem andar de lado
-  const wLarg = Math.max(160, Math.min(larg - (cheio ? 48 : 24), cheio ? 1150 : 4000));
+  const wLarg = Math.max(160, Math.min(larg - (cheio ? 40 : 24), 4000));
   const w = cheio && inteira && altCx ? Math.max(160, Math.min(wLarg, Math.floor((altCx - 48) / razao))) : wLarg;
   const paginas = pdf ? Array.from({ length: pdf.numPages }, (_, i) => i + 1) : [];
   return (
@@ -6391,11 +6391,10 @@ const VisorPdf = ({ dados, cheio, onAmpliar, claro }) => {
     </div>
   );
 };
+const IcoDoc = ({ d }) => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 const PainelDoc = ({ doc, claro, vazio }) => {
   const [res, setRes] = useState(null);
-  const caixaRef = useRef(null);
-  const [cheio, setCheio] = useState(false);
-  useEffect(() => { const f = () => setCheio(!!document.fullscreenElement && document.fullscreenElement === caixaRef.current); document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); }, []);
+  const [grande, setGrande] = useState(false); // ampliado por cima da página (sem ocupar o ecrã todo)
   const chave = doc ? doc.chave : null;
   useEffect(() => {
     let vivo = true; let criado = null;
@@ -6417,10 +6416,16 @@ const PainelDoc = ({ doc, claro, vazio }) => {
     })().catch(e => { if (vivo) setRes({ erro: String((e && e.message) || e) }); });
     return () => { vivo = false; if (criado) URL.revokeObjectURL(criado); };
   }, [chave]); // eslint-disable-line react-hooks/exhaustive-deps
-  const btn = `w-7 h-7 inline-flex items-center justify-center rounded-md ${claro && !cheio ? 'text-slate-500 hover:bg-slate-200/70' : 'text-slate-300 hover:bg-white/10'} disabled:opacity-40`;
+  useEffect(() => { setGrande(false); }, [chave]);
+  // Esc fecha o ampliado (e não chega ao resto da app, que usaria o Esc para voltar atrás)
+  useEffect(() => {
+    if (!grande) return undefined;
+    const k = e => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); setGrande(false); } };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [grande]);
   const ok = res && (res.url || res.bytes);
   const imagem = ok && /^image\//.test(res.tipo || '');
-  const ecra = () => { const el = caixaRef.current; if (!el) return; if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; } if (el.requestFullscreen) el.requestFullscreen().catch(() => {}); };
   const blobDe = () => (res.blob ? res.blob : res.bytes ? new Blob([res.bytes], { type: res.tipo || 'application/pdf' }) : null);
   const descarregar = async () => {
     if (!ok) return;
@@ -6430,34 +6435,53 @@ const PainelDoc = ({ doc, claro, vazio }) => {
     catch (e) { window.open(res.url, '_blank', 'noopener'); } // sem acesso direto: abre, e descarrega-se no visualizador
   };
   const abrirFora = () => { const b0 = blobDe(); if (b0) { const u = URL.createObjectURL(b0); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); return; } if (res.url) window.open(res.url, '_blank', 'noopener'); };
-  const fundo = cheio ? 'bg-neutral-900' : claro ? 'bg-slate-100' : 'bg-slate-950/50';
-  return (
-    <div ref={caixaRef} className={`flex flex-col overflow-hidden ${cheio ? 'bg-neutral-900 text-slate-100' : `rounded-xl border h-[calc(100vh-170px)] min-h-[420px] ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}`}>
-      <div className={`flex items-center gap-1 pl-3 pr-1.5 h-10 shrink-0 ${cheio ? 'bg-neutral-900' : claro ? 'bg-white border-b border-slate-200' : 'bg-slate-900 border-b border-white/[0.06]'}`}>
-        <p className="flex-1 min-w-0 truncate text-[13px]"><span className="font-semibold">{doc ? doc.titulo : 'Pré-visualização'}</span>{doc && doc.sub && <span className={`ml-2 text-[11px] ${claro && !cheio ? 'text-slate-500' : 'text-slate-400'}`}>{doc.sub}</span>}</p>
-        <button type="button" onClick={ecra} disabled={!ok} className={btn} title={cheio ? 'Sair do ecrã inteiro (Esc)' : 'Ecrã inteiro'} aria-label={cheio ? 'Sair do ecrã inteiro' : 'Ecrã inteiro'}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{cheio ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}</svg>
-        </button>
-        <button type="button" onClick={descarregar} disabled={!ok} className={btn} title="Descarregar" aria-label="Descarregar">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" /></svg>
-        </button>
-        <button type="button" onClick={abrirFora} disabled={!ok} className={btn} title="Abrir noutro separador" aria-label="Abrir noutro separador">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5" /></svg>
-        </button>
-      </div>
-      <div className={`flex-1 min-h-0 ${fundo}`}>
-        {!doc ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{vazio || 'Escolhe um documento para o veres aqui.'}</p>
-          : !res || res.aCarregar ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>A abrir…</p>
-          : res.erro ? <p className="p-6 text-sm text-center text-amber-500">{res.erro}</p>
-          : imagem ? <div className="w-full h-full overflow-auto flex items-start justify-center p-3"><img src={res.url} alt={res.nome || ''} onClick={!cheio ? ecra : undefined} className={`max-w-full shadow-lg ${cheio ? 'max-h-none' : 'cursor-zoom-in'}`} /></div>
-          : res.bytes ? <VisorPdf dados={res.bytes} cheio={cheio} onAmpliar={ecra} claro={claro} />
-          // sem acesso aos bytes (ex.: ficheiro antigo noutro servidor): o leitor do browser, sem barras e à largura
-          : <iframe key={res.url} src={/drive\.google\.com\//.test(res.url) ? res.url : `${res.url}#toolbar=0&navpanes=0&view=FitH`} title={doc.titulo} className="w-full h-full border-0" />}
-      </div>
+  const btn = escuro => `w-7 h-7 inline-flex items-center justify-center rounded-md ${escuro ? 'text-slate-300 hover:bg-white/10' : claro ? 'text-slate-500 hover:bg-slate-200/70' : 'text-slate-300 hover:bg-white/10'} disabled:opacity-40`;
+  const cabecalho = (escuro, extra, fim) => (
+    <div className={`flex items-center gap-1 pl-3 pr-1.5 h-10 shrink-0 ${escuro ? 'bg-neutral-900 text-slate-100 border-b border-white/[0.06]' : claro ? 'bg-white border-b border-slate-200' : 'bg-slate-900 border-b border-white/[0.06]'}`}>
+      <p className="flex-1 min-w-0 truncate text-[13px]"><span className="font-semibold">{doc ? doc.titulo : 'Pré-visualização'}</span>{doc && doc.sub && <span className={`ml-2 text-[11px] ${!escuro && claro ? 'text-slate-500' : 'text-slate-400'}`}>{doc.sub}</span>}</p>
+      {extra}
+      <button type="button" onClick={descarregar} disabled={!ok} className={btn(escuro)} title="Descarregar" aria-label="Descarregar"><IcoDoc d="M12 4v11M7 11l5 5 5-5M5 20h14" /></button>
+      <button type="button" onClick={abrirFora} disabled={!ok} className={btn(escuro)} title="Abrir noutro separador" aria-label="Abrir noutro separador"><IcoDoc d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5" /></button>
+      {fim}
     </div>
   );
+  const conteudo = emGrande => (!doc ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{vazio || 'Escolhe um documento para o veres aqui.'}</p>
+    : !res || res.aCarregar ? <p className={`p-6 text-sm text-center ${claro && !emGrande ? 'text-slate-500' : 'text-slate-400'}`}>A abrir…</p>
+    : res.erro ? <p className="p-6 text-sm text-center text-amber-500">{res.erro}</p>
+    : imagem ? <div className="w-full h-full overflow-auto flex items-start justify-center p-3"><img src={res.url} alt={res.nome || ''} onClick={!emGrande ? () => setGrande(true) : undefined} className={`max-w-full shadow-lg ${emGrande ? '' : 'cursor-zoom-in'}`} /></div>
+    : res.bytes ? <VisorPdf dados={res.bytes} cheio={emGrande} onAmpliar={() => setGrande(true)} claro={claro} />
+    // sem acesso aos bytes (ex.: ficheiro antigo noutro servidor): o leitor do browser, sem barras e à largura
+    : <iframe key={res.url} src={res.url} title={doc.titulo} className="w-full h-full border-0 bg-white" />);
+  return (
+    <>
+      <div className={`flex flex-col overflow-hidden rounded-xl border h-[calc(100vh-170px)] min-h-[420px] ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+        {cabecalho(false, <button type="button" onClick={() => setGrande(true)} disabled={!ok} className={btn(false)} title="Ampliar" aria-label="Ampliar"><IcoDoc d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></button>)}
+        <div className={`flex-1 min-h-0 ${claro ? 'bg-slate-100' : 'bg-slate-950/50'}`}>{conteudo(false)}</div>
+      </div>
+      {grande && ok && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/70 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setGrande(false); }}>
+          <div className="flex flex-col overflow-hidden rounded-xl shadow-2xl bg-neutral-900 w-[min(960px,94vw)] h-[92vh] animate-modalIn" role="dialog" aria-modal="true" aria-label={doc ? doc.titulo : 'Documento'}>
+            {cabecalho(true, null, <button type="button" onClick={() => setGrande(false)} className={`${btn(true)} ml-1`} title="Fechar (Esc)" aria-label="Fechar"><IcoDoc d="M6 6l12 12M18 6L6 18" /></button>)}
+            <div className="flex-1 min-h-0">{conteudo(true)}</div>
+          </div>
+        </div>, document.body)}
+    </>
+  );
 };
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive }) => {
+  // Pasta dos recibos no Drive (a mesma de Definições → Recibos no Google Drive)
+  const cfgD = cfgDrive || {};
+  const [verCfg, setVerCfg] = useState(false);
+  const [sempreR, setSempreR] = useState(() => ligadoSempre(cfgD.conta || '_'));
+  useEffect(() => { let vivo = true; sincronizarSempre().then(() => { if (vivo) setSempreR(ligadoSempre(cfgD.conta || '_')); }); return () => { vivo = false; }; }, [cfgD.conta]);
+  const [aLigarR, setALigarR] = useState(false);
+  const ligarSempreR = async () => {
+    setALigarR(true);
+    try { await carregarGis(); await ligarDriveSempre(cfgD.conta || undefined); setSempreR(true); if (showToast) showToast('☁ Drive ligado: a app passa a ir buscar os recibos sozinha'); if (onSincDrive) setTimeout(onSincDrive, 500); }
+    catch (e) { avisoApp(e.message || String(e)); }
+    setALigarR(false);
+  };
+  const [verOutros, setVerOutros] = useState(false);
   const [aEnviar, setAEnviar] = useState(null);
   const inRef = useRef(null); const alvo = useRef(null);
   const [anoAberto, setAnoAberto] = useState(null);
@@ -6554,6 +6578,10 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
           <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={e => { juntarRecibos(e.target.files); e.target.value = ''; }} />
           <span>📎</span><span>Escolhe os PDFs dos recibos (podes escolher vários) ou arrasta-os para aqui</span>
         </label>
+        <label className={`inline-flex items-center gap-1.5 text-xs cursor-pointer ${sub} hover:text-blue-400`}>
+          <input type="file" multiple webkitdirectory="" directory="" className="hidden" onChange={e => { juntarRecibos(e.target.files); e.target.value = ''; }} />
+          📁 ou escolhe uma pasta do computador (junta todos os PDFs que lá estão)
+        </label>
         {L.length > 0 && (
           <div className={`rounded-lg border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/40'}`}>
             <div className={`hidden sm:grid grid-cols-[minmax(0,1fr)_140px_110px_minmax(0,1.3fr)_24px] gap-2 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${sub}`}><span>Ficheiro</span><span>Data</span><span className="text-right">Ilíquido</span><span>Fica em</span><span /></div>
@@ -6595,29 +6623,67 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       {onImportar && !imp && <button type="button" onClick={() => setImp({ linhas: [] })} className="text-xs text-blue-400 hover:text-blue-300" title="Junta vários recibos verdes de uma vez: a IA lê cada um">+ Importar recibos</button>}
     </div>
   );
-  const avisoDrive = (recSinc && (recSinc.a || recSinc.feito)) || pendDrive.length > 0 ? (
+  const pendMeus = pendDrive.filter(p => p.cid != null);
+  const pendOutros = pendDrive.filter(p => p.cid == null);
+  const linhaPend = p => (
+    <div key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <a href={p.url} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline truncate max-w-full sm:max-w-[45%]" title={p.nome}>{p.nome}</a>
+      <span className="opacity-80">— {p.motivo}{p.resumo ? ` · ${p.resumo}` : ''}</span>
+      <span className="flex-1" />
+      {onImportar && <button type="button" onClick={() => trazerDoDrive([p])} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === p.id ? 'A abrir…' : 'Rever e importar'}</button>}
+      {onIgnorarDrive && <button type="button" onClick={() => onIgnorarDrive(p.id)} className="px-1.5 py-0.5 opacity-80 hover:opacity-100" title="Não interessa: deixa de aparecer (fica no Drive)">Ignorar</button>}
+    </div>
+  );
+  const avisoDrive = (recSinc && (recSinc.a || recSinc.feito || recSinc.semLigacao)) || pendDrive.length > 0 ? (
     <div className="space-y-1.5">
       {recSinc && (recSinc.a || recSinc.feito) && <p className={`text-[11px] ${sub}`}>☁ {recSinc.a || recSinc.feito}</p>}
-      {pendDrive.length > 0 && (
+      {recSinc && recSinc.semLigacao && !sempreR && <p className="text-[11px] text-amber-500">☁ Para ir buscar os recibos ao Drive sozinha, a app precisa que a conta fique sempre ligada — em «Recibos no Google Drive», mais abaixo, carrega em «Manter sempre ligado».</p>}
+      {pendOutros.length > 0 && (
+        <div className={`rounded-lg px-3 py-1.5 text-xs ${claro ? 'bg-slate-100' : 'bg-white/[0.03]'} ${sub}`}>
+          <button type="button" onClick={() => setVerOutros(v => !v)} className="hover:text-blue-400">{verOutros ? '▾' : '▸'} {pendOutros.length} recibo{pendOutros.length === 1 ? '' : 's'} no Drive de clientes que não reconheci</button>
+          {verOutros && <div className="mt-1.5 space-y-1.5 text-amber-500">{pendOutros.map(linhaPend)}</div>}
+        </div>
+      )}
+      {pendMeus.length > 0 && (
         <div className="rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500 text-xs space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="flex-1 min-w-0">☁ {pendDrive.length === 1 ? 'Há 1 recibo no Drive que não consegui juntar sozinho' : `Há ${pendDrive.length} recibos no Drive que não consegui juntar sozinho`}:</span>
-            {onImportar && pendDrive.length > 1 && <button type="button" onClick={() => trazerDoDrive(pendDrive)} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === 'todos' ? 'A abrir…' : 'Rever todos'}</button>}
+            <span className="flex-1 min-w-0">☁ {pendMeus.length === 1 ? 'Há 1 recibo deste cliente no Drive que não consegui juntar sozinho' : `Há ${pendMeus.length} recibos deste cliente no Drive que não consegui juntar sozinho`}:</span>
+            {onImportar && pendMeus.length > 1 && <button type="button" onClick={() => trazerDoDrive(pendMeus)} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === 'todos' ? 'A abrir…' : 'Rever todos'}</button>}
           </div>
-          {pendDrive.map(p => (
-            <div key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <a href={p.url} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline truncate max-w-full sm:max-w-[45%]" title={p.nome}>{p.nome}</a>
-              <span className="opacity-80">— {p.motivo}{p.resumo ? ` · ${p.resumo}` : ''}</span>
-              <span className="flex-1" />
-              {onImportar && <button type="button" onClick={() => trazerDoDrive([p])} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === p.id ? 'A abrir…' : 'Rever e importar'}</button>}
-              {onIgnorarDrive && <button type="button" onClick={() => onIgnorarDrive(p.id)} className="px-1.5 py-0.5 opacity-80 hover:opacity-100" title="Não é um recibo deste cliente (ou não interessa): deixa de aparecer (fica no Drive)">Ignorar</button>}
-            </div>
-          ))}
+          {pendMeus.map(linhaPend)}
         </div>
       )}
     </div>
   ) : null;
-  if (!anos.length) return <div className="space-y-3">{barraImp}{avisoDrive}{caixaImp}{!imp && <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente.{onImportar ? ' Importa-os aqui ou em Receitas.' : ' Junta-os em Receitas.'}</p>}</div>;
+  // Caixa da pasta dos recibos no Drive (fechada; abre sozinha se ainda não houver pasta)
+  const abertoCfg = verCfg || !cfgD.pasta;
+  const caixaCfg = onCfgDrive && (
+    <div className={`rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+      <button type="button" onClick={() => setVerCfg(v => !v)} className="w-full flex items-center gap-2 text-left">
+        <span className={`text-[10px] ${sub}`} style={{ transform: abertoCfg ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+        <span className="text-sm font-semibold flex-1">Recibos no Google Drive</span>
+        <span className={`text-xs ${cfgD.pasta && sempreR ? 'text-sky-400' : cfgD.pasta ? 'text-amber-500' : sub}`}>{!cfgD.pasta ? '☁ por ligar' : sempreR ? '☁ Drive ligado' : '☁ falta «Manter sempre ligado»'}</span>
+      </button>
+      {abertoCfg && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <CampoF rot="Pasta dos recibos no Drive (link)">
+            <TxtIn valor={cfgD.pasta} onGravar={v => onCfgDrive({ pasta: String(v || '').trim() })} placeholder="https://drive.google.com/drive/folders/…" className={icI} />
+            {cfgD.pasta && !idPastaDrive(cfgD.pasta) && <span className="text-[11px] text-red-400">Este link não parece de uma pasta do Drive.</span>}
+          </CampoF>
+          <CampoF rot="Conta Google dessa pasta">
+            <TxtIn valor={cfgD.conta} onGravar={v => onCfgDrive({ conta: String(v || '').trim() })} placeholder="ex.: o teu gmail" className={icI} />
+          </CampoF>
+          {cfgD.pasta && (sempreR
+            ? <p className="sm:col-span-2 text-xs text-emerald-500">🔒 Sempre ligado{cfgD.conta ? ` (${cfgD.conta})` : ''}: a app vai buscar os recibos sozinha.</p>
+            : <p className="sm:col-span-2 text-xs text-amber-500 flex flex-wrap items-center gap-2">Para a app ir buscar os recibos sozinha, esta conta tem de ficar sempre ligada.
+                <button type="button" disabled={aLigarR} onClick={ligarSempreR} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aLigarR ? 'A ligar…' : 'Manter sempre ligado'}</button>
+              </p>)}
+          <p className={`sm:col-span-2 text-[11px] ${sub}`}>É a mesma pasta para todos os clientes (também está em Definições). Cada recibo com PDF vai para lá em <strong>Ano / Nº_Trimestre</strong>; e os PDFs que lá pões juntam-se sozinhos ao registo certo em Receitas (mesmo cliente e valor, perto da data). As pastas que a app usa ficam verdes no Drive. A app nunca apaga nada no Drive.</p>
+        </div>
+      )}
+    </div>
+  );
+  if (!anos.length) return <div className="space-y-3">{barraImp}{avisoDrive}{caixaImp}{!imp && <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente.{onImportar ? ' Importa-os aqui ou em Receitas.' : ' Junta-os em Receitas.'}</p>}{caixaCfg}</div>;
   const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
   const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
@@ -6694,6 +6760,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
           </div>
         );
       })}
+      {caixaCfg}
     </div>
     {comPainel && <div className="sticky top-[150px] min-w-0"><PainelDoc doc={docPrev} claro={claro} vazio="Nenhum recibo deste cliente tem PDF guardado na app." /></div>}
     </div>
@@ -6876,6 +6943,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const atrasadas = inicio ? doCliente.filter(t => !jaFat(t) && trabEntrega(t) && trabEntrega(t) < pref && trabEntrega(t).slice(0, 7) >= inicio) : [];
   const porEntregar = doCliente.filter(t => t.estado === 'todo' || t.estado === 'curso');
   const [incluirAtras, setIncluirAtras] = useState(true);
+  const [verTarefasL, setVerTarefasL] = useState(() => { try { return localStorage.getItem('fat-ver-tarefas') === '1'; } catch (e) { return false; } }); // as tarefas por baixo de cada linha
+  const alternarTarefasL = () => setVerTarefasL(v => { try { localStorage.setItem('fat-ver-tarefas', v ? '0' : '1'); } catch (e) { /* */ } return !v; });
   const extrasMes = [];
   (trab.pastas || []).filter(p => String(p.cid) === String(cid)).forEach(p => ((p.orcamento && p.orcamento.extras) || []).forEach((e, i) => {
     const v = Number(String(e.val ?? '').replace(',', '.')) || 0;
@@ -7182,7 +7251,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 </div>
                 <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
                 <button type="button" onClick={() => (String(l.id).startsWith('m:') ? setManuais(ms => ms.filter(x => x.id !== l.id)) : ed({ fora: true }))} className={`h-8 text-xs ${sub} hover:text-red-400`} title="Tirar esta linha" aria-label="Tirar esta linha">✕</button>
-                {(l.tarefas || []).length > 0 && <p className={`col-span-3 text-[11px] ${sub}`}>{l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}: {l.tarefas.map(id => doCliente.find(t => t.id === id)).filter(Boolean).map((t, k) => <React.Fragment key={t.id}>{k > 0 && ' · '}<button type="button" onClick={() => onAbrirTarefa && onAbrirTarefa(t.id)} className="hover:text-blue-400 hover:underline" title="Abrir a tarefa">{t.nome}</button></React.Fragment>)}</p>}
+                {(l.tarefas || []).length > 0 && !verTarefasL && <button type="button" onClick={alternarTarefasL} className={`col-span-3 justify-self-start text-[11px] ${sub} hover:text-blue-400`} title="Ver as tarefas desta linha (e das outras)">▸ {l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}</button>}
+                {(l.tarefas || []).length > 0 && verTarefasL && <p className={`col-span-3 text-[11px] ${sub}`}><button type="button" onClick={alternarTarefasL} className="hover:text-blue-400" title="Esconder as tarefas">▾ {l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}:</button> {l.tarefas.map(id => doCliente.find(t => t.id === id)).filter(Boolean).map((t, k) => <React.Fragment key={t.id}>{k > 0 && ' · '}<button type="button" onClick={() => onAbrirTarefa && onAbrirTarefa(t.id)} className="hover:text-blue-400 hover:underline" title="Abrir a tarefa">{t.nome}</button></React.Fragment>)}</p>}
               </div>
             );
           })}
@@ -7963,7 +8033,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onSincRecibosDrive, recSinc }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -8565,7 +8635,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
             } : null} />}
           {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} showToast={showToast} inputClass={inputClass}
-            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onSincDrive={onSincRecibosDrive} recSinc={recSinc} />}
+            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
@@ -8898,5 +8968,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
   return { nome, pasta: `${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela };
+export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela };
 export const FICHEIRO_APP = 'trabalho';
