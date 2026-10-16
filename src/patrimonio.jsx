@@ -810,18 +810,18 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
       </div>
       <p className={`text-xs mb-3 ${sub}`}>{ateMes < 12 ? `Janeiro a ${meses[ateMes - 1]} de cada ano, para a comparação ser justa.` : envolveAnoCorrente ? `Ano inteiro de cada lado. ${hoje.getFullYear()} ainda não acabou: para comparar os mesmos meses, marca «só Janeiro a ${meses[hoje.getMonth()]}».` : 'Ano inteiro de cada lado.'}</p>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm tabular-nums">
+        <table className="w-full text-xs sm:text-sm tabular-nums">
           <thead><tr className={`text-xs ${sub}`}><th className="text-left font-normal py-1"></th>
-            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corA }} />{anoA}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoA === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
-            <th className="text-right font-normal"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corB }} />{anoB}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoB === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
-            <th className="text-right font-normal">Diferença</th></tr></thead>
+            <th className="text-right font-normal pl-2"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corA }} />{anoA}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoA === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
+            <th className="text-right font-normal pl-2"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: corB }} />{anoB}{ateMes < 12 ? <span className="block text-[10px]">Jan–{meses[ateMes - 1].slice(0, 3)}</span> : anoB === hoje.getFullYear() && <span className="block text-[10px]">até agora</span>}</th>
+            <th className="text-right font-normal pl-2">Diferença</th></tr></thead>
           <tbody>
             {linhas.map(r => (
               <tr key={r.l} className={`border-t ${escuro ? 'border-slate-700/40' : 'border-slate-200'}`}>
                 <td className="py-1.5">{r.l}</td>
-                <td className="text-right">{r.a == null || (r.falta && r.falta[0]) ? <span className={sub}>sem dados</span> : r.fm(r.a)}{r.nota && r.nota[0] ? <span className={`block text-[10px] ${sub}`}>{r.nota[0]}</span> : null}</td>
-                <td className="text-right font-semibold">{r.b == null || (r.falta && r.falta[1]) ? <span className={`font-normal ${sub}`}>sem dados</span> : r.fm(r.b)}{r.nota && r.nota[1] ? <span className={`block text-[10px] font-normal ${sub}`}>{r.nota[1]}</span> : null}</td>
-                <td className="text-right">{r.falta && (r.falta[0] || r.falta[1]) ? <span className={sub}>—</span> : delta(r.a, r.b, r.menosEhBom, r.neutro)}</td>
+                <td className="text-right pl-2">{r.a == null || (r.falta && r.falta[0]) ? <span className={sub}>sem dados</span> : r.fm(r.a)}{r.nota && r.nota[0] ? <span className={`block text-[10px] ${sub}`}>{r.nota[0]}</span> : null}</td>
+                <td className="text-right font-semibold pl-2">{r.b == null || (r.falta && r.falta[1]) ? <span className={`font-normal ${sub}`}>sem dados</span> : r.fm(r.b)}{r.nota && r.nota[1] ? <span className={`block text-[10px] font-normal ${sub}`}>{r.nota[1]}</span> : null}</td>
+                <td className="text-right pl-2">{r.falta && (r.falta[0] || r.falta[1]) ? <span className={sub}>—</span> : delta(r.a, r.b, r.menosEhBom, r.neutro)}</td>
               </tr>
             ))}
           </tbody>
@@ -835,14 +835,14 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
       {clientes.length > 0 && (<>
         <p className="font-medium text-sm mt-5 mb-2">Receitas por cliente</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm tabular-nums">
+          <table className="w-full text-xs sm:text-sm tabular-nums">
             <tbody>
               {clientes.map(c => (
                 <tr key={c.nome} className={`border-t ${escuro ? 'border-slate-700/40' : 'border-slate-200'}`}>
                   <td className="py-1.5">{c.nome}</td>
-                  <td className="text-right">{c.a ? f(c.a) : <span className={sub}>—</span>}</td>
-                  <td className="text-right font-semibold">{c.b ? f(c.b) : <span className={`font-normal ${sub}`}>—</span>}</td>
-                  <td className="text-right w-16">{c.a && c.b ? delta(c.a, c.b) : <span className={sub}>{c.b ? 'novo' : 'saiu'}</span>}</td>
+                  <td className="text-right pl-2">{c.a ? f(c.a) : <span className={sub}>—</span>}</td>
+                  <td className="text-right font-semibold pl-2">{c.b ? f(c.b) : <span className={`font-normal ${sub}`}>—</span>}</td>
+                  <td className="text-right w-14 pl-2">{c.a && c.b ? delta(c.a, c.b) : <span className={sub}>{c.b ? 'novo' : 'saiu'}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -1081,7 +1081,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
           nota={metaRec > 0 ? `${pct(rec / metaRec * 100)} da meta de ${f(metaRec)}` : 'Sem meta definida'} />
         <AnoNum onIr={onIr} rot={ano < anoHoje ? 'Total do ano' : 'Projeção para o ano'} val={f(proj)} cor={metaRec > 0 ? (ritmoOk ? 'text-emerald-400' : 'text-amber-400') : undefined} ir="performance"
           nota={metaRec > 0 ? (ritmoOk ? `No ritmo certo · +${f(proj - metaRec)} acima da meta` : `Abaixo do ritmo · faltam ${f(metaRec - proj)}`) : `${nMeses} meses de dados`} />
-        <AnoNum onIr={onIr} rot={`Impostos de ${ano}`} val={pi ? f(pi.totalImpostos) : '—'} cor="text-orange-400" ir="resumo"
+        <AnoNum onIr={onIr} rot={`Impostos de ${ano}`} val={pi ? f(pi.totalImpostos) : '—'} cor="text-orange-400" ir="impostos"
           nota={pi ? `SS ${f(pi.ssAnual)} · IVA ${f(pi.ivaAPagar)} · IRS ${f(pi.irsEstimado)}` : pagosAno > 0 ? `Pagaste ${f(pagosAno)} durante ${ano}` : 'Previsão só para o ano corrente'} />
         <AnoNum onIr={onIr} rot="Posto de lado" val={f(poupado)} cor="text-violet-400" ir="invest"
           nota={(Number(totais.liquidoAnual) || 0) > 0 ? `${pct(taxaPoupancaDe(poupado, Number(totais.liquidoAnual)))} do que ficou depois dos impostos · investido ${f(totais.investAnual)} + amortizado ${f(totais.amortAnual)}` : 'Investido + amortizado'} />
