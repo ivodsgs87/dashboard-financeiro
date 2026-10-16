@@ -1582,9 +1582,9 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   const anosApp = Object.entries(M || {}).filter(([, md]) => md && ((md.regCom || []).length || (md.regSem || []).length)).map(([k]) => Number(k.split('-')[0])).filter(Boolean);
   const anoMin = anosApp.length ? Math.min(...anosApp) : new Date().getFullYear();
   const noDrive = todosDrive.filter(f => { const segAno = (f.caminho || []).map(x => String(x).trim()).find(x => /^\d{4}$/.test(x)); const a = segAno ? Number(segAno) : Number(String(f.modifiedTime || '').slice(0, 4)) || Number((/(20\d{2})/.exec(f.name) || [])[1]) || 0; return a >= anoMin; });
-  // Depois de juntar um recibo do Drive ao registo, fica arrumado em Cliente / Ano / Trimestre
+  // Depois de juntar um recibo do Drive ao registo, fica arrumado em Ano / Trimestre (a pasta dos recibos não tem pastas por cliente)
   // (o trimestre é o da data do recibo)
-  const arrumar = async (f, data, r0) => { const r = r0 || { cid: null }; const cl = (clientes || []).find(c => String(c.id) === String(r.cid)); if (!cl || !mod.arrumarNoDrive || !data) return; try { await mod.arrumarNoDrive({ conta: cfg.conta, pastaUrl: cfg.pasta, fileId: f.id, cliente: cl.nome, data }); } catch (e) { /* fica onde está */ } };
+  const arrumar = async (f, data, r0) => { const r = r0 || { cid: null }; const cl = (clientes || []).find(c => String(c.id) === String(r.cid)); if (!cl || !mod.arrumarNoDrive || !data) return; try { await mod.arrumarNoDrive({ conta: cfg.conta, pastaUrl: cfg.pasta, fileId: f.id, cliente: cl.nome, data, semCliente: true }); } catch (e) { /* fica onde está */ } };
   const ligadosId = new Set(regs.map(x => idDriveDe(x.r.driveUrl)).filter(Boolean));
   const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
   // O mesmo PDF duas vezes no Drive (ex.: uma cópia enviada antes de a app o reconhecer): mesmo tamanho que um já ligado
