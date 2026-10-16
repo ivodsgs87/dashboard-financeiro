@@ -8171,7 +8171,10 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   const ic = `${inputClass} text-sm py-1.5`;
   const grelha = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2.5';
   // Quanto tempo este cliente demora de facto a pagar (pelos recibos em que marcaste o dia em que o dinheiro chegou)
-  const mediaPagar = (() => { const l = (recibos || []).map(r => r.pag && r.pag.demorou).filter(d => d != null && d >= 0 && d < 200); return l.length >= 2 ? { dias: Math.round(l.reduce((a, b) => a + b, 0) / l.length), n: l.length } : null; })();
+  // (a mesma conta que a app usa para prever: os últimos 6, a partir de 3)
+  const marcadosPag = (recibos || []).filter(r => r.pag && r.pag.quando && r.pag.demorou != null && r.pag.demorou >= 0 && r.pag.demorou < 200).sort((a, b) => String(b.pag.quando).localeCompare(String(a.pag.quando)));
+  const mediaPagar = (() => { const l = marcadosPag.slice(0, 6).map(r => r.pag.demorou); return l.length >= 3 ? { dias: Math.round(l.reduce((a, b) => a + b, 0) / l.length), n: l.length } : null; })();
+  const diasFichaPag = fat.diasPagar != null && fat.diasPagar !== '' ? Number(fat.diasPagar) : fat.prazoDias != null && fat.prazoDias !== '' ? Number(fat.prazoDias) : 30;
   const chip = on => `px-2.5 py-1 rounded-full text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
   const maxMes = Math.max(1, ...n.meses12);
   const provPais = paisDoCliente(c, recibos); // o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes
@@ -8218,8 +8221,9 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
               <select value={fat.moeda || 'EUR'} onChange={e => setFat({ moeda: e.target.value })} className={ic}>{MOEDAS.map(m => <option key={m} value={m}>{m}</option>)}</select>
             </CampoFicha>
             <CampoFicha rot="Prazo de pagamento (dias)" info="O prazo que vai escrito na fatura."><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></CampoFicha>
-            <CampoFicha rot="Costuma pagar em (dias)" info={`Quantos dias depois do recibo o dinheiro costuma chegar à conta. A partir daí o recibo aparece como atrasado (⏳) e o Painel avisa. Vazio = o prazo de pagamento${mediaPagar ? `. Pelos recibos que marcaste, paga em média em ${mediaPagar.dias} dias (${mediaPagar.n} recibos).` : '.'}`}>
-              <NumIn valor={fat.diasPagar ?? null} placeholder={mediaPagar ? String(mediaPagar.dias) : String(fat.prazoDias ?? 30)} decimal={false} onGravar={v => setFat({ diasPagar: v })} className={ic} />
+            <CampoFicha rot="Costuma pagar em (dias)" info="Quantos dias depois do recibo o dinheiro costuma chegar à conta — é o ponto de partida. Quando marcares em 3 recibos o dia em que o dinheiro chegou, a app passa a usar a média real (dos últimos 6) e vai-se ajustando sozinha. Passado esse prazo, o recibo aparece como atrasado (⏳) e o Painel avisa. Vazio = o prazo de pagamento.">
+              <NumIn valor={fat.diasPagar ?? null} placeholder={String(fat.prazoDias ?? 30)} decimal={false} onGravar={v => setFat({ diasPagar: v })} className={ic} />
+              <span className={`text-[11px] ${mediaPagar ? 'text-emerald-500' : sub}`}>{mediaPagar ? `A app usa ${mediaPagar.dias} dias — a média real dos últimos ${mediaPagar.n} recibos` : marcadosPag.length ? `Faltam ${3 - marcadosPag.length} recibo${3 - marcadosPag.length === 1 ? '' : 's'} marcados para usar a média real` : 'Marca quando o dinheiro chega (⏳ nos recibos) e a app aprende'}</span>
             </CampoFicha>
             <CampoFicha rot={'Tipo de trabalho ("FOR:")'} info="O que vai na fatura em «FOR:». Depois a app sugere o da última fatura." span="sm:col-span-2"><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></CampoFicha>
             <CampoFicha rot="Próximo nº de fatura" info="Só conta até fazeres a primeira fatura na app — depois segue a numeração das faturas."><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></CampoFicha>
@@ -8269,6 +8273,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
               ['Horas', tempoTxt(n.horasAno), n.emCurso ? `${n.emCurso} em curso` : ''],
               ['€/h faturado', n.eurHora ? eur(n.eurHora) : '—', 'faturado ÷ horas registadas'],
               ['Último recibo', n.ultimo || '—', ''],
+              ['Paga em', mediaPagar ? `${mediaPagar.dias} dias` : marcadosPag.length ? `${marcadosPag[0].pag.demorou} dias` : '—', mediaPagar ? (Math.abs(mediaPagar.dias - diasFichaPag) >= 2 ? `média real · ${mediaPagar.dias > diasFichaPag ? `${mediaPagar.dias - diasFichaPag} a mais` : `${diasFichaPag - mediaPagar.dias} a menos`} do que os ${diasFichaPag} da ficha` : `média real de ${mediaPagar.n} recibos`) : marcadosPag.length ? 'no último recibo · a média vem com 3' : 'marca quando o dinheiro chega'],
             ].map(([k, v, nota]) => (
               <div key={k} className={`rounded-lg p-2.5 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`}>
                 <p className={`text-[11px] ${sub}`}>{k}</p>
