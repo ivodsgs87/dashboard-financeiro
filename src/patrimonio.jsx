@@ -1320,95 +1320,115 @@ const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
     : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
         className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50"><Ico e="🔒"/>Manter sempre ligado</button>;
 };
-// Recibos verdes ↔ Google Drive: envia os que faltam no Drive e traz para a app os que só estão no Drive
-// (juntam-se ao registo do mesmo cliente e valor; os que não têm par ficam numa lista para criares em Receitas)
-const SincronizarRecibosDrive = ({ cfg, M, clientes, carregar, showToast, ignorados = [], onEnviar, onJuntar, onCriar, onIgnorar }) => {
-  const [est, setEst] = useState(null); // { a: 'texto do que está a fazer' } | { feito: 'resumo', soltos: [...] }
-  const idDe = u => (/\/d\/([A-Za-z0-9_-]{10,})/.exec(String(u || '')) || [])[1] || null;
-  const correr = async () => {
-    setEst({ a: 'A ver o Drive…' });
+// Recibos verdes ↔ Google Drive. Corre sozinho (ao abrir a app, ao voltar à janela, de 10 em 10 minutos) e no botão
+// «Sincronizar agora»: envia para o Drive os recibos com PDF que lá faltam, e os PDFs que só estão no Drive juntam-se
+// ao registo certo em Receitas (o mesmo cliente e valor, perto da data). Os que não dá para saber ficam numa lista.
+let ULTIMO_ID_REC = 0;
+const novoIdRecibo = () => { const t = Date.now(); ULTIMO_ID_REC = t > ULTIMO_ID_REC ? t : ULTIMO_ID_REC + 1; return ULTIMO_ID_REC; };
+const DRIVE_REC_FALHAS = new Set(); // recibos com PDF que não deu para abrir (para não tentar sempre)
+const idDriveDe = u => (/\/d\/([A-Za-z0-9_-]{10,})/.exec(String(u || '')) || [])[1] || null;
+const dataDoRecibo = (d, nome) => (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d.data || '')) ? d.data : '') || ((/(\d{4}-\d{2}-\d{2})/.exec(String(nome || '')) || [])[1] || '');
+// O registo de Receitas a que um recibo verde pertence (ou porque não deu para saber)
+const alvoReciboDrive = (M, clientes, d, nomeFich, usados) => {
+  const v = d ? Number(d.valorIliquido) || 0 : 0;
+  const dataR = dataDoRecibo(d, nomeFich);
+  if (!d) return { motivo: 'a IA não conseguiu ler o PDF' };
+  if (!(v > 0) || !dataR) return { motivo: 'não consegui ler o valor ou a data' };
+  const c = clienteDoNome(clientes, d.nomeCliente);
+  const tR = Date.parse(dataR); const [y0, m0] = dataR.split('-').map(Number); const mR = y0 * 12 + m0 - 1;
+  const cands = [];
+  Object.entries(M || {}).forEach(([k, md]) => {
+    const [ya, ma] = k.split('-').map(Number); if (!ya || !ma || !md) return;
+    const dm = ya * 12 + ma - 1 - mR; if (dm < -2 || dm > 3) return;
+    [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
+      if (usados.has(`${k}:${x.id}`) || x.driveUrl) return;
+      if (c && String(x.cid) !== String(c.id)) return;
+      if ((x.ficheiro || x.ficheiroUrl) && (x.reciboVerde || !x.faturaId)) return; // já tem o PDF do recibo (o PDF da fatura não conta)
+      if (Math.abs((Number(x.valIliq ?? x.val) || 0) - v) > 1) return;
+      const dias = /^\d{4}-\d{2}-\d{2}/.test(String(x.data || '')) ? Math.abs(Date.parse(String(x.data).slice(0, 10)) - tR) / 864e5 : null;
+      const forte = dias != null && dias <= 5;
+      if (!c && !forte) return; // sem saber o cliente, só com o mesmo valor e a mesma data
+      if (!forte && (dm < -1 || dm > 2)) return;
+      cands.push({ k, lista, r: x, p: forte ? dias : 10 + Math.abs(dm) });
+    }));
+  });
+  cands.sort((a, b) => a.p - b.p);
+  if (cands.length === 1 || (cands.length > 1 && cands[0].p < cands[1].p)) return { alvo: cands[0], c, v, dataR };
+  return { c, v, dataR, motivo: cands.length > 1 ? 'há mais do que um registo com este valor' : !c ? `não sei de que cliente é${d.nomeCliente ? ` («${d.nomeCliente}»)` : ''}` : 'ainda não há um registo com este valor em Receitas' };
+};
+const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [], pendAntes = [], onEnviar, onJuntar, progresso = () => {} }) => {
+  const regs = [];
+  Object.entries(M || {}).forEach(([k, md]) => [['regCom', md && md.regCom], ['regSem', md && md.regSem]].forEach(([lista, l]) => (l || []).forEach(r => regs.push({ k, lista, r }))));
+  // 1) Drive → app
+  progresso('A ver a pasta dos recibos no Drive…');
+  const noDrive = await mod.listarRecibosDrive({ pastaUrl: cfg.pasta, conta: cfg.conta });
+  const ligadosId = new Set(regs.map(x => idDriveDe(x.r.driveUrl)).filter(Boolean));
+  const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
+  const soltos = noDrive.filter(f => !ligadosId.has(f.id) && !ligadosNome.has(f.name) && !ignorados.includes(f.id));
+  // o que a IA já leu noutras vezes (os que ficaram por juntar) não volta a ser lido
+  const lidos = new Map(pendAntes.map(p => [p.id, p.d || null]));
+  const ficheiros = new Map();
+  const porLer = soltos.filter(f => !lidos.has(f.id));
+  let n = 0;
+  const fila = [...porLer];
+  const ler = async () => { for (let f = fila.shift(); f; f = fila.shift()) { n += 1; progresso(`A ler os recibos novos do Drive (${n} de ${porLer.length})…`); let file = null, d = null; try { file = await mod.ficheiroDoDrive(cfg.conta, f); ficheiros.set(f.id, file); d = await mod.lerFaturaIA(file); } catch (e) { /* fica por juntar */ } lidos.set(f.id, d ? { nomeCliente: d.nomeCliente || '', descricao: d.descricao || '', valorIliquido: Number(d.valorIliquido) || 0, valorIva: Number(d.valorIva) || 0, taxaIva: d.taxaIva != null ? Number(d.taxaIva) || 0 : null, retencaoIRS: Number(d.retencaoIRS) || 0, pais: d.pais || '', data: d.data || '' } : null); } };
+  await Promise.all([ler(), ler(), ler()]);
+  let juntos = 0; const semPar = []; const usados = new Set();
+  for (const f of soltos) {
+    const d = lidos.get(f.id) || null;
+    const res = alvoReciboDrive(M, clientes, d, f.name, usados);
+    if (res.alvo) {
+      const { k, r } = res.alvo;
+      usados.add(`${k}:${r.id}`);
+      let file = ficheiros.get(f.id) || null;
+      if (!file) { try { file = await mod.ficheiroDoDrive(cfg.conta, f); } catch (e) { file = null; } }
+      const valores = r.reciboVerde ? {} : { val: res.v, valIliq: res.v, iva: Number(d.valorIva) || 0, ...(d.taxaIva != null ? { taxaIva: Number(d.taxaIva) || 0 } : {}), retIRS: Number(d.retencaoIRS) || 0, ...(d.pais ? { pais: d.pais } : {}), reciboVerde: true };
+      await onJuntar(k, r.id, { ...valores, driveUrl: f.webViewLink, driveNome: f.name }, file);
+      juntos += 1;
+    } else semPar.push({ id: f.id, nome: f.name, url: f.webViewLink, d, cid: res.c ? res.c.id : null, motivo: res.motivo, resumo: d ? `${d.nomeCliente || '?'} · ${res.v ? `${res.v.toFixed(2)} €` : 'sem valor'}${res.dataR ? ` · ${res.dataR}` : ''}` : '' });
+  }
+  // 2) App → Drive: os recibos com PDF que ainda não estão lá
+  const faltam = regs.filter(x => (x.r.ficheiro || x.r.ficheiroUrl) && !x.r.driveUrl && (x.r.reciboVerde || !x.r.faturaId) && !usados.has(`${x.k}:${x.r.id}`) && !DRIVE_REC_FALHAS.has(`${x.k}:${x.r.id}`));
+  let enviados = 0, semAcesso = 0;
+  for (let i = 0; i < faltam.length; i++) {
+    const { k, r } = faltam[i];
+    progresso(`A enviar para o Drive os recibos que lá faltam (${i + 1} de ${faltam.length})…`);
+    let f = null;
     try {
-      const mod = await carregar();
-      await mod.carregarGis().catch(() => {});
-      const regs = [];
-      Object.entries(M || {}).forEach(([k, md]) => [['regCom', md && md.regCom], ['regSem', md && md.regSem]].forEach(([lista, l]) => (l || []).forEach(r => regs.push({ k, lista, r }))));
-      // 1) Drive → app
-      const noDrive = await mod.listarRecibosDrive({ pastaUrl: cfg.pasta, conta: cfg.conta });
-      const ligadosId = new Set(regs.map(x => idDe(x.r.driveUrl)).filter(Boolean));
-      const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
-      const soltos = noDrive.filter(f => !ligadosId.has(f.id) && !ligadosNome.has(f.name) && !ignorados.includes(f.id));
-      let juntos = 0; const semPar = []; const usados = new Set();
-      for (let i = 0; i < soltos.length; i++) {
-        const f = soltos[i];
-        setEst({ a: `A ler os recibos do Drive que não estão na app (${i + 1} de ${soltos.length})…` });
-        let file = null, d = null;
-        try { file = await mod.ficheiroDoDrive(cfg.conta, f); d = await mod.lerFaturaIA(file); } catch (e) { /* fica na lista */ }
-        const c = d ? clienteDoNome(clientes, d.nomeCliente) : null;
-        const v = d ? Number(d.valorIliquido) || 0 : 0;
-        const dataR = d && /^\d{4}-\d{2}-\d{2}$/.test(String(d.data || '')) ? d.data : ((/(\d{4}-\d{2}-\d{2})/.exec(f.name) || [])[1] || '');
-        let alvo = null;
-        if (c && v > 0 && dataR) {
-          const [y0, m0] = dataR.split('-').map(Number); const cands = [];
-          [-1, 0, 1, 2].forEach(dd => {
-            const t = y0 * 12 + (m0 - 1) + dd, k = `${Math.floor(t / 12)}-${t % 12 + 1}`, md = (M || {})[k] || {};
-            [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
-              if (String(x.cid) !== String(c.id) || usados.has(`${k}:${x.id}`)) return;
-              if (x.reciboVerde || x.driveUrl || ((x.ficheiro || x.ficheiroUrl) && !x.faturaId)) return; // já tem o seu recibo
-              if (Math.abs((Number(x.valIliq ?? x.val) || 0) - v) <= 1) cands.push({ k, lista, r: x, d: Math.abs(dd) });
-            }));
-          });
-          cands.sort((a, b) => a.d - b.d);
-          if (cands.length === 1 || (cands.length > 1 && cands[0].d < cands[1].d)) alvo = cands[0];
-        }
-        if (alvo) {
-          usados.add(`${alvo.k}:${alvo.r.id}`);
-          const patch = { val: v, valIliq: v, iva: Number(d.valorIva) || 0, ...(d.taxaIva != null ? { taxaIva: Number(d.taxaIva) || 0 } : {}), retIRS: Number(d.retencaoIRS) || 0, ...(d.pais ? { pais: d.pais } : {}), reciboVerde: true, driveUrl: f.webViewLink, driveNome: f.name };
-          await onJuntar(alvo.k, alvo.r.id, patch, file);
-          juntos += 1;
-        } else semPar.push({ ...f, file, motivo: !d ? 'a IA não conseguiu ler o PDF' : !c ? `não sei de que cliente é${d.nomeCliente ? ` («${d.nomeCliente}»)` : ''}` : 'não encontrei um registo com este valor em Receitas', resumo: d ? `${d.nomeCliente || '?'} · ${v ? `${v.toFixed(2)} €` : 'sem valor'}${dataR ? ` · ${dataR}` : ''}` : '' });
-      }
-      // 2) App → Drive: os recibos verdes com PDF que ainda não estão lá
-      const faltam = regs.filter(x => (x.r.ficheiro || x.r.ficheiroUrl) && !x.r.driveUrl && (x.r.reciboVerde || !x.r.faturaId) && !usados.has(`${x.k}:${x.r.id}`));
-      let enviados = 0, semAcesso = 0;
-      for (let i = 0; i < faltam.length; i++) {
-        const { k, r } = faltam[i];
-        setEst({ a: `A enviar para o Drive os recibos que lá faltam (${i + 1} de ${faltam.length})…` });
-        let f = null;
-        try {
-          if (r.ficheiro) { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let j = 0; j < bin.length; j++) u8[j] = bin.charCodeAt(j); f = new File([u8], r.ficheiroNome || 'recibo.pdf', { type: tipo }); }
-          else { const res = await fetch(r.ficheiroUrl); if (res.ok) f = new File([await res.blob()], r.ficheiroNome || 'recibo.pdf', { type: r.ficheiroTipo || 'application/pdf' }); }
-        } catch (e) { f = null; }
-        if (!f) { semAcesso += 1; continue; }
-        if (await onEnviar(k, r.id, f, r)) enviados += 1;
-      }
-      const resumo = [juntos ? `${juntos} recibo${juntos === 1 ? '' : 's'} do Drive junto${juntos === 1 ? '' : 's'} aos registos em Receitas` : '', enviados ? `${enviados} enviado${enviados === 1 ? '' : 's'} para o Drive` : '', semAcesso ? `${semAcesso} com PDF que não consegui abrir para enviar` : '', semPar.length ? `${semPar.length} no Drive sem par na app (em baixo)` : ''].filter(Boolean).join(' · ') || 'Está tudo igual no Drive e na app ✓';
-      setEst({ feito: resumo, soltos: semPar });
-      showToast(`☁ ${resumo}`);
-    } catch (e) { console.error('Recibos ↔ Drive:', e); setEst({ feito: `⚠ ${e.message || e}`, soltos: [] }); }
-  };
-  const tirar = id => setEst(x => (x && x.soltos ? { ...x, soltos: x.soltos.filter(y => y.id !== id) } : x));
-  return (
-    <div className="space-y-2">
-      <button type="button" disabled={!!(est && est.a)} onClick={correr} className="px-2.5 py-1 text-xs rounded-lg border border-sky-500/50 text-sky-400 hover:bg-sky-500/10 disabled:opacity-50">{est && est.a ? 'A sincronizar…' : '☁ Sincronizar agora'}</button>
-      {est && est.a && <p className="text-[11px] text-slate-500">{est.a}</p>}
-      {est && est.feito && <p className="text-[11px] text-slate-500">{est.feito}</p>}
-      {est && est.soltos && est.soltos.length > 0 && (
-        <div className="space-y-1.5">
-          {est.soltos.map(f => (
+      if (r.ficheiro) { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let j = 0; j < bin.length; j++) u8[j] = bin.charCodeAt(j); f = new File([u8], r.ficheiroNome || 'recibo.pdf', { type: tipo }); }
+      else { const res = await fetch(r.ficheiroUrl); if (res.ok) f = new File([await res.blob()], r.ficheiroNome || 'recibo.pdf', { type: r.ficheiroTipo || 'application/pdf' }); }
+    } catch (e) { f = null; }
+    if (!f) { semAcesso += 1; DRIVE_REC_FALHAS.add(`${k}:${r.id}`); continue; }
+    if (await onEnviar(k, r.id, f, r)) enviados += 1; else DRIVE_REC_FALHAS.add(`${k}:${r.id}`);
+  }
+  return { juntos, enviados, semAcesso, semPar };
+};
+const resumoRecibosDrive = (o, auto) => [o.juntos ? `${o.juntos} recibo${o.juntos === 1 ? '' : 's'} do Drive junto${o.juntos === 1 ? '' : 's'} aos registos em Receitas` : '', o.enviados ? `${o.enviados} enviado${o.enviados === 1 ? '' : 's'} para o Drive` : '', !auto && o.semAcesso ? `${o.semAcesso} com PDF que não consegui abrir para enviar` : '', o.semPar.length ? `${o.semPar.length} no Drive por juntar (Trabalho → cliente → Recibos)` : ''].filter(Boolean).join(' · ');
+// Definições → Recibos no Google Drive: o botão e a lista dos que ficaram por juntar
+const SincronizarRecibosDrive = ({ estado, onCorrer, pend = [], clientes = [], onCriar, onIgnorar, aAbrir }) => (
+  <div className="space-y-2">
+    <button type="button" disabled={!!(estado && estado.a)} onClick={onCorrer} className="px-2.5 py-1 text-xs rounded-lg border border-sky-500/50 text-sky-400 hover:bg-sky-500/10 disabled:opacity-50">{estado && estado.a ? 'A sincronizar…' : '☁ Sincronizar agora'}</button>
+    <p className="text-[11px] text-slate-500">{estado && estado.a ? estado.a : estado && estado.feito ? estado.feito : 'A app também faz isto sozinha: ao abrir, quando voltas à janela e de 10 em 10 minutos.'}</p>
+    {pend.length > 0 && (
+      <div className="space-y-1.5">
+        <p className="text-[11px] text-amber-500">No Drive, por juntar a um registo:</p>
+        {pend.map(f => {
+          const c = f.cid != null ? clientes.find(x => String(x.id) === String(f.cid)) : null;
+          return (
             <div key={f.id} className="text-[11px] rounded-lg px-2 py-1.5 bg-amber-500/10 text-amber-500">
-              <a href={f.webViewLink} target="_blank" rel="noopener noreferrer" className="underline break-all">{f.name}</a>
-              <span className="opacity-80"> — {f.motivo}{f.resumo ? ` · ${f.resumo}` : ''}</span>
+              <a href={f.url} target="_blank" rel="noopener noreferrer" className="underline break-all">{f.nome}</a>
+              <span className="opacity-80"> — {f.motivo}{f.resumo ? ` · ${f.resumo}` : ''}{c ? ` · ${c.nome}` : ''}</span>
               <span className="flex gap-2 mt-1">
-                {f.file && <button type="button" onClick={() => { tirar(f.id); onCriar(f.file, { url: f.webViewLink, nome: f.name }); }} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Criar em Receitas</button>}
-                <button type="button" onClick={() => { tirar(f.id); onIgnorar(f.id); }} className="px-1.5 py-0.5 opacity-80 hover:opacity-100">Ignorar</button>
+                <button type="button" disabled={aAbrir === f.id} onClick={() => onCriar(f)} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-50">{aAbrir === f.id ? 'A abrir…' : 'Criar em Receitas'}</button>
+                <button type="button" onClick={() => onIgnorar(f.id)} className="px-1.5 py-0.5 opacity-80 hover:opacity-100">Ignorar</button>
               </span>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+          );
+        })}
+      </div>
+    )}
+  </div>
+);
 // ── Trabalho guardado por anos: um documento base (pastas, jogos, freelancers…) e um por ano com as tarefas ──
 // Cada tarefa fica no ano em que foi criada (não muda de ano). Assim nenhum documento chega ao limite de 1 MB.
 const anoDaTarefa = t => { const a = String((t && t.criada) || '').slice(0, 4); return /^\d{4}$/.test(a) ? a : String(new Date().getFullYear()); };
@@ -1450,6 +1470,7 @@ export {
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
   ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
-  LigacaoDriveRecibos, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
+  LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive,
+  SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
