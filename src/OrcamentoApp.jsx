@@ -3955,8 +3955,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
    // Um recibo verde importado no Trabalho (cliente → Recibos → Importar recibos): junta-se ao registo escolhido
    // ou cria um registo novo «com taxas» no mês da data (como o «Importar Fatura» das Receitas)
-   const importarReciboFicheiro = async ({ cid, file, d, alvo, drive }) => {
+   const importarReciboFicheiro = async ({ cid, file, d, alvo, drive, soLigar }) => {
+     // O PDF do Drive é o mesmo que o registo já tem: só fica ligado (não entra outra vez)
+     if (soLigar && alvo && drive) {
+       setM(p => { const md = p[alvo.k] || {}; const upd = l => (l || []).map(x => (x.id === alvo.id ? { ...x, driveUrl: drive.url, driveNome: drive.nome } : x)); return { ...p, [alvo.k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+       setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== drive.id) }));
+       return { k: alvo.k, id: alvo.id, ligado: true };
+     }
      const v = Math.round((Number(d.valorIliquido) || 0) * 100) / 100;
+     // Nunca cria um registo repetido: o mesmo cliente, o mesmo valor e a mesma data (±5 dias) já lá estão
+     if (!alvo) {
+       const tD = Date.parse(String(d.data || '').slice(0, 10));
+       const ja = !Number.isNaN(tD) && Object.values(M || {}).some(md => md && [...(md.regCom || []), ...(md.regSem || [])].some(x => String(x.cid) === String(cid) && Math.abs((Number(x.valIliq ?? x.val) || 0) - v) <= 1 && /^\d{4}-\d{2}-\d{2}/.test(String(x.data || '')) && Math.abs(Date.parse(String(x.data).slice(0, 10)) - tD) <= 5 * 864e5));
+       if (ja) return { repetido: true };
+     }
      const pais = d.pais || 'PT';
      const valores = { val: v, valIliq: v, iva: Number(d.valorIva) || 0, taxaIva: d.taxaIva != null && d.taxaIva !== '' ? (Number(d.taxaIva) || 0) : (pais === 'PT' ? 23 : 0), retIRS: Number(d.retencaoIRS) || 0, pais, reciboVerde: true };
      const ligDrive = drive ? { driveUrl: drive.url, driveNome: drive.nome } : {};
