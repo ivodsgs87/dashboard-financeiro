@@ -12639,11 +12639,11 @@ ${transacoesOrdenadas.map(t => `<tr>
               </div>
 
               <CronoTopo trab={trabalho} theme={theme} onParar={() => mudarTrab(trabParar)} onPararEm={iso => mudarTrab(tr => trabPararEm(tr, iso))} onCortar={(desde, ate) => mudarTrab(tr => trabCortarPausa(tr, desde, ate))} onAbrir={() => {
-                // Abre a lista (projeto) da tarefa que está a gravar
-                const c = trabACorrer(trabalho); const pid = c && c.tarefa && c.tarefa.pastaId;
+                // Abre a tarefa que está a gravar (na lista/projeto dela)
+                const c = trabACorrer(trabalho); const pid = c && c.tarefa && c.tarefa.pastaId; const tid = c && c.tarefa ? c.tarefa.id : null;
                 const sel = pid ? { tipo: 'pasta', id: pid } : (c && c.tarefa && c.tarefa.cid != null ? { tipo: 'cliente', id: c.tarefa.cid } : null);
-                if (sel && tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel } })); return; }
-                if (sel) { try { localStorage.setItem('trab-sel', JSON.stringify(sel)); localStorage.setItem('trab-aba-inicial', 'tarefas'); } catch (e) { /* sem armazenamento */ } }
+                if (sel && tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel, tarefa: tid } })); return; }
+                if (sel) { try { localStorage.setItem('trab-sel', JSON.stringify(sel)); localStorage.setItem('trab-aba-inicial', 'tarefas'); if (tid) localStorage.setItem('trab-abrir-tarefa', tid); } catch (e) { /* sem armazenamento */ } }
                 setTab('trabalho'); window.scrollTo({ top: 0 });
               }} onBrief={tid => carregarTrabalho().then(m => { setModTrabPrev(() => m); setBriefCrono({ tid, visivel: true }); }).catch(() => {})} />
               {/* Estado: offline / a guardar / guardado */}

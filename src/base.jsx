@@ -2120,6 +2120,7 @@ const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, onBrief, theme
         <div ref={refCaixa} role="dialog" aria-label="Cronómetro ligado há muito tempo" style={{ position: 'fixed', top: pos.top, right: pos.right }} className={`z-[100] w-72 max-w-[calc(100vw-16px)] rounded-xl border p-3 shadow-2xl text-xs ${claro ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
           <p className="text-sm font-semibold">Esqueceste-te do cronómetro?</p>
           <p className={`mt-1 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Está ligado há <b className={claro ? 'text-slate-800' : 'text-slate-100'}>{trabRelogio(ms)}</b> (desde {passouMeiaNoite ? `${new Date(ini).getDate()}/${new Date(ini).getMonth() + 1} às ` : ''}{hhmm(ini)}) em “{corre.tarefa.nome}”.</p>
+          <button type="button" onClick={() => { setAberto(false); onAbrir(); }} className="mt-1.5 text-xs text-blue-400 hover:underline">Ir à tarefa →</button>
           <div className="mt-3 flex items-center gap-2">
             <span>Parei às</span>
             <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={`rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-600'}`} aria-label="Hora a que paraste" />
