@@ -2938,8 +2938,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            {faltaActivo && (passadoM ? (
              <div className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
                <span className="flex-1 min-w-0 text-red-400">
-                 <span className="font-medium"><Ico e="🏦"/>Faltaram {fmt(guia.totPess - guia.fica)} no Activo em {mes}</span>
-                 <span className="block text-xs">Depois das transferências, o Activo ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</span>
+                 <span className="font-medium"><Ico e="🏦"/>Faltaram {fmt(guia.totPess - guia.fica)} no Activo Bank em {mes}</span>
+                 <span className="block text-xs">Depois das transferências, o Activo Bank ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</span>
                </span>
                {aMais > 0 && <button onClick={() => setTab('invest')} className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-400 whitespace-nowrap">Rever a Alocação →</button>}
                <button onClick={irTransf} className="text-xs px-2 py-1 rounded-md hover:bg-red-500/15 text-red-400 whitespace-nowrap">Ver as contas →</button>
@@ -2948,7 +2948,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              // Mês em curso: quase sempre são recibos que ainda não registaste (os clientes pagam ao longo do mês) — não é um défice a sério
              <div className={`w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border text-sm ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/40 bg-amber-500/10'}`}>
                <span className={`flex-1 min-w-0 ${claro ? 'text-amber-700' : 'text-amber-400'}`}>
-                 <span className="font-medium"><Ico e="⏳"/>Com o que está registado, faltam {fmt(guia.totPess - guia.fica)} no Activo</span>
+                 <span className="font-medium"><Ico e="⏳"/>Com o que está registado, faltam {fmt(guia.totPess - guia.fica)} no Activo Bank</span>
                  <span className="block text-xs">Se ainda tens recibos de {mes} por registar, isto acerta quando os registares. {aMais > 0 ? `Se já estão todos, a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'Se já estão todos, as receitas não chegam para as transferências planeadas.'}</span>
                </span>
                <button onClick={() => setTab('receitas')} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'bg-amber-100 hover:bg-amber-200 text-amber-800' : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400'}`}>Registar recibos →</button>
@@ -3246,7 +3246,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
          );
        };
-       const abFeito = transf.g_abanca ? 'do Activo' : transf.g_adiant ? 'adiantado pela Trade Republic' : null;
+       const abFeito = transf.g_abanca ? 'do Activo Bank' : transf.g_adiant ? 'adiantado pela Trade Republic' : null;
        const semReceitas = guia.fica < guia.totPess - 0.5 && (regCom.length + regSem.length) === 0;
        // Fechado quando está tudo feito; abre sozinho se falta alguma coisa (ou no fim do mês, para preparar o seguinte)
        const nObrig = obrig.length;
@@ -3264,7 +3264,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </span>
      </button>
      {!aberto && (
-       <p className="text-xs text-slate-500 mt-1">{nObrig ? <>{feitos === nObrig ? 'Tudo feito' : `Faltam ${nObrig - feitos}`} · fica no Activo <span className="font-semibold text-blue-400">{fmt(guia.fica)}</span></> : `Ainda sem receitas em ${nomeEste}: as transferências aparecem quando registares os recibos.`}</p>
+       <p className="text-xs text-slate-500 mt-1">{nObrig ? <>{feitos === nObrig ? 'Tudo feito' : `Faltam ${nObrig - feitos}`} · fica no Activo Bank <span className="font-semibold text-blue-400">{fmt(guia.fica)}</span></> : `Ainda sem receitas em ${nomeEste}: as transferências aparecem quando registares os recibos.`}</p>
      )}
      {aberto && (<>
      <div className="space-y-2 mt-2">
@@ -3274,7 +3274,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <div className={`text-xs p-2 rounded-lg border ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/30 bg-amber-500/10'}`}>
            <p className="text-amber-400"><Ico e="⚠"/>A ABanca de {nomeEste} ({fmt(ab.valor)}) devia ter ido no fim de {nomeAnt} e não está marcada.</p>
            <div className="flex flex-wrap gap-2 mt-1.5">
-             <button onClick={() => marcarEste('g_abanca', true)} className="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Já foi, do Activo</button>
+             <button onClick={() => marcarEste('g_abanca', true)} className="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400">Já foi, do Activo Bank</button>
              <button onClick={() => marcarEste('g_adiant', true)} className="px-2 py-1 rounded-md bg-slate-500/20 hover:bg-slate-500/30">Já foi, adiantado pela TR</button>
            </div>
          </div>
@@ -3309,7 +3309,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          );
        })()}
-       {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
+       {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo Bank {fmt(guia.saidas)}</p>}
        {f2.map(x => passo(x))}
      </div>
      <div id="guia-fica" className={`mt-3 p-2 rounded-lg border transition-shadow ${guia.fica < guia.totPess - 0.5 && !semReceitas ? (passadoM ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/10 border-amber-500/30') : 'bg-blue-500/10 border-blue-500/30'}`}>
@@ -3336,7 +3336,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        <div className="space-y-2 mt-4 pt-3 border-t border-slate-700/40">
          <p className="text-xs font-medium text-amber-400"><Ico e="🗓"/>No fim do mês: preparar {nomeProx} (antes do dia 1, a prestação sai dia 1)</p>
          {tProx.g_abanca
-           ? passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]], nota: 'Mandaste do Activo. Desmarca se afinal foi pela Trade Republic.' }, tProx, marcarProx, '')
+           ? passo({ ...ab, linhas: [[`Despesas do casal de ${nomeProx}`, ab.valor]], nota: 'Mandaste do Activo Bank. Desmarca se afinal foi pela Trade Republic.' }, tProx, marcarProx, '')
            : adi && passo({ ...adi, opcional: false, linhas: [[`Despesas do casal de ${nomeProx}`, adi.valor]], nota: `Os clientes só pagam no início de ${nomeProx}: a TR adianta e repões no passo da Trade Republic de ${nomeProx}.` }, tProx, marcarProx, '')}
        </div>
      )}
@@ -5102,7 +5102,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    {investFilhos > 0 && (
      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border bg-pink-500/10 border-pink-500/30 text-sm">
        <span>Transferes para a ABanca <strong className="text-pink-400">{fmt(Math.max(0, minhaAB - investFilhos))}</strong></span>
-       <span className="text-xs text-slate-500 inline-flex items-center gap-1">a tua parte {fmt(minhaAB)} − {fmt(investFilhos)} <Info>Tiras os investimentos dos filhos, que pagas direto do Activo (a parte da Sara fica na ABanca a pagar despesas).</Info></span>
+       <span className="text-xs text-slate-500 inline-flex items-center gap-1">a tua parte {fmt(minhaAB)} − {fmt(investFilhos)} <Info>Tiras os investimentos dos filhos, que pagas direto do Activo Bank (a parte da Sara fica na ABanca a pagar despesas).</Info></span>
      </div>
    )}
    <div className={`p-3 rounded-lg border ${theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
@@ -11123,7 +11123,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              if (activoConta) {
                Object.entries(activoCats).sort((a, b) => b[1] - a[1]).forEach(([catId, val]) => {
                  const cat = categorias.find(c => c.id === catId);
-                 proposedGroups.push({ nome: `${cat?.icon || '📦'} Activo — ${cat?.nome || catId}`, contaId: activoConta.id, categorias: [catId], limite: Math.round(val) });
+                 proposedGroups.push({ nome: `${cat?.icon || '📦'} Activo Bank — ${cat?.nome || catId}`, contaId: activoConta.id, categorias: [catId], limite: Math.round(val) });
                });
              }
              
@@ -14457,6 +14457,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    onImportarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? importarReciboFicheiro : null} recibosDrivePend={(G.recibosDrive || {}).pasta ? (G.recibosDrivePend || []) : []}
    onIgnorarReciboDrive={ignorarReciboDrive}
    onMesEmissaoRecibos={lista => passarParaMesEmissao(lista, true)}
+   onApagarRecibo={(k, id) => { saveUndo(); setM(p => { const m2 = p[k]; if (!m2) return p; return { ...p, [k]: { ...m2, regCom: (m2.regCom || []).filter(x => x.id !== id), regSem: (m2.regSem || []).filter(x => x.id !== id) } }; }); }}
+   onMarcarRecibo={(k, id, patch) => { saveUndo(); setM(p => { const m2 = p[k]; if (!m2) return p; const f = l => (l || []).map(x => (x.id === id ? { ...x, ...(typeof patch === 'function' ? patch(x) : patch) } : x)); return { ...p, [k]: { ...m2, regCom: f(m2.regCom), regSem: f(m2.regSem) } }; }); }}
    onSincRecibosDrive={(G.recibosDrive || {}).pasta ? () => { if (correrRecDrive.current) correrRecDrive.current(); } : null} recSinc={recSinc}
    cfgRecibosDrive={G.recibosDrive || {}} onCfgRecibosDrive={patch => uG('recibosDrive', { ...(G.recibosDrive || {}), ...patch })}
    itensRecibosDrive={() => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); [...((md && md.regCom) || []), ...((md && md.regSem) || [])].forEach(r => { const id = idDriveDe(r.driveUrl); const cl = (G.clientes || []).find(c => String(c.id) === String(r.cid)); if (id && cl && a && m) out.push({ id, cliente: cl.nome, data: /^\d{4}-\d{2}-\d{2}/.test(String(r.dataRecibo || r.data || '')) ? String(r.dataRecibo || r.data).slice(0, 10) : `${a}-${String(m).padStart(2, '0')}-01` }); }); }); return out; }}

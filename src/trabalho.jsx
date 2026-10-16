@@ -1952,7 +1952,7 @@ const guardarBlob = async (blob, nome) => {
   guardarBlobComo(blob, nome);
   return true;
 };
-// ── A pasta Assets\Refs do projeto desta tarefa (pela pasta dos projetos que escolheste para os exports) ──
+// ── A pasta Assets\Footage\Refs do projeto desta tarefa (pela pasta dos projetos que escolheste para os exports) ──
 const nomeLivre = async (dir, nome) => {
   const m = /^(.*?)(\.[^.]+)?$/.exec(nome);
   for (let i = 1; i < 200; i++) { const n = i === 1 ? nome : `${m[1]}_${i}${m[2] || ''}`; try { await dir.getFileHandle(n); } catch (e) { return n; } }
@@ -1997,7 +1997,9 @@ const pastaDoProjetoDaTarefa = async (tarefa, pedir) => {
   }
   let assets = null; try { assets = await alvo.dir.getDirectoryHandle('Assets'); } catch (e) { /* sem Assets */ }
   if (!assets) return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, refs: null };
-  const refs = await assets.getDirectoryHandle('Refs', { create: true }); // as referências do brief (vídeos e imagens) ficam à parte da Footage
+  // As referências do brief (vídeos e imagens) vão para Assets\Footage\Refs (cria a Footage e a Refs se faltarem)
+  const footage = await assets.getDirectoryHandle('Footage', { create: true });
+  const refs = await footage.getDirectoryHandle('Refs', { create: true });
   return { projeto: alvo.projeto || alvo.dir.name, proj: alvo.dir, refs };
 };
 // Textos do slide prontos para o After: as falas do guião (QUEM: "…") e os outros textos entre aspas (cartões, end card, hooks)
@@ -2046,7 +2048,7 @@ const BlocoTextosAE = ({ slide, copiar, copiado }) => {
     </div>
   );
 };
-// Depois de criar (ou abrir) a pasta do projeto: copia sozinho os assets do slide da tarefa (vídeos e imagens) para Assets\Refs.
+// Depois de criar (ou abrir) a pasta do projeto: copia sozinho os assets do slide da tarefa (vídeos e imagens) para Assets\Footage\Refs.
 // Diz sempre o que aconteceu (antes falhava em silêncio quando faltava a pasta dos projetos ou a ligação à Google).
 const BRIEF_A_COPIAR = new Set();
 const trazerBriefParaRefs = async (t, showToast) => {
@@ -2107,8 +2109,8 @@ const trazerBriefParaRefs = async (t, showToast) => {
     const oque = (k, ex) => `${k} ${k === 1 ? 'ficheiro' : 'ficheiros'}${ex}`;
     const palpite = doc.slides.length > 1 && !slideDoLink(a.url) && !(t.briefSlide && t.briefSlide.id === googleId(a.url));
     const tit = String(sl.texto || '').split('\n')[0].trim().slice(0, 50);
-    if (feitos) aviso(`Copiei ${oque(feitos, '')} do slide ${n}${tit ? ` («${tit}»)` : ''} do brief para ${d.projeto}\\Assets\\Refs.${palpite ? ' Foi a app que escolheu o slide — se não for este, escolhe o certo no brief (★).' : ''}`, 'success');
-    else if (ja) aviso(`Os assets do slide ${n} do brief já estavam em ${d.projeto}\\Assets\\Refs.`);
+    if (feitos) aviso(`Copiei ${oque(feitos, '')} do slide ${n}${tit ? ` («${tit}»)` : ''} do brief para ${d.projeto}\\Assets\\Footage\\Refs.${palpite ? ' Foi a app que escolheu o slide — se não for este, escolhe o certo no brief (★).' : ''}`, 'success');
+    else if (ja) aviso(`Os assets do slide ${n} do brief já estavam em ${d.projeto}\\Assets\\Footage\\Refs.`);
   } catch (e) { aviso(`Não consegui copiar os assets do brief: ${(e && e.message) || e}`, 'error'); }
   finally { BRIEF_A_COPIAR.delete(t.id); }
 };
@@ -2275,7 +2277,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
       .catch(async e => { try { const b = await fazer; guardarBlobComo(b, `frames_${(v.nome || 'video').replace(/\.[^.]+$/, '')}.png`); setFramesK(x => ({ ...x, [k]: 'ok-ficheiro' })); } catch (e2) { setFramesK(x => ({ ...x, [k]: `erro:${e2.message || e.message}` })); } });
   };
   const blobDoPptx = async v => { if (blobV[v.caminho]) return blobV[v.caminho]; const b = await doc.dados(v.caminho); setBlobV(x => ({ ...x, [v.caminho]: b })); return b; };
-  // Para onde vão os vídeos: a Assets\Refs do projeto (se a app souber qual é), senão escolhes tu
+  // Para onde vão os vídeos: a Assets\Footage\Refs do projeto (se a app souber qual é), senão escolhes tu
   const [destino, setDestino] = useState(null); // null (por ver) | { projeto, footage } | 'nenhum'
   const verDestino = async pedir => {
     if (destino && destino !== 'nenhum') return destino;
@@ -2295,7 +2297,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
         const blob = await blobDoPptx(v);
         if (fh) { const w = await fh.createWritable(); await w.write(blob); await w.close(); ok = true; } else ok = await guardarBlob(blob, nome);
       } else ok = await guardarDoDrive(conta, { ...v, nome }, x => setProg(p => ({ ...p, [k]: x })), fh);
-      setProg(p => ({ ...p, [k]: ok ? (fh ? `ok:${d.projeto}\\Assets\\Refs\\${fh.name}` : 'ok') : undefined }));
+      setProg(p => ({ ...p, [k]: ok ? (fh ? `ok:${d.projeto}\\Assets\\Footage\\Refs\\${fh.name}` : 'ok') : undefined }));
     } catch (e) { setProg(p => ({ ...p, [k]: `erro:${e.message}` })); }
   };
   const descarregarFicheiro = async () => {
@@ -2416,7 +2418,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                           </div>
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <>
                             <button type="button" onClick={async () => { if (verV === k) { setVerV(null); return; } if (v.caminho) await blobDoPptx(v); setVerV(k); }} className={btn}>{verV === k ? 'Fechar' : '▶ Ver'}</button>
-                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Refs` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Refs' : 'Descarregar'}</button>
+                            <button type="button" onClick={() => descarregar(v)} disabled={typeof prog[k] === 'number'} className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60" title={destino && destino !== 'nenhum' ? `Guarda em ${destino.projeto}\\Assets\\Footage\\Refs` : 'Escolhes onde guardar'}>{destino && destino !== 'nenhum' ? 'Guardar em Refs' : 'Descarregar'}</button>
                             {destino && destino !== 'nenhum' && <button type="button" onClick={() => descarregar(v, true)} disabled={typeof prog[k] === 'number'} className="text-[11px] text-white/60 hover:text-white underline-offset-2 hover:underline">noutro sítio…</button>}
                           </>}
                           {(v.caminho || (v.fonte === 'DRIVE' && !v.erro)) && <button type="button" onClick={() => copiarFrames(v, k)} disabled={framesK[k] === 'a fazer'} className={btn} title="Copia uma imagem com 8 frames do vídeo (com os tempos), para colares onde quiseres">{framesK[k] === 'a fazer' ? 'A tirar frames…' : framesK[k] === 'ok' ? '✓ Frames copiados' : framesK[k] === 'ok-ficheiro' ? '✓ Frames descarregados' : 'Frames → Claude'}</button>}
@@ -2428,7 +2430,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
                       </div>
                     );
                   })}
-                  <p className="text-[11px] text-white/50">{destino && destino !== 'nenhum' ? `Os vídeos vão para ${destino.projeto}\\Assets\\Refs (o nome nunca substitui um ficheiro que já lá esteja).` : 'Ao descarregar escolhes a pasta. Para irem direto para a Assets\\Refs do projeto, a app precisa de saber onde estão os teus projetos (escolhe-a uma vez no painel do Drive › «Encontrar os exports sozinho») e a tarefa tem de ter o conceito preenchido.'}</p>
+                  <p className="text-[11px] text-white/50">{destino && destino !== 'nenhum' ? `Os vídeos vão para ${destino.projeto}\\Assets\\Footage\\Refs (o nome nunca substitui um ficheiro que já lá esteja).` : 'Ao descarregar escolhes a pasta. Para irem direto para a Assets\\Refs do projeto, a app precisa de saber onde estão os teus projetos (escolhe-a uma vez no painel do Drive › «Encontrar os exports sozinho») e a tarefa tem de ter o conceito preenchido.'}</p>
                 </div>
               )
             )}
@@ -3242,7 +3244,7 @@ const linkAE = (trab, t, clientes) => {
 const exportDaTarefa = t => { const vs = versoesDrive(t.drive).slice().sort((x, y) => String(y.em || '').localeCompare(String(x.em || ''))); const e = vs.map(d => (d.enviados || [])[0]).find(Boolean); return e ? e.nome : ''; };
 const linkAERenomear = (trab, t, clientes, novo, ficheiro) => { const f = ficheiro || exportDaTarefa(t); return linkAE(trab, t, clientes).replace('aeproj://abrir/?', 'aeproj://renomear/?') + `&novo=${encodeURIComponent(novo)}${f ? `&ficheiro=${encodeURIComponent(f)}` : ''}`; };
 // "Criar pastas no PC": o lançador cria a pasta do projeto (cliente › jogo › ano › Videos) com a tua estrutura e fixa-a no Acesso rápido
-const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Images', 'Assets/Refs', 'Projects/AE', 'Projects/PRE'];
+const ESTRUTURA_PROJETO = ['@Exports', 'Assets/Audio/VO', 'Assets/Audio/Music', 'Assets/Audio/Sfx', 'Assets/Footage', 'Assets/Footage/Refs', 'Assets/Images', 'Projects/AE', 'Projects/PRE'];
 // Pastas dentro do projeto do After Effects (painel do projeto), criado na versão mais recente que tiveres instalada
 const ESTRUTURA_AE = ['00.MASTERCOMPS', '01.PRECOMPS', '02.ASSETS/AUDIO/MUSIC', '02.ASSETS/AUDIO/SFX', '02.ASSETS/AUDIO/VO', '02.ASSETS/FOOTAGE', '02.ASSETS/IMAGES', '02.ASSETS/PSD+AI', '03.AE'];
 const linkAECriar = (trab, t, clientes) => {
@@ -6921,7 +6923,7 @@ const PainelDoc = ({ doc, claro, vazio, altura = 'h-[calc(100vh-170px)] min-h-[4
     </>
   );
 };
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos, onMesEmissao }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos, onMesEmissao, onApagarRecibo, onMarcarRecibo }) => {
   // Pasta dos recibos no Drive (a mesma de Definições → Recibos no Google Drive)
   const cfgD = cfgDrive || {};
   const [verCfg, setVerCfg] = useState(false);
@@ -6940,6 +6942,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   const [anoAberto, setAnoAberto] = useState(null);
   const largoDoc = useLargo('(min-width: 1536px)'); // ecrã largo: o recibo vê-se ao lado da lista
   const [docSel, setDocSel] = useState(null);
+  const [confApagar, setConfApagar] = useState(null); // 'k:id' do recibo à espera do 2.º clique em «Apagar»
+  useEffect(() => { if (!confApagar) return undefined; const t = setTimeout(() => setConfApagar(null), 5000); return () => clearTimeout(t); }, [confApagar]);
   const [imp, setImp] = useState(null); // importar vários recibos: { linhas: [{ id, file, lendo, d, data, valor, acao }], aGuardar }
   const anos = [...new Set((lista || []).map(r => r.ano))].sort((a, b) => b - a);
   const num = v => Number(v) || 0;
@@ -7167,8 +7171,13 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   const chaveR = r => `${r.k}:${r.id}`;
   const comPainel = largoDoc && !!obterFicheiro;
   const dia = r => (/^\d{4}-\d{2}-\d{2}/.test(dataDe(r)) ? Date.parse(dataDe(r).slice(0, 10)) : null);
-  const repetidos = new Set();
-  (lista || []).forEach((a, i) => (lista || []).slice(i + 1).forEach(b => { const da = dia(a), db = dia(b); if (da != null && db != null && Math.abs(da - db) <= 2 * 864e5 && Math.abs(ili(a) - ili(b)) <= 1) { repetidos.add(chaveR(a)); repetidos.add(chaveR(b)); } }));
+  const repetidos = new Set(), paresRep = [];
+  const ditosDiferentes = (a, b) => (a.naoRepetido || []).map(String).includes(String(b.id)) || (b.naoRepetido || []).map(String).includes(String(a.id));
+  (lista || []).forEach((a, i) => (lista || []).slice(i + 1).forEach(b => { const da = dia(a), db = dia(b); if (da != null && db != null && Math.abs(da - db) <= 2 * 864e5 && Math.abs(ili(a) - ili(b)) <= 1 && !ditosDiferentes(a, b)) { repetidos.add(chaveR(a)); repetidos.add(chaveR(b)); paresRep.push([a, b]); } }));
+  // Dos dois, qual parece estar a mais: o que não está guardado no mês da data (ou não tem a data do recibo verde)
+  const sugerirApagar = (a, b) => { const fora = r => (noutroMes(r) ? 1 : 0) + (r.dataRecibo ? 0 : 1); return fora(a) > fora(b) ? a : fora(b) > fora(a) ? b : null; };
+  const nRever = paraPassar.length + paresRep.length;
+  const irRever = () => { const el = document.getElementById('recibos-rever'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('ring-2', 'ring-amber-400'); setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 1600); } };
   // Por defeito, o recibo mais recente que tem PDF
   const rSel = (lista || []).find(r => chaveR(r) === docSel) || (lista || []).find(r => r.temFicheiro) || null;
   const docPrev = comPainel && rSel ? {
@@ -7192,13 +7201,40 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       </div>
       {avisoDrive}
       {caixaImp}
-      {paraPassar.length > 0 && onMesEmissao && (
-        <div className="rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500 text-xs space-y-1.5">
-          <p>⚠ {paraPassar.length === 1 ? '1 recibo está guardado' : `${paraPassar.length} recibos estão guardados`} em Receitas num mês diferente do da emissão: {paraPassar.map(r => `${dataTxt(r)} (está em ${nomeMesK(r.k)})`).join(', ')}. Para o IVA, a SS e o IRS conta o mês em que o recibo foi emitido.</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => { onMesEmissao(paraPassar.map(r => ({ k: r.k, id: r.id }))); if (showToast) showToast(`${paraPassar.length === 1 ? 'Recibo passado' : `${paraPassar.length} recibos passados`} para o mês da emissão (Ctrl+Z desfaz)`); }} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Passar para o mês da emissão</button>
-            <Info>O dinheiro continua a contar para investir no mês seguinte, como até agora (fica marcado «investir no mês seguinte»).</Info>
-          </div>
+      {nRever > 0 && (
+        <div id="recibos-rever" className={`rounded-xl p-3 space-y-3 text-sm transition-shadow ${claro ? 'bg-amber-50 border border-amber-200' : 'bg-amber-500/[0.07] border border-amber-500/25'}`}>
+          <p className={`font-semibold ${claro ? 'text-amber-800' : 'text-amber-300'}`}>⚠ {nRever === 1 ? '1 coisa para rever' : `${nRever} coisas para rever`} nos recibos</p>
+          {paraPassar.length > 0 && (
+            <div className="space-y-1.5">
+              <p><strong>{paraPassar.length === 1 ? '1 recibo está' : `${paraPassar.length} recibos estão`} no mês errado em Receitas</strong> — {paraPassar.length === 1 ? 'foi emitido' : 'foram emitidos'} noutro mês, e para a SS, o IVA e o IRS conta o mês da emissão:</p>
+              <ul className={`text-xs space-y-0.5 ${sub}`}>{paraPassar.map(r => <li key={chaveR(r)}>• {r.desc || 'Recibo'} de {eur(ili(r))} — emitido a {dataTxt(r)}, está em <strong>{nomeMesK(r.k)}</strong> → passa para <strong>{nomeMesK(emissaoNoutro(r))}</strong></li>)}</ul>
+              {onMesEmissao && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => { onMesEmissao(paraPassar.map(r => ({ k: r.k, id: r.id }))); if (showToast) showToast(`${paraPassar.length === 1 ? 'Recibo passado' : `${paraPassar.length} recibos passados`} para o mês da emissão (Ctrl+Z desfaz)`); }} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-slate-900">{paraPassar.length === 1 ? 'Passar para o mês da emissão' : `Passar os ${paraPassar.length} para o mês da emissão`}</button>
+                  <Info>O dinheiro continua a contar no plano do mês onde estava (fica marcado «conta no plano de …»), por isso o Resumo desses meses não muda. Ctrl+Z desfaz.</Info>
+                </div>
+              )}
+            </div>
+          )}
+          {paresRep.map(([a, b]) => {
+            const sug = sugerirApagar(a, b);
+            const umRec = r => (
+              <div key={chaveR(r)} className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2.5 py-1.5 ${claro ? 'bg-white' : 'bg-slate-900/40'}`}>
+                <span className="min-w-0 flex-1"><strong className="font-medium">{r.desc || 'Recibo'}</strong> <span className={`text-xs ${sub}`}>· {dataTxt(r)} · guardado em {nomeMesK(r.k)}{r.pais ? ` · ${r.pais}` : ''}{r.temFicheiro ? '' : ' · sem PDF'}</span></span>
+                {r.temFicheiro && (onAbrirFicheiro || comPainel) && <button type="button" onClick={() => abrirR(r)} className={`px-2 py-0.5 rounded-md text-xs text-emerald-400 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>📎 PDF</button>}
+                {onApagarRecibo && (confApagar === chaveR(r)
+                  ? <button type="button" onClick={() => { setConfApagar(null); onApagarRecibo(r.k, r.id); if (showToast) showToast(`Recibo apagado de ${nomeMesK(r.k)} (Ctrl+Z desfaz)`); }} className="px-2 py-0.5 rounded-md text-xs font-medium bg-red-600 hover:bg-red-500 text-white">Confirmar: apagar</button>
+                  : <button type="button" onClick={() => setConfApagar(chaveR(r))} className={`px-2 py-0.5 rounded-md text-xs ${sug === r ? 'text-red-400 ring-1 ring-red-400/50' : 'text-red-400/80'} ${claro ? 'hover:bg-red-50' : 'hover:bg-red-500/10'}`} title={sug === r ? 'Parece ser este o que está a mais (não está no mês da data do recibo)' : undefined}>Apagar este{sug === r ? ' (sugerido)' : ''}</button>)}
+              </div>
+            );
+            return (
+              <div key={`${chaveR(a)}|${chaveR(b)}`} className="space-y-1.5">
+                <p><strong>{eur(ili(a))} a {dataTxt(a)} aparece 2 vezes</strong> — se no PDF tiverem o mesmo nº de recibo, é o mesmo recibo e está a contar a dobrar no faturado. Apaga o que está a mais.</p>
+                {umRec(a)}{umRec(b)}
+                {onMarcarRecibo && <button type="button" onClick={() => { onMarcarRecibo(a.k, a.id, x => ({ naoRepetido: [...new Set([...(x.naoRepetido || []).map(String), String(b.id)])] })); if (showToast) showToast('Marcados como recibos diferentes'); }} className={`text-xs ${sub} hover:underline`}>São recibos diferentes — deixar os dois</button>}
+              </div>
+            );
+          })}
         </div>
       )}
       {anos.map((a, i) => {
@@ -7231,8 +7267,9 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                         <span className="md:hidden">{dataTxt(r)} ·</span>
                         <span className={`px-1.5 rounded ${r.tipo === 'sem' ? (claro ? 'bg-slate-100' : 'bg-white/5') : (claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/10 text-blue-300')}`}>{r.tipo === 'sem' ? 'Sem taxas' : 'Com taxas'}</span>
                         {r.pais && <span>{r.pais}</span>}{r.emitidoPorSara && <span>emitido pela Sara</span>}
-                        {repetidos.has(chaveR(r)) && <span className="px-1.5 rounded bg-amber-500/15 text-amber-500" title="Há outro recibo deste cliente com o mesmo valor e a mesma data — se for o mesmo, apaga um deles em Receitas">⚠ repetido?</span>}
-                        {noutroMes(r) && <span className={`px-1.5 rounded ${emissaoNoutro(r) ? 'bg-amber-500/15 text-amber-500' : (claro ? 'bg-slate-100' : 'bg-white/5')}`} title={`Em Receitas está guardado em ${nomeMesK(r.k)}${emissaoNoutro(r) ? ', mas o recibo foi emitido noutro mês' : ''}`}>em Receitas: {nomeMesK(r.k)}</span>}
+                        {repetidos.has(chaveR(r)) && <button type="button" onClick={irRever} className="px-1.5 rounded bg-amber-500/15 text-amber-500 hover:bg-amber-500/25" title="Há outro recibo deste cliente com o mesmo valor e a mesma data — vê em «Para rever», lá em cima">⚠ repetido?</button>}
+                        {emissaoNoutro(r) ? <button type="button" onClick={irRever} className="px-1.5 rounded bg-amber-500/15 text-amber-500 hover:bg-amber-500/25" title={`Em Receitas está guardado em ${nomeMesK(r.k)}, mas foi emitido em ${nomeMesK(emissaoNoutro(r))} — vê em «Para rever», lá em cima`}>⚠ guardado em {nomeMesK(r.k)}</button>
+                          : noutroMes(r) && <span className={`px-1.5 rounded ${claro ? 'bg-slate-100' : 'bg-white/5'}`} title={`Em Receitas está guardado em ${nomeMesK(r.k)}`}>guardado em {nomeMesK(r.k)}</span>}
                       </span>
                     </span>
                     <span className="text-right tabular-nums md:order-none font-medium md:font-normal">{eur(ili(r))}<span className={`md:hidden block text-[11px] ${sub}`}>{num(r.iva) ? `IVA ${eur(r.iva)} · ` : ''}{num(r.retIRS) ? `ret. ${eur(r.retIRS)}` : ''}</span></span>
@@ -8061,11 +8098,33 @@ const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text', list, o
     onBlur={e => { const v = e.target.value.trim(); if (v !== String(valor ?? '')) onGravar(v); }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
 );
+// Ficha do cliente: cada secção fecha com a seta (fica lembrado) e, fechada, mostra um resumo numa linha
+const LS_FICHA_ABERTAS = 'ficha-abertas';
+const SecaoFicha = ({ titulo, info, resumo, aberta, onAlternar, claro, sub, children }) => (
+  <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+    <div className="flex items-center gap-1.5 px-4 py-2.5">
+      <button type="button" onClick={onAlternar} aria-expanded={aberta} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+        <span className={`text-[10px] ${sub}`} style={{ transform: aberta ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true">▶</span>
+        <span className="text-sm font-semibold shrink-0">{titulo}</span>
+        {!aberta && resumo && <span className={`text-xs truncate ${sub}`}>{resumo}</span>}
+      </button>
+      {info && <Info>{info}</Info>}
+    </div>
+    {aberta && <div className="px-4 pb-4">{children}</div>}
+  </div>
+);
+// grupo: para botões (cores, chips) — numa <label>, um clique no espaço vazio carregava no 1.º botão
+const CampoFicha = ({ rot, info, span = '', grupo, children }) => {
+  const T = grupo ? 'div' : 'label';
+  return <T className={`flex flex-col gap-1 min-w-0 ${span}`} {...(grupo ? { role: 'group', 'aria-label': rot } : {})}><span className="text-xs text-slate-400 flex items-center gap-1">{rot}{info && <Info>{info}</Info>}</span>{children}</T>;
+};
 const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar, notas, onAbrirNota, onNovaNota, recibos = [] }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
   const [novaTag, setNovaTag] = useState('');
+  const [abertas, setAbertas] = useState(() => { try { return { geral: true, fat: true, regras: true, ...(JSON.parse(localStorage.getItem(LS_FICHA_ABERTAS) || '{}') || {}) }; } catch (e) { return { geral: true, fat: true, regras: true }; } });
+  const alternar = k => setAbertas(a => { const n2 = { ...a, [k]: !a[k] }; try { localStorage.setItem(LS_FICHA_ABERTAS, JSON.stringify(n2)); } catch (e) { /* sem localStorage */ } return n2; });
   if (c.soTrabalho) {
     return (
       <div className={`${caixa} max-w-xl space-y-3`}>
@@ -8084,6 +8143,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   const tags = c.tags || [];
   const juntarTag = () => { const v = novaTag.trim().replace(/^#/, ''); if (v && !tags.includes(v)) set({ tags: [...tags, v] }); setNovaTag(''); };
   const ic = `${inputClass} text-sm py-1.5`;
+  const grelha = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2.5';
   const chip = on => `px-2.5 py-1 rounded-full text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
   const maxMes = Math.max(1, ...n.meses12);
   const provPais = paisDoCliente(c, recibos); // o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes
@@ -8091,82 +8151,80 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   const regime = rec.regime || (paisEf === 'Fora UE' ? 'sem' : 'com');
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
-      <div className="space-y-4 min-w-0">
-        <div className={caixa}>
-          <p className="text-sm font-semibold mb-3">Geral</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Campo rot="Nome na app"><TxtIn valor={c.nome} onGravar={v => v && set({ nome: v })} className={ic} /></Campo>
-            <Campo rot="Cor">
+      <div className="space-y-3 min-w-0">
+        <SecaoFicha titulo="Geral" aberta={abertas.geral} onAlternar={() => alternar('geral')} claro={claro} sub={sub}
+          resumo={[tags.map(t => `#${t}`).join(' '), { ativo: 'Ativo', pausa: 'Em pausa', antigo: 'Antigo' }[c.estado || 'ativo'], c.contaGoogle].filter(Boolean).join(' · ')}>
+          <div className={grelha}>
+            <CampoFicha rot="Nome na app"><TxtIn valor={c.nome} onGravar={v => v && set({ nome: v })} className={ic} /></CampoFicha>
+            <CampoFicha grupo rot="Cor" span="lg:col-span-2">
               <div className="flex flex-wrap gap-1.5 py-1">{CORES_PASTA.map(cor => <button key={cor} type="button" onClick={() => set({ cor })} className={`w-6 h-6 rounded-md ${c.cor === cor ? 'ring-2 ring-offset-2 ring-blue-500 ' + (claro ? 'ring-offset-white' : 'ring-offset-slate-900') : ''}`} style={{ background: cor }} aria-label={`Cor ${cor}`} />)}</div>
-            </Campo>
-            <Campo rot="Outros nomes (separados por vírgulas — o OCR reconhece o cliente por eles)" largo>
-              <TxtIn valor={(c.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Anorak Games, Anorak" className={ic} />
-            </Campo>
-            <Campo rot="Conta Google dos briefs (os links do Google deste cliente abrem com ela)" largo>
-              <TxtIn type="email" valor={c.contaGoogle} onGravar={v => set({ contaGoogle: v.trim() })} placeholder={trab.contaGoogle ? `Vazio = ${trab.contaGoogle}` : 'ex.: ivo@estudio.com — vazio = a conta principal do browser'} className={ic} />
-            </Campo>
-            <Campo rot="Tags" largo>
+            </CampoFicha>
+            <CampoFicha grupo rot="Tags" span="sm:col-span-2 lg:col-span-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 {tags.map(t => <span key={t} className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full text-xs ${claro ? 'bg-slate-100 text-slate-700' : 'bg-white/10 text-slate-200'}`}>#{t}<button type="button" onClick={() => set({ tags: tags.filter(x => x !== t) })} className="w-4 h-4 rounded-full hover:text-red-400" aria-label={`Tirar ${t}`}>×</button></span>)}
-                <input value={novaTag} onChange={e => setNovaTag(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); juntarTag(); } }} onBlur={juntarTag} placeholder="+ tag (ex.: gaming)" className={`${inputClass} !w-40 text-xs py-1`} />
+                <input value={novaTag} onChange={e => setNovaTag(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); juntarTag(); } }} onBlur={juntarTag} placeholder="+ tag" aria-label="Nova tag" className={`${inputClass} !w-28 text-xs py-1`} />
               </div>
-            </Campo>
-            <Campo rot="Estado">
+            </CampoFicha>
+            <CampoFicha rot="Outros nomes" info="Separados por vírgulas — o OCR reconhece o cliente por eles." span="sm:col-span-2">
+              <TxtIn valor={(c.aliases || []).join(', ')} onGravar={v => set({ aliases: [...new Set(v.split(',').map(a => a.trim()).filter(Boolean))] })} placeholder="ex.: Anorak Games, Anorak" className={ic} />
+            </CampoFicha>
+            <CampoFicha rot="Conta Google dos briefs" info="Os links do Google deste cliente (briefs, spreadsheets) abrem com esta conta." span="sm:col-span-2">
+              <TxtIn type="email" valor={c.contaGoogle} onGravar={v => set({ contaGoogle: v.trim() })} placeholder={trab.contaGoogle ? `Vazio = ${trab.contaGoogle}` : 'vazio = a conta principal do browser'} className={ic} />
+            </CampoFicha>
+            <CampoFicha grupo rot="Estado" span="sm:col-span-2 lg:col-span-4">
               <div className="flex flex-wrap items-center gap-1.5">{[['ativo', 'Ativo'], ['pausa', 'Em pausa'], ['antigo', 'Antigo']].map(([k, nm]) => <button key={k} type="button" onClick={() => set({ estado: k })} className={chip((c.estado || 'ativo') === k)}>{nm}</button>)}
                 {onApagar && <button type="button" onClick={async () => { const np = (trab.pastas || []).filter(p => String(p.cid) === String(c.id)).length; if (await confirmar(`Apagar o cliente "${c.nome}"?${np ? `\n\nTem ${np} pasta${np === 1 ? '' : 's'} no Trabalho, que ficam sem cliente.` : ''}\nOs recibos dele não são apagados. Se só já não trabalhas com ele, marca-o como "Antigo".`)) onApagar(c.id); }} className="ml-auto text-xs text-red-400 hover:text-red-300">Apagar cliente</button>}
               </div>
-            </Campo>
+            </CampoFicha>
           </div>
-        </div>
+        </SecaoFicha>
 
-        <div className={caixa}>
-          <p className="text-sm font-semibold mb-3">Faturação</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Campo rot="Nome legal (como vai na fatura)" largo><TxtIn valor={fat.nomeLegal} onGravar={v => setFat({ nomeLegal: v })} placeholder="ex.: Anorak Games GmbH" className={ic} /></Campo>
-            <Campo rot="NIF / VAT"><TxtIn valor={fat.nif} onGravar={v => setFat({ nif: v })} placeholder="ex.: DE123456789" className={ic} /></Campo>
-            <Campo rot="Email de faturação"><TxtIn type="email" valor={fat.email} onGravar={v => setFat({ email: v })} placeholder="invoices@…" className={ic} /></Campo>
-            <Campo rot="Morada" largo><TxtIn valor={fat.morada} onGravar={v => setFat({ morada: v })} placeholder="Rua, código postal, cidade, país" className={ic} /></Campo>
-            <Campo rot="Moeda">
+        <SecaoFicha titulo="Faturação" aberta={abertas.fat} onAlternar={() => alternar('fat')} claro={claro} sub={sub}
+          resumo={[fat.nomeLegal, fat.nif, fat.moeda || 'EUR', fat.prazoDias != null && fat.prazoDias !== '' ? `${fat.prazoDias} dias` : ''].filter(Boolean).join(' · ')}>
+          <div className={grelha}>
+            <CampoFicha rot="Nome legal" info="Como vai na fatura." span="sm:col-span-2"><TxtIn valor={fat.nomeLegal} onGravar={v => setFat({ nomeLegal: v })} placeholder="ex.: Anorak Games GmbH" className={ic} /></CampoFicha>
+            <CampoFicha rot="NIF / VAT"><TxtIn valor={fat.nif} onGravar={v => setFat({ nif: v })} placeholder="ex.: DE123456789" className={ic} /></CampoFicha>
+            <CampoFicha rot="Email de faturação"><TxtIn type="email" valor={fat.email} onGravar={v => setFat({ email: v })} placeholder="invoices@…" className={ic} /></CampoFicha>
+            <CampoFicha rot="Morada" span="sm:col-span-2"><TxtIn valor={fat.morada} onGravar={v => setFat({ morada: v })} placeholder="Rua, código postal, cidade, país" className={ic} /></CampoFicha>
+            <CampoFicha rot="Moeda">
               <select value={fat.moeda || 'EUR'} onChange={e => setFat({ moeda: e.target.value })} className={ic}>{MOEDAS.map(m => <option key={m} value={m}>{m}</option>)}</select>
-            </Campo>
-            <Campo rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></Campo>
-            <Campo rot="Diária na tabela do cliente (só para referência — não muda as contas)"><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></Campo>
-            <Campo rot="Lembretes" largo><label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente (não lembrar nos Passos do mês)</label></Campo>
-            <Campo rot="Não é faturação" largo>
-              <label className="inline-flex items-start gap-2 text-sm"><input type="checkbox" checked={ehNaoFaturacao(c)} disabled={/reembolso/i.test(c.nome || '')} onChange={e => set({ naoFaturacao: e.target.checked })} className="accent-blue-500 mt-1" />
-                <span>Não é trabalho (ex.: reembolso do IRS) <Info>O dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, do €/h e dos impostos.</Info>{/reembolso/i.test(c.nome || '') && <span className={`block text-xs ${sub}`}>Já está assim por ter «reembolso» no nome.</span>}</span>
-              </label>
-            </Campo>
-            <Campo rot={'Tipo de trabalho na fatura ("FOR:") — depois sugere o da última fatura'}><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></Campo>
-            <Campo rot="Próximo nº de fatura (só até fazeres a primeira na app)"><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></Campo>
-            <Campo rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder={paisEf === 'PT' ? String(rec.taxaIva != null && rec.taxaIva !== '' ? rec.taxaIva : 23) : '0'} onGravar={v => setFat({ ivaFatura: v })} className={ic} /></Campo>
-            <Campo rot={`Nota do IVA na fatura (vazio = ${paisEf === 'PT' ? 'sem frase, por ser cliente português' : 'frase da isenção'}; "-" = nenhuma)`} largo><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={paisEf === 'PT' ? 'Sem frase' : notaIvaPais(paisEf)} className={ic} /></Campo>
+            </CampoFicha>
+            <CampoFicha rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></CampoFicha>
+            <CampoFicha rot={'Tipo de trabalho ("FOR:")'} info="O que vai na fatura em «FOR:». Depois a app sugere o da última fatura." span="sm:col-span-2"><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></CampoFicha>
+            <CampoFicha rot="Próximo nº de fatura" info="Só conta até fazeres a primeira fatura na app — depois segue a numeração das faturas."><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></CampoFicha>
+            <CampoFicha rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder={paisEf === 'PT' ? String(rec.taxaIva != null && rec.taxaIva !== '' ? rec.taxaIva : 23) : '0'} onGravar={v => setFat({ ivaFatura: v })} className={ic} /></CampoFicha>
+            <CampoFicha rot="Nota do IVA na fatura" info={`Vazio = ${paisEf === 'PT' ? 'sem frase, por ser cliente português' : 'a frase da isenção'}; «-» = nenhuma.`} span="sm:col-span-2"><TxtIn valor={fat.notaIva} onGravar={v => setFat({ notaIva: v })} placeholder={paisEf === 'PT' ? 'Sem frase' : notaIvaPais(paisEf)} className={ic} /></CampoFicha>
+            <CampoFicha rot="Diária de referência" info="A diária na tabela do cliente — só para referência, não muda as contas."><NumIn valor={fat.diariaRef ?? null} placeholder="—" onGravar={v => setFat({ diariaRef: v })} className={ic} /></CampoFicha>
+            <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center gap-x-6 gap-y-1.5 pt-1 text-sm">
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!fat.semFatura} onChange={e => setFat({ semFatura: e.target.checked })} className="accent-blue-500" /> Não faço faturas a este cliente <Info>Não aparece nos lembretes dos Passos do mês.</Info></label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={ehNaoFaturacao(c)} disabled={/reembolso/i.test(c.nome || '')} onChange={e => set({ naoFaturacao: e.target.checked })} className="accent-blue-500" /> Não é trabalho (ex.: reembolso do IRS) <Info>O dinheiro conta no mês em que entra, mas fica fora da faturação, das metas, do €/h e dos impostos.{/reembolso/i.test(c.nome || '') ? ' Já está assim por ter «reembolso» no nome.' : ''}</Info></label>
+            </div>
           </div>
-        </div>
+        </SecaoFicha>
 
-        <div className={caixa}>
-          <p className="text-sm font-semibold mb-3 flex items-center gap-1.5">Regras dos recibos <Info>Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos.</Info></p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Campo rot="País do cliente">
+        <SecaoFicha titulo="Regras dos recibos" info="Quando escolhes este cliente num recibo, o país, o IVA e a retenção vêm já preenchidos." aberta={abertas.regras} onAlternar={() => alternar('regras')} claro={claro} sub={sub}
+          resumo={[NOME_PAIS_RECIBO[paisEf] || paisEf, regime === 'sem' ? 'Sem taxas' : 'Com taxas', paisEf === 'PT' && rec.taxaIva != null && rec.taxaIva !== '' ? `IVA ${rec.taxaIva}%` : ''].filter(Boolean).join(' · ')}>
+          <div className={grelha}>
+            <CampoFicha grupo rot="País do cliente" span="sm:col-span-2">
               <div className="flex flex-wrap gap-1.5">{PAISES_RECIBO.map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ pais: k, regime: k === 'Fora UE' ? 'sem' : (rec.regime === 'sem' && paisEf === 'Fora UE' ? 'com' : rec.regime || 'com') })} className={`${chip(paisEf === k)} ${!rec.pais && paisEf === k ? 'border-dashed' : ''}`}>{nm}</button>)}</div>
               {!rec.pais && (
-                <p className={`text-xs mt-1.5 ${provPais ? sub : 'text-amber-500'}`}>
+                <span className={`text-xs mt-1 ${provPais ? sub : 'text-amber-500'}`}>
                   {provPais ? <>Ainda não escolheste — {provPais.txt} parece {NOME_PAIS_RECIBO[provPais.pais] || provPais.pais}, e é isso que a app usa. <button type="button" onClick={() => setRec({ pais: provPais.pais, regime: rec.regime || (provPais.pais === 'Fora UE' ? 'sem' : 'com') })} className="text-blue-500 hover:underline">Confirmar</button></> : 'Ainda não escolheste, e o NIF/VAT e a morada não o mostram: assumo Portugal (com IVA e retenção).'}
-                </p>
+                </span>
               )}
-            </Campo>
-            <Campo rot="Onde entram os recibos">
+            </CampoFicha>
+            <CampoFicha grupo rot="Onde entram os recibos" span="sm:col-span-2">
               <div className="flex flex-wrap gap-1.5">{[['com', 'Com taxas'], ['sem', 'Sem taxas']].map(([k, nm]) => <button key={k} type="button" onClick={() => setRec({ regime: k })} className={chip(regime === k)}>{nm}</button>)}</div>
-            </Campo>
+            </CampoFicha>
             {paisEf === 'PT' && (
               <>
-                <Campo rot="IVA (%)"><NumIn valor={rec.taxaIva ?? null} placeholder="23" onGravar={v => setRec({ taxaIva: v })} className={ic} /></Campo>
-                <Campo rot="Retenção na fonte (%)"><NumIn valor={rec.taxaRet ?? null} placeholder="padrão" onGravar={v => setRec({ taxaRet: v })} className={ic} /></Campo>
+                <CampoFicha rot="IVA (%)"><NumIn valor={rec.taxaIva ?? null} placeholder="23" onGravar={v => setRec({ taxaIva: v })} className={ic} /></CampoFicha>
+                <CampoFicha rot="Retenção na fonte (%)"><NumIn valor={rec.taxaRet ?? null} placeholder="padrão" onGravar={v => setRec({ taxaRet: v })} className={ic} /></CampoFicha>
               </>
             )}
-            {paisEf !== 'PT' && <p className={`text-xs sm:col-span-2 ${sub}`}>Fora de Portugal o recibo vai sem IVA nem retenção (autoliquidação / exportação de serviços).</p>}
+            {paisEf !== 'PT' && <p className={`text-xs sm:col-span-2 lg:col-span-4 ${sub}`}>Fora de Portugal o recibo vai sem IVA nem retenção (autoliquidação / exportação de serviços).</p>}
           </div>
-        </div>
+        </SecaoFicha>
       </div>
 
       <div className="space-y-3">
@@ -8629,7 +8687,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 // ══ O separador ══
 const NAV_TRAB_FEITO = new Set();
 const ORDEM_VISIVEL = { ids: [] };
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onApagarRecibo, onMarcarRecibo, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -9238,7 +9296,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
             } : null} />}
           {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} showToast={showToast} inputClass={inputClass}
-            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onMesEmissao={onMesEmissaoRecibos} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
+            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onMesEmissao={onMesEmissaoRecibos} onApagarRecibo={onApagarRecibo} onMarcarRecibo={onMarcarRecibo} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
