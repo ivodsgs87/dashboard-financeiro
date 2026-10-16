@@ -810,6 +810,33 @@ const comPlanoDe = (r, kDe, kPara) => {
   const { orcProx, orcAnt, ...resto } = r;
   return { ...resto, ...(d === 1 ? { orcProx: true } : d === -1 ? { orcAnt: true } : {}) };
 };
+// ── Pagamentos: quando o dinheiro de um recibo chega à conta ──
+// Cada cliente demora uns dias a pagar (Ficha → Faturação → «Costuma pagar em»). Um recibo fica «a receber» até
+// marcares que chegou; os que já tinham passado do prazo quando isto começou contam como recebidos.
+const PAGAMENTOS_DESDE = '2026-10-17';
+const DIAS_PAGAR_PADRAO = 30;
+const hojeIsoPag = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const somarDiasIso = (iso, n) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const ddmm = iso => (iso ? `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}` : '');
+const diasPagarCli = (clientes, cid) => {
+  const c = (clientes || []).find(x => String(x.id) === String(cid)); const f = (c && c.fat) || {};
+  const v = f.diasPagar != null && f.diasPagar !== '' ? Number(f.diasPagar) : f.prazoDias != null && f.prazoDias !== '' ? Number(f.prazoDias) : DIAS_PAGAR_PADRAO;
+  return Number.isFinite(v) && v >= 0 ? v : DIAS_PAGAR_PADRAO;
+};
+// A data a partir da qual se conta o prazo: a do recibo (ou, sem data, o dia 1 do mês onde está guardado)
+const dataBaseRecibo = (r, k) => { const d = String((r && (r.dataRecibo || r.data)) || ''); if (/^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10); const [y, m] = String(k || '').split('-').map(Number); return y && m ? `${y}-${String(m).padStart(2, '0')}-01` : ''; };
+// { recebido, quando (data em que chegou), previsto (data em que devia chegar), atraso (dias; > 0 = atrasado), assumido }
+const estadoPagamento = (r, k, clientes, hoje = hojeIsoPag()) => {
+  if (!r || !(Number(r.val) > 0)) return { recebido: true, semValor: true };
+  const base = dataBaseRecibo(r, k); if (!base) return { recebido: true };
+  const dias = diasPagarCli(clientes, r.cid);
+  const previsto = somarDiasIso(base, dias);
+  if (r.recebidoEm) return { recebido: true, quando: r.recebidoEm, previsto, base, dias, demorou: Math.round((Date.parse(r.recebidoEm) - Date.parse(base)) / 864e5) };
+  if (!r.porReceber && previsto < PAGAMENTOS_DESDE) return { recebido: true, assumido: true, previsto, base, dias };
+  return { recebido: false, previsto, base, dias, atraso: Math.round((Date.parse(hoje) - Date.parse(previsto)) / 864e5) };
+};
+// O que chega à conta de um recibo: valor + IVA − retenção
+const valorQueChega = r => (Number(r.val) || 0) + (parseFloat(r.iva) || 0) - (parseFloat(r.retIRS) || 0);
 const retencaoPadrao = coef => (Number(coef) >= 0.75 ? 23 : 11.5);
 const impNum = v => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const impIRSEscaloes = rend => {
@@ -2761,21 +2788,22 @@ export {
   StableInput, StableDateInput, SliderWithInput, useLargura, grafMarcas, grafCompacto, GrafCaixa, GraficoLinhas,
   LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, GraficoBarras, PieChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  mesDoRecibo, mesEmissaoDe, comPlanoDe, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta,
-  transfFeita, ICO_SVG, Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc,
-  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
-  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS,
-  CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes,
-  CU_NOMES_EN, MESES_EN, cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO,
-  trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas,
-  trabValorAuto, trabValor, pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO,
-  trabMedivel, mediana, trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes,
-  trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H,
-  CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3,
-  fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES,
-  semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal,
-  DIALOGO, confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card,
-  StatCard, Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  mesDoRecibo, mesEmissaoDe, comPlanoDe, PAGAMENTOS_DESDE, DIAS_PAGAR_PADRAO, hojeIsoPag, somarDiasIso, ddmm,
+  diasPagarCli, dataBaseRecibo, estadoPagamento, valorQueChega, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc,
+  transfFalta, transfFeita, ICO_SVG, Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro,
+  impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA,
+  _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro,
+  CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe,
+  cuEntregasMes, CU_NOMES_EN, MESES_EN, cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS,
+  TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco,
+  trabPecas, trabValorAuto, trabValor, pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta,
+  HORAS_TIPO_PADRAO, trabMedivel, mediana, trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO,
+  planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa,
+  CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes,
+  juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD,
+  MORADA_PAISES, semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados,
+  VerificarDadosModal, DIALOGO, confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Info,
+  Card, StatCard, Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
