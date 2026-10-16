@@ -1366,7 +1366,10 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   // só os anos que a app tem (os recibos de anos antigos, sem registos, não interessam)
   const anosApp = Object.entries(M || {}).filter(([, md]) => md && ((md.regCom || []).length || (md.regSem || []).length)).map(([k]) => Number(k.split('-')[0])).filter(Boolean);
   const anoMin = anosApp.length ? Math.min(...anosApp) : new Date().getFullYear();
-  const noDrive = todosDrive.filter(f => { const a = /^\d{4}$/.test(String((f.caminho || [])[0] || '').trim()) ? Number(String(f.caminho[0]).trim()) : Number(String(f.modifiedTime || '').slice(0, 4)) || Number((/(20\d{2})/.exec(f.name) || [])[1]) || 0; return a >= anoMin; });
+  const noDrive = todosDrive.filter(f => { const segAno = (f.caminho || []).map(x => String(x).trim()).find(x => /^\d{4}$/.test(x)); const a = segAno ? Number(segAno) : Number(String(f.modifiedTime || '').slice(0, 4)) || Number((/(20\d{2})/.exec(f.name) || [])[1]) || 0; return a >= anoMin; });
+  // Depois de juntar um recibo do Drive ao registo, fica arrumado em Cliente / Ano / Trimestre
+  // (o trimestre é o da data do recibo)
+  const arrumar = async (f, data, r0) => { const r = r0 || { cid: null }; const cl = (clientes || []).find(c => String(c.id) === String(r.cid)); if (!cl || !mod.arrumarNoDrive || !data) return; try { await mod.arrumarNoDrive({ conta: cfg.conta, pastaUrl: cfg.pasta, fileId: f.id, cliente: cl.nome, data }); } catch (e) { /* fica onde está */ } };
   const ligadosId = new Set(regs.map(x => idDriveDe(x.r.driveUrl)).filter(Boolean));
   const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
   // O mesmo PDF duas vezes no Drive (ex.: uma cópia enviada antes de a app o reconhecer): mesmo tamanho que um já ligado
@@ -1393,12 +1396,13 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
     if (res.alvo) {
       const { k, r } = res.alvo;
       usados.add(`${k}:${r.id}`);
-      if (res.alvo.soLigar) { await onJuntar(k, r.id, { driveUrl: f.webViewLink, driveNome: f.name }, null); ligados += 1; continue; }
+      if (res.alvo.soLigar) { await onJuntar(k, r.id, { driveUrl: f.webViewLink, driveNome: f.name, dataRecibo: res.dataR }, null); ligados += 1; await arrumar(f, res.dataR, r); continue; }
       let file = ficheiros.get(f.id) || null;
       if (!file) { try { file = await mod.ficheiroDoDrive(cfg.conta, f); } catch (e) { file = null; } }
       const valores = r.reciboVerde ? {} : { val: res.v, valIliq: res.v, iva: Number(d.valorIva) || 0, ...(d.taxaIva != null ? { taxaIva: Number(d.taxaIva) || 0 } : {}), retIRS: Number(d.retencaoIRS) || 0, ...(d.pais ? { pais: d.pais } : {}), reciboVerde: true };
-      await onJuntar(k, r.id, { ...valores, driveUrl: f.webViewLink, driveNome: f.name }, file);
+      await onJuntar(k, r.id, { ...valores, driveUrl: f.webViewLink, driveNome: f.name, dataRecibo: res.dataR }, file);
       juntos += 1;
+      await arrumar(f, res.dataR, r);
     } else semPar.push({ id: f.id, nome: f.name, url: f.webViewLink, d, cid: res.c ? res.c.id : null, motivo: res.motivo, resumo: d ? `${d.nomeCliente || '?'} · ${res.v ? `${res.v.toFixed(2)} €` : 'sem valor'}${res.dataR ? ` · ${res.dataR}` : ''}` : '' });
   }
   // 2) App → Drive: os recibos com PDF que ainda não estão lá
@@ -1415,7 +1419,7 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
     if (!f) { semAcesso += 1; DRIVE_REC_FALHAS.add(`${k}:${r.id}`); continue; }
     // já está no Drive (um PDF com exatamente o mesmo tamanho, ainda sem dono): liga-se a esse, não vai outra cópia
     const mesmo = soltos.find(x => Number(x.size) === f.size && !semPar.some(y => y.id === x.id && y.cid != null && String(y.cid) !== String(r.cid)) && !usadosDrive.has(x.id));
-    if (mesmo) { usadosDrive.add(mesmo.id); await onJuntar(k, r.id, { driveUrl: mesmo.webViewLink, driveNome: mesmo.name }, null); ligados += 1; const iP = semPar.findIndex(y => y.id === mesmo.id); if (iP >= 0) semPar.splice(iP, 1); continue; }
+    if (mesmo) { usadosDrive.add(mesmo.id); await onJuntar(k, r.id, { driveUrl: mesmo.webViewLink, driveNome: mesmo.name }, null); ligados += 1; const [ky, km] = String(k).split('-').map(Number); await arrumar(mesmo, /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? String(r.data).slice(0, 10) : `${ky}-${String(km).padStart(2, '0')}-01`, r); const iP = semPar.findIndex(y => y.id === mesmo.id); if (iP >= 0) semPar.splice(iP, 1); continue; }
     if (await onEnviar(k, r.id, f, r)) enviados += 1; else DRIVE_REC_FALHAS.add(`${k}:${r.id}`);
   }
   return { juntos, ligados, enviados, semAcesso, semPar, lidos: porLer.length, copias };
