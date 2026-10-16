@@ -7420,10 +7420,13 @@ const dataEN = iso => { const [y, m, d] = String(iso || '').split('-').map(Numbe
 const horasF = h => `${Math.round(h * 10) / 10}h`;
 const nomeTipoEN = (tipo, n, cu) => { const en = CU_NOMES_EN[tipo]; if (en) return en[n === 1 ? 0 : 1]; const t = tiposDe(cu, { [tipo]: 1 }).find(x => x.id === tipo); return t ? t.nome : tipo; };
 // Linhas automáticas: uma por jogo, com as peças somadas e o valor das tarefas (+ linhas à parte dos orçamentos)
-const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
+// dias: { n, preco, lista } — clientes à diária (ex.: 275 €/dia): cada dia do mês com horas registadas é uma linha da fatura
+const linhasAutoFatura = (trab, tarefas, extras, cu, clientes, dias) => {
   const grupos = new Map();
   const grupo = (key, titulo) => { if (!grupos.has(key)) grupos.set(key, { key, titulo, pecas: {}, horas: 0, soltas: [], extras: [], valor: 0, tarefas: [], extrasIds: [] }); return grupos.get(key); };
+  const noDia = []; // à diária: as tarefas à hora não são linhas à parte — o trabalho delas está nos dias
   tarefas.forEach(t => {
+    if (dias && dias.preco > 0 && trabPecas(t).every(p => p.tipo === 'extra' || p.tipo === 'outro') && !(trabValor(t, cu, clientes) > 0)) { noDia.push(t); return; }
     const j = jogoDaTarefa(trab, t);
     const g = grupo(j && j.id ? j.id : j && j.nome ? `n:${j.nome}` : 'outros', j ? (j.nomeFatura || j.nome) : 'Other');
     trabPecas(t).forEach(p => {
@@ -7438,14 +7441,16 @@ const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
     const g = grupo(j ? j.id : 'outros', j ? (j.nomeFatura || j.nome) : 'Other');
     g.extras.push(x.desc); g.valor += x.val; g.extrasIds.push(x.key);
   });
-  return [...grupos.values()].map(g => {
+  const temas = [...new Set(noDia.map(t => conceitoDoNome(t.nome) || t.nome).filter(Boolean))];
+  const linhaDias = dias && dias.n > 0 && dias.preco > 0 ? [{ id: 'a:dias', titulo: 'Work days', resto: ` - ${dias.n} day${dias.n === 1 ? '' : 's'} × ${eur(dias.preco)}${temas.length ? ` (${temas.slice(0, 4).join(', ')}${temas.length > 4 ? ', …' : ''})` : ''}`, valor: Math.round(dias.n * dias.preco * 100) / 100, tarefas: noDia.map(t => t.id), extras: [], dias: dias.lista }] : [];
+  return [...linhaDias, ...[...grupos.values()].map(g => {
     const tipos = [...ORDEM_TIPOS_F.filter(t => g.pecas[t]), ...Object.keys(g.pecas).filter(t => !ORDEM_TIPOS_F.includes(t))];
     const partes = tipos.map(t => `${g.pecas[t]}x ${nomeTipoEN(t, g.pecas[t], cu)}`);
     g.soltas.forEach(s => partes.push(s));
     if (g.horas > 0) partes.push(`Extra work (${horasF(g.horas)})`);
     g.extras.forEach(s => partes.push(s));
     return { id: `a:${g.key}`, titulo: g.titulo, resto: partes.length ? ` - ${partes.join(' + ')}` : '', valor: Math.round(g.valor * 100) / 100, tarefas: g.tarefas, extras: g.extrasIds };
-  });
+  })];
 };
 const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
 const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa, recibos = [], contaDriveRecibos = '' }) => {
@@ -7481,12 +7486,16 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     if (v && !e.faturaId && String(e.data || '').startsWith(pref)) extrasMes.push({ key: `${p.id}:${i}`, pastaId: p.id, desc: e.desc || 'Extra', val: v });
   }));
   const tarefasFatura = [...porFaturar, ...(incluirAtras ? atrasadas : [])];
-  const semPreco = tarefasFatura.filter(t => !(trabValor(t, cu, clientes) > 0));
+  // Cliente à diária (ex.: 275 €/dia): fatura-se cada dia do mês com horas registadas, seja em que tarefa for; as tarefas à hora não valem à parte
+  const diariaCli = cuPreco(cu, clientes, cid, 'dia');
+  const diasMes = diariaCli > 0 ? [...new Set(doCliente.flatMap(t => (t.tempos || []).filter(x => trabMsTempo(x) > 0).map(x => trabDia(x.ini))).filter(d => d.startsWith(pref)))].sort() : [];
+  const ehPorHora = t => trabPecas(t).every(p => p.tipo === 'extra' || p.tipo === 'outro');
+  const semPreco = tarefasFatura.filter(t => !(trabValor(t, cu, clientes) > 0) && !(diariaCli > 0 && ehPorHora(t)));
   // Tarefas que estão numa lista de outro mês (ex.: lista de setembro acabada a 1 de outubro) — podem já ter sido faturadas
   const mesDaLista = t => { const p = (trab.pastas || []).find(x => x.id === t.pastaId); if (!p) return null; return p.mesNum || mesDoNome(p.nome) || null; };
   const deOutraLista = porFaturar.filter(t => { const m = mesDaLista(t); return m && m !== mes.m; });
   const marcarFora = lista => { const ids = new Set(lista.map(t => t.id)); mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(t => (ids.has(t.id) ? { ...t, faturaId: 'fora' } : t)) })); };
-  const auto = linhasAutoFatura(trab, tarefasFatura, extrasMes, cu, clientes);
+  const auto = linhasAutoFatura(trab, tarefasFatura, extrasMes, cu, clientes, diariaCli > 0 ? { n: diasMes.length, preco: diariaCli, lista: diasMes } : null);
   // Rascunho da fatura deste cliente e mês: fica gravado (sais e voltas e está tudo como deixaste)
   const chaveRasc = `${cid}_${mesK}`;
   const rasc = (trab.rascunhosFatura || {})[chaveRasc] || {};
@@ -7803,7 +7812,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 const j = jogoDaTarefa(trab, t);
                 const hora = trabPecas(t).some(p => p.tipo === 'extra' || p.tipo === 'outro');
                 const porque = hora && !(trabHoras(t) > 0) ? 'é à hora mas não tem tempo registado — junta o tempo ou põe o valor final'
-                  : hora ? 'é à hora mas este cliente não tem preço à hora — põe o valor final'
+                  : hora ? 'é à hora mas este cliente não tem preço à hora (em Preços) — põe o preço à hora ou o valor final'
                   : 'o tipo não tem preço para este cliente — escolhe o tipo ou põe o valor final';
                 return (
                   <p key={t.id} className="pl-3">
@@ -7833,6 +7842,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 </div>
                 <input type="number" step="0.01" value={l.valor} onChange={e => ed({ valor: e.target.value === '' ? '' : Number(e.target.value) })} className={`${ic} text-right tabular-nums`} />
                 <button type="button" onClick={() => (String(l.id).startsWith('m:') ? setManuais(ms => ms.filter(x => x.id !== l.id)) : ed({ fora: true }))} className={`h-8 text-xs ${sub} hover:text-red-400`} title="Tirar esta linha" aria-label="Tirar esta linha">✕</button>
+                {(l.dias || []).length > 0 && <p className={`col-span-3 text-[11px] ${sub}`} title="Dias do mês com horas registadas neste cliente (qualquer dia com horas conta como um dia)">Dias: {l.dias.map(d => Number(d.slice(8, 10))).join(', ')}</p>}
                 {(l.tarefas || []).length > 0 && !verTarefasL && <button type="button" onClick={alternarTarefasL} className={`col-span-3 justify-self-start text-[11px] ${sub} hover:text-blue-400`} title="Ver as tarefas desta linha (e das outras)">▸ {l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}</button>}
                 {(l.tarefas || []).length > 0 && verTarefasL && <p className={`col-span-3 text-[11px] ${sub}`}><button type="button" onClick={alternarTarefasL} className="hover:text-blue-400" title="Esconder as tarefas">▾ {l.tarefas.length} tarefa{l.tarefas.length === 1 ? '' : 's'}:</button> {l.tarefas.map(id => doCliente.find(t => t.id === id)).filter(Boolean).map((t, k) => <React.Fragment key={t.id}>{k > 0 && ' · '}<button type="button" onClick={() => onAbrirTarefa && onAbrirTarefa(t.id)} className="hover:text-blue-400 hover:underline" title="Abrir a tarefa">{t.nome}</button></React.Fragment>)}</p>}
               </div>
