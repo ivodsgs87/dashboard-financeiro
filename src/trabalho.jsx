@@ -3288,7 +3288,7 @@ const driveApi = async (token, url, opts = {}) => {
 const idPastaDrive = url => { const m = /folders\/([A-Za-z0-9_-]{10,})/.exec(String(url || '')) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(String(url || '')); return m ? m[1] : null; };
 const filhosDrive = async (token, pai, pastas) => {
   const q = encodeURIComponent(`'${pai}' in parents and trashed=false${pastas ? " and mimeType='application/vnd.google-apps.folder'" : " and mimeType!='application/vnd.google-apps.folder'"}`);
-  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink,modifiedTime)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
   return j.files || [];
 };
 // Acha a pasta pelo nome (sem ligar a maiúsculas; a da versão aceita nomes mais compridos, ex.: _MIDDLE_EAST) ou cria-a
@@ -3301,7 +3301,7 @@ const pastaDrive = async (token, pai, nome, aceitarMaisLongo) => {
   return { ...c, nova: true };
 };
 const enviarParaDrive = async (token, { file, nome, pasta, idExistente }, onProg) => {
-  const url = idExistente ? `https://www.googleapis.com/upload/drive/v3/files/${idExistente}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink';
+  const url = idExistente ? `https://www.googleapis.com/upload/drive/v3/files/${idExistente}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink,modifiedTime` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink,modifiedTime';
   const tipo = file.type || 'application/octet-stream';
   const r = await fetch(url, { method: idExistente ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': tipo, 'X-Upload-Content-Length': String(file.size) }, body: JSON.stringify(idExistente ? { name: nome } : { name: nome, parents: [pasta] }) });
   if (!r.ok) { let m = `Erro ${r.status} ao começar o envio`; try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* sem JSON */ } throw new Error(m); }
@@ -6314,10 +6314,68 @@ const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Not
   );
 };
 // Recibos de um cliente (os que juntas em Receitas), por ano
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub }) => {
+// ── Pré-visualização de um PDF (ou imagem) ao lado da lista: ecrã inteiro, descarregar e abrir noutro separador ──
+// doc = { chave, titulo, sub, obter: () => ({ url, nome, tipo, blob?, revogar? }) | Promise }
+const PainelDoc = ({ doc, claro, vazio }) => {
+  const [res, setRes] = useState(null);
+  const caixaRef = useRef(null);
+  const [cheio, setCheio] = useState(false);
+  useEffect(() => { const f = () => setCheio(!!document.fullscreenElement); document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); }, []);
+  const chave = doc ? doc.chave : null;
+  useEffect(() => {
+    let vivo = true; let criado = null;
+    setRes(doc ? { aCarregar: true } : null);
+    if (!doc) return undefined;
+    Promise.resolve().then(() => doc.obter()).then(r => {
+      if (r && r.revogar) { if (!vivo) { URL.revokeObjectURL(r.url); return; } criado = r.url; }
+      if (vivo) setRes(r && r.url ? r : { erro: 'Esta fatura não tem PDF guardado.' });
+    }).catch(e => { if (vivo) setRes({ erro: String((e && e.message) || e) }); });
+    return () => { vivo = false; if (criado) URL.revokeObjectURL(criado); };
+  }, [chave]); // eslint-disable-line react-hooks/exhaustive-deps
+  const btn = `w-8 h-8 inline-flex items-center justify-center rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-300 hover:bg-white/10'} disabled:opacity-40`;
+  const ok = res && res.url;
+  const imagem = ok && /^image\//.test(res.tipo || '');
+  const ecra = () => { const el = caixaRef.current; if (!el) return; if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; } if (el.requestFullscreen) el.requestFullscreen().catch(() => window.open(res.url, '_blank', 'noopener')); else window.open(res.url, '_blank', 'noopener'); };
+  const descarregar = async () => {
+    if (!ok) return;
+    if (res.blob) { guardarBlobComo(res.blob, res.nome || 'documento.pdf'); return; }
+    if (res.baixar) { try { guardarBlobComo(await res.baixar(), res.nome || 'documento.pdf'); return; } catch (e) { /* tenta abrir */ } }
+    try { const r = await fetch(res.url); if (!r.ok) throw new Error(String(r.status)); guardarBlobComo(await r.blob(), res.nome || 'documento.pdf'); }
+    catch (e) { window.open(res.url, '_blank', 'noopener'); } // sem acesso direto: abre, e descarrega-se no visualizador
+  };
+  return (
+    <div ref={caixaRef} className={`flex flex-col rounded-xl border overflow-hidden ${cheio ? '' : 'h-[calc(100vh-170px)] min-h-[420px]'} ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900'}`}>
+      <div className={`flex items-center gap-2 px-3 py-2 border-b ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate">{doc ? doc.titulo : 'Pré-visualização'}</p>
+          {doc && doc.sub && <p className={`text-[11px] truncate ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{doc.sub}</p>}
+        </div>
+        <button type="button" onClick={ecra} disabled={!ok} className={btn} title={cheio ? 'Sair do ecrã inteiro (Esc)' : 'Ecrã inteiro'} aria-label="Ecrã inteiro">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{cheio ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}</svg>
+        </button>
+        <button type="button" onClick={descarregar} disabled={!ok} className={btn} title="Descarregar" aria-label="Descarregar">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" /></svg>
+        </button>
+        <button type="button" onClick={() => ok && window.open(res.url, '_blank', 'noopener')} disabled={!ok} className={btn} title="Abrir noutro separador" aria-label="Abrir noutro separador">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5" /></svg>
+        </button>
+      </div>
+      <div className={`flex-1 min-h-0 ${claro ? 'bg-slate-100' : 'bg-slate-950/60'}`}>
+        {!doc ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{vazio || 'Escolhe um documento para o veres aqui.'}</p>
+          : !res || res.aCarregar ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>A abrir…</p>
+          : res.erro ? <p className="p-6 text-sm text-center text-amber-500">{res.erro}</p>
+          : imagem ? <div className="w-full h-full flex items-center justify-center p-3"><img src={res.url} alt={res.nome || ''} className="max-w-full max-h-full object-contain rounded" /></div>
+          : <iframe key={res.url} src={res.url.startsWith('blob:') || res.url.startsWith('data:') ? `${res.url}#view=FitH` : res.url} title={doc.titulo} className="w-full h-full border-0" />}
+      </div>
+    </div>
+  );
+};
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro }) => {
   const [aEnviar, setAEnviar] = useState(null);
   const inRef = useRef(null); const alvo = useRef(null);
   const [anoAberto, setAnoAberto] = useState(null);
+  const largoDoc = useLargo('(min-width: 1536px)'); // ecrã largo: o recibo vê-se ao lado da lista
+  const [docSel, setDocSel] = useState(null);
   const anos = [...new Set((lista || []).map(r => r.ano))].sort((a, b) => b - a);
   if (!anos.length) return <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente. Junta-os em Receitas.</p>;
   const num = v => Number(v) || 0;
@@ -6325,8 +6383,19 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
   const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
+  const chaveR = r => `${r.k}:${r.id}`;
+  const comPainel = largoDoc && !!obterFicheiro;
+  // Por defeito, o recibo mais recente que tem PDF
+  const rSel = (lista || []).find(r => chaveR(r) === docSel) || (lista || []).find(r => r.temFicheiro) || null;
+  const docPrev = comPainel && rSel ? {
+    chave: `${chaveR(rSel)}:${rSel.temFicheiro ? 1 : 0}:${rSel.ficheiroUrl || ''}`,
+    titulo: rSel.desc || 'Recibo', sub: `${dataTxt(rSel)} ${rSel.ano} · ilíquido ${eur(ili(rSel))}${num(rSel.retIRS) ? ` · retido ${eur(rSel.retIRS)}` : ''}`,
+    obter: async () => { if (!rSel.temFicheiro) throw new Error('Este recibo ainda não tem o PDF — junta-o com «+ PDF».'); return obterFicheiro(rSel.k, rSel.id); },
+  } : null;
+  const abrirR = r => { if (comPainel) { setDocSel(chaveR(r)); return; } if (onAbrirFicheiro) onAbrirFicheiro(r.k, r.id); };
   return (
-    <div className="space-y-4">
+    <div className={comPainel ? 'grid grid-cols-[minmax(0,56rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
+    <div className="space-y-4 min-w-0">
       <input ref={inRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={async e => {
         const f = e.target.files && e.target.files[0]; e.target.value = ''; const r = alvo.current; if (!f || !r) return;
         setAEnviar(`${r.k}:${r.id}`);
@@ -6355,7 +6424,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                   <span>Data</span><span>Descrição</span><span className="text-right">Ilíquido</span><span className="text-right">IVA</span><span className="text-right">Retenção</span><span className="text-right">Recebido</span><span />
                 </div>
                 {rs.map(r => (
-                  <div key={`${r.k}:${r.id}`} className={`grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_170px] gap-x-3 gap-y-0.5 px-3 py-2 items-center border-t text-sm ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
+                  <div key={`${r.k}:${r.id}`} onClick={comPainel ? e => { if (!e.target.closest('button,a')) setDocSel(chaveR(r)); } : undefined}
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[64px_minmax(0,1fr)_96px_80px_80px_96px_170px] gap-x-3 gap-y-0.5 px-3 py-2 items-center border-t text-sm ${comPainel ? 'cursor-pointer' : ''} ${comPainel && rSel && chaveR(rSel) === chaveR(r) ? (claro ? 'bg-blue-50' : 'bg-blue-500/10') : ''} ${claro ? 'border-slate-100' : 'border-white/[0.04]'}`}>
                     <span className={`hidden md:block tabular-nums ${sub}`}>{dataTxt(r)}</span>
                     <span className="min-w-0">
                       <span className="block truncate">{r.desc || 'Recibo'}</span>
@@ -6370,7 +6440,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                     <span className={`hidden md:block text-right tabular-nums ${sub}`}>{num(r.retIRS) ? eur(r.retIRS) : '—'}</span>
                     <span className="hidden md:block text-right tabular-nums">{eur(r.val)}</span>
                     <span className="col-span-2 md:col-span-1 flex justify-end items-center gap-1 whitespace-nowrap">
-                      {r.temFicheiro && onAbrirFicheiro && <button type="button" onClick={() => onAbrirFicheiro(r.k, r.id)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400 inline-flex items-center gap-1`} title="Abrir o recibo">📎 PDF</button>}
+                      {r.temFicheiro && (onAbrirFicheiro || comPainel) && <button type="button" onClick={() => abrirR(r)} className={`px-2 py-1 rounded-md text-xs ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} text-emerald-400 inline-flex items-center gap-1`} title="Abrir o recibo">📎 PDF</button>}
                       {!r.temFicheiro && onJuntarFicheiro && <button type="button" disabled={aEnviar === `${r.k}:${r.id}`} onClick={() => { alvo.current = r; if (inRef.current) inRef.current.click(); }} className={`px-2 py-1 rounded-md text-xs ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'} hover:text-blue-400`} title="Este recibo ainda não tem o PDF — junta-o aqui">{aEnviar === `${r.k}:${r.id}` ? 'A enviar…' : '+ PDF'}</button>}
                       {onIrMes && <button type="button" onClick={() => onIrMes(r.ano, r.mes)} className={`px-2 py-1 rounded-md text-xs text-blue-400 ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} title="Ver em Receitas">Receitas →</button>}
                     </span>
@@ -6381,6 +6451,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
           </div>
         );
       })}
+    </div>
+    {comPainel && <div className="sticky top-[150px] min-w-0"><PainelDoc doc={docPrev} claro={claro} vazio="Nenhum recibo deste cliente tem PDF guardado na app." /></div>}
     </div>
   );
 };
@@ -6497,6 +6569,7 @@ const lerFaturaIA = async file => {
   }
   return null;
 };
+const dataIAValida = x => { const s2 = String(x || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(s2)) return ''; const [aa, mm, dd] = s2.split('-').map(Number); const t = new Date(aa, mm - 1, dd); return t.getFullYear() === aa && t.getMonth() === mm - 1 && t.getDate() === dd ? s2 : ''; };
 const ultimoDiaDe = mes => { const [a, m] = String(mes).split('-').map(Number); return a && m ? `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}` : ''; };
 const MESES_PT_F = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const ORDEM_TIPOS_F = ['video', 'variacao', 'iteracao', 'hook', 'aso', 'ai_clip', 'video3d', 'banner', 'banner_var', 'icone', 'feature', 'screenshots'];
@@ -6535,8 +6608,12 @@ const linhasAutoFatura = (trab, tarefas, extras, cu, clientes) => {
   });
 };
 const CampoF = ({ rot, children, largo }) => <label className={`flex flex-col gap-1 min-w-0 ${largo ? 'sm:col-span-2' : ''}`}><span className="text-xs text-slate-500">{rot}</span>{children}</label>;
-const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa, recibos = [] }) => {
+const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inputClass, onEnviarAnexo, onCriarRecibo, onApagarRecibo, showToast, onAbrirTarefa, recibos = [], contaDriveRecibos = '' }) => {
   const claro = useClaro(theme);
+  const largoDoc = useLargo('(min-width: 1536px)'); // ecrã largo: a fatura vê-se ao lado da lista
+  const [docSel, setDocSel] = useState(null); // id da fatura em pré-visualização, ou 'rascunho'
+  const fd = trab.faturasDrive || {};
+  const contaFD = fd.conta || contaDriveRecibos || '';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
   const ic = `${inputClass} text-sm py-1.5`;
@@ -6650,6 +6727,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some((e, i) => idsX.has(`${p.id}:${i}`)) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map((e, i) => (idsX.has(`${p.id}:${i}`) ? { ...e, faturaId: reg.id } : e)) } } : p)),
       }));
       if (showToast) showToast(`Fatura nº ${nFinal} gerada${pdf ? ' e guardada' : ''}${registar && onCriarRecibo ? ' · registada em Receitas' : ''}`);
+      setDocSel(reg.id);
+      if (fd.pasta) enviarFaturaDrive(reg, new File([u8], nome, { type: 'application/pdf' }), false, true);
     } catch (e) { console.error('Fatura:', e); if (showToast) showToast('Não consegui gerar a fatura.', 'error'); }
     setAGerar(false);
   };
@@ -6671,7 +6750,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const [antigas, setAntigas] = useState(null); // { linhas: [{ id, ficheiro, numero, data, mes, valor, lendo, lido }], marcar, aGuardar }
   const mudarLinhaA = (id, patch) => setAntigas(x => (x ? { ...x, linhas: x.linhas.map(l => (l.id === id ? { ...l, ...(typeof patch === 'function' ? patch(l) : patch) } : l)) } : x));
   const juntarFicheiros = async lista => {
-    const novas = Array.from(lista || []).map(f => { const n = lerNomeFatura(f.name); return { id: trabId() + Math.random().toString(36).slice(2, 6), ficheiro: f, numero: n.numero, mes: n.mes || '', data: n.mes ? ultimoDiaDe(n.mes) : '', valor: '', lendo: true, mesDoNome: !!n.mes }; });
+    // Cada item é um ficheiro, ou { file, drive } quando vem do Drive (fica já ligado a esse ficheiro)
+    const novas = Array.from(lista || []).map(it => { const f = it && it.file ? it.file : it; const n = lerNomeFatura(f.name); return { id: trabId() + Math.random().toString(36).slice(2, 6), ficheiro: f, drive: (it && it.drive) || null, numero: n.numero, mes: n.mes || '', data: n.mes ? ultimoDiaDe(n.mes) : '', valor: '', lendo: true, mesDoNome: !!n.mes }; });
     if (!novas.length) return;
     setAntigas(x => ({ marcar: true, ...(x || {}), linhas: [...((x && x.linhas) || []), ...novas] }));
     // Três de cada vez (é mais rápido e não sobrecarrega a função)
@@ -6680,8 +6760,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     const lerUma = async l => {
       let d = null; try { d = await lerFaturaIA(l.ficheiro); } catch (e) { d = null; }
       const v = d ? Number(d.valorIliquido) || Number(d.totalDocumento) || 0 : 0;
-      const dIA = String((d && d.data) || '');
-      const dataIA = /^\d{4}-\d{2}-\d{2}$/.test(dIA) && (() => { const [aa, mm, dd] = dIA.split('-').map(Number); const t = new Date(aa, mm - 1, dd); return t.getFullYear() === aa && t.getMonth() === mm - 1 && t.getDate() === dd; })() ? dIA : '';
+      const dataIA = dataIAValida(d && d.data);
       mudarLinhaA(l.id, x => ({ lendo: false, lido: !!d, valor: x.valor !== '' ? x.valor : (v > 0 ? String(Math.round(v * 100) / 100) : ''), data: dataIA || x.data, mes: x.mesDoNome ? x.mes : (dataIA ? dataIA.slice(0, 7) : x.mes) }));
     };
     await Promise.all([ler(), ler(), ler()]);
@@ -6707,17 +6786,98 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       const valor = Number(String(l.valor).replace(',', '.')) || 0;
       const ids = A.marcar ? tarefasDoMesAntiga(l.mes).map(t => t.id).filter(id => !usadas.has(id)) : [];
       ids.forEach(id => usadas.add(id));
-      regs.push({ id: trabId() + regs.length, cid, numero: Number(l.numero), data: l.data, mes: l.mes, para: '', linhas: [{ titulo: `Fatura nº ${l.numero}`, resto: '', valor }], subtotal: valor, ivaTaxa: 0, ivaValor: 0, total: valor, tarefas: ids, extras: [], pdf, antiga: true, criada: new Date().toISOString() });
+      regs.push({ id: trabId() + regs.length, cid, numero: Number(l.numero), data: l.data, mes: l.mes, para: '', linhas: [{ titulo: `Fatura nº ${l.numero}`, resto: '', valor }], subtotal: valor, ivaTaxa: 0, ivaValor: 0, total: valor, tarefas: ids, extras: [], pdf, antiga: true, criada: new Date().toISOString(), ...(l.drive ? { drive: l.drive } : {}), _ficheiro: l.drive ? null : l.ficheiro });
     }
+    const paraDrive = regs.filter(r => r._ficheiro); regs.forEach(r => { delete r._ficheiro; });
     const daFat = {}; regs.forEach(r => r.tarefas.forEach(id => { daFat[id] = r.id; }));
-    mudar(tr => ({ ...tr, faturas: [...(tr.faturas || []), ...regs], tarefas: (tr.tarefas || []).map(t => (daFat[t.id] ? { ...t, faturaId: daFat[t.id] } : t)) }));
+    const idsDrive = new Set(regs.filter(r => r.drive).map(r => r.drive.id));
+    mudar(tr => ({ ...tr, faturas: [...(tr.faturas || []), ...regs], tarefas: (tr.tarefas || []).map(t => (daFat[t.id] ? { ...t, faturaId: daFat[t.id] } : t)), faturasDrivePend: (tr.faturasDrivePend || []).filter(p => !idsDrive.has(p.id)) }));
     setAntigas(null);
+    if (fd.pasta) (async () => { for (const r of paraDrive) await enviarFaturaDrive(r, A.linhas.find(l => Number(l.numero) === r.numero).ficheiro, true); })();
     if (showToast) showToast(`${regs.length} fatura${regs.length === 1 ? '' : 's'} junta${regs.length === 1 ? '' : 's'}${usadas.size ? ` · ${usadas.size} tarefa${usadas.size === 1 ? '' : 's'} dada${usadas.size === 1 ? '' : 's'} como faturada${usadas.size === 1 ? '' : 's'}` : ''}${erroPdf ? ` · ${erroPdf} PDF não ${erroPdf === 1 ? 'ficou guardado' : 'ficaram guardados'}` : ''}`, erroPdf ? 'error' : undefined);
   };
-  const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
+  // ── Google Drive: cada fatura vai para FATURAS / cliente / ano / mês; o que lá estiver e não estiver aqui, vem para cá ──
+  const ligarDrive = (id, out) => mudar(tr => ({ ...tr, faturas: (tr.faturas || []).map(f => (f.id === id ? { ...f, drive: { id: out.id, url: out.url || out.webViewLink, nome: out.nome || out.name, ...((out.mod || out.modifiedTime) ? { mod: out.mod || out.modifiedTime } : {}) } } : f)), faturasDrivePend: (tr.faturasDrivePend || []).filter(p => p.id !== out.id) }));
+  const nomePdfDe = f => (f.pdf && f.pdf.nome) || nomeFicheiro(f.numero, f.data);
+  const enviarFaturaDrive = async (f, ficheiro, calado, novaVersao) => {
+    if (!fd.pasta || !ficheiro) return null;
+    try {
+      const out = await guardarFaturaNoDrive({ ficheiro, nome: nomePdfDe(f), cliente: c.nome, mes: f.mes, pastaUrl: fd.pasta, conta: contaFD, novaVersao });
+      ligarDrive(f.id, out);
+      if (showToast && !calado) showToast(out.novaVersao ? `☁ Fatura nº ${f.numero} atualizada no Drive (a versão anterior ficou guardada no histórico do ficheiro)` : out.jaExistia ? `☁ Fatura nº ${f.numero}: já estava no Drive` : `☁ Fatura nº ${f.numero} no Drive`);
+      return out;
+    } catch (e) { console.error('Fatura → Drive:', e); if (showToast) showToast(`A fatura nº ${f.numero} não foi para o Drive: ${e.message || e}`, 'error'); return null; }
+  };
+  const pdfDaFatura = f => gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva });
+  const [aSinc, setASinc] = useState(false);
+  const sincronizarDrive = async () => {
+    if (!fd.pasta || aSinc) return;
+    setASinc(true);
+    try {
+      const noDrive = await listarFaturasDrive({ cliente: c.nome, pastaUrl: fd.pasta, conta: contaFD });
+      const idsDrive = new Set(noDrive.map(x => x.id));
+      const usados = new Set();
+      let enviadas = 0, ligadas = 0, semPdf = 0;
+      // 1) as da app que ainda não estão no Drive
+      for (const f of faturas) {
+        if (f.drive && idsDrive.has(f.drive.id)) { usados.add(f.drive.id); continue; }
+        const igual = noDrive.find(x => !usados.has(x.id) && (x.name === nomePdfDe(f) || (lerNomeFatura(x.name).numero && Number(lerNomeFatura(x.name).numero) === Number(f.numero))));
+        if (igual) { usados.add(igual.id); ligarDrive(f.id, igual); ligadas += 1; continue; }
+        let fich = null;
+        if (f.pdf && f.pdf.url) { try { const r = await fetch(f.pdf.url); if (r.ok) fich = new File([await r.blob()], nomePdfDe(f), { type: 'application/pdf' }); } catch (e) { /* sem acesso direto */ } }
+        if (!fich && !f.antiga) fich = new File([pdfDaFatura(f)], nomePdfDe(f), { type: 'application/pdf' });
+        if (!fich) { semPdf += 1; continue; }
+        const out = await enviarFaturaDrive(f, fich, true);
+        if (out) { usados.add(out.id); enviadas += 1; }
+      }
+      // 2) as do Drive que não estão na app: vêm para a lista de «Juntar faturas antigas», já lidas pela IA, para confirmares
+      const novos = noDrive.filter(x => !usados.has(x.id));
+      if (novos.length) {
+        const itens = [];
+        for (const x of novos) { try { itens.push({ file: await ficheiroDoDrive(contaFD, x), drive: { id: x.id, url: x.webViewLink, nome: x.name, mod: x.modifiedTime } }); } catch (e) { console.error('Drive → app:', e); } }
+        if (itens.length) juntarFicheiros(itens);
+      }
+      if (showToast) showToast([enviadas ? `${enviadas} enviada${enviadas === 1 ? '' : 's'} para o Drive` : '', ligadas ? `${ligadas} ligada${ligadas === 1 ? '' : 's'} à que já lá estava` : '', novos.length ? `${novos.length} no Drive que não ${novos.length === 1 ? 'estava' : 'estavam'} aqui — confirma e carrega em Juntar` : '', semPdf ? `${semPdf} sem PDF para enviar` : ''].filter(Boolean).join(' · ') || 'Está tudo igual no Drive e aqui ✓');
+    } catch (e) { console.error('Sincronizar faturas:', e); if (showToast) showToast(`Não consegui falar com o Drive: ${e.message || e}`, 'error'); }
+    setASinc(false);
+  };
+  // O que a verificação automática encontrou no Drive e não conseguiu juntar sozinha
+  const pendDrive = (trab.faturasDrivePend || []).filter(p => !p.cid || String(p.cid) === String(cid));
+  const [aRever, setARever] = useState(null);
+  const reverPend = async p => {
+    setARever(p.id);
+    try { const file = await ficheiroDoDrive(contaFD, { id: p.id, name: p.nome }); juntarFicheiros([{ file, drive: { id: p.id, url: p.url, nome: p.nome, mod: p.mod } }]); }
+    catch (e) { if (showToast) showToast(`Não consegui abrir ${p.nome} do Drive: ${e.message || e}`, 'error'); }
+    setARever(null);
+  };
+  const ignorarPend = p => mudar(tr => ({ ...tr, faturasDrivePend: (tr.faturasDrivePend || []).filter(x => x.id !== p.id), faturasDriveIgnorar: [...new Set([...(tr.faturasDriveIgnorar || []), p.id])].slice(-500) }));
+  const setFD = patch => mudar(tr => ({ ...tr, faturasDrive: { ...(tr.faturasDrive || {}), ...patch } }));
+  const [sempreFD, setSempreFD] = useState(() => ligadoSempre(contaFD || '_'));
+  useEffect(() => { let vivo = true; sincronizarSempre().then(() => { if (vivo) setSempreFD(ligadoSempre(contaFD || '_')); }); return () => { vivo = false; }; }, [contaFD]);
+  const ligarSempreFD = async () => {
+    try { await carregarGis(); await ligarDriveSempre(contaFD || undefined); setSempreFD(true); if (showToast) showToast('☁ Drive ligado: a app passa a ver as faturas novas sozinha'); }
+    catch (e) { if (showToast) showToast(e.message || String(e), 'error'); }
+  };
+  // Pré-visualização ao lado (ecrãs largos)
+  const fPrev = docSel === 'rascunho' ? null : (faturas.find(f => f.id === docSel) || faturas[0] || null);
+  const jsonRasc = docSel === 'rascunho' ? JSON.stringify(dadosPdf()) : '';
+  const docPrev = docSel === 'rascunho'
+    ? { chave: `rasc:${jsonRasc}`, titulo: `Rascunho da fatura nº ${nFinal}`, sub: `${MESES_PT_F[mes.m - 1]} ${mes.a} · ${cuEur(total)}`, obter: () => { const blob = new Blob([gerarPdfFatura(dadosPdf())], { type: 'application/pdf' }); return { url: URL.createObjectURL(blob), blob, nome: nomeFicheiro(nFinal, dFinal), tipo: 'application/pdf', revogar: true }; } }
+    : fPrev ? {
+      chave: `${fPrev.id}:${(fPrev.pdf && fPrev.pdf.url) || ''}:${(fPrev.drive && fPrev.drive.mod) || ''}:${fPrev.total}`,
+      titulo: `Fatura nº ${fPrev.numero}`, sub: `${MESES_PT_F[Number(String(fPrev.mes).slice(5, 7)) - 1] || ''} ${String(fPrev.mes).slice(0, 4)} · ${cuEur(fPrev.total)}${fPrev.antiga ? ' · antiga' : ''}`,
+      obter: () => {
+        if (fPrev.pdf && fPrev.pdf.url) return { url: fPrev.pdf.url, nome: nomePdfDe(fPrev), tipo: /\.(png|jpe?g|webp)$/i.test(nomePdfDe(fPrev)) ? tipoDoNome(nomePdfDe(fPrev)) : 'application/pdf' };
+        if (fPrev.antiga) return fPrev.drive && fPrev.drive.id ? { url: `https://drive.google.com/file/d/${fPrev.drive.id}/preview`, nome: fPrev.drive.nome || nomePdfDe(fPrev), tipo: 'application/pdf', baixar: () => descarregarDrive(contaFD, fPrev.drive.id, {}) } : null;
+        const blob = new Blob([pdfDaFatura(fPrev)], { type: 'application/pdf' });
+        return { url: URL.createObjectURL(blob), blob, nome: nomePdfDe(fPrev), tipo: 'application/pdf', revogar: true };
+      },
+    } : null;
+  const abrirAntiga = f => { if (largoDoc) { setDocSel(f.id); return; } if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } if (f.antiga && f.drive && f.drive.url) { window.open(f.drive.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
   const chip = `px-2 py-0.5 rounded-md text-[11px]`;
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className={largoDoc ? 'grid grid-cols-[minmax(0,56rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
+    <div className="space-y-4 max-w-4xl min-w-0">
       <div className={caixa}>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button type="button" onClick={() => mudarMes(-1)} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mês anterior">‹</button>
@@ -6808,7 +6968,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         </div>
         {avisos.length > 0 && <ul className="mt-3 space-y-1 text-xs text-amber-500">{avisos.map(a => <li key={a}>• {a}</li>)}</ul>}
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          <button type="button" onClick={() => verPdf(gerarPdfFatura(dadosPdf()))} disabled={!linhas.length} className={`px-3 py-2 text-sm rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Pré-visualizar PDF</button>
+          <button type="button" onClick={() => (largoDoc ? setDocSel('rascunho') : verPdf(gerarPdfFatura(dadosPdf())))} disabled={!linhas.length} className={`px-3 py-2 text-sm rounded-lg border disabled:opacity-40 ${claro ? 'border-slate-200 hover:bg-slate-100' : 'border-slate-700 hover:bg-white/5'}`}>Pré-visualizar PDF</button>
           <button type="button" onClick={gerar} disabled={aGerar || !linhas.length} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40">{aGerar ? 'A gerar…' : `Gerar fatura nº ${nFinal}`}</button>
           <span className={`text-xs ${sub}`}>Descarrega o PDF, guarda-o aqui e marca as tarefas como faturadas.</span>
         </div>
@@ -6818,8 +6978,9 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       <div className={caixa}>
         <button type="button" onClick={() => setVerEmissor(v => !v)} className="w-full flex items-center gap-2 text-left">
           <span className={`text-[10px] ${sub}`} style={{ transform: verEmissor ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
-          <span className="text-sm font-semibold flex-1">Os meus dados (aparecem em todas as faturas)</span>
+          <span className="text-sm font-semibold flex-1">Os meus dados (aparecem em todas as faturas) e o Drive</span>
           {!em.nome && <span className="text-xs text-amber-500">por preencher</span>}
+          {em.nome && <span className={`text-xs ${fd.pasta ? 'text-sky-400' : sub}`}>{fd.pasta ? '☁ Drive ligado' : '☁ Drive por ligar'}</span>}
         </button>
         {verEmissor && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
@@ -6832,6 +6993,26 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
             <CampoF rot="IBAN"><TxtIn valor={em.iban} onGravar={v => setEm({ iban: v })} placeholder="PT50 …" className={ic} /></CampoF>
             <CampoF rot="SWIFT/BIC"><TxtIn valor={em.swift} onGravar={v => setEm({ swift: v })} className={ic} /></CampoF>
             <p className={`sm:col-span-2 text-[11px] ${sub}`}>Ficam só na tua base de dados da app (não no código). O nome legal, o VAT e a morada do cliente vêm da Ficha → Faturação; o IVA e a nota do IVA também se mudam lá.</p>
+            <div className={`sm:col-span-2 mt-1 pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-3 ${claro ? 'border-slate-100' : 'border-white/[0.06]'}`}>
+              <p className="sm:col-span-2 text-sm font-semibold">☁ Faturas no Google Drive</p>
+              <CampoF rot="Pasta das faturas no Drive (link)">
+                <TxtIn valor={fd.pasta} onGravar={v => setFD({ pasta: String(v || '').trim() })} placeholder="https://drive.google.com/drive/folders/…" className={ic} />
+                {fd.pasta && !idPastaDrive(fd.pasta) && <span className="text-[11px] text-red-400">Este link não parece de uma pasta do Drive.</span>}
+              </CampoF>
+              <CampoF rot="Conta Google dessa pasta">
+                <TxtIn valor={fd.conta} onGravar={v => setFD({ conta: String(v || '').trim() })} placeholder={contaDriveRecibos || 'a mesma dos recibos'} className={ic} />
+              </CampoF>
+              <label className="sm:col-span-2 flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={fd.auto !== false} onChange={e => setFD({ auto: e.target.checked })} className="accent-blue-500 mt-0.5" />
+                <span>Juntar sozinho as faturas novas que aparecerem nessa pasta (por exemplo, as que guardas no PC numa pasta sincronizada com o Drive). Se a mesma fatura for guardada outra vez (corrigida), atualiza a que já existe — nunca fica a dobrar.</span>
+              </label>
+              {fd.pasta && fd.auto !== false && !sempreFD && (
+                <p className="sm:col-span-2 text-xs text-amber-500 flex flex-wrap items-center gap-2">Para a app ver o Drive sozinha, esta conta tem de ficar sempre ligada.
+                  <button type="button" onClick={ligarSempreFD} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Manter sempre ligado</button>
+                </p>
+              )}
+              <p className={`sm:col-span-2 text-[11px] ${sub}`}>Cada fatura fica em <strong>pasta das faturas / Cliente / Ano / Mês</strong> (se guardares uma solta na pasta principal, a app arruma-a). O nº e o mês vêm do nome do ficheiro (ex.: 8_Invoice_October_26.pdf). As pastas que a app usa ficam verdes no Drive, para se ver que estão ligadas à app. A app nunca apaga nada no Drive.</p>
+            </div>
           </div>
         )}
       </div>
@@ -6840,8 +7021,25 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       <div className={caixa}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <p className="text-sm font-semibold">Faturas emitidas</p>
-          {!antigas && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Faturas que fizeste fora da app: ficam aqui com o PDF, para as teres à mão">+ Juntar faturas antigas</button>}
+          <span className="flex items-center gap-3">
+            {fd.pasta && <button type="button" onClick={sincronizarDrive} disabled={aSinc} className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-60" title={`Envia para o Drive as que lá faltam e traz as que estão no Drive e não estão aqui (FATURAS / ${c.nome} / ano / mês)`}>{aSinc ? 'A ver o Drive…' : '☁ Sincronizar com o Drive'}</button>}
+            {!antigas && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Faturas que fizeste fora da app: ficam aqui com o PDF, para as teres à mão">+ Juntar faturas antigas</button>}
+          </span>
         </div>
+        {pendDrive.length > 0 && (
+          <div className="mb-3 rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500 text-xs space-y-1.5">
+            <p>☁ {pendDrive.length === 1 ? 'Há 1 fatura no Drive que não consegui juntar sozinho' : `Há ${pendDrive.length} faturas no Drive que não consegui juntar sozinho`}:</p>
+            {pendDrive.map(p => (
+              <div key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <a href={p.url} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline truncate max-w-full sm:max-w-[45%]" title={p.nome}>{p.nome}</a>
+                <span className="opacity-80">— {p.motivo}{!p.cid ? ' (se for deste cliente, carrega em Rever)' : ''}</span>
+                <span className="flex-1" />
+                <button type="button" onClick={() => reverPend(p)} disabled={aRever === p.id} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aRever === p.id ? 'A abrir…' : 'Rever e juntar'}</button>
+                <button type="button" onClick={() => ignorarPend(p)} className="px-1.5 py-0.5 opacity-80 hover:opacity-100" title="Não é uma fatura deste cliente: deixa de aparecer aqui (fica no Drive)">Ignorar</button>
+              </div>
+            ))}
+          </div>
+        )}
         {antigas && (() => {
           const L = antigas.linhas;
           const lendo = L.filter(l => l.lendo).length;
@@ -6894,21 +7092,26 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         {!faturas.length ? (!antigas && <p className={`text-sm ${sub}`}>Ainda nenhuma.</p>) : (
           <div className="space-y-1">
             {faturas.map(f => (
-              <div key={f.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>
+              <div key={f.id} onClick={largoDoc ? e => { if (!e.target.closest('button,a')) setDocSel(f.id); } : undefined}
+                className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${largoDoc ? 'cursor-pointer' : ''} ${largoDoc && fPrev && fPrev.id === f.id && docSel !== 'rascunho' ? (claro ? 'bg-blue-50 ring-1 ring-blue-200' : 'bg-blue-500/10 ring-1 ring-blue-500/30') : (claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]')}`}>
                 <span className="font-medium tabular-nums w-12">nº {f.numero}</span>
                 <span className={`text-sm ${sub}`}>{MESES_PT_F[Number(String(f.mes).slice(5, 7)) - 1]} {String(f.mes).slice(0, 4)}</span>
                 {(f.tarefas || []).length > 0 && <span className={`${chip} ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{f.tarefas.length} tarefas</span>}
                 {f.antiga && <span className={`${chip} ${claro ? 'bg-slate-100 text-slate-500' : 'bg-white/5 text-slate-400'}`} title="Feita fora da app">antiga</span>}
                 {f.recibo && <span className={`${chip} bg-emerald-500/10 text-emerald-500`}>em Receitas</span>}
+                {f.drive && f.drive.url && <a href={f.drive.url} target="_blank" rel="noopener noreferrer" className={`${chip} bg-sky-500/10 text-sky-400 hover:bg-sky-500/20`} title={`No Google Drive: ${f.drive.nome || ''}${f.doDrive ? ' (juntada sozinha a partir do Drive)' : ''}`}>☁ Drive</a>}
+                {f.corrigida && <span className={`${chip} bg-amber-500/10 text-amber-500`} title="Foi guardada outra vez no Drive e a app atualizou-a">corrigida</span>}
                 <span className="flex-1" />
                 <span className="tabular-nums font-medium">{cuEur(f.total)}</span>
-                {(!f.antiga || (f.pdf && f.pdf.url)) && <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>}
+                {(!f.antiga || (f.pdf && f.pdf.url) || (f.drive && f.drive.url)) && <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>}
                 <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>{f.antiga ? 'Tirar' : 'Anular'}</button>
               </div>
             ))}
           </div>
         )}
       </div>
+    </div>
+    {largoDoc && <div className="sticky top-[150px] min-w-0"><PainelDoc doc={docPrev} claro={claro} vazio="Ainda não há faturas deste cliente." /></div>}
     </div>
   );
 };
@@ -7515,9 +7718,46 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
+  // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
+  const fdT = trab.faturasDrive || {};
+  const refFD = useRef({}); refFD.current = { trab, clientes: clientesIn, mudar, showToast };
+  useEffect(() => {
+    const raiz = idPastaDrive(fdT.pasta);
+    if (!raiz || fdT.auto === false) return undefined;
+    const conta = fdT.conta || contaDriveRecibos || '';
+    const chave = `${LS_FAT_VISTO}:${raiz}`;
+    let parar = false, aCorrer = false, ultima = 0;
+    const correr = async () => {
+      if (parar || aCorrer || document.hidden || Date.now() - ultima < 40000) return;
+      aCorrer = true; ultima = Date.now();
+      try {
+        let desde = null; try { desde = localStorage.getItem(chave); } catch (e) { /* */ }
+        const t0 = desde && !Number.isNaN(Date.parse(desde)) ? Date.parse(desde) - 120000 : Date.now() - 45 * 864e5;
+        const R = refFD.current;
+        const r = await verificarFaturasDrive({ trab: R.trab, clientes: R.clientes, conta, desde: new Date(t0).toISOString() });
+        if (r && !parar) {
+          try { localStorage.setItem(chave, r.ate); } catch (e) { /* */ }
+          if (r.acoes.length) {
+            const R2 = refFD.current;
+            const { msgs } = aplicarFaturasDrive(R2.trab, r.acoes, R2.clientes);
+            R2.mudar(tr => aplicarFaturasDrive(tr, r.acoes, R2.clientes).tr);
+            const nPend = r.acoes.filter(a => a.tipo === 'pend').length;
+            const txt = [...msgs, nPend ? `☁ ${nPend} fatura${nPend === 1 ? '' : 's'} no Drive para confirmares (cliente → Faturas)` : ''].filter(Boolean).join(' · ');
+            if (txt && R2.showToast) R2.showToast(txt);
+          }
+        }
+      } catch (e) { console.warn('Faturas no Drive:', e); }
+      aCorrer = false;
+    };
+    const tIni = setTimeout(correr, 4000);
+    const iv = setInterval(correr, 180000);
+    const voltou = () => { if (!document.hidden) setTimeout(correr, 1500); };
+    window.addEventListener('focus', voltou); document.addEventListener('visibilitychange', voltou);
+    return () => { parar = true; clearTimeout(tIni); clearInterval(iv); window.removeEventListener('focus', voltou); document.removeEventListener('visibilitychange', voltou); };
+  }, [fdT.pasta, fdT.conta, fdT.auto, contaDriveRecibos]);
   const claro = useClaro(theme);
   // Conta Google com que os briefs abrem: geral (Trabalho) + a de cada cliente (ficha)
   FREE.lista = trab.freelancers || [];
@@ -8078,8 +8318,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               }
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
-          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} />}
-          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} />}
+          {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
+          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
@@ -8153,6 +8393,230 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   );
 };
 
+// ── Pastas que a app usa no Drive ficam com uma cor própria (verde), para se ver que estão ligadas à app e não se apagarem por engano ──
+const COR_PASTA_APP = '#16a765';
+const PASTAS_COLORIDAS = new Set();
+const colorirPasta = async (token, id) => {
+  if (!id || PASTAS_COLORIDAS.has(id)) return;
+  PASTAS_COLORIDAS.add(id);
+  try { await driveApi(token, `${DRV}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderColorRgb: COR_PASTA_APP }) }); } catch (e) { /* sem cor: não faz mal */ }
+};
+const EXT_DOC = /\.(pdf|png|jpe?g|webp)$/i;
+const tipoDoNome = n => (/\.png$/i.test(n) ? 'image/png' : /\.jpe?g$/i.test(n) ? 'image/jpeg' : /\.webp$/i.test(n) ? 'image/webp' : 'application/pdf');
+// Documentos (PDF/imagens) de uma pasta e das subpastas, até «niveis» abaixo
+const docsDaPasta = async (token, id, niveis) => {
+  const out = [];
+  const andar = async (pid, n, caminho) => {
+    (await filhosDrive(token, pid, false)).filter(f => EXT_DOC.test(f.name)).forEach(f => out.push({ ...f, caminho }));
+    if (n > 0) for (const p of await filhosDrive(token, pid, true)) await andar(p.id, n - 1, [...caminho, p.name]);
+  };
+  await andar(id, niveis, []);
+  return out;
+};
+const tokenPara = async conta => { await carregarGis().catch(() => {}); return tokenDrive(conta); };
+// Um ficheiro do Drive como File (para guardar na app e para a IA o ler)
+const ficheiroDoDrive = async (conta, f) => { const b = await descarregarDrive(conta, f.id, {}); return new File([b], f.name, { type: tipoDoNome(f.name) }); };
+
+// ── Faturas → pasta do Google Drive: FATURAS / Cliente / 2026 / 09_Setembro / 4_Invoice_September_26.pdf ──
+const MESES_PASTA = ['01_Janeiro', '02_Fevereiro', '03_Março', '04_Abril', '05_Maio', '06_Junho', '07_Julho', '08_Agosto', '09_Setembro', '10_Outubro', '11_Novembro', '12_Dezembro'];
+const pastaAnoMes = async (token, pCliId, mes) => {
+  const [a, m] = String(mes || '').split('-');
+  if (!a || !m) return { id: pCliId };
+  const pAno = await pastaDrive(token, pCliId, a, false); await colorirPasta(token, pAno.id);
+  const pMes = await pastaDrive(token, pAno.id, MESES_PASTA[Number(m) - 1] || m, false); await colorirPasta(token, pMes.id);
+  return pMes;
+};
+const pastaFaturas = async (token, raiz, cliente, mes) => {
+  await colorirPasta(token, raiz);
+  const pCli = await pastaDrive(token, raiz, cliente, false); await colorirPasta(token, pCli.id);
+  return pastaAnoMes(token, pCli.id, mes);
+};
+// Antes de pôr uma versão nova por cima, a atual fica guardada para sempre no histórico de versões do Drive
+const guardarVersaoAtual = async (token, id) => {
+  const h = await driveApi(token, `${DRV}/${encodeURIComponent(id)}?fields=headRevisionId&supportsAllDrives=true`);
+  if (!h || !h.headRevisionId) throw new Error('sem versão');
+  await driveApi(token, `${DRV}/${encodeURIComponent(id)}/revisions/${encodeURIComponent(h.headRevisionId)}?fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepForever: true }) });
+};
+// Envia a fatura. Se já houver lá um ficheiro com o mesmo nome: liga-se a esse; ou, quando a fatura foi
+// corrigida e gerada outra vez (novaVersao), fica como versão nova desse ficheiro (a anterior fica no histórico).
+const guardarFaturaNoDrive = async ({ ficheiro, nome, cliente, mes, pastaUrl, conta, novaVersao }) => {
+  const raiz = idPastaDrive(pastaUrl);
+  if (!raiz) throw new Error('o link da pasta das faturas no Drive não parece certo');
+  const token = await tokenPara(conta);
+  const p = await pastaFaturas(token, raiz, cliente, mes);
+  const ja = (await filhosDrive(token, p.id, false)).find(f => f.name === nome);
+  const f = ficheiro instanceof File ? ficheiro : new File([ficheiro], nome, { type: 'application/pdf' });
+  let nomeFinal = nome;
+  if (ja && !novaVersao) return { id: ja.id, url: ja.webViewLink, nome, jaExistia: true, mod: ja.modifiedTime };
+  if (ja) {
+    let guardada = false;
+    try { await guardarVersaoAtual(token, ja.id); guardada = true; } catch (e) { /* não deu para guardar a versão atual: então não mexe nela */ }
+    if (guardada) {
+      const res = await enviarParaDrive(token, { file: f, nome, pasta: p.id, idExistente: ja.id }, () => {});
+      return { id: ja.id, url: ja.webViewLink || (res && res.webViewLink), nome, novaVersao: true, mod: res && res.modifiedTime };
+    }
+    nomeFinal = nome.replace(/(\.[a-z0-9]{2,4})?$/i, m => ` (corrigida)${m || '.pdf'}`);
+  }
+  const res = await enviarParaDrive(token, { file: f, nome: nomeFinal, pasta: p.id, idExistente: null }, () => {});
+  return { id: res && res.id, url: (res && res.webViewLink) || (res && res.id ? `https://drive.google.com/file/d/${res.id}/view` : ''), nome: nomeFinal, mod: res && res.modifiedTime };
+};
+// As faturas que estão na pasta do cliente (e nas subpastas ano/mês)
+const listarFaturasDrive = async ({ cliente, pastaUrl, conta }) => {
+  const raiz = idPastaDrive(pastaUrl);
+  if (!raiz) throw new Error('o link da pasta das faturas no Drive não parece certo');
+  const token = await tokenPara(conta);
+  await colorirPasta(token, raiz);
+  const pc = (await filhosDrive(token, raiz, true)).find(x => slugF(x.name) === slugF(cliente));
+  return pc ? docsDaPasta(token, pc.id, 2) : [];
+};
+// Os recibos verdes que estão na pasta (ano / trimestre)
+const listarRecibosDrive = async ({ pastaUrl, conta }) => {
+  const raiz = idPastaDrive(pastaUrl);
+  if (!raiz) throw new Error('o link da pasta de recibos no Drive não parece certo');
+  const token = await tokenPara(conta);
+  await colorirPasta(token, raiz);
+  return docsDaPasta(token, raiz, 2);
+};
+
+// ── Faturas que aparecem no Drive (ex.: guardadas no PC numa pasta sincronizada pelo «Google Drive para computador»):
+// a app vê-as sozinha e junta-as. Nunca cria duas faturas com o mesmo nº: se a mesma fatura for guardada outra vez
+// (corrigida), atualiza a que já existe. O que não conseguir perceber sozinha fica numa lista para confirmares.
+const LS_FAT_VISTO = 'fat-drive-visto';
+// Acesso ao Drive sem abrir janelas (só com a ligação permanente, ou com um acesso ainda válido)
+const tokenSemJanela = async conta => {
+  const k = conta || '_';
+  const t = tokenGuardadoDe(k); if (t) return t;
+  await sincronizarSempre();
+  if (!ligadoSempre(k)) return null;
+  try { const j = await chamarDriveFn('token', { conta: conta || undefined }); guardarAcesso([k, j.email], j); return j.access_token; } catch (e) { return null; }
+};
+const INFO_DRIVE = new Map();
+const infoDrive = async (token, id) => {
+  if (INFO_DRIVE.has(id)) return INFO_DRIVE.get(id);
+  let j = null; try { j = await driveApi(token, `${DRV}/${encodeURIComponent(id)}?fields=id,name,parents&supportsAllDrives=true`); } catch (e) { j = { id, name: '', parents: [] }; }
+  INFO_DRIVE.set(id, j); return j;
+};
+// Pastas entre a raiz e o ficheiro ([] = solto na raiz; [cliente, ano, mês]); null se não estiver lá dentro
+const caminhoNaRaiz = async (token, f, raiz) => {
+  const cam = []; let p = (f.parents || [])[0];
+  for (let n = 0; p && n < 8; n++) {
+    if (p === raiz) return cam.reverse();
+    const i = await infoDrive(token, p); cam.push({ id: p, name: i.name }); p = (i.parents || [])[0];
+  }
+  return null;
+};
+const nomesCliente = c => [c.nome, ...(c.aliases || []), c.fat && c.fat.nomeLegal].filter(Boolean);
+const clienteDoNomeF = (clientes, nome) => {
+  const s2 = slugF(nome); if (!s2) return null;
+  const cs = (clientes || []).filter(c => !c.soTrabalho);
+  return cs.find(c => nomesCliente(c).some(n => slugF(n) === s2))
+    || cs.find(c => nomesCliente(c).some(n => { const a = slugF(n); return a.length >= 4 && (s2.includes(a) || a.includes(s2)); })) || null;
+};
+const valoresIA = (d, n) => {
+  const v = d ? Number(d.valorIliquido) || Number(d.totalDocumento) || 0 : 0;
+  const dIA = dataIAValida(d && d.data);
+  const mes = (n && n.mes) || (dIA ? dIA.slice(0, 7) : '');
+  return { valor: v > 0 ? Math.round(v * 100) / 100 : 0, data: dIA || (mes ? ultimoDiaDe(mes) : ''), mes, mesDoNome: !!(n && n.mes) };
+};
+const verificarFaturasDrive = async ({ trab, clientes, conta, desde }) => {
+  const fd = trab.faturasDrive || {};
+  const raiz = idPastaDrive(fd.pasta); if (!raiz) return null;
+  const token = await tokenSemJanela(conta); if (!token) return null;
+  const agora = new Date().toISOString();
+  const q = encodeURIComponent(`modifiedTime > '${desde}' and trashed=false and mimeType!='application/vnd.google-apps.folder'`);
+  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,parents,modifiedTime,webViewLink)&orderBy=modifiedTime&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+  const faturas = trab.faturas || [];
+  const ignorar = new Set(trab.faturasDriveIgnorar || []);
+  const jaPend = new Set((trab.faturasDrivePend || []).map(p => p.id));
+  const acoes = []; let falhou = null;
+  const pend = (f, cid, motivo) => { if (!jaPend.has(f.id)) acoes.push({ tipo: 'pend', item: { id: f.id, nome: f.name, url: f.webViewLink, mod: f.modifiedTime, cid: cid != null ? cid : null, motivo } }); };
+  for (const f of (j.files || []).filter(x => EXT_DOC.test(x.name))) {
+    if (ignorar.has(f.id)) continue;
+    try {
+      const cam = await caminhoNaRaiz(token, f, raiz);
+      if (!cam) continue;
+      if (cam.length >= 2 && !/^\d{4}$/.test(String(cam[1].name).trim())) continue; // outras pastas dentro da do cliente (ex.: contratos): não são faturas
+      const drive = { id: f.id, url: f.webViewLink, nome: f.name, mod: f.modifiedTime };
+      const n = lerNomeFatura(f.name);
+      let d; let lido = false;
+      const ler = async () => { if (!lido) { lido = true; d = await lerFaturaIA(await ficheiroDoDrive(conta, f)).catch(() => null); } return d; };
+      const ligada = faturas.find(x => x.drive && x.drive.id === f.id);
+      if (ligada) {
+        if (ligada.drive.mod && String(f.modifiedTime) <= String(ligada.drive.mod)) continue;
+        // guardada outra vez por cima (corrigida): as feitas fora da app voltam a ser lidas
+        if (!ligada.drive.mod || !ligada.antiga) { acoes.push({ tipo: 'ligar', fid: ligada.id, drive }); continue; }
+        acoes.push({ tipo: 'corrigir', fid: ligada.id, drive, ...valoresIA(await ler(), n) });
+        continue;
+      }
+      // De que cliente é: pela pasta, ou (solta na pasta das faturas) pelo nome que a IA lê no PDF
+      let c = cam.length ? clienteDoNomeF(clientes, cam[0].name) : null;
+      if (!c) { const dd = await ler(); c = dd ? clienteDoNomeF(clientes, dd.nomeCliente) : null; }
+      if (!c) { pend(f, null, 'não sei de que cliente é'); continue; }
+      if (!n.numero) { pend(f, c.id, 'não percebi o nº pelo nome do ficheiro'); continue; }
+      const mesma = faturas.find(x => String(x.cid) === String(c.id) && Number(x.numero) === Number(n.numero));
+      if (mesma) {
+        // A mesma fatura guardada outra vez com outro nome: passa a usar a mais recente (não cria outra)
+        if (mesma.drive && mesma.drive.mod && String(f.modifiedTime) <= String(mesma.drive.mod)) continue;
+        if (!mesma.antiga) { acoes.push({ tipo: 'ligar', fid: mesma.id, drive }); continue; }
+        acoes.push({ tipo: 'corrigir', fid: mesma.id, drive, ...valoresIA(await ler(), n) });
+        continue;
+      }
+      const v = valoresIA(await ler(), n);
+      if (!(v.valor > 0) || !v.data || !v.mes) { pend(f, c.id, d ? 'não consegui ler o valor ou a data' : 'a IA não conseguiu ler o PDF'); continue; }
+      // Solta (fora de Cliente / Ano / Mês): arruma-a na pasta certa (só muda de pasta, não apaga nada)
+      if (cam.length < 3) {
+        try {
+          const destino = cam.length ? await pastaAnoMes(token, cam[0].id, v.mes) : await pastaFaturas(token, raiz, c.nome, v.mes);
+          const de = (f.parents || [])[0];
+          if (destino && destino.id && de && destino.id !== de) {
+            const mv = await driveApi(token, `${DRV}/${encodeURIComponent(f.id)}?addParents=${encodeURIComponent(destino.id)}&removeParents=${encodeURIComponent(de)}&supportsAllDrives=true&fields=id,modifiedTime,webViewLink`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            if (mv && mv.modifiedTime) drive.mod = mv.modifiedTime;
+          }
+        } catch (e) { /* fica onde está */ }
+      }
+      acoes.push({ tipo: 'nova', cid: c.id, numero: Number(n.numero), ...v, drive });
+    } catch (e) { console.warn('Fatura no Drive:', f.name, e); if (!falhou || String(f.modifiedTime) < falhou) falhou = String(f.modifiedTime); }
+  }
+  // Se algum falhou (ex.: sem rede a meio), da próxima vez volta a ver a partir desse
+  return { acoes, ate: falhou ? new Date(new Date(falhou).getTime() - 1000).toISOString() : agora };
+};
+// Aplica o que a verificação encontrou (função pura: corre dentro do mudar, com o estado mais recente)
+const aplicarFaturasDrive = (tr, acoes, clientes) => {
+  let faturas = [...(tr.faturas || [])]; let tarefas = tr.tarefas || []; let pend = [...(tr.faturasDrivePend || [])];
+  const msgs = []; const agora = new Date().toISOString();
+  const tiraPend = id => { pend = pend.filter(p => p.id !== id); };
+  acoes.forEach((a, i) => {
+    if (a.tipo === 'pend') { if (!pend.some(p => p.id === a.item.id) && !faturas.some(f => f.drive && f.drive.id === a.item.id)) pend.push({ ...a.item, em: agora }); return; }
+    if (a.tipo === 'ligar') { faturas = faturas.map(f => (f.id === a.fid ? { ...f, drive: a.drive } : f)); tiraPend(a.drive.id); return; }
+    if (a.tipo === 'corrigir') {
+      faturas = faturas.map(f => {
+        if (f.id !== a.fid) return f;
+        const muda = a.valor > 0 && Math.abs(a.valor - (Number(f.total) || 0)) >= 0.01;
+        const outraData = a.data && a.data !== f.data;
+        if (muda) msgs.push(`☁ Fatura nº ${f.numero} corrigida no Drive: ${cuEur(f.total)} → ${cuEur(a.valor)}`);
+        else if (outraData) msgs.push(`☁ Fatura nº ${f.numero}: data corrigida no Drive`);
+        return { ...f, drive: a.drive, ...(muda ? { subtotal: a.valor, total: a.valor, ivaValor: 0, linhas: [{ titulo: `Fatura nº ${f.numero}`, resto: '', ...((f.linhas || [])[0] || {}), valor: a.valor }] } : {}), ...(outraData ? { data: a.data } : {}), corrigida: agora };
+      });
+      tiraPend(a.drive.id);
+      return;
+    }
+    if (a.tipo === 'nova') {
+      if (faturas.some(f => (f.drive && f.drive.id === a.drive.id) || (String(f.cid) === String(a.cid) && Number(f.numero) === Number(a.numero)))) return;
+      const id = `${trabId()}d${i}`;
+      // As tarefas desse mês ficam faturadas só quando o mês vem do nome do ficheiro (ex.: Invoice_September_26);
+      // pela data da fatura não dá para saber (uma fatura de 1 de outubro costuma ser do trabalho de setembro)
+      const ids = a.mesDoNome ? tarefas.filter(t => String(t.cid) === String(a.cid) && !(t.faturaId || t.faturada) && trabEntrega(t).startsWith(`${a.mes}-`)).map(t => t.id) : [];
+      const sIds = new Set(ids);
+      faturas.push({ id, cid: a.cid, numero: Number(a.numero), data: a.data, mes: a.mes, para: '', linhas: [{ titulo: `Fatura nº ${a.numero}`, resto: '', valor: a.valor }], subtotal: a.valor, ivaTaxa: 0, ivaValor: 0, total: a.valor, tarefas: ids, extras: [], pdf: null, antiga: true, doDrive: true, drive: a.drive, criada: agora });
+      if (ids.length) tarefas = tarefas.map(t => (sIds.has(t.id) ? { ...t, faturaId: id } : t));
+      tiraPend(a.drive.id);
+      const c = (clientes || []).find(x => String(x.id) === String(a.cid));
+      msgs.push(`☁ Fatura nº ${a.numero}${c ? ` de ${c.nome}` : ''} (${cuEur(a.valor)}) juntada do Drive${ids.length ? ` · ${ids.length} tarefa${ids.length === 1 ? '' : 's'} dada${ids.length === 1 ? '' : 's'} como faturada${ids.length === 1 ? '' : 's'}` : ''}`);
+    }
+  });
+  return { tr: { ...tr, faturas, tarefas, faturasDrivePend: pend }, msgs };
+};
+
 // ── Recibos verdes → pasta pessoal do Google Drive: RECIBOS VERDES / 2026 / 4º_Trimestre / Empresa_2026-10-13.pdf ──
 // Usado pelo OrcamentoApp (importa este ficheiro só quando é preciso). Nunca escreve por cima: se já houver
 // um ficheiro com o mesmo nome, junta _2, _3…
@@ -8172,6 +8636,7 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
   const ano = d.slice(0, 4); const trim = Math.ceil(Number(d.slice(5, 7)) / 3);
   const pAno = await pastaDrive(token, raiz, ano, false);
   const pTrim = await pastaDrive(token, pAno.id, `${trim}º_Trimestre`, false);
+  await colorirPasta(token, raiz); await colorirPasta(token, pAno.id); await colorirPasta(token, pTrim.id);
   const base = nomeFicheiroRecibo(empresa, d);
   const existentes = new Set((await filhosDrive(token, pTrim.id, false)).map(f => f.name));
   let nome = base; let i = 2;
@@ -8181,5 +8646,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
   return { nome, pasta: `${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks };
+export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA };
 export const FICHEIRO_APP = 'trabalho';
