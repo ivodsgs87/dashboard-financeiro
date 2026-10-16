@@ -6,9 +6,9 @@ import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardar
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
-  mesDoRecibo, mesEmissaoDe, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, IcoTxt,
-  copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
-  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
+  mesDoRecibo, mesEmissaoDe, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
+  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
   isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
   juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
   paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
@@ -2430,7 +2430,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    });
    const nome = cid => (cliDe(cid) || {}).nome || 'Sem cliente';
    return {
-     falta: Object.entries(porCli).map(([cid, ts]) => ({ cid: (cliDe(cid) || {}).id ?? cid, nome: nome(cid), n: ts.length })).sort((a, b) => b.n - a.n),
+     falta: Object.entries(porCli).map(([cid, ts]) => ({ cid: (cliDe(cid) || {}).id ?? cid, nome: nome(cid), n: ts.length, v: ts.reduce((s0, t) => s0 + (Number(trabValor(t, G.clickup, G.clientes)) || 0), 0) })).sort((a, b) => b.n - a.n),
      feitas: (tr.faturas || []).filter(f => f.mes === mk).map(f => ({ cid: f.cid, nome: nome(f.cid), numero: f.numero })),
    };
  };
@@ -2841,280 +2841,335 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  const Resumo = () => {
  const [editarPassos, setEditarPassos] = useState(false);
- const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
- const ultReg = [...regCom.map(r=>({...r,tipo:'com'})),...regSem.map(r=>({...r,tipo:'sem'}))].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,5);
- const projecao = getProjecaoAnual();
- 
- // Drag and Drop handlers
- const handleDragStart = (e, widgetId) => {
-   setDraggedWidget(widgetId);
-   e.dataTransfer.effectAllowed = 'move';
- };
- 
- const handleDragOver = (e) => {
-   e.preventDefault();
-   e.dataTransfer.dropEffect = 'move';
- };
- 
- const handleDrop = (e, targetId) => {
-   e.preventDefault();
-   if (!draggedWidget || draggedWidget === targetId) return;
-   
-   const newLayout = [...dashboardLayout];
-   const dragIdx = newLayout.indexOf(draggedWidget);
-   const targetIdx = newLayout.indexOf(targetId);
-   
-   newLayout.splice(dragIdx, 1);
-   newLayout.splice(targetIdx, 0, draggedWidget);
-   
-   setDashboardLayout(newLayout);
-   setDraggedWidget(null);
- };
- 
- const handleDragEnd = () => {
-   setDraggedWidget(null);
- };
- 
- // Widget wrapper com drag-and-drop
- const DraggableWidget = ({ id, children }) => {
-   if (!showLayoutEditor) return children;
-   
-   return (
-     <div
-       draggable
-       onDragStart={(e) => handleDragStart(e, id)}
-       onDragOver={handleDragOver}
-       onDrop={(e) => handleDrop(e, id)}
-       onDragEnd={handleDragEnd}
-       className={`relative transition-all duration-200 ${draggedWidget === id ? 'opacity-50 scale-95' : ''} ${showLayoutEditor ? 'cursor-move' : ''}`}
-     >
-       {showLayoutEditor && (
-         <div className="absolute -top-2 -left-2 z-10 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full shadow-lg">
-           ⋮⋮ {id}
-         </div>
-       )}
-       <div className={showLayoutEditor ? 'ring-2 ring-purple-500/50 ring-dashed rounded-2xl' : ''}>
-         {children}
-       </div>
-     </div>
-   );
- };
- 
- // Calcular previsão de impostos inline
- 
- // Calcular previsão de impostos inline
- 
- const compDespesas = getComparacaoDespesas();
- const patrimonio = useMemo(() => getPatrimonioLiquido(), [getPatrimonioLiquido]);
+ const [verPassos, setVerPassos] = useState(false);
+ // Transferências: abrem sozinhas quando falta alguma coisa; se abrires/fechares à mão, fica assim nesse mês
+ const [transfAb, setTransfAb] = useState(null);
  const tarefasPend = useMemo(() => getTarefasPendentes(), [getTarefasPendentes]);
- 
- // Definição dos widgets disponíveis
- const widgetDefinitions = {
-   tarefas: { name: '📅 Próximas Tarefas', desc: 'Datas fiscais e tarefas pendentes' },
-   stats: { name: '📊 Estatísticas', desc: 'Receitas, taxas e disponível' },
-   patrimonio: { name: '🏠 Património', desc: 'Dívida e património líquido' },
-   impostos: { name: '📋 Impostos', desc: 'Previsão SS, IVA e IRS' },
-   metas: { name: '🎯 Metas', desc: 'Progresso anual' },
-   clientes: { name: '👥 Clientes', desc: 'Receitas por cliente' },
-   distribuicao: { name: '💰 Distribuição', desc: 'Distribuição mensal' },
-   transferencias: { name: '💸 Transferências', desc: 'Transferências pendentes' },
-   registos: { name: '📝 Últimos Registos', desc: 'Movimentos recentes' }
- };
- 
- // Garantir que todos os widgets estão no layout
- const allWidgetIds = Object.keys(widgetDefinitions);
- const currentLayout = dashboardLayout.filter(id => allWidgetIds.includes(id));
- const missingWidgets = allWidgetIds.filter(id => !currentLayout.includes(id));
- const fullLayout = [...currentLayout, ...missingWidgets];
- 
- // Funções de reordenação
- const moveWidget = (widgetId, direction) => {
-   const idx = fullLayout.indexOf(widgetId);
-   if (direction === 'up' && idx > 0) {
-     const newLayout = [...fullLayout];
-     [newLayout[idx], newLayout[idx - 1]] = [newLayout[idx - 1], newLayout[idx]];
-     setDashboardLayout(newLayout);
-   } else if (direction === 'down' && idx < fullLayout.length - 1) {
-     const newLayout = [...fullLayout];
-     [newLayout[idx], newLayout[idx + 1]] = [newLayout[idx + 1], newLayout[idx]];
-     setDashboardLayout(newLayout);
-   }
- };
+ const claro = theme === 'light';
+ const idxSel = patIdx(mesKey), hojeIdx = patIdxHoje();
+ const atualM = idxSel === hojeIdx, passadoM = idxSel < hojeIdx;
+ const yM = Math.floor(idxSel / 12), nM = idxSel % 12 + 1;
+ const idxAnt = idxSel - 1, yAnt = Math.floor(idxAnt / 12), nAnt = idxAnt % 12 + 1, nomeAntM = meses[(idxSel + 11) % 12];
+ const nRec = regCom.length + regSem.length;
+ const semReceitasM = guia.fica < guia.totPess - 0.5 && nRec === 0;
+ const faltaActivo = guia.fica < guia.totPess - 0.5 && !semReceitasM;
+ const irTransf = () => { setTransfAb({ k: mesKey, v: true }); setTimeout(() => document.getElementById('guia-transf')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
+ const linha = claro ? 'border-slate-200' : 'border-slate-700/50';
 
- // Renderizar widget por ID
- const renderWidget = (widgetId) => {
-   switch(widgetId) {
-     case 'tarefas': return (
-       <Card key={widgetId}>
-         <div className="flex justify-between items-center mb-3">
-           <h3 className="font-semibold whitespace-nowrap"><Ico e="📅"/>Datas fiscais</h3>
-           <span className="flex items-center gap-3 whitespace-nowrap">
-             <button onClick={() => setTab('impostos')} className="text-xs text-blue-400 hover:text-blue-300" title="Previsão de SS, IVA e IRS do ano e pagamentos registados (em «O meu ano»)">Impostos<span className="hidden sm:inline"> do ano</span> →</button>
-             <button onClick={() => setTab('calfin')} className="text-xs text-blue-400 hover:text-blue-300">Calendário →</button>
-           </span>
-         </div>
-         <div className="space-y-2">
-           {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
-             <div className="text-xs text-amber-400 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-               <p><Ico e="⚠"/>Sem tarefas encontradas. Total em G.tarefas: {(G.tarefas || []).length}</p>
-               <button onClick={() => { uG('tarefas', defG.tarefas); uG('tarefasConcluidas', {}); }} className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"><Ico e="🔄"/>Resetar tarefas</button>
-             </div>
-           )}
-           {(() => {
-             // A mesma conta da Rotina do mês (o que está em atraso este mês + o que ficou por marcar de meses anteriores)
-             const gR = (tarefasDoMes() || {}).grupos || {};
-             const nAtr = (gR.atrasadas || []).length, nAnt = (gR.anteriores || []).length;
-             if (!nAtr && !nAnt) return null;
-             return (
-               <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg border border-orange-500/40 bg-orange-500/10 text-sm">
-                 <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠"/>{nAtr ? `${nAtr} em atraso` : ''}{nAtr && nAnt ? ' · ' : ''}{nAnt ? `${nAnt} por marcar de meses anteriores` : ''}</span>
-                 <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs px-2 py-1 rounded-md bg-orange-500/15 text-orange-400 hover:bg-orange-500/25">Ver na Rotina →</button>
-               </div>
-             );
-           })()}
-
-           {(tarefasPend.proximasTarefas || []).slice(0, 3).map((t, i) => {
-             const catCores = {'IVA':'#f59e0b','SS':'#3b82f6','IRS':'#ef4444','Transf':'#10b981','Invest':'#8b5cf6','Seguros':'#ec4899','Contab':'#06b6d4'};
-             const diasAte = Math.ceil((t.data - new Date()) / (1000*60*60*24));
-             const descComMes = (t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc;
-             return (
-               <div key={i} onClick={() => setTab('calfin')} className={`flex items-center gap-2 p-2 ${theme === 'light' ? 'bg-slate-100 hover:bg-slate-200' : 'bg-slate-700/30 hover:bg-slate-700/50'} rounded-lg text-sm cursor-pointer`}>
-                 <span className={`w-14 text-xs flex-shrink-0 ${diasAte <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>{t.dia} {t.mesNome?.slice(0,3)}</span>
-                 <span className="flex-1 truncate">{descComMes}</span>
-                 <span className="px-1.5 py-0.5 text-xs rounded flex-shrink-0" style={{background: `${catCores[t.cat] || '#64748b'}20`, color: catCores[t.cat] || '#64748b'}}>{t.cat}</span>
-                 {diasAte <= 5 && <span className="text-xs text-orange-400 flex-shrink-0">{diasAte}d</span>}
-               </div>
-             );
-           })}
-           {(!tarefasPend.proximasTarefas || tarefasPend.proximasTarefas.length === 0) && (tarefasPend.atrasadas || []).length === 0 && (
-             <p className="text-center text-slate-500 text-sm py-2">Sem tarefas próximas</p>
-           )}
-         </div>
-       </Card>
-     );
-     
-     case 'stats': return (
-       <div key={widgetId} className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-         <StatCard label="Receita Bruta" value={fmt(totRec)} color={theme === 'light' ? 'text-slate-900' : 'text-white'} sub={`Líquido: ${fmt(recLiq)}`} icon="💰"/>
-         <StatCard label="Reserva Taxas" value={fmt(valTax)} color="text-orange-400" sub={`${fmtP(taxa)} para IRS`} icon="📋"/>
-         <StatCard label="Taxa Poupança" value={`${fmtPct(taxaPoupanca, 1)}`} color={taxaPoupanca >= 20 ? "text-emerald-400" : "text-orange-400"} sub={taxaPoupanca >= 20 ? "✓ Bom" : "Meta: 20%"} icon="🐷"/>
-         <StatCard label="Disponível" value={fmt(restante)} color={restante >= 0 ? "text-blue-400" : "text-red-400"} sub="Investir/amortizar" icon="🎯"/>
-       </div>
-     );
-     
-     default: return null;
-   }
- };
- 
- return (<div key={mesKey} className={`space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
- 
- {/* Painel de configuração de layout */}
- {showLayoutEditor && (
-   <LayoutEditor 
-     tabName="resumo"
-     widgetDefs={widgetDefinitions}
-     currentLayout={fullLayout}
-     onUpdateLayout={setDashboardLayout}
-     onReset={() => resetTabLayout('resumo')}
-   />
- )}
- 
- {/* Passos do mês: o que falta fazer, por ordem, ligado aos dados reais */}
- {(() => {
+ // ── 1. Agora: só o que está por fazer ──
+ const agora = (() => {
    const passos = getPassosMes();
    const conta = passos.filter(x => x.estado !== 'na');
    const feitos = conta.filter(x => x.estado === 'ok').length;
-   const claro = theme === 'light';
+   const pend = passos.filter(x => x.estado === 'falta' || x.estado === 'parcial');
+   const prox = pend.find(x => x.estado === 'falta') || pend[0] || null;
+   const outros = pend.filter(x => x !== prox);
+   const manual = (M[mesKey] || {}).passosManual || {};
+   const alternar = id => uM('passosManual', { ...manual, [id]: !manual[id] });
+   const gR = (tarefasDoMes() || {}).grupos || {};
+   const nAtr = (gR.atrasadas || []).length, nAnte = (gR.anteriores || []).length;
+   const datas = atualM ? (tarefasPend.proximasTarefas || []).slice(0, 2) : [];
+   const catCores = { IVA: '#f59e0b', SS: '#3b82f6', IRS: '#ef4444', Transf: '#10b981', Invest: '#8b5cf6', Seguros: '#ec4899', Contab: '#06b6d4' };
    const cor = { ok: 'border-emerald-500/40 bg-emerald-500/10', parcial: 'border-amber-500/40 bg-amber-500/10', falta: 'border-red-500/40 bg-red-500/10', na: claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/30' };
    const sinal = { ok: <span className="text-emerald-400">✓</span>, parcial: <span className="text-amber-400">◐</span>, falta: <span className="text-red-400">✕</span>, na: <span className="text-slate-500">•</span> };
+   const tudo = conta.length > 0 && feitos === conta.length;
+   return (
+     <Card>
+       <div className="flex items-center justify-between gap-3 mb-3">
+         <h3 className="font-semibold whitespace-nowrap"><Ico e="🧭"/>{atualM ? 'Agora' : `Rotina de ${mes}`}</h3>
+         {conta.length > 0 && (
+           <button onClick={() => setVerPassos(v => !v)} aria-expanded={verPassos} className="flex items-center gap-2 min-w-0 group" title="Ver todos os passos do mês">
+             <span className={`text-xs whitespace-nowrap ${tudo ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos} de {conta.length}<span className="hidden sm:inline"> passos</span></span>
+             <span className={`w-16 sm:w-28 h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700'}`}><span className="block h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${conta.length ? Math.round(feitos / conta.length * 100) : 0}%` }} /></span>
+             <span className="text-xs text-slate-400 group-hover:text-blue-400">{verPassos ? '▴' : '▾'}</span>
+           </button>
+         )}
+       </div>
+
+       {prox ? (
+         <div className={`flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2 p-3 rounded-xl border ${prox.estado === 'falta' ? (claro ? 'border-blue-300 bg-blue-50' : 'border-blue-500/40 bg-blue-500/10') : (claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/40 bg-amber-500/10')}`}>
+           <span className="text-xl shrink-0"><Ico e={prox.icon} className="ico-solo"/></span>
+           <div className="flex-1 min-w-0">
+             <p className="text-[11px] uppercase tracking-wide text-slate-500">{prox.estado === 'falta' ? 'A seguir' : 'Em curso'}</p>
+             <p className="font-medium leading-tight">{prox.titulo}</p>
+             <p className="text-xs text-slate-500 truncate" title={prox.detalhe}>{prox.detalhe}</p>
+           </div>
+           <div className="flex gap-2 shrink-0 w-full sm:w-auto">
+             <button onClick={prox.ir} className="flex-1 sm:flex-none px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium whitespace-nowrap">Ir fazer →</button>
+             <button onClick={() => alternar(prox.id)} className="px-3 py-2 rounded-lg tile text-sm hover:text-emerald-400 whitespace-nowrap" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Feito</button>
+           </div>
+         </div>
+       ) : conta.length > 0 ? (
+         <div className="flex items-center gap-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-400 font-medium">✓ Tudo em dia em {mes}</div>
+       ) : null}
+
+       {outros.length > 0 && (
+         <div className="flex flex-wrap items-center gap-1.5 mt-2">
+           <span className="text-xs text-slate-500 mr-0.5">Também falta:</span>
+           {outros.map(x => (
+             <button key={x.id} onClick={x.ir} title={x.detalhe} className={`text-xs px-2 py-1 rounded-md border whitespace-nowrap ${x.estado === 'falta' ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-amber-500/30 text-amber-500 hover:bg-amber-500/10'}`}>{x.titulo}</button>
+           ))}
+         </div>
+       )}
+
+       {(nAtr > 0 || nAnte > 0 || faltaActivo) && (
+         <div className="space-y-1.5 mt-3">
+           {(nAtr > 0 || nAnte > 0) && (
+             <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="w-full flex items-center gap-2 p-2 rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/15 text-sm text-left">
+               <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠"/>{nAtr ? `${nAtr} em atraso` : ''}{nAtr && nAnte ? ' · ' : ''}{nAnte ? `${nAnte} por marcar de meses anteriores` : ''}</span>
+               <span className="text-xs text-orange-400 whitespace-nowrap">Rotina →</span>
+             </button>
+           )}
+           {faltaActivo && (
+             <button onClick={irTransf} className="w-full flex items-center gap-2 p-2 rounded-lg border border-red-500/40 bg-red-500/10 hover:bg-red-500/15 text-sm text-left">
+               <span className="flex-1 min-w-0 text-red-400"><span className="font-medium"><Ico e="🏦"/>Fica no Activo {fmt(guia.fica)}</span> <span className="text-xs">· precisas de {fmt(guia.totPess)} para as despesas pessoais</span></span>
+               <span className="text-xs text-red-400 whitespace-nowrap">Ver →</span>
+             </button>
+           )}
+         </div>
+       )}
+
+       {datas.length > 0 && (
+         <div className={`mt-3 pt-3 border-t ${linha} flex flex-wrap items-center gap-x-5 gap-y-2`}>
+           {datas.map((t, i) => {
+             const dias = Math.ceil((t.data - new Date()) / 864e5);
+             const c = catCores[t.cat] || '#64748b';
+             return (
+               <button key={i} onClick={() => setTab('calfin')} className="flex items-center gap-2 text-sm min-w-0 text-left hover:text-blue-400">
+                 <span className="text-[11px] font-medium px-1.5 py-0.5 rounded shrink-0" style={{ background: `${c}20`, color: c }}>{t.cat}</span>
+                 <span className="truncate">{(t.cat === 'Invest' || t.cat === 'Transf') ? `${t.desc} (${t.mesNome})` : t.desc}</span>
+                 <span className={`text-xs whitespace-nowrap ${dias <= 3 ? 'text-orange-400 font-medium' : 'text-slate-500'}`}>{t.dia} {t.mesNome?.slice(0, 3)}{dias >= 0 && dias <= 7 ? ` · ${dias === 0 ? 'hoje' : `${dias}d`}` : ''}</span>
+               </button>
+             );
+           })}
+           <span className="flex items-center gap-3 ml-auto whitespace-nowrap">
+             <button onClick={() => setTab('impostos')} className="text-xs text-blue-400 hover:text-blue-300">Impostos do ano →</button>
+             <button onClick={() => setTab('calfin')} className="text-xs text-blue-400 hover:text-blue-300">Calendário →</button>
+           </span>
+         </div>
+       )}
+
+       {verPassos && (
+         <div className={`mt-3 pt-3 border-t ${linha}`}>
+           <div className="flex items-center justify-end gap-3 mb-2">
+             <button onClick={() => setEditarPassos(v => !v)} className="text-xs text-slate-400 hover:text-blue-400" title="Escolher os passos que aparecem (os que não usas saem daqui e da Rotina)">{editarPassos ? 'feito' : 'escolher passos'}</button>
+             <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300">Rotina →</button>
+           </div>
+           {editarPassos && (() => {
+             const esc = new Set(G.passosEscondidos || []);
+             return (
+               <div className={`mb-3 p-3 rounded-xl text-sm ${claro ? 'bg-slate-50 border border-slate-200' : 'bg-white/5 border border-white/10'}`}>
+                 <p className="text-xs text-slate-500 mb-2">Desmarca os passos que não usas: saem daqui e da Rotina do mês.</p>
+                 <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                   {getPassosMes(true).map(x => (
+                     <label key={x.id} className="inline-flex items-center gap-1.5 cursor-pointer">
+                       <input type="checkbox" checked={!esc.has(x.id)} onChange={e => { saveUndo(); const n = new Set(G.passosEscondidos || []); if (e.target.checked) n.delete(x.id); else n.add(x.id); uG('passosEscondidos', [...n]); }} className="accent-blue-500" />
+                       {x.titulo}
+                     </label>
+                   ))}
+                 </div>
+               </div>
+             );
+           })()}
+           <div className={`grid grid-cols-2 ${passos.length > 8 || passos.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2`}>
+             {passos.map((x, k) => (
+               <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
+                 <button onClick={x.ir} className="w-full text-left px-2.5 pt-2 hover:brightness-110">
+                   <div className="flex items-center gap-2 min-w-0">
+                     <span className="hidden sm:inline text-[11px] text-slate-500 w-4 shrink-0">{k + 1}</span>
+                     <span className="text-sm font-medium flex-1 min-w-0 truncate" title={x.titulo}><span className="hidden sm:inline"><Ico e={x.icon}/></span>{x.titulo}</span>
+                     <span className="text-sm shrink-0">{sinal[x.estado]}</span>
+                   </div>
+                 </button>
+                 <div className="flex items-center gap-2 pl-2.5 sm:pl-8 pr-2.5 pb-2 min-w-0">
+                   <button onClick={x.ir} className="flex-1 min-w-0 text-left text-xs text-slate-500 truncate" title={x.detalhe}>{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</button>
+                   {x.manual
+                     ? <button onClick={() => alternar(x.id)} className="shrink-0 text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
+                     : x.estado !== 'ok' && x.estado !== 'na'
+                       ? <button onClick={() => alternar(x.id)} className="shrink-0 text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Feito</button>
+                       : null}
+                 </div>
+               </div>
+             ))}
+           </div>
+         </div>
+       )}
+     </Card>
+   );
+ })();
+
+ // ── 2. Dinheiro do mês: entra → impostos → líquido → para onde vai ──
+ const dinheiro = (() => {
+   const comOrc = orcEntra.length > 0 || orcSai.length > 0;
+   const recM = comOrc ? totRecOrc : totRec;
+   const porRec = regsOrc.filter(r => r && r.faturaId && !r.reciboVerde);
+   const vPorRec = porRec.reduce((a, r) => a + (Number(r.val) || 0), 0);
+   const despMes = minhaAB + totPess + ferias;
+   const amortV = restante > 0 ? restante * ((alocAmort - alocFerias) / 100) : 0;
+   const investV = restante > 0 ? restante * ((100 - alocAmort) / 100) : 0;
+   const fmAnt = !passadoM ? faturasDoMes(yAnt, nAnt) : { falta: [] };
+   const vFatAnt = fmAnt.falta.reduce((a, x) => a + (x.v || 0), 0);
+   const falta = restante < -0.5;
+   const segs = (falta
+     ? [{ l: 'Casal', v: minhaAB, c: '#ec4899' }, { l: 'Pessoais', v: totPess, c: '#3b82f6' }, { l: 'Férias', v: ferias, c: '#f59e0b' }]
+     : [{ l: 'Casal', v: minhaAB, c: '#ec4899' }, { l: 'Pessoais', v: totPess, c: '#3b82f6' }, { l: 'Férias', v: totalFerias, c: '#f59e0b' }, { l: 'Amortizar', v: amortV, c: '#10b981' }, { l: 'Investir', v: investV, c: '#8b5cf6' }]
+   ).filter(x => x.v > 0.5);
+   const base = falta ? Math.max(despMes, 1) : Math.max(recLiq, 1);
+   const coberto = falta ? Math.max(0, Math.min(1, recLiq / base)) : 1;
+   const num = (rot, val, sub, corV = '') => (
+     <div className="min-w-0">
+       <p className="text-xs text-slate-500">{rot}</p>
+       <p className={`text-lg sm:text-xl font-bold tabular-nums truncate ${corV}`}>{val}</p>
+       {sub && <p className="text-[11px] text-slate-500 truncate" title={typeof sub === 'string' ? sub : undefined}>{sub}</p>}
+     </div>
+   );
    return (
      <Card>
        <div className="flex items-center justify-between gap-2 mb-3">
-         <h3 className="font-semibold whitespace-nowrap"><Ico e="🧭"/>Rotina de {mes}</h3>
-         <div className="flex items-center gap-2.5 sm:gap-3 whitespace-nowrap">
-           <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length}<span className="hidden sm:inline"> feitos</span></span>
-           <button onClick={() => setEditarPassos(v => !v)} className="text-xs text-slate-400 hover:text-blue-400" title="Escolher os passos que aparecem (os que não usas saem daqui e da Rotina)">{editarPassos ? 'feito' : <>escolher<span className="hidden sm:inline"> passos</span></>}</button>
-           <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300">ver tudo →</button>
+         <h3 className="font-semibold whitespace-nowrap"><Ico e="💶"/>Dinheiro de {mes}</h3>
+         <button onClick={() => setTab('receitas')} className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">Receitas →</button>
+       </div>
+       <div className="grid grid-cols-3 gap-3">
+         {num('Receitas', fmt(recM), nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'}` : 'ainda nenhuma')}
+         {num(`Impostos (${fmtP(taxa)})`, valTax > 0.5 ? `−${fmt(valTax)}` : fmt(0), 'reserva', valTax > 0.5 ? 'text-orange-400' : '')}
+         {num('Líquido', fmt(recLiq), null, claro ? 'text-slate-900' : 'text-white')}
+       </div>
+       {(vPorRec > 0.5 || comOrc) && (
+         <div className="mt-2 space-y-0.5">
+           {vPorRec > 0.5 && <p className="text-xs text-slate-500">{fmt(recM - vPorRec)} já recebidos · <span className="text-blue-400">vai entrar {fmt(vPorRec)}</span> de {porRec.length === 1 ? 'uma fatura à espera de pagamento' : `${porRec.length} faturas à espera de pagamento`}</p>}
+           {orcEntra.length > 0 && <p className="text-xs text-slate-500"><Ico e="📥"/>Inclui {fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de recibos de {nomeAntM}</p>}
+           {orcSai.length > 0 && <p className="text-xs text-slate-500"><Ico e="⏭"/>{fmt(orcSai.reduce((a, r) => a + (Number(r.val) || 0), 0))} deste mês ficam para {meses[(idxSel + 1) % 12]}</p>}
+         </div>
+       )}
+
+       <div className="mt-4">
+         <div className={`relative flex h-3 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}>
+           {segs.map(x => <div key={x.l} title={`${x.l}: ${fmt(x.v)}`} style={{ width: `${x.v / base * 100}%`, background: x.c }} />)}
+           {falta && coberto < 1 && (
+             <div className="absolute inset-y-0 right-0" title="Ainda por cobrir" style={{ left: `${coberto * 100}%`, background: claro ? 'repeating-linear-gradient(45deg, rgba(255,255,255,.75) 0 4px, rgba(255,255,255,.35) 4px 8px)' : 'repeating-linear-gradient(45deg, rgba(15,23,42,.75) 0 4px, rgba(15,23,42,.35) 4px 8px)' }} />
+           )}
+         </div>
+         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+           {segs.map(x => (
+             <span key={x.l} className="inline-flex items-center gap-1.5 text-xs">
+               <span className="w-2 h-2 rounded-full" style={{ background: x.c }} />
+               <span className="text-slate-500">{x.l}</span>
+               <span className="font-semibold tabular-nums">{fmt(x.v)}</span>
+             </span>
+           ))}
          </div>
        </div>
-       {editarPassos && (() => {
-         const esc = new Set(G.passosEscondidos || []);
-         return (
-           <div className={`mb-3 p-3 rounded-xl text-sm ${claro ? 'bg-slate-50 border border-slate-200' : 'bg-white/5 border border-white/10'}`}>
-             <p className="text-xs text-slate-500 mb-2">Desmarca os passos que não usas: saem daqui e da Rotina do mês.</p>
-             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-               {getPassosMes(true).map(x => (
-                 <label key={x.id} className="inline-flex items-center gap-1.5 cursor-pointer">
-                   <input type="checkbox" checked={!esc.has(x.id)} onChange={e => { saveUndo(); const n = new Set(G.passosEscondidos || []); if (e.target.checked) n.delete(x.id); else n.add(x.id); uG('passosEscondidos', [...n]); }} className="accent-blue-500" />
-                   {x.titulo}
-                 </label>
-               ))}
-             </div>
+
+       {!falta ? (
+         <div className={`mt-4 p-3 rounded-xl border ${claro ? 'border-emerald-200 bg-emerald-50' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
+           <div className="flex items-baseline justify-between gap-2">
+             <p className="text-sm font-medium">Para investir e amortizar</p>
+             <p className="text-xl font-bold text-emerald-400 tabular-nums">{fmt(amortV + investV)}</p>
            </div>
-         );
-       })()}
-       <div className={`grid grid-cols-2 ${passos.length > 8 || passos.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2`}>
-         {passos.map((x, k) => {
-           const manual = (M[mesKey] || {}).passosManual || {};
-           const alternar = () => uM('passosManual', { ...manual, [x.id]: !manual[x.id] });
-           return (
-           <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
-             <button onClick={x.ir} className="w-full text-left px-2.5 pt-2 hover:brightness-110">
-               <div className="flex items-center gap-2 min-w-0">
-                 <span className="hidden sm:inline text-[11px] text-slate-500 w-4 shrink-0">{k + 1}</span>
-                 <span className="text-sm font-medium flex-1 min-w-0 truncate" title={x.titulo}><span className="hidden sm:inline"><Ico e={x.icon}/></span>{x.titulo}</span>
-                 <span className="text-sm shrink-0">{sinal[x.estado]}</span>
-               </div>
-             </button>
-             <div className="flex items-center gap-2 pl-2.5 sm:pl-8 pr-2.5 pb-2 min-w-0">
-               <button onClick={x.ir} className="flex-1 min-w-0 text-left text-xs text-slate-500 truncate" title={x.detalhe}>{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</button>
-               {x.manual
-                 ? <button onClick={alternar} className="shrink-0 text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
-                 : x.estado !== 'ok' && x.estado !== 'na'
-                   ? <button onClick={alternar} className="shrink-0 text-[11px] text-slate-400 hover:text-emerald-400" title="Dar este passo como feito, mesmo que os dados não o mostrem">✓ Feito</button>
-                   : null}
-             </div>
+           <p className="text-xs text-slate-500">{amortV + investV > 0.5 ? `Poupas ${fmtPct(taxaPoupanca, 0)} do líquido` : nRec ? 'Este mês não sobra nada depois das despesas' : `Aparece quando registares as receitas de ${mes}`}</p>
+         </div>
+       ) : (
+         <div className={`mt-4 p-3 rounded-xl border ${passadoM ? 'border-red-500/30 bg-red-500/10' : claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/30 bg-amber-500/10'}`}>
+           <div className="flex items-baseline justify-between gap-2">
+             <p className={`text-sm font-medium ${passadoM ? 'text-red-400' : 'text-amber-500'}`}>{passadoM ? `Faltaram para as despesas de ${mes}` : 'Ainda faltam para as despesas do mês'}</p>
+             <p className={`text-xl font-bold tabular-nums ${passadoM ? 'text-red-400' : 'text-amber-500'}`}>{fmt(-restante)}</p>
            </div>
-           );
-         })}
+           {!passadoM && (
+             <div className="text-xs text-slate-500 mt-0.5 space-y-0.5">
+               {nRec === 0 && <p>Ainda não há receitas registadas em {mes}: as despesas ({fmt(despMes)}) ficam cobertas quando entrarem os pagamentos.</p>}
+               {vFatAnt > 0.5 && (
+                 <p className="flex flex-wrap items-center gap-x-2">
+                   <span>Tens {fmt(vFatAnt)} de trabalho de {nomeAntM} por faturar.</span>
+                   <button onClick={() => irFaturas(fmAnt.falta[0].cid, yAnt, nAnt)} className="text-blue-400 hover:text-blue-300 whitespace-nowrap">Faturar →</button>
+                 </p>
+               )}
+             </div>
+           )}
+         </div>
+       )}
+
+       <div className={`flex items-center gap-2 mt-3 pt-3 border-t ${linha} text-xs text-slate-500`}>
+         <span><Ico e="🏖"/>Férias</span>
+         <StableInput type="number" className={`w-20 ${inputClass} !py-1 text-amber-400 font-semibold text-right`} initialValue={ferias} onSave={v => uG('ferias', v)} aria-label="Férias por mês" />
+         <span>€ por mês{alocFerias > 0 ? ` + ${fmtP(alocFerias)} do que sobra` : ''}</span>
        </div>
      </Card>
    );
- })()}
+ })();
 
- {/* ── Este mês: números e dinheiro a mexer ── */}
- {renderWidget('stats')}
-
- {/* DISTRIBUIÇÃO + TRANSFERÊNCIAS */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
- <div className="space-y-4">
-   <Card className="m-mais">
-     <h3 className="font-semibold mb-3"><Ico e="📊"/>Distribuição Mensal</h3>
-     <div className="flex items-center gap-3 p-2 tile rounded-lg mb-3">
-       <span><Ico e="🏖" className="ico-solo"/></span>
-       <span className="flex-1 text-sm">Férias (fixo)</span>
-       <StableInput type="number" className={`w-20 ${inputClass} text-amber-400 font-bold text-right`} initialValue={ferias} onSave={v=>uG('ferias',v)}/>
-       <span className="text-slate-400 text-sm">€</span>
-     </div>
-     {alocFerias > 0 && feriasExtra > 0 && (
-       <div className="flex items-center gap-3 p-2 tile rounded-lg mb-3">
-         <span><Ico e="✨" className="ico-solo"/></span>
-         <span className="flex-1 text-sm">Férias extra ({fmtP(alocFerias)})</span>
-         <span className="text-cyan-400 font-bold">{fmt(feriasExtra)}</span>
+ // ── 4. Trabalho do mês: horas, valor entregue (a preços das tarefas), €/h e o que falta faturar ──
+ const trabalhoMes = (() => {
+   const prefM = `${yM}-${String(nM).padStart(2, '0')}-`;
+   const entregues = ((trabalho && trabalho.tarefas) || []).filter(t => trabEntrega(t).startsWith(prefM));
+   const vEnt = entregues.reduce((a, t) => a + (Number(trabValor(t, G.clickup, G.clientes)) || 0), 0);
+   const hM = Number((M[mesKey] || {}).horasTrabalhadas) || 0;
+   const metaH = Number(metas.horasMensais) || 0;
+   const eh = hM > 0 && vEnt > 0 ? vEnt / hM : 0;
+   const fm = faturasDoMes(yM, nM);
+   const hTxt = h => `${h % 1 ? fmtDec(h, 1) : h} h`;
+   return (
+     <Card className="m-mais">
+       <div className="flex items-center justify-between gap-2 mb-3">
+         <h3 className="font-semibold whitespace-nowrap"><Ico e="⏱"/>Trabalho de {mes}</h3>
+         <button onClick={() => { setTab('trabalho'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">Trabalho →</button>
        </div>
-     )}
-     <div className="space-y-2">
-       {[{l:'Despesas Casal',v:minhaAB,c:'#ec4899'},{l:'Despesas Pessoais',v:totPess,c:'#3b82f6'},{l:`🏖 Total Férias${alocFerias > 0 ? ` (${fmt(ferias)}+${fmtP(alocFerias)})` : ''}`,v:totalFerias,c:'#f59e0b'},{l:`Amortização (${fmtP(alocAmort-alocFerias)})`,v:restante*((alocAmort-alocFerias)/100),c:'#10b981'},{l:`Investir (${fmtP(100-alocAmort)})`,v:restante*((100-alocAmort)/100),c:'#8b5cf6'}].map((i,k) => (
-         <div key={k}>
-           <div className="flex justify-between mb-1 text-sm"><span className="text-slate-400"><IcoTxt t={i.l}/></span><span className="font-semibold" style={{color: i.c}}>{fmt(i.v)}</span></div>
-           <ProgressBar value={Math.abs(i.v)} max={recLiq || 1} color={i.c} height="h-1"/>
+       <div className="grid grid-cols-3 gap-3">
+         <div className="min-w-0">
+           <p className="text-xs text-slate-500">Horas</p>
+           <div className="flex items-baseline gap-1">
+             <StableInput type="number" className={`w-16 ${inputClass} !py-0.5 !px-1.5 text-lg font-bold text-center`} initialValue={hM} placeholder="0" aria-label="Horas trabalhadas este mês"
+               onSave={v => { saveUndo(); setM(p => { const a = p[mesKey] || defM; return { ...p, [mesKey]: { ...a, horasTrabalhadas: Math.max(0, v), horasOrigem: null } }; }); }} />
+             {metaH > 0 && <span className="text-xs text-slate-500 whitespace-nowrap">/ {metaH} h</span>}
+           </div>
+           {(M[mesKey] || {}).horasOrigem === 'trabalho' && <p className="text-[11px] text-purple-400" title="Vem do Trabalho (cronómetro e registos). Se escreveres outro valor, fica o teu.">do cronómetro</p>}
          </div>
-       ))}
-     </div>
-   </Card>
+         <div className="min-w-0">
+           <p className="text-xs text-slate-500">Entregue</p>
+           <p className="text-lg sm:text-xl font-bold tabular-nums truncate">{fmt(vEnt)}</p>
+           <p className="text-[11px] text-slate-500">{entregues.length} tarefa{entregues.length === 1 ? '' : 's'}</p>
+         </div>
+         <div className="min-w-0">
+           <p className="text-xs text-slate-500 flex items-center gap-1">Por hora <Info rotulo="Como é calculado" largura={260}>O valor das tarefas entregues este mês (aos preços de cada tarefa) a dividir pelas horas do mês. Não depende de quando os clientes pagam.</Info></p>
+           <p className="text-lg sm:text-xl font-bold tabular-nums text-emerald-400 truncate">{eh ? fmt(eh) : '—'}</p>
+         </div>
+       </div>
+       {metaH > 0 && (
+         <div className="mt-3">
+           <div className={`h-1.5 rounded-full overflow-hidden ${claro ? 'bg-slate-200' : 'bg-slate-700/60'}`}>
+             <div className={`h-full rounded-full transition-all ${hM > metaH ? 'bg-orange-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(100, hM / metaH * 100)}%` }} />
+           </div>
+           <p className="text-[11px] text-slate-500 mt-1">{Math.round(hM / metaH * 100)}% da meta{hM > metaH ? <span className="text-orange-400"> · +{hTxt(Math.round((hM - metaH) * 10) / 10)} extra</span> : ''}</p>
+         </div>
+       )}
+       {(fm.falta.length > 0 || fm.feitas.length > 0) && (
+         <div className={`mt-3 pt-3 border-t ${linha} space-y-1.5`}>
+           {fm.falta.length > 0 && (
+             <div className="flex flex-wrap items-center gap-1.5">
+               <span className="text-xs text-slate-500 mr-0.5">Por faturar:</span>
+               {fm.falta.map(x => (
+                 <button key={x.cid} onClick={() => irFaturas(x.cid, yM, nM)} className={`text-xs px-2 py-1 rounded-md border whitespace-nowrap ${claro ? 'border-blue-300 text-blue-600 hover:bg-blue-50' : 'border-blue-500/30 text-blue-400 hover:bg-blue-500/10'}`}>
+                   {x.nome} · {x.n} tarefa{x.n === 1 ? '' : 's'}{x.v > 0.5 ? ` · ${fmt(x.v)}` : ''} →
+                 </button>
+               ))}
+             </div>
+           )}
+           {fm.feitas.length > 0 && <p className="text-xs text-emerald-400">{fm.feitas.map(f => `${f.nome} nº ${f.numero} ✓`).join(' · ')}</p>}
+         </div>
+       )}
+     </Card>
+   );
+ })();
 
- {renderWidget('tarefas')}
+ return (<div key={mesKey} className={`space-y-4 sm:space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
+ {agora}
+
+ {/* Duas colunas: dinheiro e trabalho à esquerda; transferências e notas à direita */}
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-start">
+ <div className="space-y-4 sm:space-y-6 min-w-0">
+ {dinheiro}
+ {trabalhoMes}
  </div>
+ <div className="space-y-4 sm:space-y-6 min-w-0">
    <div id="guia-transf" className="scroll-mt-24"><Card>
      {(() => {
        const claro = theme === 'light';
@@ -3128,8 +3183,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const nomeEste = meses[idxSel % 12], nomeProx = meses[(idxSel + 1) % 12], nomeAnt = meses[(idxSel + 11) % 12];
        const tProx = (M[kProx] || {}).transf || {};
        const marcar = (t, set) => (id, v) => set({ ...t, [id]: v, ...(v && id === 'g_adiant' ? { g_abanca: false } : {}), ...(v && id === 'g_abanca' ? { g_adiant: false } : {}) });
-       const marcarEste = marcar(transf, t => uM('transf', t));
-       const marcarProx = marcar(tProx, t => { saveUndo(); setM(p => { const a = p[kProx] || defM; return { ...p, [kProx]: { ...a, transf: t } }; }); });
+       // Ao marcar uma transferência o cartão fica aberto (não fecha de repente quando marcas a última)
+       const fixarAberto = () => setTransfAb({ k: mesKey, v: true });
+       const marcarEste = marcar(transf, t => { fixarAberto(); uM('transf', t); });
+       const marcarProx = marcar(tProx, t => { fixarAberto(); saveUndo(); setM(p => { const a = p[kProx] || defM; return { ...p, [kProx]: { ...a, transf: t } }; }); });
        let num = 0;
        const passo = (x, t = transf, onSet = marcarEste, rotulo = null) => {
          if (!x.opcional && rotulo == null) num++;
@@ -3160,11 +3217,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        };
        const abFeito = transf.g_abanca ? 'do Activo' : transf.g_adiant ? 'adiantado pela Trade Republic' : null;
        const semReceitas = guia.fica < guia.totPess - 0.5 && (regCom.length + regSem.length) === 0;
+       // Fechado quando está tudo feito; abre sozinho se falta alguma coisa (ou no fim do mês, para preparar o seguinte)
+       const nObrig = obrig.length;
+       const tudoFeito = (!nObrig || feitos === nObrig) && (!ab || !!abFeito);
+       const precisaPrep = !!ab && !(tProx.g_abanca || tProx.g_adiant) && (passadoM || (atualM && new Date().getDate() >= 20));
+       const alertaFica = guia.fica < guia.totPess - 0.5 && !semReceitas;
+       const avisoAloc = guia.porAlocar > 50 && (regCom.length + regSem.length) > 0;
+       const aberto = transfAb && transfAb.k === mesKey ? transfAb.v : (!tudoFeito || precisaPrep || alertaFica || avisoAloc);
        return (<>
-     <div className="flex items-center justify-between mb-1">
+     <button onClick={() => setTransfAb({ k: mesKey, v: !aberto })} aria-expanded={aberto} className="w-full flex items-center justify-between gap-2 text-left">
        <h3 className="font-semibold"><Ico e="💸"/>Transferências de {nomeEste}</h3>
-       {obrig.length > 0 && <span className={`text-xs ${feitos === obrig.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{obrig.length} feitas</span>}
-     </div>
+       <span className="flex items-center gap-2 whitespace-nowrap">
+         {nObrig > 0 && <span className={`text-xs ${feitos === nObrig ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{nObrig}{feitos === nObrig ? ' ✓' : ' feitas'}</span>}
+         <span className="text-xs text-slate-400">{aberto ? '▴' : '▾'}</span>
+       </span>
+     </button>
+     {!aberto && (
+       <p className="text-xs text-slate-500 mt-1">{nObrig ? <>{feitos === nObrig ? 'Tudo feito' : `Faltam ${nObrig - feitos}`} · fica no Activo <span className="font-semibold text-blue-400">{fmt(guia.fica)}</span></> : `Ainda sem receitas em ${nomeEste}: as transferências aparecem quando registares os recibos.`}</p>
+     )}
+     {aberto && (<>
      <div className="space-y-2 mt-2">
        {ab && (abFeito ? (
          <p className="text-xs text-emerald-400 flex items-center justify-between gap-2"><span>✓ ABanca de {nomeEste} já mandada no fim de {nomeAnt} ({abFeito})</span><span className="whitespace-nowrap">{fmt(ab.valor)}</span></p>
@@ -3221,69 +3292,28 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            : adi && passo({ ...adi, opcional: false, linhas: [[`Despesas do casal de ${nomeProx}`, adi.valor]], nota: `Os clientes só pagam no início de ${nomeProx}: a TR adianta e repões no passo da Trade Republic de ${nomeProx}.` }, tProx, marcarProx, '')}
        </div>
      )}
+     </>)}
        </>);
      })()}
    </Card></div>
- </div>
-
-
- {/* Os impostos do ano estão em «O meu ano» (cartaoImpostos) */}
-
-
- {/* ── Comparação com o mês anterior (a faturação do ano está em «O meu ano») ── */}
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start m-mais">
- 
-   <Card>
-     <h3 className="font-semibold mb-3"><Ico e="📈"/>vs {compDespesas.mesAnterior}</h3>
-     <div className="space-y-2">
-       {[{label: 'Receitas', ...compDespesas.receitas, icon: '💰'},{label: 'Investimentos', ...compDespesas.investimentos, icon: '📈'}].map(item => (
-         <div key={item.label} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
-           <span className="text-sm text-slate-400"><Ico e={item.icon}/>{item.label}</span>
-           <div className="flex items-center gap-2">
-             <span className="font-semibold">{fmt(item.atual)}</span>
-             {item.diff !== 0 && (
-               <span className={`text-xs px-1.5 py-0.5 rounded ${item.diff > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                 {item.diff > 0 ? '+' : ''}{fmt(item.diff)}
-               </span>
-             )}
-           </div>
-         </div>
-       ))}
-     </div>
-   </Card>
-
- 
-
-
- {/* ── Últimos registos (ao lado da comparação) ── */}
- <div>
- {ultReg.length > 0 && (
- <Card>
-   <h3 className="font-semibold mb-3"><Ico e="📝"/>Últimos Registos</h3>
-   <div className="space-y-1">
-     {ultReg.map((r,i) => {
-       const cli = clientes.find(c=>c.id===r.cid);
-       return (
-         <div key={i} className="flex items-center gap-2 p-2 tile rounded-lg text-sm">
-           <span className="text-xs text-slate-500 w-12">{r.data && !isNaN(new Date(r.data)) ? new Date(r.data).toLocaleDateString('pt-PT',{day:'2-digit',month:'short'}) : mes.slice(0, 3)}</span>
-           <span className="w-24 flex items-center gap-1.5 truncate"><span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{background: cli?.cor || '#64748b'}}/>{cli?.nome || '-'}</span>
-           <span className={`flex-1 truncate ${r.desc ? 'text-slate-300' : 'text-slate-500 italic'}`}>{r.desc || 'sem descrição'}</span>
-           <span className="text-[10px] text-slate-500">{r.tipo === 'com' ? 'com taxas' : 'sem taxas'}</span><span className="font-semibold">{fmt(r.val)}</span>
-         </div>
-       );
-     })}
-   </div>
+ <Card className="m-mais">
+   <h3 className="font-semibold mb-2"><Ico e="📝"/>Notas de {mes}</h3>
+   <textarea
+     className={`w-full ${inputClass} text-sm resize-y`}
+     rows={4}
+     placeholder="Ex.: férias 2 semanas, cliente X pagou adiantado…"
+     key={'notas-' + mesKey}
+     defaultValue={M[mesKey]?.notas || ''}
+     onBlur={e => uM('notas', e.target.value)}
+     aria-label={`Notas de ${mes}`}
+   />
  </Card>
- )}
-
  </div>
  </div>
 
- {/* Horas e notas do mês (vinham da Performance) */}
- <div className="m-mais"><AbaEstavel key="resumo-horas" render={() => Performance({ so: ['metricas'] })} /></div>
  {/* Telemóvel: abrir/fechar os cartões secundários */}
  <div className="sm:hidden flex flex-col gap-2">
-   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: distribuição, transferências, horas…'}</button>
+   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: trabalho e notas'}</button>
    <button onClick={() => { setTab('ano'); window.scrollTo({ top: 0 }); }} className="w-full py-2 text-sm text-blue-400">Como está a correr o ano? Ver «O meu ano» →</button>
  </div>
  </div>);
@@ -14182,7 +14212,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 {/* Exportar */}
                 <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={btn(showExportMenu, 'hidden sm:inline-flex')} title="Exportar" aria-label="Exportar"><svg {...ic}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></button>
                 {/* Personalizar layout — só nas tabs com cartões configuráveis */}
-                {['resumo', 'receitas', 'despesas', 'invest'].includes(tab) && (
+                {['receitas', 'despesas', 'invest'].includes(tab) && (
                   <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={btn(showLayoutEditor, 'hidden sm:inline-flex')} title="Personalizar layout" aria-label="Personalizar layout"><svg {...ic}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></button>
                 )}
               </div>

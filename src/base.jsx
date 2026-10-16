@@ -4,7 +4,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, memo, useContext }
 import { createPortal } from 'react-dom';
 
 // Stable Input - COMPLETAMENTE isolado do React, nunca re-renderiza
-const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex}) => {
+const StableInput = memo(({type = 'text', initialValue, onSave, className, placeholder, step, tabIndex, 'aria-label': ariaLabel}) => {
   const inputRef = useRef(null);
   const onSaveRef = useRef(onSave);
   const lastSavedValue = useRef(initialValue);
@@ -73,6 +73,7 @@ const StableInput = memo(({type = 'text', initialValue, onSave, className, place
       defaultValue={initialValue}
       className={className}
       placeholder={placeholder}
+      aria-label={ariaLabel}
       step={step}
       tabIndex={tabIndex}
     />
