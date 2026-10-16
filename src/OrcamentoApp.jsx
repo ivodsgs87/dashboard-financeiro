@@ -2929,16 +2929,26 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                <span className="text-xs text-orange-400 whitespace-nowrap">Rotina →</span>
              </button>
            )}
-           {faltaActivo && (
+           {faltaActivo && (passadoM ? (
              <div className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
                <span className="flex-1 min-w-0 text-red-400">
-                 <span className="font-medium"><Ico e="🏦"/>Faltam {fmt(guia.totPess - guia.fica)} no Activo este mês</span>
-                 <span className="block text-xs">Depois das transferências do mês, o Activo fica com {fmt(guia.fica)}, e as tuas despesas pessoais precisam de {fmt(guia.totPess)}. {aMais ? `A causa: a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'As receitas registadas ainda não chegam para tudo.'}</span>
+                 <span className="font-medium"><Ico e="🏦"/>Faltaram {fmt(guia.totPess - guia.fica)} no Activo em {mes}</span>
+                 <span className="block text-xs">Depois das transferências, o Activo ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</span>
                </span>
                {aMais > 0 && <button onClick={() => setTab('invest')} className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-400 whitespace-nowrap">Rever a Alocação →</button>}
                <button onClick={irTransf} className="text-xs px-2 py-1 rounded-md hover:bg-red-500/15 text-red-400 whitespace-nowrap">Ver as contas →</button>
              </div>
-           )}
+           ) : (
+             // Mês em curso: quase sempre são recibos que ainda não registaste (os clientes pagam ao longo do mês) — não é um défice a sério
+             <div className={`w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border text-sm ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/40 bg-amber-500/10'}`}>
+               <span className={`flex-1 min-w-0 ${claro ? 'text-amber-700' : 'text-amber-400'}`}>
+                 <span className="font-medium"><Ico e="⏳"/>Com o que está registado, faltam {fmt(guia.totPess - guia.fica)} no Activo</span>
+                 <span className="block text-xs">Se ainda tens recibos de {mes} por registar, isto acerta quando os registares. {aMais > 0 ? `Se já estão todos, a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'Se já estão todos, as receitas não chegam para as transferências planeadas.'}</span>
+               </span>
+               <button onClick={() => setTab('receitas')} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'bg-amber-100 hover:bg-amber-200 text-amber-800' : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400'}`}>Registar recibos →</button>
+               <button onClick={irTransf} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'hover:bg-amber-100 text-amber-800' : 'hover:bg-amber-500/15 text-amber-400'}`}>Ver as contas →</button>
+             </div>
+           ))}
          </div>
        )}
 
@@ -3288,20 +3298,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo {fmt(guia.saidas)}</p>}
        {f2.map(x => passo(x))}
      </div>
-     <div id="guia-fica" className={`mt-3 p-2 rounded-lg border transition-shadow ${guia.fica < guia.totPess - 0.5 && !semReceitas ? 'bg-red-500/10 border-red-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+     <div id="guia-fica" className={`mt-3 p-2 rounded-lg border transition-shadow ${guia.fica < guia.totPess - 0.5 && !semReceitas ? (passadoM ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/10 border-amber-500/30') : 'bg-blue-500/10 border-blue-500/30'}`}>
        <div className="flex items-center justify-between">
          <p className="text-sm font-medium"><Ico e="🏦"/>Fica no Activo Bank</p>
-         <span className={`font-bold ${guia.fica < -0.5 ? 'text-red-400' : 'text-blue-400'}`}>{fmt(guia.fica)}</span>
+         <span className={`font-bold ${guia.fica < -0.5 ? (passadoM ? 'text-red-400' : 'text-amber-500') : 'text-blue-400'}`}>{fmt(guia.fica)}</span>
        </div>
        <p className="text-xs text-slate-500">Entram {fmt(recebidoMes)} dos recibos − saem {fmt(recebidoMes - guia.fica)} nas transferências{ab && !transf.g_adiant ? ' (com a ABanca)' : ''}</p>
        <p className="text-xs text-slate-500">Precisas de: despesas pessoais {fmt(guia.totPess)}{guia.porAlocar > 0.5 ? ` + por investir ${fmt(guia.porAlocar)} (ainda não está na Alocação)` : ''}</p>
        {semReceitas && <p className="text-xs text-slate-400 mt-1">Ainda não há receitas registadas em {nomeEste}: este valor acerta quando registares os recibos.</p>}
        {guia.fica < guia.totPess - 0.5 && !semReceitas && (
          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
-           <p className="text-xs text-red-400 flex-1 min-w-0">{aMais > 0
-             ? `Faltam ${fmt(guia.totPess - guia.fica)}: na Alocação estão ${fmt(aMais)} a mais do que sobra este mês. Baixa a Alocação para o que sobra.`
-             : `Faltam ${fmt(guia.totPess - guia.fica)}: as receitas registadas ainda não chegam para as transferências deste mês.`}</p>
-           {aMais > 0 && <button onClick={() => setTab('invest')} className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-400 whitespace-nowrap">Rever a Alocação →</button>}
+           <p className={`text-xs flex-1 min-w-0 ${passadoM ? 'text-red-400' : 'text-amber-500'}`}>{!passadoM
+             ? `Faltam ${fmt(guia.totPess - guia.fica)} com o que está registado. Se ainda tens recibos de ${nomeEste} por registar, acerta quando os registares.${aMais > 0 ? ` Se já estão todos, baixa a Alocação (tem ${fmt(aMais)} a mais do que sobra).` : ''}`
+             : aMais > 0
+               ? `Faltaram ${fmt(guia.totPess - guia.fica)}: a Alocação tinha ${fmt(aMais)} a mais do que sobrou.`
+               : `Faltaram ${fmt(guia.totPess - guia.fica)}: as receitas registadas não chegaram para as transferências.`}</p>
+           {!passadoM && <button onClick={() => setTab('receitas')} className="text-xs px-2 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 whitespace-nowrap">Registar recibos →</button>}
+           {aMais > 0 && <button onClick={() => setTab('invest')} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${passadoM ? 'bg-red-500/15 hover:bg-red-500/25 text-red-400' : 'hover:bg-amber-500/15 text-amber-500'}`}>Rever a Alocação →</button>}
          </div>
        )}
      </div>
