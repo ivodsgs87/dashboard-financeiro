@@ -1778,7 +1778,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
       })()}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {est.semPreco > 0 && <span className="text-amber-400">{est.semPreco} peça{est.semPreco === 1 ? '' : 's'} sem valor (sem preço ou, nas tarefas à hora, sem horas registadas)</span>}
-        <span className={sub}>Estimativa pelas tarefas do Trabalho (tipo e preço de cada uma). As tarefas em review contam como entregues.</span>
+        <span className={`${sub} inline-flex items-center gap-1`}>Estimativa pelas tarefas do Trabalho <Info>Pelo tipo e o preço de cada tarefa. As tarefas em review contam como entregues.</Info></span>
         {onIrPrecos && <button className="text-blue-400 hover:text-blue-300" onClick={onIrPrecos}>preços → Trabalho</button>}
       </div>
     </div>
@@ -2365,10 +2365,9 @@ const VerificarDadosModal = ({ G, M, trab, theme, opc, onFechar, onIrMes }) => {
     <div className="animate-backdropIn fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
       <div role="dialog" aria-label="Verificar dados" className={`animate-modalIn border rounded-2xl p-5 max-w-2xl w-full shadow-2xl max-h-[85vh] overflow-y-auto ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
         <div className="flex items-center justify-between gap-3 mb-1">
-          <h3 className="text-lg font-semibold">Verificar dados</h3>
+          <h3 className="text-lg font-semibold flex items-center gap-2">Verificar dados <Info>Procura duplicados, ligações partidas e valores que não batem certo em Receitas, Clientes e Trabalho. As correções podem ser desfeitas com Ctrl+Z.</Info></h3>
           <button type="button" onClick={onFechar} aria-label="Fechar" className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>✕</button>
         </div>
-        <p className={`text-sm mb-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`}>Procura duplicados, ligações partidas e valores que não batem certo em Receitas, Clientes e Trabalho. As correções podem ser desfeitas com Ctrl+Z.</p>
         {!lista.length ? <p className="text-emerald-500 font-medium">✓ Está tudo certo — não encontrei problemas.</p> : grupos.map(gr => (
           <div key={gr} className="mb-4">
             <p className="text-sm font-semibold mb-1.5">{gr} <span className={`font-normal ${claro ? 'text-slate-500' : 'text-slate-400'}`}>({lista.filter(x => x.grupo === gr).length})</span></p>
@@ -2550,6 +2549,58 @@ const MenuTopo = ({ tabs, tab, setTab, theme, irInicio, ultimaSub = {} }) => {
 // renders: antes eram recriadas a cada render e o React desmontava e voltava a montar tudo o que
 // estava lá dentro (gráficos a "saltar", campos a perder o que se escrevia). O tema vem do TemaCtx.
 const TemaCtx = React.createContext('dark');
+// «ⓘ»: as explicações ficam escondidas e aparecem ao passar o rato (no PC) ou ao tocar (no telemóvel).
+// Fica aberto se carregares nele; fecha ao carregar fora ou com Esc. O texto vai num balão por cima da página.
+const Info = ({ children, className = '', largura = 300, rotulo = 'Mais informação' }) => {
+  const claro = useContext(TemaCtx) === 'light';
+  const [fixo, setFixo] = useState(false);
+  const [rato, setRato] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ref = useRef(null);
+  const sair = useRef(null);
+  const aberto = fixo || rato;
+  // Onde fica o balão: por baixo do ⓘ (ou por cima, se estiver no fundo do ecrã); segue o ⓘ quando a página mexe
+  const medir = () => {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) { setFixo(false); setRato(false); return; }
+    const w = Math.min(largura, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 12));
+    const emCima = r.bottom > window.innerHeight * 0.62;
+    setPos(emCima ? { left, w, bottom: window.innerHeight - r.top + 6 } : { left, w, top: r.bottom + 6 });
+  };
+  useLayoutEffect(() => { if (aberto) medir(); else setPos(null); }, [aberto, largura]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = e => { if (ref.current && ref.current.contains(e.target)) return; if (e.target.closest && e.target.closest('[data-info-balao]')) return; setFixo(false); setRato(false); };
+    const esc = e => { if (e.key === 'Escape') { e.stopImmediatePropagation(); setFixo(false); setRato(false); } };
+    let raf = 0; const mexeu = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(medir); };
+    document.addEventListener('pointerdown', fora, true);
+    window.addEventListener('keydown', esc, true);
+    window.addEventListener('scroll', mexeu, true);
+    window.addEventListener('resize', mexeu);
+    return () => { cancelAnimationFrame(raf); document.removeEventListener('pointerdown', fora, true); window.removeEventListener('keydown', esc, true); window.removeEventListener('scroll', mexeu, true); window.removeEventListener('resize', mexeu); };
+  }, [aberto]);
+  const entrar = e => { if (e.pointerType !== 'mouse') return; clearTimeout(sair.current); setRato(true); };
+  const largar = e => { if (e.pointerType !== 'mouse') return; clearTimeout(sair.current); sair.current = setTimeout(() => setRato(false), 120); };
+  useEffect(() => () => clearTimeout(sair.current), []);
+  return (
+    <>
+      <button ref={ref} type="button" aria-label={rotulo} aria-expanded={aberto}
+        onClick={e => { e.preventDefault(); e.stopPropagation(); setFixo(f => !f); }}
+        onPointerEnter={entrar} onPointerLeave={largar}
+        className={`inline-flex items-center justify-center shrink-0 w-[15px] h-[15px] rounded-full align-[-2px] transition-colors ${aberto ? 'text-blue-400' : claro ? 'text-slate-400 hover:text-slate-600' : 'text-slate-500 hover:text-slate-300'} ${className}`}>
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.6" stroke="currentColor" strokeWidth="1.3" /><path d="M8 7.2v3.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="8" cy="5" r=".95" fill="currentColor" /></svg>
+      </button>
+      {aberto && pos && createPortal(
+        <div data-info-balao="1" role="tooltip" onPointerEnter={entrar} onPointerLeave={largar}
+          style={{ position: 'fixed', left: pos.left, width: pos.w, top: pos.top, bottom: pos.bottom, zIndex: 90 }}
+          className={`rounded-lg border px-3 py-2 text-xs leading-relaxed font-normal normal-case tracking-normal text-left whitespace-normal shadow-xl animate-fadeIn ${claro ? 'bg-white border-slate-200 text-slate-600' : 'bg-slate-800 border-slate-600/70 text-slate-200'}`}>
+          {children}
+        </div>, document.body)}
+    </>
+  );
+};
 const Card = ({children, className = '', animate = false}) => { const theme = useContext(TemaCtx); return <div className={`${theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50'} rounded-xl sm:rounded-2xl border p-3 sm:p-4 ${animate ? 'animate-fadeIn' : ''} hover-lift smooth-colors ${className}`}>{children}</div>; };
 const StatCard = ({label, value, color = '', sub, icon}) => { const theme = useContext(TemaCtx); return <Card className="p-3 sm:p-4 hover-scale"><p className={`${theme === 'light' ? 'text-slate-500' : 'text-slate-400'} text-xs font-medium mb-1 flex items-center`}><Ico e={icon}/>{label}</p><p className={`text-lg sm:text-xl font-bold ${color || (theme === 'light' ? 'text-slate-900' : 'text-white')} transition-all duration-300`}>{value}</p>{sub && <p className={`${theme === 'light' ? 'text-slate-400' : 'text-slate-500'} text-xs mt-1 truncate`}>{sub}</p>}</Card>; };
 const Button = ({children, onClick, variant = 'primary', size = 'md', disabled = false}) => {
@@ -2699,8 +2750,8 @@ export {
   cronoLerSinal, cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec,
   fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos,
   nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO,
-  confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Card, StatCard, Button,
-  ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
-  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard,
+  Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';

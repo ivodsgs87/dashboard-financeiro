@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { auth } from './firebase';
-import { confirmar } from './base';
+import { confirmar, Info } from './base';
 
 const nId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const agora = () => new Date().toISOString();
@@ -1455,7 +1455,7 @@ const CartaoSenha = ({ inicial, onMudar, claro, sub, avisar }) => {
             </>
           ) : (
             <>
-              <p className={`text-xs ${sub}`}>No site, ao ligar o 2FA, escolhe "não consigo ler o QR code" e cola aqui a chave que aparece. A app passa a mostrar os códigos de 6 dígitos.</p>
+              <p className={`text-xs ${sub} inline-flex items-center gap-1`}>Onde está a chave <Info>No site, ao ligar o 2FA, escolhe "não consigo ler o QR code" e cola aqui a chave que aparece. A app passa a mostrar os códigos de 6 dígitos.</Info></p>
               <div className="flex items-center gap-1.5">
                 <input {...semGuardar} value={otpTxt} onChange={e => setOtpTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); juntarOtp(otpTxt); } }} placeholder="Chave 2FA ou otpauth://…" className={`${ic} font-mono`} />
                 <button type="button" onClick={() => juntarOtp(otpTxt)} disabled={!otpTxt.trim()} className={`${bt} disabled:opacity-40`}>Juntar</button>
@@ -1792,7 +1792,7 @@ const ImportarSenhas = ({ claro, sub, destino, onImportar, onFechar }) => {
       <div className={`w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border shadow-2xl animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
         <div className="p-4 space-y-2 border-b border-inherit">
           <p className="font-semibold">Importar palavras-passe</p>
-          <p className={`text-sm ${sub}`}>Escolhe os ficheiros <b>.md</b> que exportaste do Notion (podes escolher vários de uma vez), o <b>.zip</b> da exportação ou um <b>.csv</b>. São lidos e cifrados aqui no teu computador — não vão para lado nenhum sem estarem cifrados. Vão para <b>{destino}</b>.</p>
+          <p className={`text-sm ${sub}`}>Ficheiros <b>.md</b>, <b>.zip</b> ou <b>.csv</b> exportados do Notion → <b>{destino}</b> <Info>Podes escolher vários de uma vez. São lidos e cifrados aqui no teu computador — não vão para lado nenhum sem estarem cifrados.</Info></p>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => inRef.current && inRef.current.click()} className="px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{aguarde ? 'A ler…' : 'Escolher ficheiros'}</button>
             <input ref={inRef} type="file" multiple accept=".md,.txt,.csv,.zip,text/markdown,text/csv,application/zip" className="hidden" onChange={e => { ler(e.target.files); e.target.value = ''; }} />
@@ -2003,7 +2003,7 @@ const PlanearCompras = ({ itens, titulo, claro, sub, perguntarIA, onGuardar, onF
       <div className={`w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl animate-modalIn ${claro ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-800 border-slate-700 text-slate-100'}`}>
         <div className="p-4 space-y-3 border-b border-inherit">
           <div className="flex items-center gap-2"><p className="font-semibold flex-1">✨ Planear compras</p><button type="button" onClick={onFechar} className={`w-8 h-8 rounded-lg ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar">✕</button></div>
-          <p className={`text-sm ${sub}`}>{itens.length} produto{itens.length === 1 ? '' : 's'} por comprar em “{titulo}”. A IA organiza por loja, estima preços e sugere trocas mais saudáveis ou mais baratas. O plano fica numa página nova ao lado desta (se o caderno for partilhado, a Sara vê-a).</p>
+          <p className={`text-sm ${sub}`}>{itens.length} produto{itens.length === 1 ? '' : 's'} por comprar em “{titulo}” <Info>A IA organiza por loja, estima preços e sugere trocas mais saudáveis ou mais baratas. O plano fica numa página nova ao lado desta (se o caderno for partilhado, a outra pessoa vê-a).</Info></p>
           <label className="block space-y-1"><span className={`text-xs ${sub}`}>Lojas onde costumam ir</span><input value={lojas} onChange={e => setLojas(e.target.value)} className={caixa} /></label>
           <div className="grid sm:grid-cols-[1fr_160px] gap-3">
             <label className="block space-y-1"><span className={`text-xs ${sub}`}>Preferências (opcional)</span><input value={pref} onChange={e => setPref(e.target.value)} placeholder="ex.: mais saudável, pouco açúcar, sem lactose, para 4 pessoas" className={caixa} /></label>
@@ -3070,7 +3070,7 @@ const Notas = ({ perguntarIA, partilha, navSub, onNavEmpurrar, onNavSubstituir, 
             <div className={`rounded-xl p-3 text-sm space-y-1 ${claro ? 'bg-slate-50' : 'bg-slate-900/50'}`}>
               <p className="font-medium">No telemóvel, diz:</p>
               <p className={sub}>“Hey Google, adiciona {gCfg && gCfg.listaNome && !/^(my tasks|as minhas tarefas|minhas tarefas)$/i.test(gCfg.listaNome) ? <>à minha lista <b>{gCfg.listaNome}</b> do Google Tasks</> : 'aos meus Tasks'}: ideia para o vídeo do Mahjong…”</p>
-              <p className={`text-xs ${sub}`}>A app vai buscar as notas quando abres as Notas (e ao voltares à app), e marca-as como feitas no Google Tasks.</p>
+              <p className={`text-xs ${sub} inline-flex items-center gap-1`}>Como chegam <Info>A app vai buscar as notas quando abres as Notas (e ao voltares à app), e marca-as como feitas no Google Tasks.</Info></p>
             </div>
             {gMsg && <p className={`text-sm ${/^⚠/.test(gMsg) ? 'text-red-400' : sub}`}>{gMsg}</p>}
             <div className="flex flex-wrap items-center justify-between gap-2">

@@ -1,7 +1,8 @@
 // Separadores "Venda da Casa" e "Casamento". Só são descarregados quando se abrem.
 import React, { useState } from 'react';
 import {
-  meses, Ico, _fmtEUR, fmtPct, confirmar, VC_DEFAULT, VC_DIAS_SEMANA, vcPrazosCPCV
+  meses, Ico, _fmtEUR, fmtPct, confirmar, Info, VC_DEFAULT, VC_DIAS_SEMANA,
+  vcPrazosCPCV
 } from './base';
 
 // ── Tab "Venda da Casa": rasto do capital da venda até estar investido ──
@@ -253,8 +254,7 @@ const VendaCasa = ({ G, uG, theme }) => {
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
-            <h3 className="text-lg font-semibold"><Ico e="🎯"/>Reserva para a nova HPP</h3>
-            <p className={`text-xs ${sub}`}>Para não pagar mais-valias, tens de reinvestir em habitação própria e permanente dentro de 36 meses.</p>
+            <h3 className="text-lg font-semibold flex items-center gap-2"><span><Ico e="🎯"/>Reserva para a nova HPP</span><Info>Para não pagar mais-valias, tens de reinvestir em habitação própria e permanente dentro de 36 meses. São estimativas simplificadas — não substituem o teu contabilista. A mais-valia real depende do valor de aquisição corrigido, encargos e obras comprovadas.</Info></h3>
           </div>
           {mesesRestantes != null && (
             <div className="text-right flex-shrink-0">
@@ -276,7 +276,7 @@ const VendaCasa = ({ G, uG, theme }) => {
           <div className="text-sm space-y-1">
             <p className="text-amber-400">Faltam <strong>{f(faltaHPP)}</strong> para a isenção total de mais-valias.</p>
             {maisValiaExposta != null && (
-              <p className={`text-xs ${sub}`}>Estimativa grosseira de mais-valia que ficaria tributável: <strong className="text-amber-400">{f(maisValiaExposta)}</strong> (50% da mais-valia, na proporção não reinvestida).</p>
+              <p className={`text-xs ${sub} flex items-center gap-1.5 flex-wrap`}><span>Mais-valia que ficaria tributável (estimativa): <strong className="text-amber-400">{f(maisValiaExposta)}</strong></span><Info>Estimativa grosseira: 50% da mais-valia, na proporção não reinvestida.</Info></p>
             )}
           </div>
         ) : (
@@ -295,7 +295,6 @@ const VendaCasa = ({ G, uG, theme }) => {
             <input type="date" key={'h' + (vc.dataVenda || '')} defaultValue={vc.dataVenda} onBlur={e => { if (e.target.value !== (vc.dataVenda || '')) set({ dataVenda: e.target.value }); }} className={inp} />
           </label>
         </div>
-        <p className={`text-[11px] mt-3 ${sub}`}>Estimativas simplificadas — não substituem o teu contabilista. A mais-valia real depende do valor de aquisição corrigido, encargos e obras comprovadas.</p>
       </div>
 
       {/* Onde está o dinheiro */}
@@ -332,10 +331,9 @@ const VendaCasa = ({ G, uG, theme }) => {
       {/* A repor com a venda */}
       <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
         <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-          <h3 className="text-lg font-semibold"><Ico e="↩"/>A repor com a venda</h3>
+          <h3 className="text-lg font-semibold flex items-center gap-2"><span><Ico e="↩"/>A repor com a venda</span><Info>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</Info></h3>
           {totReporPendente > 0 && <span className="text-sm font-semibold text-amber-400">falta repor {f(totReporPendente)}</span>}
         </div>
-        <p className={`text-xs mb-3 ${sub}`}>Dinheiro teu que adiantaste e vais tirar do dinheiro da venda. Já não conta como disponível para reinvestir.</p>
         {rendasAdiant > 0 && repor.some(r => /renda/i.test(r.desc || '')) && (
           <p className="text-xs mb-3 text-amber-400">As rendas adiantadas já estão no Apuramento da venda. Se esta linha é a mesma coisa, apaga uma delas para não contar duas vezes.</p>
         )}
@@ -533,8 +531,7 @@ const Casamento = ({ G, uG, theme }) => {
       {/* Esquerda: despesas */}
       <div className="space-y-4 min-w-0">
         <div className={`rounded-2xl border p-4 sm:p-5 ${card}`}>
-          <h3 className="text-lg font-semibold mb-1"><Ico e="🧾"/>Despesas</h3>
-          <p className={`text-xs mb-3 ${sub}`}>Põe o valor total contratado e o que já pagaste (ex.: sinal). Assim vês sempre o que falta.</p>
+          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><span><Ico e="🧾"/>Despesas</span><Info>Põe o valor total contratado e o que já pagaste (ex.: sinal). Assim vês sempre o que falta.</Info></h3>
           <div className={`rounded-xl border p-3 space-y-2 ${line}`}>
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <input value={novo.desc} onChange={e => setNovo({ ...novo, desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') juntar(); }} placeholder="O quê (ex.: sinal da quinta)" className={`${inp} col-span-2 sm:col-span-3`} />
