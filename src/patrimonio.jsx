@@ -966,8 +966,44 @@ const AnoNum = ({ rot, val, cor, nota, barra, ir, onIr }) => {
 };
 // ── "O meu ano": o essencial do ano num só ecrã ──
 // Componente ao nível do módulo (não remonta quando a app redesenha). Só lê dados; para mexer, os links levam aos separadores.
+// Cartãozinho que abre por baixo de uma frase do «Em resumo»: as contas e os números por trás
+// d = { linhas: [[rótulo, valor, destaque]], tabela: { cab, linhas }, lista: [{ rot, v, txt, cor }], nota }
+const AnoDetalhe = ({ d, ir, onIr }) => {
+  const claro = useContext(TemaCtx) === 'light';
+  const sub = claro ? 'text-slate-500' : 'text-slate-400', forte = claro ? 'text-slate-800' : 'text-slate-100';
+  const max = d.lista && d.lista.length ? Math.max(1, ...d.lista.map(x => Math.abs(x.v) || 0)) : 1;
+  return (
+    <div className={`mt-1.5 ml-7 rounded-lg border p-3 text-xs space-y-2.5 ${claro ? 'border-slate-200 bg-slate-50' : 'border-slate-700/70 bg-slate-900/50'}`}>
+      {d.linhas && d.linhas.length > 0 && (
+        <div className="space-y-1">
+          {d.linhas.map(([r, v, b], k) => <div key={k} className={`flex justify-between gap-3 ${b ? `pt-1 border-t ${claro ? 'border-slate-200' : 'border-slate-700/70'}` : ''}`}><span className={sub}>{r}</span><span className={`tabular-nums text-right ${b ? 'font-semibold' : ''} ${forte}`}>{v}</span></div>)}
+        </div>
+      )}
+      {d.tabela && (
+        <table className="w-full tabular-nums">
+          <thead><tr className={sub}>{d.tabela.cab.map((c, k) => <th key={k} className={`font-medium pb-1 ${k ? 'text-right' : 'text-left'}`}>{c}</th>)}</tr></thead>
+          <tbody>{d.tabela.linhas.map((l, k) => <tr key={k}>{l.map((c, j) => <td key={j} className={`py-0.5 ${j ? `text-right ${forte}` : sub}`}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      )}
+      {d.lista && d.lista.length > 0 && (
+        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          {d.lista.map((x, k) => (
+            <div key={k}>
+              <div className="flex justify-between gap-3"><span className={`truncate ${forte}`}>{x.rot}</span><span className={`tabular-nums whitespace-nowrap ${sub}`}>{x.txt}</span></div>
+              <AnoBarra v={(Math.abs(x.v) || 0) / max * 100} cor={x.cor || '#3b82f6'} />
+            </div>
+          ))}
+        </div>
+      )}
+      {d.nota && <p className={`leading-relaxed ${sub}`}>{d.nota}</p>}
+      {ir && onIr && <div className="text-right"><AnoVer onIr={onIr} tab={ir} t="abrir" /></div>}
+    </div>
+  );
+};
 const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab = null, onMeta = null }) => {
   const [editarMetas, setEditarMetas] = useState(false);
+  const [insAberto, setInsAberto] = useState(null); // a frase do «Em resumo» que está aberta
+  const [verJogos, setVerJogos] = useState(false);
   const claro = theme === 'light';
   const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
@@ -1022,43 +1058,99 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
 
   // Frases do resumo
   const F = [];
-  const bom = (t, ir) => F.push({ t, cor: 'text-emerald-400', s: '✓', ir });
-  const aviso = (t, ir) => F.push({ t, cor: 'text-amber-400', s: '!', ir });
-  const info = (t, ir) => F.push({ t, cor: sub, s: '•', ir });
+  const bom = (t, ir, d) => F.push({ t, cor: 'text-emerald-400', s: '✓', ir, d });
+  const aviso = (t, ir, d) => F.push({ t, cor: 'text-amber-400', s: '!', ir, d });
+  const info = (t, ir, d) => F.push({ t, cor: sub, s: '•', ir, d });
+  const mesesTxt = n => `${n} ${n === 1 ? 'mês' : 'meses'}`;
+  const sinal = v => `${v >= 0 ? '+' : '−'}${f(Math.abs(v))}`;
   if (metaRec > 0 && rec > 0) {
-    if (ano < anoHoje) (rec >= metaRec ? bom : aviso)(`Fechaste o ano com ${f(rec)}, ${pct(rec / metaRec * 100)} da meta de ${f(metaRec)}.`, 'performance');
-    else if (proj >= metaRec) bom(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: ${f(proj - metaRec)} acima da meta.`, 'performance');
-    else aviso(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: faltam ${f(metaRec - proj)} para a meta. Precisavas de ${f((metaRec - rec) / Math.max(1, 12 - nMeses))}/mês daqui para a frente.`, 'performance');
+    const faltaM = 12 - nMeses;
+    const dMeta = ano < anoHoje
+      ? { linhas: [['Faturado no ano', f(rec)], ['Meta', f(metaRec)], [rec >= metaRec ? 'Acima da meta' : 'Abaixo da meta', `${f(Math.abs(rec - metaRec))} (${pct(rec / metaRec * 100)})`, true]] }
+      : { linhas: [[`Faturado até agora (${mesesTxt(nMeses)})`, f(rec)], ['Média por mês', f(nMeses ? rec / nMeses : 0)], ['Projeção (média × 12)', f(proj), true], ['Meta do ano', f(metaRec)], [proj >= metaRec ? 'Acima da meta' : 'Falta para a meta', f(Math.abs(proj - metaRec)), true]],
+        nota: rec >= metaRec ? 'Já passaste a meta do ano.' : faltaM > 0 ? `Para chegar à meta faltam ${f(metaRec - rec)}: ${f((metaRec - rec) / faltaM)}/mês nos ${mesesTxt(faltaM)} que faltam (a tua média até agora é ${f(nMeses ? rec / nMeses : 0)}/mês).` : null };
+    if (ano < anoHoje) (rec >= metaRec ? bom : aviso)(`Fechaste o ano com ${f(rec)}, ${pct(rec / metaRec * 100)} da meta de ${f(metaRec)}.`, 'performance', dMeta);
+    else if (proj >= metaRec) bom(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: ${f(proj - metaRec)} acima da meta.`, 'performance', dMeta);
+    else aviso(`Ao ritmo atual fechas o ano com cerca de ${f(proj)}: faltam ${f(metaRec - proj)} para a meta. Precisavas de ${f((metaRec - rec) / Math.max(1, 12 - nMeses))}/mês daqui para a frente.`, 'performance', dMeta);
   }
   if (recAntes > 0 && rec > 0) {
     const d = (rec - recAntes) / recAntes * 100;
-    (d >= 0 ? bom : aviso)(`${d >= 0 ? '+' : '−'}${pct(Math.abs(d))} face ao mesmo período de ${ano - 1} (${f(recAntes)}).`, 'performance');
+    const nM = Math.max(1, nMeses);
+    (d >= 0 ? bom : aviso)(`${d >= 0 ? '+' : '−'}${pct(Math.abs(d))} face ao mesmo período de ${ano - 1} (${f(recAntes)}).`, 'performance', {
+      linhas: [[`${ano} (${meses[0].slice(0, 3).toLowerCase()}–${meses[nM - 1].slice(0, 3).toLowerCase()})`, f(rec)], [`${ano - 1} (os mesmos meses)`, f(recAntes)], ['Diferença', `${sinal(rec - recAntes)} (${d >= 0 ? '+' : '−'}${pct(Math.abs(d))})`, true]],
+      tabela: { cab: ['', String(ano), String(ano - 1), ''], linhas: Array.from({ length: nM }, (_, i) => { const a = recMes[i], b = recDe(ano - 1, i + 1); return [meses[i].slice(0, 3), f(a), f(b), a === b ? '' : sinal(a - b)]; }) },
+    });
   }
   const comDados = recMes.slice(0, nMeses).map((v, i) => ({ v, i })).filter(x => x.v > 0);
   if (comDados.length >= 3) {
     const best = comDados.reduce((a, b) => (b.v > a.v ? b : a)), worst = comDados.reduce((a, b) => (b.v < a.v ? b : a));
-    info(`Melhor mês: ${meses[best.i]} (${f(best.v)}). Mais fraco: ${meses[worst.i]} (${f(worst.v)}).`, 'historico');
+    const media = comDados.reduce((a, x) => a + x.v, 0) / comDados.length;
+    info(`Melhor mês: ${meses[best.i]} (${f(best.v)}). Mais fraco: ${meses[worst.i]} (${f(worst.v)}).`, 'historico', {
+      lista: comDados.map(x => ({ rot: meses[x.i], v: x.v, txt: `${f(x.v)}${x.v >= media ? '' : ` · ${f(media - x.v)} abaixo da média`}`, cor: x.i === best.i ? '#059669' : x.i === worst.i ? '#d97706' : '#3b82f6' })),
+      nota: `Média dos ${mesesTxt(comDados.length)} com receitas: ${f(media)}/mês.`,
+    });
   }
   if (clis.length && totCli > 0) {
     const s = clis[0].total / totCli * 100;
-    if (s >= 60) aviso(`${clis[0].nome} vale ${pct(s)} do que faturaste: estás muito dependente de um cliente.`, 'receitas');
-    else info(`O maior cliente (${clis[0].nome}) vale ${pct(s)} da faturação.`, 'receitas');
+    const dCli = {
+      lista: clis.map(c => ({ rot: c.nome, v: c.total, txt: `${f(c.total)} · ${pct(c.total / totCli * 100)}`, cor: c.cor || '#64748b' })),
+      nota: clis.length > 1 ? `Sem ${clis[0].nome}, os outros ${clis.length - 1 === 1 ? 'cliente faturou' : `${clis.length - 1} clientes faturaram`} ${f(totCli - clis[0].total)}.` : `${clis[0].nome} é o único cliente deste ano.`,
+    };
+    if (s >= 60) aviso(`${clis[0].nome} vale ${pct(s)} do que faturaste: estás muito dependente de um cliente.`, 'receitas', dCli);
+    else info(`O maior cliente (${clis[0].nome}) vale ${pct(s)} da faturação.`, 'receitas', dCli);
   }
   if (pi && pi.irsEstimado > 0) {
     const v = pi.irsAPagarReceber;
-    (v >= 0 ? bom : aviso)(`IRS de ${ano}: com o que já foi retido, deves ${v >= 0 ? 'receber' : 'pagar'} cerca de ${f(Math.abs(v))} em ${ano + 1}.`, 'resumo');
+    (v >= 0 ? bom : aviso)(`IRS de ${ano}: com o que já foi retido, deves ${v >= 0 ? 'receber' : 'pagar'} cerca de ${f(Math.abs(v))} em ${ano + 1}.`, 'resumo', {
+      linhas: [
+        ['Recibos do ano (projeção até dezembro)', f(pi.recAnualIRS)],
+        ['Rendimento coletável', f(pi.rendColetavel)],
+        ['IRS estimado', f(pi.irsEstimado)],
+        [`Já retido${pi.porConta > 0 ? ' e pago por conta' : ''}`, f(pi.irsRetencoes)],
+        [v >= 0 ? `A receber em ${ano + 1}` : `A pagar em ${ano + 1}`, f(Math.abs(v)), true],
+      ],
+      nota: `É uma estimativa: projeta os recibos até ao fim do ano e usa os escalões de ${ano}${pi.irsCfg && pi.irsCfg.conjunto ? ', em tributação conjunta (com o rendimento da Sara)' : ''}. O valor certo só sai na declaração.${v < 0 && ano === anoHoje ? ` Se quiseres pô-lo de lado aos poucos: ${f(-v / Math.max(1, 12 - mesHoje + 1))}/mês até dezembro.` : ''}`,
+    });
   }
   const liqAno = Number(totais.liquidoAnual) || 0;
   if (liqAno > 0 && poupado > 0) {
     const t = taxaPoupancaDe(poupado, liqAno);
-    (t >= 20 ? bom : info)(`Puseste de lado ${f(poupado)} (investido + amortizado): ${pct(t)} do que ficou depois dos impostos.`, 'invest');
+    (t >= 20 ? bom : info)(`Puseste de lado ${f(poupado)} (investido + amortizado): ${pct(t)} do que ficou depois dos impostos.`, 'invest', {
+      linhas: [['Investido', f(totais.investAnual)], ['Amortizado no crédito', f(totais.amortAnual)], ['Total posto de lado', f(poupado), true], ['O que ficou depois dos impostos', f(liqAno)], ['Taxa de poupança', pct(t), true]],
+      nota: t > 100 ? 'Mais de 100%: puseste de lado mais do que o que entrou este ano depois dos impostos — usaste também dinheiro que já tinhas (ou de outras entradas, como reembolsos).' : `Por mês, em média: ${f(poupado / Math.max(1, nMeses))} postos de lado.`,
+    });
   }
-  if (dIni > 0 && dAtual > 0 && dIni > dAtual) bom(`A dívida da casa desceu ${f(dIni - dAtual)} este ano (agora ${f(dAtual)}).`, 'credito');
-  if (dPat != null) (dPat >= 0 ? bom : aviso)(`Investimentos + dinheiro: ${dPat >= 0 ? '+' : '−'}${f(Math.abs(dPat))} desde ${patRotulo(pIni.idx)} (${f(pFim.capital)} em ${patRotulo(pFim.idx)}).`, 'patrimonio');
-  if (horas > 0 && rec > 0) info(`${Math.round(horas)} h trabalhadas${tw.horas > 0 ? ' (registadas no Trabalho)' : ''} · ${_fmtEUR.format(rec / horas)}/h faturado.`, tw.horas > 0 ? 'trabalho' : 'performance');
-  if (pecasTxt.length) info(`Entregaste ${pecasTxt.slice(0, 3).join(', ')}${pecasTxt.length > 3 ? ' e mais' : ''}.`, 'trabalho');
-  if (jogosTop.length) info(`O jogo que mais rendeu foi ${jogosTop[0].j.nome} (${f(jogosTop[0].v)}).`, 'trabalho');
-  if (tw.custoSub > 0) info(`Subcontrataste ${f(tw.custoSub)}: margem de ${f(tw.valorSub - tw.custoSub)} nesse trabalho.`, 'trabalho');
+  if (dIni > 0 && dAtual > 0 && dIni > dAtual) bom(`A dívida da casa desceu ${f(dIni - dAtual)} este ano (agora ${f(dAtual)}).`, 'credito', {
+    linhas: [['No início do ano', f(dIni)], ['Agora', f(dAtual)], ['Desceu', `${f(dIni - dAtual)} (${pct((dIni - dAtual) / dIni * 100)})`, true], ['Amortizado à parte este ano', f(totais.amortAnual)]],
+    nota: 'A descida inclui as prestações normais (a parte de capital) e as amortizações extra.',
+  });
+  if (dPat != null) {
+    const pts = serie.filter(x => x.idx >= pIni.idx && x.idx <= pFim.idx);
+    (dPat >= 0 ? bom : aviso)(`Investimentos + dinheiro: ${dPat >= 0 ? '+' : '−'}${f(Math.abs(dPat))} desde ${patRotulo(pIni.idx)} (${f(pFim.capital)} em ${patRotulo(pFim.idx)}).`, 'patrimonio', {
+      linhas: [[`Em ${patRotulo(pIni.idx)}`, f(pIni.capital)], [`Em ${patRotulo(pFim.idx)}`, f(pFim.capital)], ['Diferença', sinal(dPat), true], ['Investido este ano', f(totais.investAnual)]],
+      lista: pts.map((x, k) => ({ rot: patRotulo(x.idx), v: x.capital, txt: `${f(x.capital)}${k ? ` (${sinal(x.capital - pts[k - 1].capital)})` : ''}`, cor: k && x.capital < pts[k - 1].capital ? '#d97706' : '#8b5cf6' })),
+      nota: dPat < 0 && (Number(totais.investAnual) || 0) > 0 ? 'Desceu apesar do que investiste: a diferença vem da desvalorização dos investimentos (ou de dinheiro que saiu) nesse período.' : null,
+    });
+  }
+  if (horas > 0 && rec > 0) {
+    const porCli = tw.horas > 0 ? Object.entries(tw.horasCli).map(([cid, h]) => { const c = clis.find(x => String(x.id) === String(cid)) || clientesG.find(x => String(x.id) === String(cid)); const fat = (clis.find(x => String(x.id) === String(cid)) || {}).total || 0; return { rot: c ? c.nome : 'Sem cliente', v: h, txt: `${Math.round(h)} h${fat > 0 && h > 0 ? ` · ${_fmtEUR.format(fat / h)}/h` : ''}`, cor: (c && c.cor) || '#64748b' }; }).filter(x => x.v >= 0.5).sort((a, b) => b.v - a.v) : [];
+    info(`${Math.round(horas)} h trabalhadas${tw.horas > 0 ? ' (registadas no Trabalho)' : ''} · ${_fmtEUR.format(rec / horas)}/h faturado.`, tw.horas > 0 ? 'trabalho' : 'performance', {
+      linhas: [['Horas', `${Math.round(horas)} h`], ['Faturado', f(rec)], ['Por hora', `${_fmtEUR.format(rec / horas)}/h`, true], ['Por mês, em média', `${Math.round(horas / Math.max(1, nMeses))} h`]],
+      lista: porCli,
+      nota: porCli.length ? 'Por cliente: as horas registadas e o que cada um te pagou por hora.' : null,
+    });
+  }
+  if (pecasTxt.length) info(`Entregaste ${pecasTxt.slice(0, 3).join(', ')}${pecasTxt.length > 3 ? ' e mais' : ''}.`, 'trabalho', {
+    lista: Object.entries(tw.pecas).sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ rot: nomeTipo(id).plural ? nomeTipo(id).plural.charAt(0).toUpperCase() + nomeTipo(id).plural.slice(1) : id, v: n, txt: String(n), cor: '#0ea5e9' })),
+    linhas: [['Tarefas entregues', String(tw.n)], ['Valor pelos preços', f(tw.valor)]],
+  });
+  if (jogosTop.length) info(`O jogo que mais rendeu foi ${jogosTop[0].j.nome} (${f(jogosTop[0].v)}).`, 'trabalho', {
+    lista: jogosTop.map(({ j, v }) => ({ rot: j.nome, v, txt: `${f(v)} · ${pct(v / Math.max(1, tw.valor) * 100)}`, cor: j.cor || '#64748b' })),
+    nota: 'Pelos preços das tarefas entregues este ano (a percentagem é do total entregue).',
+  });
+  if (tw.custoSub > 0) info(`Subcontrataste ${f(tw.custoSub)}: margem de ${f(tw.valorSub - tw.custoSub)} nesse trabalho.`, 'trabalho', {
+    linhas: [['Valor desse trabalho (pelos preços)', f(tw.valorSub)], ['Pago a freelancers', f(tw.custoSub)], ['Margem', `${f(tw.valorSub - tw.custoSub)} (${pct((tw.valorSub - tw.custoSub) / Math.max(1, tw.valorSub) * 100)})`, true]],
+  });
 
   const ritmoOk = metaRec > 0 && proj >= metaRec;
   const metasL = [
@@ -1111,9 +1203,21 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
           {F.length ? (
             <ul className="space-y-2.5">
               {F.map((x, i) => (
-                <li key={i} className="flex gap-2.5 text-sm leading-snug">
-                  <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${x.cor} ${claro ? 'bg-slate-100' : 'bg-slate-700/60'}`}>{x.s}</span>
-                  <span className={claro ? 'text-slate-700' : 'text-slate-200'}>{x.t}</span>
+                <li key={i} className="text-sm leading-snug">
+                  {x.d ? (
+                    <button type="button" onClick={() => setInsAberto(a => (a === i ? null : i))} aria-expanded={insAberto === i} title={insAberto === i ? 'Fechar' : 'Ver os números'}
+                      className={`group w-full flex gap-2.5 text-left rounded-lg -mx-1.5 px-1.5 py-1 -my-1 ${insAberto === i ? (claro ? 'bg-slate-100' : 'bg-white/5') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+                      <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${x.cor} ${claro ? 'bg-slate-100' : 'bg-slate-700/60'}`}>{x.s}</span>
+                      <span className={`flex-1 ${claro ? 'text-slate-700' : 'text-slate-200'}`}>{x.t}</span>
+                      <svg width="10" height="10" viewBox="0 0 12 12" className={`flex-shrink-0 mt-1.5 transition-transform ${sub} ${insAberto === i ? '' : 'opacity-40 group-hover:opacity-100'}`} style={{ transform: insAberto === i ? 'rotate(90deg)' : 'none' }} aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </button>
+                  ) : (
+                    <div className="flex gap-2.5">
+                      <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${x.cor} ${claro ? 'bg-slate-100' : 'bg-slate-700/60'}`}>{x.s}</span>
+                      <span className={claro ? 'text-slate-700' : 'text-slate-200'}>{x.t}</span>
+                    </div>
+                  )}
+                  {x.d && insAberto === i && <AnoDetalhe d={x.d} ir={x.ir} onIr={onIr} />}
                 </li>
               ))}
             </ul>
@@ -1204,12 +1308,13 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
               <p className={`text-xs mb-1 ${sub}`}>Jogos que mais renderam</p>
               {jogosTop.length ? (
                 <div className="space-y-1.5">
-                  {jogosTop.slice(0, 4).map(({ j, v }) => (
+                  {jogosTop.slice(0, verJogos ? jogosTop.length : 4).map(({ j, v }) => (
                     <div key={j.id}>
                       <div className="flex justify-between text-sm"><span className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: j.cor || '#64748b' }} /><span className={`truncate ${forte}`}>{j.nome}</span></span><span className={`tabular-nums ${forte}`}>{f(v)}</span></div>
                       <AnoBarra v={v / jogosTop[0].v * 100} cor={j.cor || '#64748b'} />
                     </div>
                   ))}
+                  {jogosTop.length > 4 && <button type="button" onClick={() => setVerJogos(v => !v)} aria-expanded={verJogos} className="text-xs text-blue-400 hover:text-blue-300">{verJogos ? 'Ver menos' : `Ver mais (${jogosTop.length - 4})`}</button>}
                 </div>
               ) : <p className={`text-sm ${sub}`}>Liga as listas aos jogos no Trabalho para veres aqui.</p>}
             </div>
@@ -1490,8 +1595,8 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
-  LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive,
-  SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
+  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, MeuAno, CSS_BASE,
+  CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive,
+  resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';

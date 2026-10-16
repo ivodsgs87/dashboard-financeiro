@@ -942,18 +942,45 @@ const Editor = ({ html, onMudar, claro, entidades, onIrEntidade, onEnviarImagem,
           avisar(); return;
         }
         // Apagar no início de uma linha cuja linha de cima tem uma etiqueta (@Pool…): junta as duas sem apagar a etiqueta
+        // (o Chrome, sozinho, apaga a etiqueta). A linha de cima pode ser um bloco, ou texto solto (a 1.ª linha de uma nota fica sem <div>).
         if (tras) {
+          const BLOCO = /^(DIV|P|H1|H2|H3|BLOCKQUOTE|UL|OL|HR|TABLE)$/;
+          const eBloco = x => x && x.nodeType === 1 && BLOCO.test(x.tagName);
+          const temTag = x => x && x.nodeType === 1 && (x.matches('span.ntag') || !!x.querySelector('span.ntag'));
+          // a linha (texto solto) que acaba em «x»: tem alguma etiqueta?
+          const linhaComTag = x => { for (; x && x.nodeName !== 'BR' && !eBloco(x); x = x.previousSibling) if (temTag(x)) return true; return false; };
+          // linhas feitas com <br>: o cursor está logo a seguir ao <br>
+          if (viz && viz.nodeName === 'BR' && linhaComTag(viz.previousSibling)) { e.preventDefault(); viz.remove(); avisar(); return; }
           let bl = r.startContainer.nodeType === 3 ? r.startContainer.parentNode : r.startContainer;
           bl = bl && bl.closest ? bl.closest('div,p,h1,h2,h3,blockquote') : null;
-          const ant = bl && ref.current && ref.current.contains(bl) && bl !== ref.current ? bl.previousElementSibling : null;
-          if (ant && /^(DIV|P|H1|H2|H3|BLOCKQUOTE)$/.test(ant.tagName) && !ant.hasAttribute('data-cols') && !ant.hasAttribute('data-semana') && !ant.hasAttribute('data-col') && !bl.hasAttribute('data-col') && !bl.hasAttribute('data-semana') && ant.querySelector('span.ntag') && vazioAntes(bl)) {
+          const valido = bl && ref.current && ref.current.contains(bl) && bl !== ref.current && !bl.hasAttribute('data-col') && !bl.hasAttribute('data-semana') && !bl.hasAttribute('data-cols');
+          let ant = valido ? bl.previousSibling : null;
+          while (ant && ant.nodeType === 3 && !ant.textContent.length) ant = ant.previousSibling;
+          const antBloco = ant && eBloco(ant) && /^(DIV|P|H1|H2|H3|BLOCKQUOTE)$/.test(ant.tagName) && !ant.hasAttribute('data-cols') && !ant.hasAttribute('data-semana') && !ant.hasAttribute('data-col');
+          const antSolto = ant && !eBloco(ant) && ant.nodeName !== 'BR' && linhaComTag(ant);
+          if (ant && (antSolto || (antBloco && temTag(ant))) && vazioAntes(bl)) {
             e.preventDefault();
-            while (ant.lastChild && ant.lastChild.nodeName === 'BR') ant.lastChild.remove();
-            const fimAnt = ant.lastChild;
             const vazio = !bl.textContent.replace(/​/g, '').trim() && !bl.querySelector('img,span.ntag,hr');
-            if (!vazio) { while (bl.firstChild) { if (bl.firstChild.nodeName === 'BR' && !bl.firstChild.nextSibling) { bl.firstChild.remove(); break; } ant.appendChild(bl.firstChild); } }
-            bl.remove();
-            if (fimAnt) { const c = document.createRange(); c.setStartAfter(fimAnt); c.collapse(true); s.removeAllRanges(); s.addRange(c); } else cursorEm(ant, true);
+            const mover = [];
+            if (!vazio) for (let x = bl.firstChild; x; x = x.nextSibling) mover.push(x);
+            while (mover.length && mover[mover.length - 1].nodeName === 'BR') mover.pop();
+            let fimAnt;
+            if (antBloco) {
+              while (ant.lastChild && ant.lastChild.nodeName === 'BR') ant.lastChild.remove();
+              fimAnt = ant.lastChild;
+              mover.forEach(x => ant.appendChild(x));
+              bl.remove();
+            } else {
+              fimAnt = ant;
+              const depois = bl.nextSibling;
+              mover.forEach(x => bl.parentNode.insertBefore(x, bl));
+              bl.remove();
+              // o que vinha a seguir (texto solto) continua na linha de baixo
+              if (depois && !eBloco(depois) && depois.nodeName !== 'BR' && (depois.nodeType === 1 || depois.textContent.trim())) depois.parentNode.insertBefore(document.createElement('br'), depois);
+            }
+            const c = document.createRange();
+            if (fimAnt && fimAnt.nodeType === 3) c.setStart(fimAnt, fimAnt.length); else if (fimAnt) c.setStartAfter(fimAnt); else c.setStart(ant, 0);
+            c.collapse(true); s.removeAllRanges(); s.addRange(c);
             avisar(); return;
           }
         }
