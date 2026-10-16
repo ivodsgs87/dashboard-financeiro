@@ -1762,13 +1762,19 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
       {estPrev && estPrev.clientes.length > 0 && M && (() => {
         // Receita provisória (o que se estimou entregue no mês passado) vs final (recibos passados este mês)
         const k = `${ano}-${mesNum}`;
-        const recs = [...(((M[k] || {}).regCom) || []), ...(((M[k] || {}).regSem) || [])];
+        const kPrev = `${mPrev === 12 ? ano - 1 : ano}-${mPrev}`, mesPrevK = `${mPrev === 12 ? ano - 1 : ano}-${String(mPrev).padStart(2, '0')}`;
+        const regsDe = kk => [...(((M[kk] || {}).regCom) || []), ...(((M[kk] || {}).regSem) || [])];
+        const fatPorId = new Map(((trab && trab.faturas) || []).map(x => [x.id, x]));
+        // O que pagou o trabalho do mês passado: a fatura desse mês (se o registo veio de uma), senão os recibos passados este mês
+        // (ou no fim do mês passado, se ficaram a contar para este — «conta no plano de …»)
+        const pagaPrev = r => { const fx = r.faturaId && fatPorId.get(r.faturaId); if (fx) return String(fx.mes || '').slice(0, 7) === mesPrevK; return r._k === k ? !r.orcAnt : !!r.orcProx; };
+        const recs = [...regsDe(k).map(r => ({ ...r, _k: k })), ...regsDe(kPrev).map(r => ({ ...r, _k: kPrev }))].filter(pagaPrev);
         const fat = cid => recs.filter(r => String(r.cid) === String(cid)).reduce((a, r) => a + (parseFloat(r.valIliq != null && r.valIliq !== '' ? r.valIliq : r.val) || 0), 0);
         const linhas = estPrev.clientes.filter(c => c.cid != null).map(c => ({ c, est: usaMin ? c.total : c.produzido, fat: fat(c.cid) }));
         if (!linhas.length) return null;
         return (
           <details className={`mt-3 rounded-xl border px-3 py-2 ${claro ? 'border-slate-200' : 'border-slate-700/60'}`}>
-            <summary className="cursor-pointer text-sm"><span className="font-medium">Fecho de {meses[mPrev - 1].toLowerCase()}</span> <span className={`text-xs ${sub}`}>· estimado {f(linhas.reduce((a, l) => a + l.est, 0))} · faturado em {meses[mesNum - 1].toLowerCase()} {f(linhas.reduce((a, l) => a + l.fat, 0))}</span></summary>
+            <summary className="cursor-pointer text-sm"><span className="font-medium">Fecho de {meses[mPrev - 1].toLowerCase()}</span> <span className={`text-xs ${sub}`}>· estimado {f(linhas.reduce((a, l) => a + l.est, 0))} · faturado {f(linhas.reduce((a, l) => a + l.fat, 0))}</span> <Info>O que o trabalho de {meses[mPrev - 1].toLowerCase()} rendeu de facto: os recibos das faturas desse mês ou, sem fatura na app, os recibos passados em {meses[mesNum - 1].toLowerCase()} (e os do fim de {meses[mPrev - 1].toLowerCase()} marcados «conta no plano de {meses[mesNum - 1].toLowerCase()}»). Um recibo passado em {meses[mPrev - 1].toLowerCase()} sem essa marca conta para o fecho de {meses[(mPrev + 10) % 12].toLowerCase()}.</Info></summary>
             <div className="mt-2 space-y-1 text-sm">
               {linhas.map(({ c, est: e, fat: fv }) => {
                 const dif = fv - e;
