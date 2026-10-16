@@ -7272,6 +7272,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                         <span className={`px-1.5 rounded ${r.tipo === 'sem' ? (claro ? 'bg-slate-100' : 'bg-white/5') : (claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/10 text-blue-300')}`}>{r.tipo === 'sem' ? 'Sem taxas' : 'Com taxas'}</span>
                         {r.pais && <span>{r.pais}</span>}{r.emitidoPorSara && <span>emitido pela Sara</span>}
                         {repetidos.has(chaveR(r)) && <button type="button" onClick={irRever} className="px-1.5 rounded bg-amber-500/15 text-amber-500 hover:bg-amber-500/25" title="Há outro recibo deste cliente com o mesmo valor e a mesma data — vê em «Para rever», lá em cima">⚠ repetido?</button>}
+                        {r.pag && !r.pag.recebido && <button type="button" onClick={() => { if (onMarcarRecibo) { const h = new Date(); onMarcarRecibo(r.k, r.id, { recebidoEm: `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`, porReceber: false }); if (showToast) showToast('💶 Marcado como recebido hoje (Ctrl+Z desfaz)'); } }} className={`px-1.5 rounded ${r.pag.atraso > 0 ? 'bg-amber-500/15 text-amber-500 hover:bg-amber-500/25' : (claro ? 'bg-slate-100 hover:bg-slate-200' : 'bg-white/5 hover:bg-white/10')}`} title={`O dinheiro ainda não chegou — ${r.pag.atraso > 0 ? 'devia ter chegado' : 'previsto'} a ${String(r.pag.previsto).slice(8, 10)}/${String(r.pag.previsto).slice(5, 7)}. Carrega quando chegar.`}>⏳ {r.pag.atraso > 0 ? `${r.pag.atraso} d atrasado` : `a receber até ${String(r.pag.previsto).slice(8, 10)}/${String(r.pag.previsto).slice(5, 7)}`}</button>}
+                        {r.pag && r.pag.quando && <span className="text-emerald-500/80" title={`O dinheiro chegou a ${String(r.pag.quando).slice(8, 10)}/${String(r.pag.quando).slice(5, 7)}${r.pag.demorou != null ? ` — ${r.pag.demorou} dias depois do recibo` : ''}`}>💶 {String(r.pag.quando).slice(8, 10)}/{String(r.pag.quando).slice(5, 7)}</span>}
                         {emissaoNoutro(r) ? <button type="button" onClick={irRever} className="px-1.5 rounded bg-amber-500/15 text-amber-500 hover:bg-amber-500/25" title={`Em Receitas está guardado em ${nomeMesK(r.k)}, mas foi emitido em ${nomeMesK(emissaoNoutro(r))} — vê em «Para rever», lá em cima`}>⚠ guardado em {nomeMesK(r.k)}</button>
                           : noutroMes(r) && <span className={`px-1.5 rounded ${claro ? 'bg-slate-100' : 'bg-white/5'}`} title={`Em Receitas está guardado em ${nomeMesK(r.k)}`}>guardado em {nomeMesK(r.k)}</span>}
                       </span>
@@ -8168,6 +8170,8 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
   const juntarTag = () => { const v = novaTag.trim().replace(/^#/, ''); if (v && !tags.includes(v)) set({ tags: [...tags, v] }); setNovaTag(''); };
   const ic = `${inputClass} text-sm py-1.5`;
   const grelha = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2.5';
+  // Quanto tempo este cliente demora de facto a pagar (pelos recibos em que marcaste o dia em que o dinheiro chegou)
+  const mediaPagar = (() => { const l = (recibos || []).map(r => r.pag && r.pag.demorou).filter(d => d != null && d >= 0 && d < 200); return l.length >= 2 ? { dias: Math.round(l.reduce((a, b) => a + b, 0) / l.length), n: l.length } : null; })();
   const chip = on => `px-2.5 py-1 rounded-full text-xs border ${on ? 'border-blue-400 bg-blue-500/15 text-blue-400 font-medium' : claro ? 'border-slate-200 text-slate-600 hover:bg-slate-100' : 'border-slate-700 text-slate-300 hover:bg-white/5'}`;
   const maxMes = Math.max(1, ...n.meses12);
   const provPais = paisDoCliente(c, recibos); // o da ficha, ou adivinhado pelo NIF/VAT, morada ou recibos verdes
@@ -8204,7 +8208,7 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
         </SecaoFicha>
 
         <SecaoFicha titulo="Faturação" aberta={abertas.fat} onAlternar={() => alternar('fat')} claro={claro} sub={sub}
-          resumo={[fat.nomeLegal, fat.nif, fat.moeda || 'EUR', fat.prazoDias != null && fat.prazoDias !== '' ? `${fat.prazoDias} dias` : ''].filter(Boolean).join(' · ')}>
+          resumo={[fat.nomeLegal, fat.nif, fat.moeda || 'EUR', fat.prazoDias != null && fat.prazoDias !== '' ? `${fat.prazoDias} dias` : '', fat.diasPagar != null && fat.diasPagar !== '' ? `paga em ~${fat.diasPagar} d` : ''].filter(Boolean).join(' · ')}>
           <div className={grelha}>
             <CampoFicha rot="Nome legal" info="Como vai na fatura." span="sm:col-span-2"><TxtIn valor={fat.nomeLegal} onGravar={v => setFat({ nomeLegal: v })} placeholder="ex.: Anorak Games GmbH" className={ic} /></CampoFicha>
             <CampoFicha rot="NIF / VAT"><TxtIn valor={fat.nif} onGravar={v => setFat({ nif: v })} placeholder="ex.: DE123456789" className={ic} /></CampoFicha>
@@ -8213,7 +8217,10 @@ const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inp
             <CampoFicha rot="Moeda">
               <select value={fat.moeda || 'EUR'} onChange={e => setFat({ moeda: e.target.value })} className={ic}>{MOEDAS.map(m => <option key={m} value={m}>{m}</option>)}</select>
             </CampoFicha>
-            <CampoFicha rot="Prazo de pagamento (dias)"><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></CampoFicha>
+            <CampoFicha rot="Prazo de pagamento (dias)" info="O prazo que vai escrito na fatura."><NumIn valor={fat.prazoDias ?? null} placeholder="30" decimal={false} onGravar={v => setFat({ prazoDias: v })} className={ic} /></CampoFicha>
+            <CampoFicha rot="Costuma pagar em (dias)" info={`Quantos dias depois do recibo o dinheiro costuma chegar à conta. A partir daí o recibo aparece como atrasado (⏳) e o Painel avisa. Vazio = o prazo de pagamento${mediaPagar ? `. Pelos recibos que marcaste, paga em média em ${mediaPagar.dias} dias (${mediaPagar.n} recibos).` : '.'}`}>
+              <NumIn valor={fat.diasPagar ?? null} placeholder={mediaPagar ? String(mediaPagar.dias) : String(fat.prazoDias ?? 30)} decimal={false} onGravar={v => setFat({ diasPagar: v })} className={ic} />
+            </CampoFicha>
             <CampoFicha rot={'Tipo de trabalho ("FOR:")'} info="O que vai na fatura em «FOR:». Depois a app sugere o da última fatura." span="sm:col-span-2"><TxtIn valor={fat.paraFatura} onGravar={v => setFat({ paraFatura: v.trim() })} placeholder="ex.: UA Creative Work, Motion Work" className={ic} /></CampoFicha>
             <CampoFicha rot="Próximo nº de fatura" info="Só conta até fazeres a primeira fatura na app — depois segue a numeração das faturas."><NumIn valor={fat.proxFatura ?? null} placeholder="1" decimal={false} onGravar={v => setFat({ proxFatura: v })} className={ic} /></CampoFicha>
             <CampoFicha rot="IVA na fatura (%)"><NumIn valor={fat.ivaFatura ?? null} placeholder={paisEf === 'PT' ? String(rec.taxaIva != null && rec.taxaIva !== '' ? rec.taxaIva : 23) : '0'} onGravar={v => setFat({ ivaFatura: v })} className={ic} /></CampoFicha>

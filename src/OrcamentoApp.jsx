@@ -6,14 +6,14 @@ import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardar
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
-  mesEmissaoDe, comPlanoDe, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
-  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
-  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
-  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
-  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
-  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcPrazosCPCV
+  mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, estadoPagamento, valorQueChega, retencaoPadrao,
+  guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc, anos,
+  _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO,
+  trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia, planearMes, trabParar,
+  trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec,
+  fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo,
+  VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard,
+  Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1594,6 +1594,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Fica na TR para impostos: a reserva menos o que já foi retido, mais o IVA cobrado (é do Estado)
  const impostosNaTR = Math.max(0, valTax - retMes) + ivaMes;
  const guia = guiaTransfCalc({ minhaAB, investFilhos, impostosNaTR, inv, restante, alocAmort, alocFerias, totalFerias, recebidoMes, totPess, adiantou: !!(transf && transf.g_adiant) });
+ // Recibos do plano deste mês cujo dinheiro ainda não chegou à conta (o mês de cada um, para a data base)
+ const _kAntOrc = patKey(patIdx(mesKey) - 1), _kProxOrc = patKey(patIdx(mesKey) + 1);
+ const regsOrcK = (orcEntra.length || orcSai.length
+   ? [...[...regCom, ...regSem].filter(r => r && !r.orcProx && !r.orcAnt).map(r => [mesKey, r]), ...orcDoAnt.map(r => [_kAntOrc, r]), ...orcDoProx.map(r => [_kProxOrc, r])]
+   : [...regCom, ...regSem].filter(Boolean).map(r => [mesKey, r]));
+ const aCaminhoMes = regsOrcK.map(([k, r]) => ({ k, r, est: estadoPagamento(r, k, G.clientes) })).filter(x => !x.est.recebido);
+ const valACaminho = aCaminhoMes.reduce((a, x) => a + valorQueChega(x.r), 0);
+ // Pagamentos atrasados de qualquer mês (os últimos 12): passou o prazo e ainda não marcaste que chegou
+ const pagamentosAtrasados = (() => {
+   const out = []; const iH = patIdxHoje();
+   Object.entries(M || {}).forEach(([k, md]) => { const i = patIdx(k); if (!md || i < iH - 12 || i > iH + 1) return; [...(md.regCom || []), ...(md.regSem || [])].forEach(r => { if (!r) return; const est = estadoPagamento(r, k, G.clientes); if (!est.recebido && est.atraso > 0) out.push({ k, r, est }); }); });
+   return out.sort((a, b) => b.est.atraso - a.est.atraso);
+ })();
+ const nomeCliPag = r => ((G.clientes || []).find(c => String(c.id) === String(r.cid)) || {}).nome || r.desc || 'Recibo';
  const totSaraR = sara.rend.reduce((a,r)=>a+r.val,0);
  const totSaraD = sara.desp.reduce((a,d)=>a+d.val,0);
  const sobraSara = totSaraR - totSaraD - contribSaraAB;
@@ -2928,8 +2942,20 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          </div>
        )}
 
-       {(nAtr > 0 || nAnte > 0 || faltaActivo) && (
+       {(nAtr > 0 || nAnte > 0 || faltaActivo || (atualM && pagamentosAtrasados.length > 0)) && (
          <div className="space-y-1.5 mt-3">
+           {atualM && pagamentosAtrasados.length > 0 && (
+             <div className={`w-full p-2 rounded-lg border text-sm space-y-1 ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/40 bg-amber-500/10'}`}>
+               <p className={`font-medium flex items-center gap-1 ${claro ? 'text-amber-700' : 'text-amber-400'}`}><Ico e="💶"/>{pagamentosAtrasados.length === 1 ? 'Um pagamento está atrasado' : `${pagamentosAtrasados.length} pagamentos estão atrasados`} <Info>Passou o prazo («Costuma pagar em», na ficha do cliente) e ainda não marcaste que o dinheiro chegou. Se já chegou, carrega em «✓ Chegou». Se não, talvez valha a pena lembrar o cliente.</Info></p>
+               {pagamentosAtrasados.slice(0, 3).map(x => (
+                 <div key={x.k + x.r.id} className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs ${claro ? 'text-amber-800' : 'text-amber-300'}`}>
+                   <span className="min-w-0 flex-1">{nomeCliPag(x.r)} · {fmt(valorQueChega(x.r))} <span className="opacity-75">· recibo de {ddmm(x.est.base)}, devia ter chegado a {ddmm(x.est.previsto)} ({x.est.atraso} d)</span></span>
+                   <button type="button" onClick={() => marcarRecebido(x.k, x.r.id)} className={`px-2 py-0.5 rounded-md whitespace-nowrap ${claro ? 'bg-amber-100 hover:bg-amber-200' : 'bg-amber-500/15 hover:bg-amber-500/25'}`}>✓ Chegou</button>
+                 </div>
+               ))}
+               {pagamentosAtrasados.length > 3 && <p className={`text-xs ${claro ? 'text-amber-700' : 'text-amber-400'}`}>+ {pagamentosAtrasados.length - 3} — vê em Receitas (⏳ nos recibos)</p>}
+             </div>
+           )}
            {(nAtr > 0 || nAnte > 0) && (
              <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="w-full flex items-center gap-2 p-2 rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/15 text-sm text-left">
                <span className="flex-1 min-w-0 text-orange-400 font-medium"><Ico e="⚠"/>{nAtr ? `${nAtr} em atraso` : ''}{nAtr && nAnte ? ' · ' : ''}{nAnte ? `${nAnte} por marcar de meses anteriores` : ''}</span>
@@ -3312,6 +3338,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          );
        })()}
        {f2.length > 0 && <p className="text-xs font-medium text-blue-400 pt-1">Quando os clientes pagarem · sai do Activo Bank {fmt(guia.saidas)}</p>}
+       {f2.length > 0 && regsOrcK.length > 0 && (aCaminhoMes.length > 0 ? (
+         <div className={`rounded-lg px-2.5 py-1.5 text-xs space-y-1 ${claro ? 'bg-amber-50 text-amber-800' : 'bg-amber-500/10 text-amber-300'}`}>
+           <p className="flex items-center gap-1 font-medium"><Ico e="⏳"/>Ainda a caminho: {fmt(valACaminho)} <Info>Recibos deste plano cujo dinheiro ainda não chegou ao Activo Bank. Espera que cheguem antes de fazer as transferências de baixo — ou faz só as que o dinheiro que já entrou cobre. A data prevista vem de «Costuma pagar em» na ficha de cada cliente.</Info></p>
+           {aCaminhoMes.map(x => (
+             <div key={x.k + x.r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+               <span className="min-w-0 flex-1">{nomeCliPag(x.r)} · {fmt(valorQueChega(x.r))} <span className="opacity-75">· {x.est.atraso > 0 ? `devia ter chegado a ${ddmm(x.est.previsto)} (${x.est.atraso} d)` : `previsto ${ddmm(x.est.previsto)}`}</span></span>
+               <button type="button" onClick={() => marcarRecebido(x.k, x.r.id)} className={`px-2 py-0.5 rounded-md whitespace-nowrap ${claro ? 'bg-amber-100 hover:bg-amber-200' : 'bg-amber-500/15 hover:bg-amber-500/25'}`}>✓ Chegou</button>
+             </div>
+           ))}
+         </div>
+       ) : (
+         <p className="text-xs text-emerald-400"><Ico e="💶"/>O dinheiro dos recibos deste plano já chegou ao Activo Bank</p>
+       ))}
        {f2.map(x => passo(x))}
      </div>
      <div id="guia-fica" className={`mt-3 p-2 rounded-lg border transition-shadow ${guia.fica < guia.totPess - 0.5 && !semReceitas ? (passadoM ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/10 border-amber-500/30') : 'bg-blue-500/10 border-blue-500/30'}`}>
@@ -4069,6 +4108,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // Um registo fica no mês em que o recibo verde foi emitido (é esse que conta para o IVA, a SS e o IRS).
    // Se estava guardado noutro mês (ex.: a fatura registada «quando pagam»), passa para o mês da emissão;
    // o dinheiro continua a contar para investir no mês seguinte (fica marcado «investir no mês seguinte»).
+   // Mudar campos de um registo de Receitas (em qualquer mês)
+   const mudarRegisto = (k, id, patch) => { saveUndo(); setM(p => { const m2 = p[k]; if (!m2) return p; const f = l => (l || []).map(x => (x.id === id ? { ...x, ...(typeof patch === 'function' ? patch(x) : patch) } : x)); return { ...p, [k]: { ...m2, regCom: f(m2.regCom), regSem: f(m2.regSem) } }; }); };
+   // Na linha do recibo em Receitas: ⏳ enquanto o dinheiro não chegou (âmbar se atrasado); carregar marca que chegou hoje
+   const chipPag = r => {
+     const est = estadoPagamento(r, mesKey, G.clientes);
+     if (est.recebido) return est.quando ? <span className="hidden sm:inline text-[10px] text-emerald-400/80 flex-shrink-0 whitespace-nowrap" title={`O dinheiro chegou a ${ddmm(est.quando)}${est.demorou != null ? ` (${est.demorou} dias depois do recibo)` : ''}`}>💶 {ddmm(est.quando)}</span> : null;
+     return <button type="button" onClick={() => marcarRecebido(mesKey, r.id)} className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 whitespace-nowrap ${est.atraso > 0 ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' : 'bg-slate-500/20 text-slate-400 hover:bg-slate-500/30'}`} title={`O dinheiro ainda não chegou à conta — ${est.atraso > 0 ? `devia ter chegado a ${ddmm(est.previsto)}` : `previsto para ${ddmm(est.previsto)}`}. Carrega quando chegar (se foi noutro dia, muda no 📄).`} aria-label="Marcar que o dinheiro chegou">⏳ {est.atraso > 0 ? `${est.atraso} d atrasado` : `até ${ddmm(est.previsto)}`}</button>;
+   };
+   const marcarRecebido = (k, id, data) => { mudarRegisto(k, id, { recebidoEm: data || hojeIsoPag(), porReceber: false }); showToast(`💶 Marcado como recebido ${data ? `a ${ddmm(data)}` : 'hoje'} (Ctrl+Z desfaz)`); };
    const passarParaMesEmissao = (lista, comUndo) => {
      if (!(lista || []).length) return;
      if (comUndo) saveUndo();
@@ -4539,7 +4587,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        emitidoPorSara: editRecibo.emitidoPorSara || false,
        taxaRetIRS: editRecibo.taxaRetIRS != null ? editRecibo.taxaRetIRS : null,
        orcProx: !!editRecibo.orcProx,
-       orcAnt: !!editRecibo.orcAnt
+       orcAnt: !!editRecibo.orcAnt,
+       recebidoEm: editRecibo.recebidoEm || null,
+       porReceber: !!editRecibo.porReceber
      } : x));
      setShowReciboModal(false);
      setEditRecibo(null);
@@ -4844,6 +4894,23 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  </div>
                );
              })()}
+             {(() => {
+               // Quando o dinheiro chegou à conta
+               const est = estadoPagamento(editRecibo, mesKey, G.clientes);
+               return (
+                 <div className="p-3 rounded-xl border border-slate-600/50 space-y-2 text-sm">
+                   <div className="flex items-center gap-1.5">
+                     <span className="text-slate-400">Dinheiro na conta</span>
+                     <Info rotulo="Dinheiro na conta" largura={280}>Quando o pagamento do cliente chegou ao Activo Bank. Enquanto não chega, o recibo aparece com ⏳ e as Transferências avisam que o dinheiro ainda está a caminho. O prazo vem de «Costuma pagar em», na ficha do cliente ({est.dias != null ? `${est.dias} dias` : `${DIAS_PAGAR_PADRAO} dias por defeito`}).</Info>
+                     <span className={`ml-auto text-xs font-medium ${est.recebido ? 'text-emerald-400' : est.atraso > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{est.recebido ? (est.quando ? `chegou a ${ddmm(est.quando)}` : 'chegou') : est.atraso > 0 ? `atrasado ${est.atraso} dias` : `previsto ${ddmm(est.previsto)}`}</span>
+                   </div>
+                   <div className="flex flex-wrap items-center gap-3">
+                     <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!est.recebido} onChange={e => setEditRecibo(e.target.checked ? { ...editRecibo, porReceber: false, recebidoEm: editRecibo.recebidoEm || hojeIsoPag() } : { ...editRecibo, porReceber: true, recebidoEm: null })} className="accent-emerald-500" /> Já chegou</label>
+                     {est.recebido && <input type="date" value={editRecibo.recebidoEm || ''} onChange={e => setEditRecibo({ ...editRecibo, recebidoEm: e.target.value || null, porReceber: false })} aria-label="Dia em que o dinheiro chegou" className={`${inputClass} !w-auto !py-1 text-xs`} />}
+                   </div>
+                 </div>
+               );
+             })()}
            </div>
            <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
              <Button variant="secondary" onClick={() => {setShowReciboModal(false); setEditRecibo(null);}}>Cancelar</Button>
@@ -4943,6 +5010,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            📎
          </button>
        )}
+       {chipPag(r)}
        <button onClick={() => openReciboModal(r, 'com')} className={`${(r.ficheiro || r.ficheiroUrl) ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={(r.ficheiro || r.ficheiroUrl) ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regCom',regCom.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
@@ -4985,6 +5053,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            📎
          </button>
        )}
+       {chipPag(r)}
        <button onClick={() => openReciboModal(r, 'sem')} className={`${(r.ficheiro || r.ficheiroUrl) ? 'text-green-400 hover:text-green-300' : 'text-blue-400 hover:text-blue-300'} p-0.5 sm:p-1 flex-shrink-0`} title={(r.ficheiro || r.ficheiroUrl) ? "Ver/Editar detalhes" : "Adicionar detalhes"}>📄</button>
        <button onClick={()=>uM('regSem',regSem.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-300 p-0.5 sm:p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
      </div>
@@ -12796,7 +12865,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
-   recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
+   recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo, pag: estadoPagamento(r, k, G.clientes) }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
    onCriarReciboFatura={({ cid, mesK, numero, valor, pdf, faturaId, mesFatura }) => {
      // Regista a fatura em Receitas (com as regras do recibo do cliente). O recibo verde continua a ser feito pela contabilidade.
      // Já há um registo desta fatura em Receitas (ex.: gerada outra vez)? Não cria outro
