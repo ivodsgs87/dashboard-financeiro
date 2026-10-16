@@ -3937,7 +3937,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const data = /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? String(r.data).slice(0, 10) : `${ky}-${String(km).padStart(2, '0')}-01`;
      try {
        const mod = await carregarTrabalho();
-       const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
+       const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, cliente: cli ? cli.nome : empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
        setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
        if (!calado) showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
        return true;
@@ -3957,8 +3957,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // ou cria um registo novo «com taxas» no mês da data (como o «Importar Fatura» das Receitas)
    const importarReciboFicheiro = async ({ cid, file, d, alvo, drive, soLigar }) => {
      // O PDF do Drive é o mesmo que o registo já tem: só fica ligado (não entra outra vez)
+     const arrumarDrive = (cid2, data2) => { const cl = (G.clientes || []).find(c => String(c.id) === String(cid2)); if (drive && drive.id && cl && (G.recibosDrive || {}).pasta) carregarTrabalho().then(mod => mod.arrumarNoDrive && mod.arrumarNoDrive({ conta: (G.recibosDrive || {}).conta, pastaUrl: G.recibosDrive.pasta, fileId: drive.id, cliente: cl.nome, data: data2 })).catch(() => {}); };
      if (soLigar && alvo && drive) {
-       setM(p => { const md = p[alvo.k] || {}; const upd = l => (l || []).map(x => (x.id === alvo.id ? { ...x, driveUrl: drive.url, driveNome: drive.nome } : x)); return { ...p, [alvo.k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+       arrumarDrive(cid, String(d.data || '').slice(0, 10));
+       setM(p => { const md = p[alvo.k] || {}; const upd = l => (l || []).map(x => (x.id === alvo.id ? { ...x, driveUrl: drive.url, driveNome: drive.nome, ...(d.data ? { dataRecibo: String(d.data).slice(0, 10) } : {}) } : x)); return { ...p, [alvo.k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
        setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== drive.id) }));
        return { k: alvo.k, id: alvo.id, ligado: true };
      }
@@ -3971,7 +3973,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      }
      const pais = d.pais || 'PT';
      const valores = { val: v, valIliq: v, iva: Number(d.valorIva) || 0, taxaIva: d.taxaIva != null && d.taxaIva !== '' ? (Number(d.taxaIva) || 0) : (pais === 'PT' ? 23 : 0), retIRS: Number(d.retencaoIRS) || 0, pais, reciboVerde: true };
-     const ligDrive = drive ? { driveUrl: drive.url, driveNome: drive.nome } : {};
+     const ligDrive = drive ? { driveUrl: drive.url, driveNome: drive.nome, ...(d.data ? { dataRecibo: String(d.data).slice(0, 10) } : {}) } : {};
      let k, id, base;
      if (alvo) {
        k = alvo.k; id = alvo.id;
@@ -3984,7 +3986,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        setM(p => { const md = p[k] || defM; return { ...p, [k]: { ...md, regCom: [...(md.regCom || []), base] } }; });
        await juntarReciboDoDrive(k, id, {}, file, true);
      }
-     if (drive) setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== drive.id) }));
+     if (drive) { setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== drive.id) })); arrumarDrive(cid, d.data || base.data); }
      else await enviarReciboDrive(k, id, file, { ...base, ...valores, data: d.data || base.data }, true);
      return { k, id };
    };
@@ -14293,6 +14295,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    onIgnorarReciboDrive={ignorarReciboDrive}
    onSincRecibosDrive={(G.recibosDrive || {}).pasta ? () => { if (correrRecDrive.current) correrRecDrive.current(); } : null} recSinc={recSinc}
    cfgRecibosDrive={G.recibosDrive || {}} onCfgRecibosDrive={patch => uG('recibosDrive', { ...(G.recibosDrive || {}), ...patch })}
+   itensRecibosDrive={() => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); [...((md && md.regCom) || []), ...((md && md.regSem) || [])].forEach(r => { const id = idDriveDe(r.driveUrl); const cl = (G.clientes || []).find(c => String(c.id) === String(r.cid)); if (id && cl && a && m) out.push({ id, cliente: cl.nome, data: /^\d{4}-\d{2}-\d{2}/.test(String(r.dataRecibo || r.data || '')) ? String(r.dataRecibo || r.data).slice(0, 10) : `${a}-${String(m).padStart(2, '0')}-01` }); }); }); return out; }}
    obterRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (!r) return null; const nome = r.ficheiroNome || `${String(r.desc || 'recibo').replace(/[\\/:*?"<>|]+/g, ' ')}.pdf`; const idD = idDriveDe(r.driveUrl); const baixar = idD ? async () => (await carregarTrabalho()).descarregarDriveSemJanela((G.recibosDrive || {}).conta, idD) : undefined; if (!r.ficheiro && r.ficheiroUrl) return { url: r.ficheiroUrl, nome, tipo: r.ficheiroTipo || 'application/pdf', baixar }; if (!r.ficheiro) return null; const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); const blob = new Blob([u8], { type: tipo }); return { url: URL.createObjectURL(blob), blob, nome, tipo, revogar: true }; }}
    navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
