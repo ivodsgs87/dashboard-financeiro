@@ -1874,6 +1874,20 @@ const PALAVRAS_VAZIAS = new Set(['the', 'and', 'for', 'with', 'you', 'your', 'qu
 const palavrasDe = x => semAcentos(x).split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !/^v\d+$/.test(w) && !/^\d+$/.test(w) && !PALAVRAS_VAZIAS.has(w)).filter((w, i, a) => a.indexOf(w) === i);
 // Com o conceito preenchido (Nomes dos ficheiros), procura por ele; senão pelo nome da tarefa (sem o " - variação")
 const palavrasTarefa = t => { const fx = (t && t.ficheiros) || {}; return fx.conceito ? palavrasDe(fx.conceito) : palavrasDe(String((t && t.nome) || '').split(/\s[-–—]\s/)[0]); };
+// As palavras da variação (ex.: «Retired Couple») e do resto do nome da tarefa (depois do « - »): desempatam slides do mesmo conceito
+const palavrasVariacao = t => {
+  const fx = (t && t.ficheiros) || {}; let v = '';
+  try { v = campoVersao(fx, String(fx.versao || '').replace(/^v/i, ''), 'variacao', t) || ''; } catch (e) { /* sem variação */ }
+  return palavrasDe(`${v} ${String((t && t.nome) || '').split(/\s[-–—]\s/).slice(1).join(' ')}`);
+};
+// Singular/plural e palavras da mesma família (interviews = interview; retired ≈ retirement)
+const raizPalavra = w => (w.length > 4 && /s$/.test(w) && !/ss$/.test(w) ? w.slice(0, -1) : w);
+const palavraIgual = (a, b) => {
+  if (a === b) return true;
+  let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i >= Math.max(5, Math.min(a.length, b.length) - 1);
+};
+const SLIDE_RESUMO = /\b(overall|summary|overview|top performers?|recap|resumo|indice|agenda|table of contents)\b/;
 const slideDaTarefa = (slides, url, t) => {
   if (!slides || !slides.length) return null;
   // 1) escolhido à mão nesta tarefa (no brief, «★ Qual é o slide desta tarefa?»)
@@ -1891,14 +1905,18 @@ const slideDaTarefa = (slides, url, t) => {
   // 3) o brief só tem um slide
   if (slides.length === 1) return 1;
   // 4) o slide que tem as palavras do nome (no texto, nas notas ou no texto alternativo das imagens)
-  const ws = palavrasTarefa(t);
+  const ws = palavrasTarefa(t).map(raizPalavra);
   if (!ws.length) return null;
+  const wv = palavrasVariacao(t).map(raizPalavra).filter(w => !ws.includes(w)); // ex.: «Retired Couple» → retired, couple
+  const fr = (lista, toks) => lista.length ? lista.filter(w => toks.some(x => palavraIgual(w, x))).length / lista.length : 0;
   let melhor = null, mp = 0;
   slides.forEach(s => {
-    const txt = ' ' + semAcentos(`${s.texto || ''} ${s.notas || ''} ${s.alt || ''}`).replace(/[^a-z0-9]+/g, ' ') + ' ';
-    const titulo = ' ' + semAcentos(String(s.texto).split('\n').slice(0, 2).join(' ')).replace(/[^a-z0-9]+/g, ' ') + ' ';
-    const p = ws.filter(w => txt.includes(` ${w} `)).length / ws.length + ws.filter(w => titulo.includes(` ${w} `)).length / ws.length * 0.5;
-    if (p > mp) { mp = p; melhor = s.n; }
+    const toks = palavrasDe(`${s.texto || ''} ${s.notas || ''} ${s.alt || ''}`).map(raizPalavra);
+    const tit = String(s.texto || '').split('\n').slice(0, 2).join(' ');
+    const tt = palavrasDe(tit).map(raizPalavra);
+    let p = fr(ws, toks) + fr(ws, tt) * 0.5 + (wv.length ? fr(wv, toks) * 0.5 + fr(wv, tt) * 0.3 : 0);
+    if (SLIDE_RESUMO.test(semAcentos(tit))) p *= 0.5; // slide-resumo (tabela com todos os conceitos): só se não houver outro
+    if (p > mp + 1e-9) { mp = p; melhor = s.n; }
   });
   return mp >= 0.6 ? melhor : null;
 };
@@ -1943,8 +1961,10 @@ const nomeLivre = async (dir, nome) => {
 // A pasta parece ser a de UM projeto (tem @Exports, Assets ou Projects lá dentro) e não a de todos os projetos?
 const pareceProjeto = async dir => {
   if (!dir) return false;
-  try { for await (const [nome, e] of dir.entries()) { if (e.kind === 'directory' && /^(@exports|assets|projects)$/i.test(nome)) return true; } } catch (e) { /* sem acesso */ }
-  return false;
+  // (uma pasta com a Assets e pastas de anos / Videos é a de um jogo, não a de um projeto)
+  let exp = false, ap = false, arruma = false;
+  try { for await (const [nome, e] of dir.entries()) { if (e.kind !== 'directory') continue; if (/^@exports$/i.test(nome)) exp = true; else if (/^(assets|projects)$/i.test(nome)) ap = true; else if (ARRUMA_PROJ.test(nome)) arruma = true; } } catch (e) { /* sem acesso */ }
+  return !arruma && (exp || ap);
 };
 // Escolher a pasta de todos os projetos (ex.: C:\WORK). Nunca guarda a pasta de um só projeto no lugar dela
 // (era assim que a app ficava a procurar tudo dentro de um projeto e não encontrava os outros)
@@ -1962,13 +1982,16 @@ const pastaDoProjetoDaTarefa = async (tarefa, pedir) => {
   if (await pareceProjeto(raiz)) return null; // a «pasta dos projetos» é só um projeto: não dá para encontrar os outros
   const nf = nomesFicheiros(TRAB_ATUAL.trab, tarefa);
   if (!nf || !nf.conceito) return null;
-  const kc = `proj:${nf.jogo ? nf.jogo.id : ''}:${slugF(nf.conceito)}`;
+  const v = versaoDaTarefa(tarefa);
+  const kc = `proj2:${nf.jogo ? nf.jogo.id : ''}:${slugF(nf.conceito)}:${tarefa.id}`; // uma por tarefa: projetos de versões diferentes não se misturam
   let alvo = await idbLer(kc);
   if (alvo && alvo.dir) { try { const it = alvo.dir.entries(); await it.next(); } catch (e) { alvo = null; } } // mudou de nome/sítio
+  if (alvo && alvo.dir && v && versoesDoNome(alvo.projeto || alvo.dir.name).length && !versoesDoNome(alvo.projeto || alvo.dir.name).includes(Number(v))) alvo = null; // era de outra versão
   if (!alvo || !alvo.dir) {
     const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(tarefa.cid));
-    const a = await acharExportsConceito(raiz, { conceito: nf.conceito, jogo: nf.jogo ? nf.jogo.nome : '', cliente: cli ? cli.nome : '' });
+    const a = await acharExportsConceito(raiz, { conceito: nf.conceito, jogo: nf.jogo ? nf.jogo.nome : '', cliente: cli ? cli.nome : '', exato: nomeProjetoTarefa(TRAB_ATUAL.trab, tarefa), idTarefa: tarefa.id, versao: v, variacao: campoVersao(tarefa.ficheiros, nf.vNum, 'variacao', tarefa) || '' });
     if (!a || !a.proj) return null;
+    if (a.outraVersao) return { projeto: a.projeto, proj: a.proj, refs: null, outraVersao: true }; // só há a pasta de outra versão: não mistura
     alvo = { dir: a.proj, projeto: a.projeto };
     await idbGravar(kc, { ...alvo, em: Date.now() });
   }
@@ -2049,9 +2072,15 @@ const trazerBriefParaRefs = async (t, showToast) => {
       if (!AVISOU_RAIZ_PROJETO) { AVISOU_RAIZ_PROJETO = true; aviso(`A pasta de todos os projetos está a apontar para «${raiz.name}», que é só um projeto — por isso a app não encontra os outros. Em «Enviar para o Drive», carrega em «Escolher a pasta de todos os projetos» e escolhe C:\\WORK.`, 'error'); }
       return;
     }
-    let d = null;
-    for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (!d || !d.refs) { d = null; if (i === 1) aviso('À espera da pasta do projeto para copiar o brief…'); await new Promise(ok => setTimeout(ok, 5000)); } }
-    if (!d) { aviso(`Não encontrei a pasta deste projeto (com a pasta Assets) dentro de ${raiz.name} — os assets do brief não foram copiados.`, 'error'); return; }
+    let d = null, ult = null;
+    for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (d) ult = d; if (!d || !d.refs) { d = null; if (i === 1) aviso('À espera da pasta do projeto para copiar o brief…'); await new Promise(ok => setTimeout(ok, 5000)); } }
+    if (!d) {
+      const v = versaoDaTarefa(t);
+      aviso(ult && ult.outraVersao ? `Só encontrei a pasta «${ult.projeto}», que é de outra versão (esta tarefa é a V${v}) — os assets do brief não foram copiados. Cria a pasta desta versão com «Criar pastas no PC».`
+        : ult ? `A pasta «${ult.projeto}» não tem a pasta Assets — os assets do brief não foram copiados.`
+        : `Não encontrei a pasta deste projeto dentro de ${raiz.name} — os assets do brief não foram copiados.`, 'error');
+      return;
+    }
     const doc = await lerBrief(conta, a.url);
     if (!doc || !doc.slides) { aviso('Não consegui ler os slides do brief.', 'error'); return; }
     const n = slideDaTarefa(doc.slides, a.url, t);
@@ -2076,7 +2105,9 @@ const trazerBriefParaRefs = async (t, showToast) => {
       feitos++;
     }
     const oque = (k, ex) => `${k} ${k === 1 ? 'ficheiro' : 'ficheiros'}${ex}`;
-    if (feitos) aviso(`Copiei ${oque(feitos, '')} do slide ${n} do brief para ${d.projeto}\\Assets\\Refs.`, 'success');
+    const palpite = doc.slides.length > 1 && !slideDoLink(a.url) && !(t.briefSlide && t.briefSlide.id === googleId(a.url));
+    const tit = String(sl.texto || '').split('\n')[0].trim().slice(0, 50);
+    if (feitos) aviso(`Copiei ${oque(feitos, '')} do slide ${n}${tit ? ` («${tit}»)` : ''} do brief para ${d.projeto}\\Assets\\Refs.${palpite ? ' Foi a app que escolheu o slide — se não for este, escolhe o certo no brief (★).' : ''}`, 'success');
     else if (ja) aviso(`Os assets do slide ${n} do brief já estavam em ${d.projeto}\\Assets\\Refs.`);
   } catch (e) { aviso(`Não consegui copiar os assets do brief: ${(e && e.message) || e}`, 'error'); }
   finally { BRIEF_A_COPIAR.delete(t.id); }
@@ -2159,6 +2190,8 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const slides = doc && doc.slides;
   const nTarefa = slides ? slideDaTarefa(slides, a.url, tarefa) : null;
   const slideT = nTarefa ? slides[nTarefa - 1] : null;
+  // Escolhido por ti (ou pelo link / brief de um slide só) ou só um palpite da app pelas palavras do nome?
+  const slidePalpite = !!slideT && slides.length > 1 && !slideDoLink(a.url) && !(tarefa && tarefa.briefSlide && tarefa.briefSlide.id === googleId(a.url));
   const tituloSlide = s => (s && String(s.texto || '').split('\n')[0]) || '';
   // Abre já no slide da tarefa — a não ser que haja o bloco «Para o After» (que fica no topo e é o que interessa)
   useEffect(() => { if (aba !== 'texto' || !refSlide.current || !slideT) return; const tx = textosParaAE(slideT.texto); if (!tx.falas.length && !tx.ecra.length) refSlide.current.scrollIntoView({ block: 'start' }); }, [aba, nTarefa, doc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2293,10 +2326,10 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
         <p className="min-w-0 flex-1 text-sm font-medium truncate">{(doc && doc.nome) || a.nome}</p>
         {slides && slides.length > 1 && (
           <select value={nTarefa || ''} onChange={e => { const n = Number(e.target.value); if (n) marcarSlide(n); }} aria-label="O slide desta tarefa"
-            title="O slide do brief que é desta tarefa (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)"
-            className={`max-w-[260px] px-2.5 py-1.5 text-xs rounded-lg font-medium cursor-pointer outline-none ${slideT ? 'bg-amber-400 text-slate-900 hover:bg-amber-300' : 'bg-white/10 text-amber-300 ring-1 ring-amber-400/70 hover:bg-white/15'}`}>
+            title={slidePalpite ? 'A app escolheu este slide pelas palavras do nome da tarefa — se não for este, escolhe o certo (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)' : 'O slide do brief que é desta tarefa (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)'}
+            className={`max-w-[260px] px-2.5 py-1.5 text-xs rounded-lg font-medium cursor-pointer outline-none ${slideT && !slidePalpite ? 'bg-amber-400 text-slate-900 hover:bg-amber-300' : 'bg-white/10 text-amber-300 ring-1 ring-amber-400/70 hover:bg-white/15'}`}>
             {!slideT && <option value="">★ Qual é o slide desta tarefa?</option>}
-            {slides.map(s => <option key={s.n} value={s.n} className="bg-slate-800 text-white">★ Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 40)}` : ''}</option>)}
+            {slides.map(s => <option key={s.n} value={s.n} className="bg-slate-800 text-white">{s.n === nTarefa ? '★ ' : ''}Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 40)}` : ''}{s.n === nTarefa && slidePalpite ? ' (palpite)' : ''}</option>)}
           </select>
         )}
         {/* Ainda não se sabe o slide da tarefa: lê o brief para o encontrar (pode pedir a janela da Google) */}
@@ -3876,27 +3909,47 @@ const EXT_EXPORT = /\.(mp4|mov|m4v|webm|png|jpe?g|webp|gif)$/i;
 const IGNORAR_PROJ = /^(\(Footage\)|@Source|Adobe After Effects Auto-Save|\$RECYCLE\.BIN|System Volume Information|node_modules|\..*)$/i;
 const palavrasP = x => normJ(x).split(' ').filter(w => w.length >= 3 && !/^v\d+$/.test(w) && !/^\d+$/.test(w));
 const permissaoLer = async (d, pedir) => { try { let p = await d.queryPermission({ mode: 'readwrite' }); if (p !== 'granted' && pedir) p = await d.requestPermission({ mode: 'readwrite' }); return p === 'granted'; } catch (e) { return false; } };
-const acharExportsConceito = async (raiz, { conceito, jogo, cliente }) => {
-  const pc = palavrasP(conceito), pj = palavrasP(jogo), pk = palavrasP(cliente);
+// Pastas que só há dentro de um projeto (não se procuram projetos lá dentro) e pastas que arrumam projetos (anos, Videos, Statics)
+const DENTRO_PROJ = /^(@exports|assets|projects|footage|audio|images|refs|renders?|@source)$/i;
+const ARRUMA_PROJ = /^(\d{4}|videos?|statics?)$/i;
+// A marca que o lançador põe em cada pasta de projeto (.tarefa-abrirae, escondida): os códigos das tarefas dessa pasta
+const lerMarcaProj = async dir => {
+  try {
+    const f = await (await dir.getFileHandle('.tarefa-abrirae')).getFile();
+    const j = JSON.parse(String(await f.text()).replace(/^\uFEFF/, ''));
+    const ts = j && j.tarefas; return (Array.isArray(ts) ? ts : ts != null ? [ts] : []).map(String);
+  } catch (e) { return null; }
+};
+const versoesDoNome = n => [...normJ(n).matchAll(/(?:^| )v(\d+)(?= |$)/g)].map(m => Number(m[1]));
+// A versão que tu escolheste para a tarefa (ou a da pasta enviada para o Drive); '' se não houver
+const versaoDaTarefa = t => String((t && t.ficheiros && t.ficheiros.versao) || (/_V(\d+)(?:_|$)/.exec(String((t && t.drive && t.drive.pasta) || '')) || [])[1] || '').replace(/^v/i, '');
+// Procura a pasta do projeto de um conceito dentro da pasta dos projetos (ex.: C:\WORK › Cliente › Jogo › 2026 › Videos › Projeto).
+// Por ordem: a pasta com a marca desta tarefa, a pasta com o nome exato que a app dá ao projeto, e só depois a que tiver mais palavras do conceito
+// (da mesma versão, com as palavras da variação, a começar pelo conceito e com menos palavras a mais).
+const acharExportsConceito = async (raiz, { conceito, jogo, cliente, exato, idTarefa, versao, variacao }) => {
+  const pc = palavrasP(conceito), pj = palavrasP(jogo), pk = palavrasP(cliente), pv = palavrasP(variacao).filter(w => !pc.includes(w));
   if (!pc.length) return null;
   const tem = (nome, ps) => { const n = ` ${normJ(nome)} `; return ps.filter(w => n.includes(` ${w} `) || n.includes(w)).length; };
   const achados = [];
   const fila = [[raiz, 0, []]]; let vistos = 0;
   while (fila.length && vistos < 5000) {
     const [dir, nivel, cam] = fila.shift(); vistos++;
-    const subs = []; let exp = null, ehProjeto = false;
+    const subs = []; let exp = null, temA = false, temP = false, arruma = false;
     try {
       for await (const [nome, e] of dir.entries()) {
         if (e.kind !== 'directory') continue;
         const n = nome.toLowerCase();
-        // Uma pasta de projeto tem a @Exports — ou, acabada de criar, a Assets / Projects (ainda sem exports)
-        if (n === '@exports') { exp = e; ehProjeto = true; continue; }
-        if (n === 'assets' || n === 'projects') ehProjeto = true;
-        if (IGNORAR_PROJ.test(nome) || nivel >= 7) continue;
+        if (n === '@exports') exp = e; else if (n === 'assets') temA = true; else if (n === 'projects') temP = true;
+        if (ARRUMA_PROJ.test(nome)) arruma = true;
+        if (DENTRO_PROJ.test(nome) || IGNORAR_PROJ.test(nome) || nivel >= 7) continue;
         subs.push([e, nome]);
       }
     } catch (e) { /* pasta sem acesso */ }
-    if (ehProjeto) { achados.push({ dir: exp, proj: dir, projeto: cam[cam.length - 1] || dir.name || '', cam }); continue; } // dentro de um projeto não há outros projetos
+    // Uma pasta de projeto tem a @Exports — ou, acabada de criar, a Assets e a Projects. Uma pasta com a Assets e também pastas de anos
+    // ou Videos é a pasta do jogo (ex.: 2_Win_Money_Mahjong › 2026 + Assets): não é um projeto, os projetos estão mais abaixo
+    const forte = !!exp || (temA && temP);
+    if (!arruma && (forte || temA || temP)) achados.push({ dir: exp, proj: dir, projeto: cam[cam.length - 1] || dir.name || '', cam, forte });
+    if (exp && !arruma) continue; // dentro de um projeto não há outros projetos
     // À entrada, se houver uma pasta com o nome do cliente (ou do jogo), procura só aí
     let escolher = subs;
     if (nivel <= 1 && (pk.length || pj.length)) { const f = subs.filter(([, n]) => (pk.length && tem(n, pk) === pk.length) || (pj.length && tem(n, pj) === pj.length)); if (f.length) escolher = f; }
@@ -3905,9 +3958,28 @@ const acharExportsConceito = async (raiz, { conceito, jogo, cliente }) => {
   // A pasta do projeto nem sempre tem o nome todo do conceito (ex.: «Halloween - Trick or Treat Savings» → TRICK_OR_TREAT_SAVINGS):
   // chega ter a maior parte das palavras (com uma palavra só, tem de ser essa)
   const minimo = pc.length === 1 ? 1 : pc.length <= 3 ? 2 / 3 : 0.6;
-  const pontos = a => { const np = tem(a.projeto, pc) / pc.length; if (np < minimo - 1e-9) return 0; return np + (pj.length ? tem(a.cam.join(' '), pj) / pj.length * 0.3 : 0); };
+  const nEx = exato ? normJ(exato) : '', nC = normJ(conceito);
+  const vT = Number(String(versao || '').replace(/^v/i, '')) || 0;
+  if (idTarefa) for (const a of achados) { const m = await lerMarcaProj(a.proj); a.daTarefa = !!(m && m.includes(String(idTarefa))); }
+  const pontos = a => {
+    if (a.daTarefa) return 100; // a pasta tem a marca desta tarefa
+    const nP = normJ(a.projeto);
+    if (nEx && nP === nEx) return 50; // o nome exato que a app dá ao projeto
+    const np = tem(a.projeto, pc) / pc.length; if (np < minimo - 1e-9) return 0;
+    let p = np;
+    const vs = versoesDoNome(a.projeto);
+    if (vT && vs.length) p += vs.includes(vT) ? 0.5 : -0.6; // pasta de outra versão: só se não houver outra
+    if (pv.length) p += tem(a.projeto, pv) / pv.length * 0.3;
+    if (pj.length) p += tem(a.cam.join(' '), pj) / pj.length * 0.3;
+    if (nP.startsWith(nC)) p += 0.2; // começa pelo conceito (Shopping_Center_Interviews_V4… antes de Halloween_Shopping_Center_Interviews_V1)
+    p -= palavrasP(a.projeto).filter(w => !pc.includes(w) && !pv.includes(w)).length * 0.05;
+    if (!a.forte) p -= 0.3;
+    return Math.max(p, 0.001);
+  };
   const l = achados.map(a => ({ ...a, p: pontos(a) })).filter(a => a.p > 0).sort((x, y) => y.p - x.p || x.projeto.length - y.projeto.length);
-  return l[0] || null;
+  const r = l[0]; if (!r) return null;
+  const vr = versoesDoNome(r.projeto);
+  return { ...r, outraVersao: !!(vT && vr.length && !vr.includes(vT) && !r.daTarefa) };
 };
 const exportsNovos = async (dirExp, { desde, ignorar }) => {
   const out = [];
@@ -4167,13 +4239,13 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     if (await pareceProjeto(raizP)) { setAchados({ raizErrada: raizP.name, itens: [] }); setEstadoExp(''); return; }
     setEstadoExp('a procurar');
     try {
-      const kc = `exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`;
+      const kc = kcExp();
       let alvo = novaRaiz ? null : await idbLer(kc);
+      if (!alvo && !novaRaiz) { const ant = await idbLer(`exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`); if (ant && ant.manual) alvo = ant; } // a pasta que escolheste à mão antes desta mudança
       let dirExp = alvo && alvo.dir;
       if (dirExp) { try { const it = dirExp.entries(); await it.next(); } catch (e) { dirExp = null; } } // a pasta mudou de nome ou de sítio: procura outra vez
       if (!dirExp) {
-        const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(t.cid));
-        const a = await acharExportsConceito(raizP, { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '' });
+        const a = await acharExportsConceito(raizP, opcoesProcura());
         if (a && a.dir) { dirExp = a.dir; alvo = { dir: a.dir, projeto: a.projeto }; await idbGravar(kc, { ...alvo, em: Date.now() }); }
         else if (a) { setAchados({ projeto: a.projeto, itens: [], semExports: true }); setEstadoExp(''); return; } // o projeto existe, mas ainda não tem a @Exports
       }
@@ -4189,7 +4261,12 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     const f = () => { if (Date.now() - ult < 15000 || aEnviarRef.current) return; ult = Date.now(); if (!(cacheEnvio.get(t.id) || []).length) procurarExports(false); };
     window.addEventListener('focus', f); return () => window.removeEventListener('focus', f);
   }, [t.id, r.conceito, expDesligado]); // eslint-disable-line react-hooks/exhaustive-deps
-  const kcExp = () => `exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`;
+  // Uma por tarefa (antes era uma por conceito, e projetos de versões diferentes misturavam-se)
+  const kcExp = () => `exp2:${jogo ? jogo.id : ''}:${slugF(r.conceito)}:${t.id}`;
+  const opcoesProcura = () => {
+    const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(t.cid));
+    return { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '', exato: nomeProjetoTarefa(trab, t), idTarefa: t.id, versao: versaoDaTarefa(t), variacao: campoVersao(t.ficheiros, versaoDaTarefa(t), 'variacao', t) || '' };
+  };
   const listarAchados = async (dirExp, projeto, todos) => {
     const ignorar = new Set([...ignoradosRef.current, ...versoesDoConceito(trab, t, slugF(r.conceito)).flatMap(x => x.ficheiros.map(f => f.nome)), ...lista.map(x => nomeDe(x))]);
     const ult = Math.max(0, ...versoesDrive(t.drive).map(d => Date.parse(d.em) || 0));
@@ -4210,7 +4287,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         let ehProj = false;
         for await (const [nome, e] of d.entries()) { if (e.kind !== 'directory') continue; if (nome.toLowerCase() === '@exports') { dirExp = e; break; } if (/^(assets|projects)$/i.test(nome)) ehProj = true; }
         if (!dirExp && ehProj) { setAchados({ projeto, itens: [], semExports: true }); setEstadoExp(''); return; } // é a pasta do projeto, ainda sem @Exports
-        if (!dirExp) { const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(t.cid)); const a = await acharExportsConceito(d, { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '' }); if (a && a.dir) { dirExp = a.dir; projeto = a.projeto; } }
+        if (!dirExp) { const a = await acharExportsConceito(d, opcoesProcura()); if (a && a.dir) { dirExp = a.dir; projeto = a.projeto; } }
         if (!dirExp) dirExp = d; // os exports estão soltos nesta pasta
       }
       await idbGravar(kcExp(), { dir: dirExp, projeto, em: Date.now(), manual: true });
