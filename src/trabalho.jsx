@@ -2121,13 +2121,16 @@ const urlLerGoogle = (url, cid) => {
 const LS_SLIDE_BRIEF = 'brief-slide-3'; // guarda o alvo pronto («id.g…» ou o número); as versões antigas guardavam códigos adivinhados
 const slideGuardadoDe = (tid, fid) => { try { return (JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}')[`${tid}:${fid}`]) || null; } catch (e) { return null; } };
 const guardarSlideDe = (tid, fid, sl) => { try { const o = JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}'); o[`${tid}:${fid}`] = sl; const ks = Object.keys(o); ks.slice(0, Math.max(0, ks.length - 300)).forEach(k => delete o[k]); localStorage.setItem(LS_SLIDE_BRIEF, JSON.stringify(o)); } catch (e) { /* */ } };
+const LS_ABA_BRIEF = 'brief-aba';
+const abaBriefGuardada = () => { try { return localStorage.getItem(LS_ABA_BRIEF) === 'editar' ? 'editar' : 'ver'; } catch (e) { return 'ver'; } };
 const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const tg = tipoGoogle(a.url);
   const conta = contaDe(cid);
   const abas = tg === 'slides' ? [['ver', 'Ver'], ['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['ver', 'Ver'], ['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
   // Folhas e documentos dos clientes abrem só para ler: para mexer é preciso carregar em «Editar»
   const protegido = tg === 'sheets' || tg === 'docs';
-  const [aba, setAba] = useState(tg === 'slides' || protegido ? 'ver' : 'editar');
+  // Nos briefs abre no separador que usaste da última vez («Ver» é mais rápido; «Editar» se é lá que trabalhas)
+  const [aba, setAba] = useState(() => (tg === 'slides' ? abaBriefGuardada() : protegido ? 'ver' : 'editar'));
   const [doc, setDoc] = useState(null); // o que lerBrief devolveu | { erro, ativar, recente, original }
   const [aCarregar, setACarregar] = useState(null); // null | { p, n }
   const [prog, setProg] = useState({});
@@ -2142,7 +2145,11 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
     try { const d = await lerBrief(conta, a.url, (p, n) => setACarregar({ p, n })); setDoc(d); setACarregar(null); return d; }
     catch (e) { setDoc({ erro: e.message, ativar: e.ativar, recente: e.recente, original: e.original }); setACarregar(null); return null; }
   };
-  const abrir = async qual => { setAba(qual); if (qual !== 'editar' && qual !== 'ver') await carregar(); };
+  const abrir = async qual => {
+    setAba(qual);
+    if (tg === 'slides' && (qual === 'ver' || qual === 'editar')) { try { localStorage.setItem(LS_ABA_BRIEF, qual); } catch (e) { /* sem armazenamento */ } }
+    if (qual !== 'editar' && qual !== 'ver') await carregar();
+  };
   // Nos slides, lê logo em fundo (para saber qual é o slide desta tarefa) — só se já houver acesso, sem abrir janelas da Google
   useEffect(() => {
     if (tg !== 'slides') return;
@@ -2967,6 +2974,11 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
                     <Campo rot="Email"><TxtIn type="email" valor={f.email} onGravar={v => set({ email: v })} placeholder="nome@…" className={ic} /></Campo>
                     <Campo rot="NIF / VAT"><TxtIn valor={f.nif} onGravar={v => set({ nif: v })} className={ic} /></Campo>
                     <Campo rot="IBAN"><TxtIn valor={f.iban} onGravar={v => set({ iban: v })} placeholder="PT50…" className={ic} /></Campo>
+                    <Campo rot="Titular da conta"><TxtIn valor={f.titular} onGravar={v => set({ titular: v })} placeholder="como está no banco" className={ic} /></Campo>
+                    <Campo rot="Swift / BIC"><TxtIn valor={f.bic} onGravar={v => set({ bic: v.replace(/\s+/g, '').toUpperCase() })} placeholder="para pagar de fora da SEPA" className={ic} /></Campo>
+                    <Campo rot="Telefone"><TxtIn type="tel" valor={f.telefone} onGravar={v => set({ telefone: v })} placeholder="+351…" className={ic} /></Campo>
+                    <Campo rot="País"><TxtIn valor={f.pais} onGravar={v => set({ pais: v })} placeholder="onde vive" className={ic} /></Campo>
+                    <Campo rot="Morada" largo><TxtIn valor={f.morada} onGravar={v => set({ morada: v })} placeholder="a morada dele/dela, não a do banco" className={ic} /></Campo>
                     <Campo rot="Faz (ex.: vídeo, 3D, banners)" largo><TxtIn valor={f.faz} onGravar={v => set({ faz: v })} className={ic} /></Campo>
                     <Campo rot="Notas" largo><TxtIn valor={f.notas} onGravar={v => set({ notas: v })} placeholder="prazos, como prefere receber briefings…" className={ic} /></Campo>
                     <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2">
