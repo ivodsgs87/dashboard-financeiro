@@ -1789,7 +1789,18 @@ const lerPptx = async blob => {
     if (rNotas) notas = paragrafosXml((await z.texto(juntarCaminho(cam, rNotas.alvo))).replace(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*?type="sldNum"[\s\S]*?<\/p:sp>/g, ''));
     // ligações ao Drive escritas no próprio slide (fora das relações)
     (xml.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)[\w-]{15,}/g) || []).forEach(u => { const id = /([\w-]{15,})$/.exec(u)[1]; if (!vistos.has(id)) { vistos.add(id); videos.push({ id, fonte: 'DRIVE', ligacao: true }); } });
-    slides.push({ n: i + 1, texto: paragrafosXml(xml), notas, videos, imagens });
+    // O código que a Google dá a este slide (é o que vai no link «#slide=id.…»): quando o .pptx foi gravado pela Google,
+    // as formas chamam-se «Google Shape;55;g3fa…_0_7» — a última parte é o slide. NÃO é a posição (o «p3» pode ser o 31.º slide).
+    const cont = {}; (xml.match(/name="Google Shape;[^";]*;[\w-]+"/g) || []).forEach(t => { const k = /;([\w-]+)"$/.exec(t)[1]; cont[k] = (cont[k] || 0) + 1; });
+    const gid = Object.keys(cont).sort((a, b) => cont[b] - cont[a])[0] || null;
+    slides.push({ n: i + 1, gid, texto: paragrafosXml(xml), notas, videos, imagens });
+  }
+  // Os slides que vieram do PowerPoint original (sem nomes da Google) ficam p1, p2, p3… pela ordem em que aparecem
+  {
+    const usados = new Set();
+    slides.forEach(s => { if (s.gid && !usados.has(s.gid)) usados.add(s.gid); else s.gid = null; });
+    let k = 0;
+    slides.forEach(s => { if (!s.gid) { do { k++; } while (usados.has(`p${k}`)); s.gid = `p${k}`; } s.objectId = s.gid; delete s.gid; });
   }
   // imagens do modelo (logótipo, fundos): aparecem em metade dos slides ou mais — não são referências
   const vezes = {}; slides.forEach(s => s.imagens.forEach(x => { vezes[x.caminho] = (vezes[x.caminho] || 0) + 1; }));
@@ -2108,15 +2119,23 @@ const framesDoVideo = async (blob, n = 8) => {
 };
 // «Ver» os slides: o visualizador leve da Google (abre muito mais depressa do que o editor), já no slide da tarefa
 const urlVerSlides = (url, cid, slide) => comConta(`https://docs.google.com/presentation/d/${googleId(url)}/embed?start=false&loop=false${slide ? `&slide=id.${slide}` : ''}`, cid);
+// «Ver» uma folha ou um documento: a pré-visualização da Google, só de leitura (não dá para apagar nada sem querer)
+const urlLerGoogle = (url, cid) => {
+  const id = googleId(url), tg = tipoGoogle(url);
+  const gid = tg === 'sheets' ? (/[#&?]gid=(\d+)/.exec(url || '') || [])[1] : null;
+  return comConta(`https://docs.google.com/${tg === 'sheets' ? 'spreadsheets' : 'document'}/d/${id}/preview`, cid) + (gid ? `#gid=${gid}` : '');
+};
 // O slide de cada tarefa, quando a app o descobriu sozinha (para a próxima vez abrir logo nele, sem esperar)
-const LS_SLIDE_BRIEF = 'brief-slide';
+const LS_SLIDE_BRIEF = 'brief-slide-2'; // (o «brief-slide» antigo guardava códigos adivinhados pela posição, errados nos .pptx)
 const slideGuardadoDe = (tid, fid) => { try { return (JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}')[`${tid}:${fid}`]) || null; } catch (e) { return null; } };
 const guardarSlideDe = (tid, fid, sl) => { try { const o = JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}'); o[`${tid}:${fid}`] = sl; const ks = Object.keys(o); ks.slice(0, Math.max(0, ks.length - 300)).forEach(k => delete o[k]); localStorage.setItem(LS_SLIDE_BRIEF, JSON.stringify(o)); } catch (e) { /* */ } };
 const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const tg = tipoGoogle(a.url);
   const conta = contaDe(cid);
-  const abas = tg === 'slides' ? [['ver', 'Ver'], ['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
-  const [aba, setAba] = useState(tg === 'slides' ? 'ver' : 'editar');
+  const abas = tg === 'slides' ? [['ver', 'Ver'], ['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['ver', 'Ver'], ['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
+  // Folhas e documentos dos clientes abrem só para ler: para mexer é preciso carregar em «Editar»
+  const protegido = tg === 'sheets' || tg === 'docs';
+  const [aba, setAba] = useState(tg === 'slides' || protegido ? 'ver' : 'editar');
   const [doc, setDoc] = useState(null); // o que lerBrief devolveu | { erro, ativar, recente, original }
   const [aCarregar, setACarregar] = useState(null); // null | { p, n }
   const [prog, setProg] = useState({});
@@ -2149,29 +2168,67 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const fidBrief = googleId(a.url);
   const slideJaSabido = (() => {
     const bs = tarefa && tarefa.briefSlide;
-    if (bs && bs.id === fidBrief) return bs.objectId || (bs.n ? `p${bs.n}` : null);
+    if (bs && bs.id === fidBrief) return bs.objectId || null; // escolhido à mão sem código: só se sabe depois de ler o brief
     return slideDoLink(a.url) || (tarefa ? slideGuardadoDe(tarefa.id, fidBrief) : null);
   })();
-  const slideDescoberto = slideT ? (slideT.objectId || (doc && doc.tipo === 'pptx' ? `p${slideT.n}` : null)) : null;
-  const [urlVer, setUrlVer] = useState(() => (tg === 'slides' ? urlVerSlides(a.url, cid, slideJaSabido) : null));
+  const slideDescoberto = slideT ? (slideT.objectId || null) : null;
+  const [urlVer, setUrlVer] = useState(() => (tg === 'slides' ? urlVerSlides(a.url, cid, slideJaSabido) : protegido ? urlLerGoogle(a.url, cid) : null));
+  const slideAberto = useRef(slideJaSabido); // o slide em que o «Ver» abriu
   useEffect(() => {
-    if (tg !== 'slides' || !slideDescoberto || slideJaSabido === slideDescoberto) return;
-    if (tarefa) guardarSlideDe(tarefa.id, fidBrief, slideDescoberto);
-    if (!slideJaSabido) setUrlVer(urlVerSlides(a.url, cid, slideDescoberto)); // da 1.ª vez vai ao slide quando o descobre
+    if (tg !== 'slides' || !slideDescoberto) return;
+    if (tarefa && slideJaSabido !== slideDescoberto) guardarSlideDe(tarefa.id, fidBrief, slideDescoberto);
+    // Abriu sem saber o slide (ou num que afinal não é o da tarefa)? Vai para o certo assim que o descobre
+    if (slideAberto.current !== slideDescoberto) { slideAberto.current = slideDescoberto; setUrlVer(urlVerSlides(a.url, cid, slideDescoberto)); }
   }, [slideDescoberto]); // eslint-disable-line react-hooks/exhaustive-deps
   const urlEditor = (() => {
     const base = urlEditarGoogle(a.url, cid);
     if (!slideT || slideDoLink(a.url)) return base;
     if (slideT.objectId) return `${base.split('#')[0]}#slide=id.${slideT.objectId}`;
-    if (doc && doc.tipo === 'pptx') return `${base.split('#')[0]}#slide=id.p${slideT.n}`; // nos .pptx abertos no Google, os slides costumam chamar-se p1, p2…
     return base;
   })();
   const copiar = async (txt, qual) => { try { await navigator.clipboard.writeText(txt); setCopiado(qual); setTimeout(() => setCopiado(''), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
+  // Folhas/documentos dos clientes: se estiveram em «Editar», ao fechar pergunta à Google se o ficheiro mudou
+  // (só com o acesso que já existe — nunca abre janelas da Google para isto)
+  const edicao = useRef(null); // { desde, base } — a hora em que passou a «Editar» e a última alteração nessa altura
+  const [avisoMud, setAvisoMud] = useState(null);
+  const [aVerificar, setAVerificar] = useState(false);
+  const infoMudanca = async () => {
+    try {
+      const tk = await tokenSemJanela(conta); if (!tk) return null;
+      const r = await fetch(`${DRV}/${encodeURIComponent(googleId(a.url))}?fields=modifiedTime,lastModifyingUser(displayName,me)&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${tk}`, ...chaveRecurso(a.url) } });
+      return r.ok ? await r.json() : null;
+    } catch (e) { return null; }
+  };
+  useEffect(() => {
+    if (!protegido || aba !== 'editar' || edicao.current) return;
+    edicao.current = { desde: Date.now(), base: null };
+    infoMudanca().then(j => { if (j && edicao.current && !edicao.current.base) edicao.current.base = j.modifiedTime || null; });
+  }, [aba]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fechar = async () => {
+    if (protegido && edicao.current && !aVerificar) {
+      setAVerificar(true);
+      const j = await infoMudanca();
+      setAVerificar(false);
+      const ed = edicao.current;
+      const mudou = j && j.modifiedTime && (ed.base ? j.modifiedTime !== ed.base : Date.parse(j.modifiedTime) > ed.desde - 5000);
+      if (mudou) { ed.base = j.modifiedTime; setAvisoMud(j); return; } // da próxima vez só avisa se mudar outra vez
+    }
+    onFechar();
+  };
+  // Esc também passa por esta verificação (corre antes do Esc do painel dos anexos, que fecharia logo)
+  const escRef = useRef(null);
+  escRef.current = () => { if (avisoMud) setAvisoMud(null); else fechar(); };
+  useEffect(() => {
+    if (!protegido) return undefined;
+    const esc = e => { if (e.key !== 'Escape') return; e.stopImmediatePropagation(); e.stopPropagation(); escRef.current(); };
+    window.addEventListener('keydown', esc, true);
+    return () => window.removeEventListener('keydown', esc, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // O slide desta tarefa, escolhido à mão (fica guardado na tarefa; é o que vai para a Refs)
   const marcarSlide = n => {
     const s = slides && slides[n - 1]; if (!s || !tarefa || !mudar) return;
     mudar(tr => opTarefa(tr, tarefa.id, x => ({ ...x, briefSlide: { id: googleId(a.url), n, ...(s.objectId ? { objectId: s.objectId } : {}) } })));
-    if (tg === 'slides') setUrlVer(urlVerSlides(a.url, cid, s.objectId || (doc && doc.tipo === 'pptx' ? `p${n}` : null)));
+    if (tg === 'slides') { slideAberto.current = s.objectId || null; setUrlVer(urlVerSlides(a.url, cid, s.objectId || null)); }
     if (aba !== 'editar' && aba !== 'ver') setAba('ver');
     setChaveIframe(k => k + 1);
   };
@@ -2231,7 +2288,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
     </div>
   );
   return (
-    <div className="fixed inset-0 z-[60] bg-black/85 flex flex-col p-2 sm:p-5 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }}>
+    <div className="fixed inset-0 z-[60] bg-black/85 flex flex-col p-2 sm:p-5 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) fechar(); }}>
       <div className="flex flex-wrap items-center gap-2 mb-2 text-white">
         <p className="min-w-0 flex-1 text-sm font-medium truncate">{(doc && doc.nome) || a.nome}</p>
         {slides && slides.length > 1 && (
@@ -2254,11 +2311,31 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
         )}
         {tg === 'drive' && <button type="button" onClick={descarregarFicheiro} className={btn}>Descarregar {estadoProg(prog[idF])}</button>}
         <a href={urlAbrir(a.url, cid)} target="_blank" rel="noopener noreferrer" className={btn}>Abrir no Google ↗</a>
-        <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
+        <button type="button" onClick={fechar} disabled={aVerificar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25 disabled:opacity-50" aria-label="Fechar">{aVerificar ? '…' : '✕'}</button>
       </div>
-      <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-white">
+      {protegido && aba === 'editar' && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-lg bg-amber-400 text-slate-900 text-xs">
+          <span className="flex-1 min-w-0"><strong>✎ A editar</strong> {tg === 'sheets' ? 'a folha' : 'o documento'} do cliente: o que mudares fica gravado logo.</span>
+          <Info rotulo="Se te enganares">Ctrl+Z desfaz logo. Para repor uma versão anterior: Ctrl+Alt+Shift+H abre o histórico de versões da Google. Ao fechar, a app avisa-te se {tg === 'sheets' ? 'a folha' : 'o documento'} mudou enquanto estava em «Editar».</Info>
+          <button type="button" onClick={() => setAba('ver')} className="shrink-0 px-2.5 py-1 rounded-md bg-slate-900/15 hover:bg-slate-900/25 font-medium">Voltar a Ver</button>
+        </div>
+      )}
+      <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden bg-white">
         {aba === 'ver' && urlVer && <iframe key={'v' + chaveIframe} src={urlVer} title={a.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen" allowFullScreen />}
         {aba === 'editar' && <iframe key={chaveIframe} src={urlEditor} title={a.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-read; clipboard-write" allowFullScreen />}
+        {avisoMud && (
+          <div className="absolute inset-0 z-10 bg-black/60 flex items-center justify-center p-4">
+            <div role="alertdialog" aria-label="O ficheiro mudou" className="max-w-md w-full rounded-xl bg-slate-900 text-slate-100 p-4 space-y-3 shadow-2xl">
+              <p className="font-semibold text-amber-300">⚠ {tg === 'sheets' ? 'A folha' : 'O documento'} mudou enquanto estava em «Editar»</p>
+              <p className="text-sm text-white/80">Última alteração às {new Date(avisoMud.modifiedTime).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}{avisoMud.lastModifyingUser ? (avisoMud.lastModifyingUser.me ? ', feita por ti.' : `, por ${avisoMud.lastModifyingUser.displayName || 'outra pessoa'}.`) : '.'} Se não foi de propósito, repõe a versão anterior no histórico de versões (Ctrl+Alt+Shift+H).</p>
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button type="button" onClick={() => { setAvisoMud(null); setAba('editar'); }} className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Ver no Editar</button>
+                <a href={urlAbrir(a.url, cid)} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs rounded-lg bg-white/15 hover:bg-white/25">Abrir no Google ↗</a>
+                <button type="button" onClick={() => { setAvisoMud(null); onFechar(); }} className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium">Foi de propósito, fechar</button>
+              </div>
+            </div>
+          </div>
+        )}
         {aba !== 'editar' && aba !== 'ver' && (
           <div className="h-full overflow-auto bg-slate-900 text-slate-100 p-4 sm:p-6">
             {aCarregar && <p className="text-sm text-white/70">{aCarregar.n ? `A descarregar a apresentação… ${aCarregar.p != null ? `${Math.round(aCarregar.p * 100)}%` : tamanhoTxt(aCarregar.n)}` : 'A carregar…'}</p>}
