@@ -1636,6 +1636,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
   // Contar (ou não) o mínimo garantido (retainer) no total e no gráfico
   const [comMin, setComMin] = useState(() => { try { return localStorage.getItem('cu-com-minimo') !== '0'; } catch (e) { return true; } });
   const mudarMin = v => { setComMin(v); try { localStorage.setItem('cu-com-minimo', v ? '1' : '0'); } catch (e) { /* sem armazenamento */ } };
+  const [verGraf, setVerGraf] = useState(false); // no telemóvel os gráficos ficam fechados (os recibos vêm logo a seguir)
   if (!temApp) return null;
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
@@ -1687,8 +1688,9 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
           ...(prevSerie ? [{ nome: meses[mPrev - 1], cor: claro ? '#94a3b8' : '#64748b', valores: prevSerie, tracejado: true }] : []),
         ];
         const noDia = i => { const ant = i > 0 ? est.acumulado[i - 1] : 0; const d = est.acumulado[i] - ant; return d > 0 ? [{ valor: `+${f(d)}`, nome: 'entregue nesse dia' }] : []; };
-        return (
-          <div className="mt-3">
+        return (<>
+          <button type="button" onClick={() => setVerGraf(v => !v)} aria-expanded={verGraf} className="sm:hidden mt-2 text-xs text-blue-400">{verGraf ? '▾ Esconder os gráficos' : '▸ Ver os gráficos do mês'}</button>
+          <div className={`mt-3 ${verGraf ? '' : 'hidden sm:block'}`}>
             <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-xs mb-1" style={{ color: 'var(--graf-eixo)' }}>
               <span className="flex items-center gap-1.5"><span className="inline-block w-4 rounded-full" style={{ height: 2, background: '#10b981' }} />{meses[mesNum - 1]}{usaMin ? ' (com mínimo)' : ''}</span>
               {series.some(x => x.nome === 'só produzido') && <span className="flex items-center gap-1.5"><span className="inline-block w-4" style={{ height: 2, backgroundImage: 'repeating-linear-gradient(90deg, #10b981 0 5px, transparent 5px 9px)' }} />só produzido</span>}
@@ -1726,7 +1728,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
               );
             })()}
           </div>
-        );
+        </>);
       })()}
       {est.clientes.length > 0 && (
         <div className="mt-2 space-y-1">
