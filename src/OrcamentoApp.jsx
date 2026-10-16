@@ -4090,7 +4090,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    // ou cria um registo novo «com taxas» no mês da data (como o «Importar Fatura» das Receitas)
    const importarReciboFicheiro = async ({ cid, file, d, alvo, drive, soLigar }) => {
      // O PDF do Drive é o mesmo que o registo já tem: só fica ligado (não entra outra vez)
-     const arrumarDrive = (cid2, data2) => { const cl = (G.clientes || []).find(c => String(c.id) === String(cid2)); if (drive && drive.id && cl && (G.recibosDrive || {}).pasta) carregarTrabalho().then(mod => mod.arrumarNoDrive && mod.arrumarNoDrive({ conta: (G.recibosDrive || {}).conta, pastaUrl: G.recibosDrive.pasta, fileId: drive.id, cliente: cl.nome, data: data2, semCliente: true })).catch(() => {}); };
+     const arrumarDrive = (cid2, data2) => { const cl = (G.clientes || []).find(c => String(c.id) === String(cid2)); if (drive && drive.id && cl && (G.recibosDrive || {}).pasta) carregarTrabalho().then(mod => mod.arrumarNoDrive && mod.arrumarNoDrive({ conta: (G.recibosDrive || {}).conta, pastaUrl: G.recibosDrive.pasta, fileId: drive.id, cliente: cl.nome, data: data2 })).catch(() => {}); };
      if (soLigar && alvo && drive) {
        arrumarDrive(cid, String(d.data || '').slice(0, 10));
        setM(p => { const md = p[alvo.k] || {}; const upd = l => (l || []).map(x => (x.id === alvo.id ? { ...x, driveUrl: drive.url, driveNome: drive.nome, ...(d.data ? { dataRecibo: String(d.data).slice(0, 10) } : {}) } : x)); return { ...p, [alvo.k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
