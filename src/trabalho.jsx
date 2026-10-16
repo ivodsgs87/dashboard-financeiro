@@ -275,6 +275,34 @@ const dataPrazo = iso => { const d = trabDia(iso); if (!d) return ''; return d.s
 const dataHora = iso => { if (!iso) return '—'; const d = new Date(iso); return `${dataCurta(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const paraInputLocal = iso => { if (!iso) return ''; const d = new Date(iso); return `${trabDia(iso)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
+// Links para o lançador do PC (aeproj://): ao carregar mostra «A abrir…» (e não deixa carregar duas vezes);
+// se a app do PC aparecer (a janela do browser perde o foco), mostra «✓ Enviado ao PC» por uns segundos.
+const LinkPC = ({ href, onClick, className = '', title, txtAbrir = 'A abrir…', txtOk = 'Enviado ao PC', children }) => {
+  const [estado, setEstado] = useState(null);
+  const [larg, setLarg] = useState(null);
+  const tms = useRef([]);
+  useEffect(() => () => tms.current.forEach(clearTimeout), []);
+  const clicar = e => {
+    if (estado === 'abrir') { e.preventDefault(); return; }
+    if (onClick) onClick(e);
+    setLarg(e.currentTarget.offsetWidth || null);
+    setEstado('abrir');
+    let saiu = false;
+    const blur = () => { saiu = true; };
+    window.addEventListener('blur', blur);
+    tms.current.push(setTimeout(() => {
+      window.removeEventListener('blur', blur);
+      if (saiu) { setEstado('ok'); tms.current.push(setTimeout(() => { setEstado(null); setLarg(null); }, 2500)); } else { setEstado(null); setLarg(null); }
+    }, 2500));
+  };
+  return (
+    <a href={href} onClick={clicar} aria-busy={estado === 'abrir'} title={title} className={`${className} ${estado ? 'justify-center' : ''}`} style={larg ? { minWidth: larg } : undefined}>
+      {estado === 'abrir'
+        ? <><svg className="w-3.5 h-3.5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".25" strokeWidth="3" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>{txtAbrir}</>
+        : estado === 'ok' ? <span className="text-emerald-500">✓ {txtOk}</span> : children}
+    </a>
+  );
+};
 // Ecrã de telemóvel (< 640 px): uma só consulta partilhada por todas as linhas
 const MQ_TEL = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 639px)') : null;
 const ouvirTel = cb => { if (!MQ_TEL) return () => {}; if (MQ_TEL.addEventListener) MQ_TEL.addEventListener('change', cb); else MQ_TEL.addListener(cb); return () => { if (MQ_TEL.removeEventListener) MQ_TEL.removeEventListener('change', cb); else MQ_TEL.removeListener(cb); }; };
@@ -2362,9 +2390,9 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               const neutro = claro ? 'border-slate-200 text-slate-600 hover:bg-slate-50' : 'border-slate-700 text-slate-300 hover:bg-white/5';
               return (<>
                 {t.pastaPC
-                  ? <a href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaRefs(t, showToast)} className={`${btnTopo} ${neutro}`} title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)"><IcoT n="pasta" className="w-3.5 h-3.5" />Abrir pasta</a>
-                  : <a href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaRefs(t, showToast); }} className={`${btnTopo} ${neutro}`} title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}><IcoT n="pasta" className="w-3.5 h-3.5" />Criar pastas e projeto</a>}
-                <a href={linkAEAbrir(trab, t, clientes)} className={`${btnTopo} ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</a>
+                  ? <LinkPC href={linkAEPasta(trab, t, clientes)} onClick={() => trazerBriefParaRefs(t, showToast)} className={`${btnTopo} ${neutro}`} title="Abre a pasta do projeto no Explorador (se ainda não existir, o lançador pergunta se a cria)"><IcoT n="pasta" className="w-3.5 h-3.5" />Abrir pasta</LinkPC>
+                  : <LinkPC txtAbrir="A criar…" href={linkAECriar(trab, t, clientes)} onClick={() => { mudar(tr => opTarefa(tr, t.id, x => ({ ...x, pastaPC: { em: agoraIso() } }))); trazerBriefParaRefs(t, showToast); }} className={`${btnTopo} ${neutro}`} title={`Cria a pasta do projeto no PC (${ESTRUTURA_PROJETO.map(x => x.split('/')[0]).filter((x, i, a) => a.indexOf(x) === i).join(', ')}…) com o nome da tarefa, cria o projeto do After Effects (com as pastas 00.MASTERCOMPS…) e fixa a pasta em 1.º no Acesso rápido do Explorador. Se já existir, só a abre.`}><IcoT n="pasta" className="w-3.5 h-3.5" />Criar pastas e projeto</LinkPC>}
+                <LinkPC href={linkAEAbrir(trab, t, clientes)} className={`${btnTopo} ${claro ? 'border-blue-200 text-blue-700 hover:bg-blue-50' : 'border-blue-500/30 text-blue-300 hover:bg-blue-500/10'}`} title="Abre o projeto desta tarefa no After Effects (precisa do lançador AbrirAE instalado no PC)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Abrir no After Effects</LinkPC>
               </>);
             })()}
           <span className={`text-sm tabular-nums ml-1 ${sub}`}><HorasVivas t={t} /></span>
@@ -4700,7 +4728,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                       {lista.some(x => x.estado !== 'feito')
                         ? <span className={`shrink-0 text-[11px] ${sub}`} title="Envia primeiro — se a pasta mudar de nome antes, o browser perde os ficheiros">Envia primeiro</span>
                         : <a href={linkAERenomear(trab, t, null, (pastaProj ? pastaProj.novo : nomeProjetoTarefa(trab, t)).trim(), (historico[0] && historico[0].depois) || '')} onClick={() => setTimeout(() => setPastaProj(null), 500)} className={`${btn} shrink-0`}>Mudar no PC</a>}
-                      <a href={linkAEPasta(trab, t, TRAB_ATUAL.clientes)} className={`${btn} shrink-0`} title="Abrir a pasta do projeto no Explorador">Abrir pasta</a>
+                      <LinkPC href={linkAEPasta(trab, t, TRAB_ATUAL.clientes)} className={`${btn} shrink-0`} title="Abrir a pasta do projeto no Explorador">Abrir pasta</LinkPC>
                     </div>
                     <a href={`aeproj://modelo/?tema=${temaApp()}`} className={`inline-block text-[11px] ${sub} hover:text-blue-400`} title="Os projetos novos do After Effects passam a ser uma cópia deste .aep (com as tuas comps, pastas e definições). Os que já existem não mudam.">Escolher o meu projeto modelo do After Effects…</a>
                   </div>
@@ -5343,7 +5371,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
           </label>
           <div className="flex items-center justify-end gap-1.5 ml-auto">
             {x.ficheiros.some(f => f.id) && <button type="button" onClick={() => { if (abN) { alternar(setNomesAb, k); return; } setTocarK(k); setNomesAb(s0 => { const n = new Set(s0); n.add(k); return n; }); }} className={btn} aria-label={abN ? `Fechar a V${x.v}` : `Ver o vídeo da V${x.v}`} title={abN ? 'Fechar' : 'Ver o vídeo (vem do Drive)'}><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button>}
-            <a href={linkAEPara(o)} className={btn} title="Abrir o projeto no After Effects">AE</a>
+            <LinkPC href={linkAEPara(o)} className={btn} title="Abrir o projeto no After Effects" txtAbrir="…" txtOk="">AE</LinkPC>
             {x.url && <a href={urlAbrir(x.url, jogo.cid)} target="_blank" rel="noopener noreferrer" className={btn} title="Abrir a pasta desta versão no Drive">Drive</a>}
             <button type="button" onClick={() => alternar(setNomesAb, k)} aria-expanded={abN} className={`${btn} ${abN ? (claro ? '!bg-blue-50 !border-blue-300 !text-blue-700' : '!bg-blue-500/15 !border-blue-500/50 !text-blue-200') : ''}`}>{abN ? 'Fechar ▴' : temN ? 'Nomes' : 'Mais'}</button>
           </div>
@@ -5410,8 +5438,8 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
                 </div>
               )}
             </div>
-            <a href={linkAEPara(o)} className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white`} title="Abrir o projeto deste conceito no After Effects">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M10 11l4 2.5-4 2.5z" /></svg>Abrir no AE</a>
+            <LinkPC href={linkAEPara(o)} className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white`} title="Abrir o projeto deste conceito no After Effects">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M10 11l4 2.5-4 2.5z" /></svg>Abrir no AE</LinkPC>
           </div>
         </div>
         {ab && (
@@ -5485,7 +5513,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
                         <p className="text-sm truncate"><b className="font-semibold">{marcar(r.c.nome)}</b>{r.x.variacao ? <> · {marcar(r.x.variacao)}</> : null}</p>
                         <p className={`text-xs truncate ${sub}`}>{clis.length > 1 ? `${r.cliente.nome} · ` : ''}{r.jogo.nome} · {r.x.em ? dataCurta(r.x.em) : ''} · <span style={{ color: e.cor }}>{e.nome}</span></p>
                       </div>
-                      <a href={linkAEPara(o)} className={i === selR ? 'inline-flex items-center h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white' : btn}>Abrir no AE</a>
+                      <LinkPC href={linkAEPara(o)} className={i === selR ? 'inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white' : btn}>Abrir no AE</LinkPC>
                       {r.x.t && <button type="button" onClick={() => onAbrir && onAbrir(r.x.t.id)} className={btn}>Tarefa</button>}
                       {r.x.ficheiros.length > 0 && <button type="button" onClick={() => alternar(setNomesAb, k)} aria-expanded={abN} className={btn}>Nomes{abN ? ' ▴' : ''}</button>}
                     </div>
@@ -6489,7 +6517,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const cid = c.id;
   const doCliente = (trab.tarefas || []).filter(t => String(t.cid) === String(cid));
   const faturas = (trab.faturas || []).filter(f => String(f.cid) === String(cid)).sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.numero || 0) - (a.numero || 0));
-  const inicio = faturas.length ? faturas.map(f => f.mes).sort()[0] : null;
+  const daApp = faturas.filter(f => !f.antiga);
+  const inicio = daApp.length ? daApp.map(f => f.mes).sort()[0] : null;
   // Tarefas do mês ainda por faturar, já faturadas, e as que ficaram para trás
   const doMes = doCliente.filter(t => trabEntrega(t).startsWith(pref));
   const jaFat = t => !!(t.faturaId || t.faturada);
@@ -6596,7 +6625,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     setAGerar(false);
   };
   const anular = async f => {
-    if (!await confirmar(`Anular a fatura nº ${f.numero}? As tarefas voltam a ficar por faturar.`)) return;
+    if (!await confirmar(f.antiga ? `Tirar a fatura nº ${f.numero} desta lista?${(f.tarefas || []).length ? ' As tarefas que deste como faturadas voltam a ficar por faturar.' : ''}` : `Anular a fatura nº ${f.numero}? As tarefas voltam a ficar por faturar.`)) return;
     // O registo que a fatura criou em Receitas: sai também (senão, ao gerar a fatura outra vez, contava a dobrar)
     if (f.recibo && onApagarRecibo && await confirmar(`Tirar também o registo desta fatura em Receitas?\n\nSe já lhe juntaste o recibo verde ou o PDF, fica lá (apagas à mão se for preciso).`, { ok: 'Tirar', perigo: true, cancelar: 'Deixar ficar' })) {
       const r = onApagarRecibo(f.recibo, f.id, f.pdf && f.pdf.caminho);
@@ -6608,6 +6637,27 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       tarefas: (tr.tarefas || []).map(t => (t.faturaId === f.id ? (({ faturaId, ...r }) => r)(t) : t)),
       pastas: (tr.pastas || []).map(p => (p.orcamento && (p.orcamento.extras || []).some(e => e.faturaId === f.id) ? { ...p, orcamento: { ...p.orcamento, extras: p.orcamento.extras.map(e => (e.faturaId === f.id ? (({ faturaId, ...r }) => r)(e) : e)) } } : p)),
     }));
+  };
+  const [antiga, setAntiga] = useState(null); // { ficheiro, numero, data, mes, valor, marcar, aGuardar }
+  const novaAntiga = () => { const hoje = new Date(); const d = new Date(hoje.getFullYear(), hoje.getMonth(), 0); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; setAntiga({ ficheiro: null, numero: '', data: iso, mes: iso.slice(0, 7), valor: '', marcar: true }); };
+  const tarefasDoMesAntiga = m => doCliente.filter(t => !jaFat(t) && trabEntrega(t).startsWith(`${m}-`));
+  const guardarAntiga = async () => {
+    const a = antiga; if (!a) return;
+    const valor = Number(String(a.valor).replace(',', '.')) || 0;
+    if (!a.numero || !a.data || !(valor > 0)) { if (showToast) showToast('Põe o número, a data e o valor da fatura.', 'error'); return; }
+    if (faturas.some(f => Number(f.numero) === Number(a.numero))) { if (showToast) showToast(`Já existe uma fatura nº ${a.numero} deste cliente.`, 'error'); return; }
+    setAntiga({ ...a, aGuardar: true });
+    let pdf = null;
+    if (a.ficheiro && onEnviarAnexo) {
+      try { const nome = a.ficheiro.name || `${a.numero}_Invoice.pdf`; const r = await onEnviarAnexo(`faturas/${cid}/${trabId()}-${nome.replace(/[^\w.\-]+/g, '_')}`, a.ficheiro); pdf = { url: r.url, caminho: r.caminho, nome }; }
+      catch (e) { console.error('Fatura antiga PDF:', e); setAntiga({ ...a, aGuardar: false }); if (showToast) showToast('Não consegui guardar o PDF (vê a ligação ao Storage).', 'error'); return; }
+    }
+    const ids = a.marcar ? tarefasDoMesAntiga(a.mes).map(t => t.id) : [];
+    const reg = { id: trabId(), cid, numero: Number(a.numero), data: a.data, mes: a.mes, para: '', linhas: [{ titulo: `Fatura nº ${a.numero}`, resto: '', valor }], subtotal: valor, ivaTaxa: 0, ivaValor: 0, total: valor, tarefas: ids, extras: [], pdf, antiga: true, criada: new Date().toISOString() };
+    const idsS = new Set(ids);
+    mudar(tr => ({ ...tr, faturas: [...(tr.faturas || []), reg], tarefas: (tr.tarefas || []).map(t => (idsS.has(t.id) ? { ...t, faturaId: reg.id } : t)) }));
+    setAntiga(null);
+    if (showToast) showToast(`Fatura nº ${a.numero} junta${ids.length ? ` · ${ids.length} tarefa${ids.length === 1 ? '' : 's'} dada${ids.length === 1 ? '' : 's'} como faturada${ids.length === 1 ? '' : 's'}` : ''}`);
   };
   const abrirAntiga = f => { if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
   const chip = `px-2 py-0.5 rounded-md text-[11px]`;
@@ -6733,19 +6783,53 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
 
       {/* Faturas feitas */}
       <div className={caixa}>
-        <p className="text-sm font-semibold mb-2">Faturas emitidas</p>
-        {!faturas.length ? <p className={`text-sm ${sub}`}>Ainda nenhuma.</p> : (
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <p className="text-sm font-semibold">Faturas emitidas</p>
+          {!antiga && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Uma fatura que fizeste fora da app: fica aqui com o PDF, para a teres à mão">+ Juntar fatura antiga</button>}
+        </div>
+        {antiga && (() => {
+          const nT = tarefasDoMesAntiga(antiga.mes).length;
+          const [am, mm] = antiga.mes.split('-').map(Number);
+          return (
+            <div className={`mb-3 rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}>
+              <p className="text-sm font-medium">Juntar uma fatura feita fora da app</p>
+              <label className={`flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm cursor-pointer ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
+                <input type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) setAntiga(x => ({ ...x, ficheiro: f, numero: x.numero || ((/(\d+)/.exec(f.name) || [])[1] || '') })); e.target.value = ''; }} />
+                <span>📎</span><span className="truncate">{antiga.ficheiro ? antiga.ficheiro.name : 'Escolher o PDF da fatura (opcional)'}</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <CampoF rot="Fatura nº"><input type="number" value={antiga.numero} onChange={e => setAntiga(x => ({ ...x, numero: e.target.value }))} className={ic} /></CampoF>
+                <CampoF rot="Data"><input type="date" value={antiga.data} onChange={e => { const v = e.target.value; setAntiga(x => ({ ...x, data: v, mes: v ? v.slice(0, 7) : x.mes })); }} className={ic} /></CampoF>
+                <CampoF rot="Valor (sem IVA)"><input type="number" step="0.01" value={antiga.valor} onChange={e => setAntiga(x => ({ ...x, valor: e.target.value }))} placeholder="0,00" className={`${ic} text-right tabular-nums`} /></CampoF>
+                <CampoF rot="Trabalho de"><input type="month" value={antiga.mes} onChange={e => setAntiga(x => ({ ...x, mes: e.target.value || x.mes }))} className={ic} /></CampoF>
+              </div>
+              {nT > 0 && (
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={antiga.marcar} onChange={e => setAntiga(x => ({ ...x, marcar: e.target.checked }))} className="accent-blue-500" />
+                  Dar como faturadas as {nT} tarefa{nT === 1 ? '' : 's'} entregue{nT === 1 ? '' : 's'} em {MESES_PT_F[(mm || 1) - 1]} {am} que ainda estão por faturar
+                </label>
+              )}
+              <p className={`text-[11px] ${sub}`}>Fica só na lista (com o PDF, se o juntares). Não cria nada em Receitas: as faturas antigas normalmente já lá estão.</p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={guardarAntiga} disabled={antiga.aGuardar} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{antiga.aGuardar ? 'A guardar…' : 'Juntar'}</button>
+                <button type="button" onClick={() => setAntiga(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
+              </div>
+            </div>
+          );
+        })()}
+        {!faturas.length ? (!antiga && <p className={`text-sm ${sub}`}>Ainda nenhuma.</p>) : (
           <div className="space-y-1">
             {faturas.map(f => (
               <div key={f.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>
                 <span className="font-medium tabular-nums w-12">nº {f.numero}</span>
                 <span className={`text-sm ${sub}`}>{MESES_PT_F[Number(String(f.mes).slice(5, 7)) - 1]} {String(f.mes).slice(0, 4)}</span>
-                <span className={`${chip} ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{(f.tarefas || []).length} tarefas</span>
+                {(f.tarefas || []).length > 0 && <span className={`${chip} ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{f.tarefas.length} tarefas</span>}
+                {f.antiga && <span className={`${chip} ${claro ? 'bg-slate-100 text-slate-500' : 'bg-white/5 text-slate-400'}`} title="Feita fora da app">antiga</span>}
                 {f.recibo && <span className={`${chip} bg-emerald-500/10 text-emerald-500`}>em Receitas</span>}
                 <span className="flex-1" />
                 <span className="tabular-nums font-medium">{cuEur(f.total)}</span>
-                <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>
-                <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>Anular</button>
+                {(!f.antiga || (f.pdf && f.pdf.url)) && <button type="button" onClick={() => abrirAntiga(f)} className="px-2 py-1 rounded-md text-xs text-emerald-400 hover:bg-white/10">📎 PDF</button>}
+                <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>{f.antiga ? 'Tirar' : 'Anular'}</button>
               </div>
             ))}
           </div>
