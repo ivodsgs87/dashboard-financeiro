@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  StableInput, GraficoBarras, meses, Ico, anos, _fmtEUR, CU_TIPOS, trabDia,
-  trabMsTempo, trabEntrega, trabPecas, trabValor, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
-  TemaCtx, VC_DEFAULT
+  StableInput, GraficoBarras, meses, Ico, anos, _fmtEUR, clienteDoNome, CU_TIPOS,
+  trabDia, trabMsTempo, trabEntrega, trabPecas, trabValor, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes,
+  taxaPoupancaDe, TemaCtx, VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -1300,6 +1300,10 @@ const CSS_MOBILE = `
 
 /* Painel no telemóvel: cartões secundários escondidos até carregar em "Ver mais" */
 @media (max-width:639px) { .m-mais-fechado .m-mais { display: none !important; } }
+/* Os controlos do browser (calendários das datas, meses, horas, listas) seguem o tema da app: ícones brancos no escuro.
+   (O index.css invertia só o ícone das datas — com o tema certo já não é preciso.) */
+html input[type="date"]::-webkit-calendar-picker-indicator, html input[type="month"]::-webkit-calendar-picker-indicator,
+html input[type="datetime-local"]::-webkit-calendar-picker-indicator, html input[type="time"]::-webkit-calendar-picker-indicator { filter: none; opacity: .8; cursor: pointer; }
 /* Ecrãs tácteis: botões que só aparecem ao passar o rato ficam sempre visíveis */
 @media (hover: none) { .group .group-hover\\:opacity-100, .group .group-hover\\:opacity-70 { opacity: 1 !important; } }
 `;
@@ -1315,6 +1319,95 @@ const LigacaoDriveRecibos = ({ conta, carregar, showToast }) => {
     ? <p className="text-xs text-emerald-500"><Ico e="🔒"/>Ligado ao Drive{conta ? ` (${conta})` : ''} · <button className="underline text-slate-500 hover:text-red-400" onClick={async () => { try { await mod.desligarDriveSempre(conta); setLigado(false); } catch (e) { showToast(e.message || String(e), 'error'); } }}>Desligar</button></p>
     : <button disabled={aLigar} onClick={async () => { setALigar(true); try { const j = await mod.ligarDriveSempre(conta); setLigado(true); showToast(`Drive ligado${j.email ? ` (${j.email})` : ''} — os recibos passam a ir sozinhos`); } catch (e) { showToast(e.message || String(e), 'error'); } setALigar(false); }}
         className="px-2.5 py-1 text-xs rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50"><Ico e="🔒"/>Manter sempre ligado</button>;
+};
+// Recibos verdes ↔ Google Drive: envia os que faltam no Drive e traz para a app os que só estão no Drive
+// (juntam-se ao registo do mesmo cliente e valor; os que não têm par ficam numa lista para criares em Receitas)
+const SincronizarRecibosDrive = ({ cfg, M, clientes, carregar, showToast, ignorados = [], onEnviar, onJuntar, onCriar, onIgnorar }) => {
+  const [est, setEst] = useState(null); // { a: 'texto do que está a fazer' } | { feito: 'resumo', soltos: [...] }
+  const idDe = u => (/\/d\/([A-Za-z0-9_-]{10,})/.exec(String(u || '')) || [])[1] || null;
+  const correr = async () => {
+    setEst({ a: 'A ver o Drive…' });
+    try {
+      const mod = await carregar();
+      await mod.carregarGis().catch(() => {});
+      const regs = [];
+      Object.entries(M || {}).forEach(([k, md]) => [['regCom', md && md.regCom], ['regSem', md && md.regSem]].forEach(([lista, l]) => (l || []).forEach(r => regs.push({ k, lista, r }))));
+      // 1) Drive → app
+      const noDrive = await mod.listarRecibosDrive({ pastaUrl: cfg.pasta, conta: cfg.conta });
+      const ligadosId = new Set(regs.map(x => idDe(x.r.driveUrl)).filter(Boolean));
+      const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
+      const soltos = noDrive.filter(f => !ligadosId.has(f.id) && !ligadosNome.has(f.name) && !ignorados.includes(f.id));
+      let juntos = 0; const semPar = []; const usados = new Set();
+      for (let i = 0; i < soltos.length; i++) {
+        const f = soltos[i];
+        setEst({ a: `A ler os recibos do Drive que não estão na app (${i + 1} de ${soltos.length})…` });
+        let file = null, d = null;
+        try { file = await mod.ficheiroDoDrive(cfg.conta, f); d = await mod.lerFaturaIA(file); } catch (e) { /* fica na lista */ }
+        const c = d ? clienteDoNome(clientes, d.nomeCliente) : null;
+        const v = d ? Number(d.valorIliquido) || 0 : 0;
+        const dataR = d && /^\d{4}-\d{2}-\d{2}$/.test(String(d.data || '')) ? d.data : ((/(\d{4}-\d{2}-\d{2})/.exec(f.name) || [])[1] || '');
+        let alvo = null;
+        if (c && v > 0 && dataR) {
+          const [y0, m0] = dataR.split('-').map(Number); const cands = [];
+          [-1, 0, 1, 2].forEach(dd => {
+            const t = y0 * 12 + (m0 - 1) + dd, k = `${Math.floor(t / 12)}-${t % 12 + 1}`, md = (M || {})[k] || {};
+            [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
+              if (String(x.cid) !== String(c.id) || usados.has(`${k}:${x.id}`)) return;
+              if (x.reciboVerde || x.driveUrl || ((x.ficheiro || x.ficheiroUrl) && !x.faturaId)) return; // já tem o seu recibo
+              if (Math.abs((Number(x.valIliq ?? x.val) || 0) - v) <= 1) cands.push({ k, lista, r: x, d: Math.abs(dd) });
+            }));
+          });
+          cands.sort((a, b) => a.d - b.d);
+          if (cands.length === 1 || (cands.length > 1 && cands[0].d < cands[1].d)) alvo = cands[0];
+        }
+        if (alvo) {
+          usados.add(`${alvo.k}:${alvo.r.id}`);
+          const patch = { val: v, valIliq: v, iva: Number(d.valorIva) || 0, ...(d.taxaIva != null ? { taxaIva: Number(d.taxaIva) || 0 } : {}), retIRS: Number(d.retencaoIRS) || 0, ...(d.pais ? { pais: d.pais } : {}), reciboVerde: true, driveUrl: f.webViewLink, driveNome: f.name };
+          await onJuntar(alvo.k, alvo.r.id, patch, file);
+          juntos += 1;
+        } else semPar.push({ ...f, file, motivo: !d ? 'a IA não conseguiu ler o PDF' : !c ? `não sei de que cliente é${d.nomeCliente ? ` («${d.nomeCliente}»)` : ''}` : 'não encontrei um registo com este valor em Receitas', resumo: d ? `${d.nomeCliente || '?'} · ${v ? `${v.toFixed(2)} €` : 'sem valor'}${dataR ? ` · ${dataR}` : ''}` : '' });
+      }
+      // 2) App → Drive: os recibos verdes com PDF que ainda não estão lá
+      const faltam = regs.filter(x => (x.r.ficheiro || x.r.ficheiroUrl) && !x.r.driveUrl && (x.r.reciboVerde || !x.r.faturaId) && !usados.has(`${x.k}:${x.r.id}`));
+      let enviados = 0, semAcesso = 0;
+      for (let i = 0; i < faltam.length; i++) {
+        const { k, r } = faltam[i];
+        setEst({ a: `A enviar para o Drive os recibos que lá faltam (${i + 1} de ${faltam.length})…` });
+        let f = null;
+        try {
+          if (r.ficheiro) { const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let j = 0; j < bin.length; j++) u8[j] = bin.charCodeAt(j); f = new File([u8], r.ficheiroNome || 'recibo.pdf', { type: tipo }); }
+          else { const res = await fetch(r.ficheiroUrl); if (res.ok) f = new File([await res.blob()], r.ficheiroNome || 'recibo.pdf', { type: r.ficheiroTipo || 'application/pdf' }); }
+        } catch (e) { f = null; }
+        if (!f) { semAcesso += 1; continue; }
+        if (await onEnviar(k, r.id, f, r)) enviados += 1;
+      }
+      const resumo = [juntos ? `${juntos} recibo${juntos === 1 ? '' : 's'} do Drive junto${juntos === 1 ? '' : 's'} aos registos em Receitas` : '', enviados ? `${enviados} enviado${enviados === 1 ? '' : 's'} para o Drive` : '', semAcesso ? `${semAcesso} com PDF que não consegui abrir para enviar` : '', semPar.length ? `${semPar.length} no Drive sem par na app (em baixo)` : ''].filter(Boolean).join(' · ') || 'Está tudo igual no Drive e na app ✓';
+      setEst({ feito: resumo, soltos: semPar });
+      showToast(`☁ ${resumo}`);
+    } catch (e) { console.error('Recibos ↔ Drive:', e); setEst({ feito: `⚠ ${e.message || e}`, soltos: [] }); }
+  };
+  const tirar = id => setEst(x => (x && x.soltos ? { ...x, soltos: x.soltos.filter(y => y.id !== id) } : x));
+  return (
+    <div className="space-y-2">
+      <button type="button" disabled={!!(est && est.a)} onClick={correr} className="px-2.5 py-1 text-xs rounded-lg border border-sky-500/50 text-sky-400 hover:bg-sky-500/10 disabled:opacity-50">{est && est.a ? 'A sincronizar…' : '☁ Sincronizar agora'}</button>
+      {est && est.a && <p className="text-[11px] text-slate-500">{est.a}</p>}
+      {est && est.feito && <p className="text-[11px] text-slate-500">{est.feito}</p>}
+      {est && est.soltos && est.soltos.length > 0 && (
+        <div className="space-y-1.5">
+          {est.soltos.map(f => (
+            <div key={f.id} className="text-[11px] rounded-lg px-2 py-1.5 bg-amber-500/10 text-amber-500">
+              <a href={f.webViewLink} target="_blank" rel="noopener noreferrer" className="underline break-all">{f.name}</a>
+              <span className="opacity-80"> — {f.motivo}{f.resumo ? ` · ${f.resumo}` : ''}</span>
+              <span className="flex gap-2 mt-1">
+                {f.file && <button type="button" onClick={() => { tirar(f.id); onCriar(f.file, { url: f.webViewLink, nome: f.name }); }} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Criar em Receitas</button>}
+                <button type="button" onClick={() => { tirar(f.id); onIgnorar(f.id); }} className="px-1.5 py-0.5 opacity-80 hover:opacity-100">Ignorar</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 // ── Trabalho guardado por anos: um documento base (pastas, jogos, freelancers…) e um por ano com as tarefas ──
 // Cada tarefa fica no ano em que foi criada (não muda de ano). Assim nenhum documento chega ao limite de 1 MB.
@@ -1357,6 +1450,6 @@ export {
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
   ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, MeuAno, CSS_BASE, CSS_MOBILE,
-  LigacaoDriveRecibos, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
+  LigacaoDriveRecibos, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
