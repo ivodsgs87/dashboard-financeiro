@@ -2937,9 +2937,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            )}
            {faltaActivo && (passadoM ? (
              <div className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
-               <span className="flex-1 min-w-0 text-red-400">
-                 <span className="font-medium"><Ico e="🏦"/>Faltaram {fmt(guia.totPess - guia.fica)} no Activo Bank em {mes}</span>
-                 <span className="block text-xs">Depois das transferências, o Activo Bank ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</span>
+               {/* No telemóvel: só o título (a explicação fica no ⓘ) e os botões passam para baixo */}
+               <span className="basis-full sm:basis-0 sm:flex-1 min-w-0 text-red-400">
+                 <span className="font-medium inline-flex items-center gap-1 flex-wrap"><span><Ico e="🏦"/>Faltaram {fmt(guia.totPess - guia.fica)} no Activo Bank em {mes}</span><Info className="sm:hidden">Depois das transferências, o Activo Bank ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</Info></span>
+                 <span className="hidden sm:block text-xs">Depois das transferências, o Activo Bank ficou com {fmt(guia.fica)}, e as despesas pessoais precisavam de {fmt(guia.totPess)}. {aMais ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para tudo.'}</span>
                </span>
                {aMais > 0 && <button onClick={() => setTab('invest')} className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-400 whitespace-nowrap">Rever a Alocação →</button>}
                <button onClick={irTransf} className="text-xs px-2 py-1 rounded-md hover:bg-red-500/15 text-red-400 whitespace-nowrap">Ver as contas →</button>
@@ -2947,9 +2948,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            ) : (
              // Mês em curso: quase sempre são recibos que ainda não registaste (os clientes pagam ao longo do mês) — não é um défice a sério
              <div className={`w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border text-sm ${claro ? 'border-amber-300 bg-amber-50' : 'border-amber-500/40 bg-amber-500/10'}`}>
-               <span className={`flex-1 min-w-0 ${claro ? 'text-amber-700' : 'text-amber-400'}`}>
-                 <span className="font-medium"><Ico e="⏳"/>Com o que está registado, faltam {fmt(guia.totPess - guia.fica)} no Activo Bank</span>
-                 <span className="block text-xs">Se ainda tens recibos de {mes} por registar, isto acerta quando os registares. {aMais > 0 ? `Se já estão todos, a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'Se já estão todos, as receitas não chegam para as transferências planeadas.'}</span>
+               <span className={`basis-full sm:basis-0 sm:flex-1 min-w-0 ${claro ? 'text-amber-700' : 'text-amber-400'}`}>
+                 <span className="font-medium inline-flex items-center gap-1 flex-wrap"><span><Ico e="⏳"/><span className="hidden sm:inline">Com o que está registado, faltam</span><span className="sm:hidden">Faltam</span> {fmt(guia.totPess - guia.fica)} no Activo Bank</span><Info className="sm:hidden">Com o que está registado. Se ainda tens recibos de {mes} por registar, isto acerta quando os registares. {aMais > 0 ? `Se já estão todos, a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'Se já estão todos, as receitas não chegam para as transferências planeadas.'}</Info></span>
+                 <span className="hidden sm:block text-xs">Se ainda tens recibos de {mes} por registar, isto acerta quando os registares. {aMais > 0 ? `Se já estão todos, a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'Se já estão todos, as receitas não chegam para as transferências planeadas.'}</span>
                </span>
                <button onClick={() => setTab('receitas')} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'bg-amber-100 hover:bg-amber-200 text-amber-800' : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400'}`}>Registar recibos →</button>
                <button onClick={irTransf} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${claro ? 'hover:bg-amber-100 text-amber-800' : 'hover:bg-amber-500/15 text-amber-400'}`}>Ver as contas →</button>
@@ -3322,11 +3323,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        {semReceitas && <p className="text-xs text-slate-400 mt-1">Ainda não há receitas registadas em {nomeEste}: este valor acerta quando registares os recibos.</p>}
        {guia.fica < guia.totPess - 0.5 && !semReceitas && (
          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
-           <p className={`text-xs flex-1 min-w-0 ${passadoM ? 'text-red-400' : 'text-amber-500'}`}>{!passadoM
-             ? `Faltam ${fmt(guia.totPess - guia.fica)} com o que está registado. Se ainda tens recibos de ${nomeEste} por registar, acerta quando os registares.${aMais > 0 ? ` Se já estão todos, baixa a Alocação (tem ${fmt(aMais)} a mais do que sobra).` : ''}`
-             : aMais > 0
-               ? `Faltaram ${fmt(guia.totPess - guia.fica)}: a Alocação tinha ${fmt(aMais)} a mais do que sobrou.`
-               : `Faltaram ${fmt(guia.totPess - guia.fica)}: as receitas registadas não chegaram para as transferências.`}</p>
+           {(() => {
+             const tituloF = !passadoM ? `Faltam ${fmt(guia.totPess - guia.fica)}` : `Faltaram ${fmt(guia.totPess - guia.fica)}`;
+             const porque = !passadoM
+               ? `Com o que está registado. Se ainda tens recibos de ${nomeEste} por registar, acerta quando os registares.${aMais > 0 ? ` Se já estão todos, baixa a Alocação (tem ${fmt(aMais)} a mais do que sobra).` : ''}`
+               : aMais > 0 ? `A Alocação tinha ${fmt(aMais)} a mais do que sobrou.` : 'As receitas registadas não chegaram para as transferências.';
+             // No telemóvel: só «Faltam X» com o porquê no ⓘ, e os botões ficam por baixo
+             return (
+               <p className={`text-xs basis-full sm:basis-0 sm:flex-1 min-w-0 ${passadoM ? 'text-red-400' : 'text-amber-500'}`}>
+                 <span className="sm:hidden inline-flex items-center gap-1 font-medium">{tituloF}<Info>{porque}</Info></span>
+                 <span className="hidden sm:inline">{!passadoM ? `${tituloF} com o que está registado. ${porque.replace(/^Com o que está registado\. /, '')}` : `${tituloF}: ${porque.charAt(0).toLowerCase()}${porque.slice(1)}`}</span>
+               </p>
+             );
+           })()}
            {!passadoM && <button onClick={() => setTab('receitas')} className="text-xs px-2 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 whitespace-nowrap">Registar recibos →</button>}
            {aMais > 0 && <button onClick={() => setTab('invest')} className={`text-xs px-2 py-1 rounded-md whitespace-nowrap ${passadoM ? 'bg-red-500/15 hover:bg-red-500/25 text-red-400' : 'hover:bg-amber-500/15 text-amber-500'}`}>Rever a Alocação →</button>}
          </div>
