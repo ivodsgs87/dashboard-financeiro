@@ -6759,7 +6759,8 @@ const VisorPdf = ({ dados, cheio, onAmpliar, claro }) => {
 // «resolver» (opcional): para os ficheiros soltos que não estão ligados a nada na app, diz de que cliente e data são
 // (e a que registo os ligar: «fid»); «onLigar» recebe essas ligações [{ fid, drive }]
 const soltoNaPasta = cam => { const c = cam || []; return !(c.length === 2 && /^\d{4}$/.test(String(c[0]).trim()) && /º[ _]?Trimestre$/i.test(String(c[1]))); };
-const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 'Arrumar a pasta', resolver, onLigar }) => {
+// prefixar: faturas — o nome do ficheiro ganha o cliente à frente (Sophie_4_Invoice_…), porque na mesma pasta os números repetem-se entre clientes
+const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 'Arrumar a pasta', resolver, onLigar, prefixar = false }) => {
   const [plano, setPlano] = useState(null);
   const ver = async () => {
     setPlano({ a: 'A ver o Drive…' });
@@ -6775,8 +6776,9 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
         if (!info || info.trashed) continue;
         const cam = await caminhoNaRaiz(token, info, raiz);
         if (!cam) { fora += 1; continue; }
-        if (noSitio(cam, alvo, p => p.name)) { certos += 1; continue; }
-        mover.push({ id: it.id, nome: info.name, de: cam.map(p => p.name).join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: it.cliente, data: it.data, pai: (info.parents || [])[0] });
+        const novoNome = prefixar && it.cliente && !clienteDoFicheiroF([{ nome: it.cliente }], info.name) && /^\d{1,5}[_\-\s]/.test(info.name) ? `${prefixoCliente(it.cliente)}${info.name}` : null;
+        if (noSitio(cam, alvo, p => p.name) && !novoNome) { certos += 1; continue; }
+        mover.push({ id: it.id, nome: info.name, novoNome, de: cam.map(p => p.name).join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: it.cliente, data: it.data, pai: (info.parents || [])[0], fid: it.fid || null, drive: it.fid ? { id: it.id, nome: info.name } : null });
       }
       const todos = await docsDaPasta(token, raiz, 3).catch(() => []);
       const semReg = todos.filter(f => !porId.has(f.id));
@@ -6794,8 +6796,9 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
             if (!alvo) { semDono += 1; continue; }
             const drive = { id: f.id, url: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, nome: f.name, mod: f.modifiedTime };
             const cam = f.caminho || [];
-            if (noSitio(cam, alvo)) { certos += 1; if (r.fid) ligar.push({ fid: r.fid, drive }); continue; }
-            mover.push({ id: f.id, nome: f.name, de: cam.join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: r.cliente, data: r.data, pai: f.pai, fid: r.fid || null, drive, novo: !r.fid && !r.copia });
+            const novoNome = prefixar && !clienteDoFicheiroF([{ nome: r.cliente }], f.name) && /^\d{1,5}[_\-\s]/.test(f.name) ? `${prefixoCliente(r.cliente)}${f.name}` : null;
+            if (noSitio(cam, alvo) && !novoNome) { certos += 1; if (r.fid) ligar.push({ fid: r.fid, drive }); continue; }
+            mover.push({ id: f.id, nome: f.name, novoNome, de: cam.join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: r.cliente, data: r.data, pai: f.pai, fid: r.fid || null, drive, novo: !r.fid && !r.copia });
           }
         };
         await Promise.all([um(), um(), um()]);
@@ -6811,8 +6814,8 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
     for (let i = 0; i < P.mover.length; i++) {
       const m = P.mover[i]; setPlano({ ...P, aMover: i + 1 });
       try {
-        const destino = await pastaCliAnoTrim(P.token, P.raiz, m.cliente, m.data); const mv = await moverNoDrive(P.token, m.id, m.pai, destino.id); ok += 1;
-        if (m.fid) lig.push({ fid: m.fid, drive: { ...m.drive, ...(mv && mv.modifiedTime ? { mod: mv.modifiedTime } : {}), ...(mv && mv.webViewLink ? { url: mv.webViewLink } : {}) } });
+        const destino = await pastaCliAnoTrim(P.token, P.raiz, m.cliente, m.data); const mv = await moverNoDrive(P.token, m.id, m.pai, destino.id, m.novoNome); ok += 1;
+        if (m.fid && m.drive) lig.push({ fid: m.fid, drive: { ...m.drive, ...(m.novoNome ? { nome: m.novoNome } : {}), ...(mv && mv.modifiedTime ? { mod: mv.modifiedTime } : {}), ...(mv && mv.webViewLink ? { url: mv.webViewLink } : {}) } });
       } catch (e) { erros += 1; }
     }
     if (lig.length && onLigar) onLigar(lig);
@@ -6832,14 +6835,14 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
           <p>{plano.mover.length ? `${plano.mover.length} ficheiro${plano.mover.length === 1 ? '' : 's'} mudam de pasta` : 'Já está tudo arrumado.'}{plano.certos ? ` · ${plano.certos} já ${plano.certos === 1 ? 'está' : 'estão'} no sítio certo` : ''}{plano.semDono ? ` · ${plano.semDono} sem registo na app (ficam onde estão)` : ''}{plano.fora ? ` · ${plano.fora} fora desta pasta (não mexo)` : ''}</p>
           {plano.mover.length > 0 && (
             <div className={`max-h-48 overflow-y-auto space-y-0.5 font-mono text-[10.5px] ${sub}`}>
-              {plano.mover.map(m => <p key={m.id} className="truncate" title={`${m.nome}: ${m.de} → ${m.para}`}><span className={claro ? 'text-slate-700' : 'text-slate-200'}>{m.nome}</span>: {m.de} → <span className="text-emerald-500">{m.para}</span>{m.novo && resolver ? <span className="text-amber-500"> (não está na app)</span> : null}</p>)}
+              {plano.mover.map(m => <p key={m.id} className="truncate" title={`${m.nome}: ${m.de} → ${m.para}`}><span className={claro ? 'text-slate-700' : 'text-slate-200'}>{m.nome}</span>: {m.de} → <span className="text-emerald-500">{m.para}</span>{m.novoNome ? <span className={sub}> · passa a chamar-se <span className={claro ? 'text-slate-700' : 'text-slate-200'}>{m.novoNome}</span></span> : null}{m.novo && resolver ? <span className="text-amber-500"> (não está na app)</span> : null}</p>)}
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
             {plano.mover.length > 0 && <button type="button" onClick={fazer} disabled={!!plano.aMover} className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-60">{plano.aMover ? `A mover ${plano.aMover} de ${plano.mover.length}…` : `Mover ${plano.mover.length} ficheiro${plano.mover.length === 1 ? '' : 's'}`}</button>}
             {!plano.aMover && <button type="button" onClick={() => setPlano(null)} className={btn}>{plano.mover.length ? 'Cancelar' : 'Fechar'}</button>}
           </div>
-          <p className={sub}>Só muda os ficheiros de pasta (não apaga nem muda nomes). As pastas novas ficam verdes.</p>
+          <p className={sub}>{prefixar ? 'Só muda os ficheiros de pasta e põe o cliente à frente do nome (não apaga nada)' : 'Só muda os ficheiros de pasta (não apaga nem muda nomes)'}. As pastas novas ficam verdes.</p>
         </div>
       )}
     </div>
@@ -7754,7 +7757,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   };
   const ligarSoltas = lista => mudar(tr => ({
     ...tr,
-    faturas: (tr.faturas || []).map(f => { const l = lista.find(x => x.fid === f.id); return l && !(f.drive && f.drive.id) ? { ...f, drive: l.drive } : f; }),
+    faturas: (tr.faturas || []).map(f => { const l = lista.find(x => x.fid === f.id); if (!l) return f; if (!(f.drive && f.drive.id)) return { ...f, drive: l.drive }; return f.drive.id === l.drive.id ? { ...f, drive: { ...f.drive, ...l.drive } } : f; }), // ligar, ou atualizar o nome/url do mesmo ficheiro (ex.: ganhou o cliente no nome)
     faturasDrivePend: (tr.faturasDrivePend || []).filter(p => !lista.some(x => x.drive.id === p.id)),
   }));
   const setFD = patch => mudar(tr => ({ ...tr, faturasDrive: { ...(tr.faturasDrive || {}), ...patch } }));
@@ -7926,8 +7929,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                   <button type="button" onClick={ligarSempreFD} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Manter sempre ligado</button>
                 </p>
               )}
-              {fd.pasta && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={fd.pasta} conta={contaFD} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta das faturas" resolver={resolverFaturaSolta} onLigar={ligarSoltas}
-                itens={(trab.faturas || []).filter(f => f.drive && f.drive.id).map(f => { const cl = (clientes || []).find(x => String(x.id) === String(f.cid)); return { id: f.drive.id, cliente: cl ? cl.nome : '', data: f.data || ultimoDiaDe(f.mes) }; }).filter(x => x.cliente)} /></div>}
+              {fd.pasta && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={fd.pasta} conta={contaFD} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta das faturas" prefixar resolver={resolverFaturaSolta} onLigar={ligarSoltas}
+                itens={(trab.faturas || []).filter(f => f.drive && f.drive.id).map(f => { const cl = (clientes || []).find(x => String(x.id) === String(f.cid)); return { id: f.drive.id, fid: f.id, cliente: cl ? cl.nome : '', data: f.data || ultimoDiaDe(f.mes) }; }).filter(x => x.cliente)} /></div>}
             </div>
           </div>
         )}
@@ -9437,9 +9440,10 @@ const pastaAnoTrim = async (token, pCliId, data) => {
 const pastaCliAnoTrim = async (token, raiz, cliente, data) => { await colorirPasta(token, raiz); return pastaAnoTrim(token, raiz, data); }; // (o cliente já não dá pasta)
 const pastaFaturas = pastaCliAnoTrim;
 // Muda um ficheiro de pasta (não apaga nem muda o nome)
-const moverNoDrive = async (token, id, de, para) => {
-  if (!id || !para || de === para) return null;
-  return driveApi(token, `${DRV}/${encodeURIComponent(id)}?addParents=${encodeURIComponent(para)}${de ? `&removeParents=${encodeURIComponent(de)}` : ''}&supportsAllDrives=true&fields=id,parents,modifiedTime,webViewLink`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+const moverNoDrive = async (token, id, de, para, novoNome) => {
+  if (!id || (!para && !novoNome) || (de === para && !novoNome)) return null;
+  const mudaPasta = para && de !== para;
+  return driveApi(token, `${DRV}/${encodeURIComponent(id)}?${mudaPasta ? `addParents=${encodeURIComponent(para)}${de ? `&removeParents=${encodeURIComponent(de)}` : ''}&` : ''}supportsAllDrives=true&fields=id,name,parents,modifiedTime,webViewLink`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(novoNome ? { name: novoNome } : {}) });
 };
 // Arruma um ficheiro em PASTA / Ano / Trimestre (se ainda não estiver lá)
 const arrumarNoDrive = async ({ conta, pastaUrl, fileId, cliente, data, token: tk }) => {
