@@ -19,7 +19,7 @@ import {
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
   patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos,
-  dividirTrabalho, juntarTrabalho, semCarimbo
+  SincronizarRecibosDrive, dividirTrabalho, juntarTrabalho, semCarimbo
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -2210,7 +2210,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    return L.sort((a, b) => a.dia - b.dia);
  };
  // Tema no <html>: os ajustes de contraste (CSS_BASE) também chegam às janelas abertas por portal
- useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; }, [theme]);
+ useEffect(() => { document.documentElement.dataset.tema = theme === 'light' ? 'claro' : 'escuro'; document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark'; }, [theme]);
 
  // O ClickUp deixou de ser usado: limpa a cópia antiga das tarefas/horas (ficam só os preços e os tipos de tarefa)
  useEffect(() => {
@@ -2264,6 +2264,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    return () => window.removeEventListener('scroll', ver);
  }, []);
  const [acaoRapida, setAcaoRapida] = useState(null);
+ const [importPend, setImportPend] = useState(null); // recibo do Drive para abrir no «Importar Fatura» das Receitas
  // Telemóvel: deslizar o dedo para o lado muda de separador dentro da secção
  const toqueRef = useRef(null);
  const onToqueIni = e => {
@@ -3886,12 +3887,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // RECEITAS
    // (Fica fora do separador Receitas: o Trabalho também o usa quando juntas o PDF a um recibo)
    // Recibo verde → pasta pessoal do Google Drive (Definições → Recibos no Google Drive), por ano e trimestre
-   const enviarReciboDrive = async (k, id, f, rec) => {
+   const enviarReciboDrive = async (k, id, f, rec, calado) => {
      const cfg = G.recibosDrive || {};
-     if (!cfg.pasta || !f) return;
+     if (!cfg.pasta || !f) return false;
      const md = M[k] || {};
      const r = rec || [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id) || {};
-     if (r.driveUrl) return;
+     if (r.driveUrl) return false;
      const cli = (G.clientes || []).find(c => String(c.id) === String(r.cid));
      const empresa = (cli && cli.fat && cli.fat.nomeLegal) || (cli && cli.nome) || r.desc || 'Recibo';
      const [ky, km] = String(k).split('-').map(Number);
@@ -3900,8 +3901,19 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        const mod = await carregarTrabalho();
        const out = await mod.guardarReciboNoDrive({ ficheiro: f, empresa, data, pastaUrl: cfg.pasta, conta: cfg.conta, semJanela: true });
        setM(p => { const m2 = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, driveUrl: out.url, driveNome: out.nome } : x)); return { ...p, [k]: { ...m2, regCom: upd(m2.regCom), regSem: upd(m2.regSem) } }; });
-       showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
-     } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); }
+       if (!calado) showToast(`☁ Recibo no Drive: ${out.pasta}/${out.nome}`);
+       return true;
+     } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); return false; }
+   };
+   // Recibo verde que estava só no Drive: junta-se ao registo (valores lidos pela IA + o PDF guardado na app)
+   const juntarReciboDoDrive = async (k, id, patch, f) => {
+     saveUndo();
+     setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ...patch } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+     if (!f || !(user && user.uid) || typeof enviarAnexo !== 'function') return;
+     try {
+       const r0 = await enviarAnexo(user.uid, `recibos/${k}/${id}-${String(f.name || 'recibo.pdf').replace(/[^\w.\-]+/g, '_')}`, f);
+       setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ...(x.faturaId && x.ficheiroUrl && !x.faturaPdfUrl ? { faturaPdfUrl: x.ficheiroUrl, faturaPdfNome: x.ficheiroNome } : {}), ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: f.name || 'recibo.pdf', ficheiroTipo: f.type || 'application/pdf' } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
+     } catch (e) { console.error('Recibo do Drive → app:', e); }
    };
  const Receitas = () => {
    const [editRecibo, setEditRecibo] = useState(null);
@@ -3913,6 +3925,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const [importCid, setImportCid] = useState(null);       // cliente escolhido à mão no import
    const [importLembrar, setImportLembrar] = useState(true); // guardar o nome da empresa nesse cliente
    const importFileRef = useRef(null); // o PDF/imagem lido — fica guardado no recibo
+   const importDriveRef = useRef(null); // { url, nome } quando o recibo veio do Drive (não volta a ser enviado)
    const [importJuntar, setImportJuntar] = useState(null); // 'novo' ou "k|id" de um recibo que já existe (ex.: criado pela fatura)
    // Recibos que já existem do mesmo cliente e valor (no mês da data e nos vizinhos) — o recibo verde junta-se a esse
    const candidatosRecibo = (cid, ili, kDest) => {
@@ -3941,6 +3954,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
    // Registo rápido (+) no telemóvel: "Ler fatura" abre logo o importador
    useEffect(() => { if (acaoRapida === 'importar') { setShowImportModal(true); setAcaoRapida(null); } }, [acaoRapida]);
+   // Recibo que estava só no Drive (Definições → Recibos no Google Drive → Criar em Receitas)
+   useEffect(() => { if (importPend && importPend.file) { const p = importPend; setImportPend(null); setShowImportModal(true); processarFatura(p.file, p.drive || null); } }, [importPend]); // eslint-disable-line react-hooks/exhaustive-deps
    
    const paisOptions = ['PT', 'UE', 'Fora UE'];
    
@@ -3950,8 +3965,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    };
    
    // Função para processar fatura com Gemini via Firebase Function
-   const processarFatura = async (file) => {
-     importFileRef.current = file; setImportJuntar(null);
+   const processarFatura = async (file, drive = null) => {
+     importFileRef.current = file; importDriveRef.current = drive; setImportJuntar(null);
      setImportLoading(true);
      setImportError('');
      setImportedData(null);
@@ -4034,7 +4049,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          ? { ...c, aliases: [...new Set([...(Array.isArray(c.aliases) ? c.aliases : []), nomeEmpresa])] } : c));
      }
      
+     const dDrive = importDriveRef.current ? { driveUrl: importDriveRef.current.url, driveNome: importDriveRef.current.nome } : {};
+     importDriveRef.current = null;
      const novoRecibo = {
+       ...dDrive,
        id: Date.now(),
        cid: clienteId,
        desc: importedData.descricao || 'Serviços',
@@ -4053,11 +4071,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const alvo = importJuntar === 'novo' ? null : (importJuntar ? cands.find(c => `${c.k}|${c.r.id}` === importJuntar) : cands[0]) || null;
      if (alvo) {
        saveUndo();
-       const patch = { val: novoRecibo.val, valIliq: novoRecibo.valIliq, iva: novoRecibo.iva, taxaIva: novoRecibo.taxaIva, retIRS: novoRecibo.retIRS, pais: novoRecibo.pais, reciboVerde: true };
+       const patch = { val: novoRecibo.val, valIliq: novoRecibo.valIliq, iva: novoRecibo.iva, taxaIva: novoRecibo.taxaIva, retIRS: novoRecibo.retIRS, pais: novoRecibo.pais, reciboVerde: true, ...dDrive };
        setM(p => { const md = p[alvo.k] || defM; return { ...p, [alvo.k]: { ...md, [alvo.lista]: (md[alvo.lista] || []).map(x => (x.id === alvo.r.id ? { ...x, ...patch } : x)) } }; });
        const [ya, ma] = alvo.k.split('-').map(Number);
        showToast(`Recibo verde junto a «${alvo.r.desc || 'recibo'}» (${meses[ma - 1]} ${ya})`);
-       guardarFicheiroRecibo(alvo.k, alvo.r.id, importFileRef.current, { ...alvo.r, data: importedData.data || alvo.r.data });
+       guardarFicheiroRecibo(alvo.k, alvo.r.id, importFileRef.current, { ...alvo.r, ...dDrive, data: importedData.data || alvo.r.data });
        importFileRef.current = null;
        setShowImportModal(false); setImportedData(null);
        return;
@@ -14195,7 +14213,9 @@ ${transacoesOrdenadas.map(t => `<tr>
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
-{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
+{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} contaDriveRecibos={(G.recibosDrive || {}).conta || ''}
+   obterRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (!r) return null; const nome = r.ficheiroNome || `${String(r.desc || 'recibo').replace(/[\\/:*?"<>|]+/g, ' ')}.pdf`; if (!r.ficheiro && r.ficheiroUrl) return { url: r.ficheiroUrl, nome, tipo: r.ficheiroTipo || 'application/pdf' }; if (!r.ficheiro) return null; const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); const blob = new Blob([u8], { type: tipo }); return { url: URL.createObjectURL(blob), blob, nome, tipo, revogar: true }; }}
+   navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
    onApagarCliente={id => uG('clientes', (G.clientes || []).filter(c => c.id !== id))}
    recibosDe={cid => { const out = []; Object.entries(M || {}).forEach(([k, md]) => { const [a, m] = k.split('-').map(Number); if (!a || !m || !md) return; [['com', md.regCom], ['sem', md.regSem]].forEach(([tipo, l]) => (l || []).forEach(r => { if (String(r.cid) === String(cid)) { const { ficheiro, ...resto } = r; out.push({ ...resto, temFicheiro: !!(ficheiro || r.ficheiroUrl), k, ano: a, mes: m, tipo }); } })); }); return out.sort((x, y) => (y.ano * 100 + y.mes) - (x.ano * 100 + x.mes) || String(y.data || '').localeCompare(String(x.data || ''))); }}
@@ -14451,6 +14471,10 @@ ${transacoesOrdenadas.map(t => `<tr>
                  className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
                  onBlur={e => { const v = e.target.value.trim(); if (v !== ((G.recibosDrive || {}).conta || '')) uG('recibosDrive', { ...(G.recibosDrive || {}), conta: v }); }} />
                {(G.recibosDrive || {}).pasta && <LigacaoDriveRecibos conta={(G.recibosDrive || {}).conta} carregar={carregarTrabalho} showToast={showToast} />}
+               {(G.recibosDrive || {}).pasta && <SincronizarRecibosDrive cfg={G.recibosDrive || {}} M={M} clientes={G.clientes || []} carregar={carregarTrabalho} showToast={showToast} ignorados={G.recibosDriveIgnorar || []}
+                 onEnviar={(k, id, f, r) => enviarReciboDrive(k, id, f, r, true)} onJuntar={juntarReciboDoDrive}
+                 onCriar={(file, drive) => { setShowSidebar(false); setTab('receitas'); setImportPend({ file, drive, em: Date.now() }); }}
+                 onIgnorar={id => uG('recibosDriveIgnorar', [...new Set([...(G.recibosDriveIgnorar || []), id])].slice(-500))} />}
              </div>
            </div>
 
