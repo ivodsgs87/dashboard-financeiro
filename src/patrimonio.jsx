@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  StableInput, GraficoBarras, meses, Ico, anos, _fmtEUR, clienteDoNome, CU_TIPOS,
-  trabDia, trabMsTempo, trabEntrega, trabPecas, trabValor, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes,
-  taxaPoupancaDe, TemaCtx, VC_DEFAULT
+  StableInput, GraficoLinhas, GraficoBarras, meses, Ico, anos, _fmtEUR, clienteDoNome,
+  CU_TIPOS, trabDia, trabMsTempo, trabHoras, trabEntrega, trabPecas, trabValor, ehNaoFaturacao,
+  idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, TemaCtx, Info, VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -1000,6 +1000,85 @@ const AnoDetalhe = ({ d, ir, onIr }) => {
     </div>
   );
 };
+// €/h por cliente ao longo dos meses: o valor das tarefas entregues em cada mês (aos preços das tarefas; as subcontratadas
+// pela margem) a dividir pelas horas do cronómetro nessas mesmas tarefas — assim uma tarefa começada num mês e entregue
+// no seguinte não dá picos falsos. Cada cliente com a sua cor; ligas e desligas cada linha na lista.
+const LS_EH_OCULTOS = 'eh-ocultos';
+const EH_CORES = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16'];
+const EuroHoraClientes = ({ trab, G, ano, claro }) => {
+  const [ocultos, setOcultos] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem(LS_EH_OCULTOS) || '[]')); } catch (e) { return new Set(); } });
+  const alternar = id => setOcultos(o => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem(LS_EH_OCULTOS, JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
+  const clientes = G.clientes || [];
+  const dados = useMemo(() => {
+    const porCli = {}; const tot = Array.from({ length: 12 }, () => ({ v: 0, h: 0 }));
+    ((trab && trab.tarefas) || []).forEach(t => {
+      const ent = trabEntrega(t); if (!ent.startsWith(`${ano}-`)) return;
+      const h = trabHoras(t); if (!(h > 0.05)) return; // sem horas registadas não dá para saber o €/h
+      const c = clientes.find(x => String(x.id) === String(t.cid)); if (!c) return;
+      const v = (Number(trabValor(t, G.clickup, clientes)) || 0) - (Number(t.custoOutsourcing) || 0);
+      const m = Number(ent.slice(5, 7)) - 1;
+      const pc = porCli[c.id] || (porCli[c.id] = { c, meses: Array.from({ length: 12 }, () => ({ v: 0, h: 0 })), v: 0, h: 0 });
+      pc.meses[m].v += v; pc.meses[m].h += h; pc.v += v; pc.h += h; tot[m].v += v; tot[m].h += h;
+    });
+    const usados = tot.map((x, i) => (x.h > 0 ? i : -1)).filter(i => i >= 0);
+    return { lista: Object.values(porCli).sort((a, b) => b.h - a.h), tot, ini: usados.length ? usados[0] : -1, fim: usados.length ? usados[usados.length - 1] : -1 };
+  }, [trab, G.clickup, clientes, ano]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (dados.ini < 0) return null;
+  const idx = Array.from({ length: dados.fim - dados.ini + 1 }, (_, k) => dados.ini + k);
+  const corDe = (x, k) => x.c.cor || EH_CORES[k % EH_CORES.length];
+  const horas = h => `${h < 10 ? (Math.round(h * 10) / 10).toString().replace('.', ',') : Math.round(h)} h`;
+  const totV = dados.tot.reduce((a, x) => a + x.v, 0), totH = dados.tot.reduce((a, x) => a + x.h, 0);
+  const brutas = [
+    ...dados.lista.map((x, k) => ({ id: String(x.c.id), x, cor: corDe(x, k) })).filter(s => !ocultos.has(s.id)).map(({ x, cor }) => ({
+      nome: x.c.nome, cor, pontos: true,
+      valores: idx.map(i => (x.meses[i].h > 0 ? x.meses[i].v / x.meses[i].h : null)),
+      fracos: idx.map(i => x.meses[i].h < 5),
+      nomeTip: j => `${x.c.nome} · ${horas(x.meses[idx[j]].h)}`,
+    })),
+    ...(!ocultos.has('_todos') ? [{ nome: 'Todos', cor: claro ? '#64748b' : '#94a3b8', tracejado: true, pontos: true,
+      valores: idx.map(i => (dados.tot[i].h > 0 ? dados.tot[i].v / dados.tot[i].h : null)), fracos: idx.map(i => dados.tot[i].h < 5),
+      nomeTip: j => `Todos · ${horas(dados.tot[idx[j]].h)}` }] : []),
+  ];
+  // Um mês com muito poucas horas (ex.: 1,5 h numa tarefa grande) dava um €/h enorme e esmagava as outras linhas:
+  // esses pontos ficam no topo do gráfico (claros) e o valor certo aparece ao passar o rato
+  const fortes = brutas.flatMap(s => s.valores.filter((v, i) => v != null && !s.fracos[i]));
+  const limite = fortes.length ? Math.max(...fortes) * 1.3 : Infinity;
+  const series = brutas.map(s => ({ ...s, valoresTip: s.valores, valores: s.valores.map((v, i) => (v != null && s.fracos[i] && v > limite ? limite : v)) }));
+  const sub = claro ? 'text-slate-500' : 'text-slate-400';
+  const item = (id, nome, cor, med, h, tracejado) => {
+    const ligado = !ocultos.has(id);
+    return (
+      <button key={id} type="button" onClick={() => alternar(id)} aria-pressed={ligado}
+        className={`flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg text-sm transition-opacity ${ligado ? '' : 'opacity-40'} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+        <span className="w-3 h-3 rounded-full flex-shrink-0" style={tracejado ? { border: `2px dashed ${cor}` } : { background: cor }} />
+        <span className="flex-1 min-w-0 truncate">{nome}</span>
+        <span className="text-right flex-shrink-0">
+          <span className="block font-semibold tabular-nums">{med ? `${_fmtEUR.format(Math.round(med))}/h` : '—'}</span>
+          <span className={`block text-[11px] ${sub}`}>{horas(h)}</span>
+        </span>
+      </button>
+    );
+  };
+  return (
+    <AnoCaixa>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className={`font-semibold ${claro ? 'text-slate-900' : 'text-white'}`}><Ico e="⏱"/>Valor por hora</h3>
+        <Info rotulo="Como é calculado" largura={300}>Em cada mês: o valor das tarefas entregues nesse mês (aos preços das tarefas; as subcontratadas contam pela tua margem) a dividir pelas horas do cronómetro nessas tarefas. Só entram tarefas com horas registadas. Pontos claros: menos de 5 h nesse mês (pouco para tirar conclusões).</Info>
+        <span className={`ml-auto text-xs ${sub}`}>{ano}</span>
+      </div>
+      {series.length === 0 ? <p className={`text-sm py-10 text-center ${sub}`}>Liga pelo menos um cliente na lista.</p> : null}
+      <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex-1 min-w-0">
+          {series.length > 0 && <GraficoLinhas series={series} rotulos={idx.map(i => meses[i].slice(0, 3))} height={240} formatarValor={v => `${_fmtEUR.format(Math.round(v))}/h`} aria="Valor por hora, por cliente" />}
+        </div>
+        <div className="lg:w-60 flex-shrink-0 grid grid-cols-2 lg:grid-cols-1 gap-0.5 content-start">
+          {item('_todos', 'Todos', claro ? '#64748b' : '#94a3b8', totH > 0 ? totV / totH : 0, totH, true)}
+          {dados.lista.map((x, k) => item(String(x.c.id), x.c.nome, corDe(x, k), x.h > 0 ? x.v / x.h : 0, x.h, false))}
+        </div>
+      </div>
+    </AnoCaixa>
+  );
+};
 const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab = null, onMeta = null }) => {
   const [editarMetas, setEditarMetas] = useState(false);
   const [insAberto, setInsAberto] = useState(null); // a frase do «Em resumo» que está aberta
@@ -1354,6 +1433,7 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
           </div>
         </AnoCaixa>
       )}
+      <EuroHoraClientes trab={trab} G={G} ano={ano} claro={claro} />
     </div>
   );
 };
@@ -1623,8 +1703,9 @@ export {
   patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido, patTxEntre,
   patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patSugestaoAportes,
   patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS, ChatTexto,
-  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, MeuAno, CSS_BASE,
-  CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive,
-  resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
+  ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, LS_EH_OCULTOS, EH_CORES,
+  EuroHoraClientes, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe,
+  dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho, juntarTrabalho,
+  semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
