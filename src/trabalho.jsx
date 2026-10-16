@@ -582,7 +582,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
           </>
         )}
       </div>
-      <div className="min-w-0 flex justify-center"><EtiquetaTipo t={t} cu={cu} claro={claro} maxw="max-w-full" /></div>
+      <div className="min-w-0 flex justify-start"><EtiquetaTipo t={t} cu={cu} claro={claro} maxw="max-w-full" /></div>
       <div className="grid grid-cols-[repeat(5,26px)] items-center justify-items-center justify-center">
         <span className="inline-flex">{(t.anexos || []).length > 0 && <ClipAnexos anexos={t.anexos} claro={claro} sub={sub} cid={t.cid} />}</span>
         <span className="inline-flex">{t.notas && String(t.notas).trim() && <button type="button" onClick={e => { e.stopPropagation(); onAbrir(t.id); }} className={`inline-flex items-center px-1 h-5 rounded ${sub} hover:text-blue-400 ${claro ? 'hover:bg-slate-200/70' : 'hover:bg-white/10'}`} title={`Notas: ${String(t.notas).slice(0, 300)}`} aria-label="Ver as notas da tarefa"><IcoT n="nota" className="w-3.5 h-3.5" /></button>}</span>
@@ -735,7 +735,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                 {largo && g.lista.length > 0 && (
                   <div style={{ gridTemplateColumns: gridColunas(cheio) }} className={`grid items-center gap-x-2.5 group/cab px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
                     {(() => { const ks = cheio ? COLS_CHAVES : COLS_CHAVES_CURTO; const cel = (k, no) => <div key={k} className="relative h-full flex items-center min-w-0"><Divisoria chave={k} ant={ks[ks.indexOf(k) - 1] || null} cheio={cheio} />{no}</div>; return <>
-                    {cabOrdem('nome', 'Nome')}{cel('tipo', cabOrdem('tipo', 'Tipo', 'centro'))}{cel('icones', (() => {
+                    {cabOrdem('nome', 'Nome')}{cel('tipo', cabOrdem('tipo', 'Tipo'))}{cel('icones', (() => {
                       // Só mostra o ícone de cada coluna quando alguma tarefa deste grupo o pode ter (ex.: jogos sem Trello não mostram o do Trello)
                       const jg = x => (trab ? jogoDaTarefa(trab, x) : null);
                       const tem = {
@@ -6552,7 +6552,10 @@ const VisorPdf = ({ dados, cheio, onAmpliar, claro }) => {
   );
 };
 // ── Arrumar uma pasta do Drive em Cliente / Ano / Trimestre: mostra primeiro o que muda; só muda de pasta (não apaga nem renomeia) ──
-const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 'Arrumar a pasta' }) => {
+// «resolver» (opcional): para os ficheiros soltos que não estão ligados a nada na app, diz de que cliente e data são
+// (e a que registo os ligar: «fid»); «onLigar» recebe essas ligações [{ fid, drive }]
+const soltoNaPasta = cam => { const c = cam || []; return c.length <= 1 || (/^\d{4}$/.test(String(c[1]).trim()) && !(c.length === 3 && /º_Trimestre$/i.test(String(c[2])))); };
+const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 'Arrumar a pasta', resolver, onLigar }) => {
   const [plano, setPlano] = useState(null);
   const ver = async () => {
     setPlano({ a: 'A ver o Drive…' });
@@ -6572,16 +6575,43 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
         mover.push({ id: it.id, nome: info.name, de: cam.map(p => p.name).join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: it.cliente, data: it.data, pai: (info.parents || [])[0] });
       }
       const todos = await docsDaPasta(token, raiz, 3).catch(() => []);
-      const semDono = todos.filter(f => !porId.has(f.id)).length;
+      const semReg = todos.filter(f => !porId.has(f.id));
+      let semDono = semReg.length; const ligar = [];
+      if (resolver) {
+        // Os soltos (na pasta principal, ou fora de Ano / Trimestre): de quem são e de quando
+        const soltos = semReg.filter(f => soltoNaPasta(f.caminho));
+        semDono -= soltos.length;
+        const fila = [...soltos]; let j = 0;
+        const um = async () => {
+          for (let f = fila.shift(); f; f = fila.shift()) {
+            j += 1; setPlano({ a: `A ver os ficheiros soltos… (${j} de ${soltos.length})` });
+            let r = null; try { r = await resolver(f, token); } catch (e) { r = null; }
+            const alvo = r && r.cliente ? caminhoArrumado(r.cliente, r.data) : null;
+            if (!alvo) { semDono += 1; continue; }
+            const drive = { id: f.id, url: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, nome: f.name, mod: f.modifiedTime };
+            const cam = f.caminho || [];
+            if (cam.length === 3 && cam.every((p, k) => slugF(p) === slugF(alvo[k]))) { certos += 1; if (r.fid) ligar.push({ fid: r.fid, drive }); continue; }
+            mover.push({ id: f.id, nome: f.name, de: cam.join(' / ') || '(pasta principal)', para: alvo.join(' / '), cliente: r.cliente, data: r.data, pai: f.pai, fid: r.fid || null, drive, novo: !r.fid && !r.copia });
+          }
+        };
+        await Promise.all([um(), um(), um()]);
+        mover.sort((x, y) => String(x.para).localeCompare(String(y.para)) || String(x.nome).localeCompare(String(y.nome), 'pt', { numeric: true }));
+        // Ligar à fatura certa não mexe no Drive: faz-se já
+        if (ligar.length && onLigar) onLigar(ligar);
+      }
       setPlano({ mover, certos, fora, semDono, token, raiz });
     } catch (e) { setPlano({ erro: e.message || String(e) }); }
   };
   const fazer = async () => {
-    const P = plano; let ok = 0, erros = 0;
+    const P = plano; let ok = 0, erros = 0; const lig = [];
     for (let i = 0; i < P.mover.length; i++) {
       const m = P.mover[i]; setPlano({ ...P, aMover: i + 1 });
-      try { const destino = await pastaCliAnoTrim(P.token, P.raiz, m.cliente, m.data); await moverNoDrive(P.token, m.id, m.pai, destino.id); ok += 1; } catch (e) { erros += 1; }
+      try {
+        const destino = await pastaCliAnoTrim(P.token, P.raiz, m.cliente, m.data); const mv = await moverNoDrive(P.token, m.id, m.pai, destino.id); ok += 1;
+        if (m.fid) lig.push({ fid: m.fid, drive: { ...m.drive, ...(mv && mv.modifiedTime ? { mod: mv.modifiedTime } : {}), ...(mv && mv.webViewLink ? { url: mv.webViewLink } : {}) } });
+      } catch (e) { erros += 1; }
     }
+    if (lig.length && onLigar) onLigar(lig);
     const txt = `${ok} ficheiro${ok === 1 ? '' : 's'} arrumado${ok === 1 ? '' : 's'} em Cliente / Ano / Trimestre${erros ? ` · ${erros} com erro` : ''}.`;
     setPlano({ feito: `${txt} As pastas antigas que ficaram vazias podes apagá-las à mão no Drive (a app nunca apaga nada).` });
     if (showToast) showToast(`☁ ${txt}`, erros ? 'error' : undefined);
@@ -6598,7 +6628,7 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
           <p>{plano.mover.length ? `${plano.mover.length} ficheiro${plano.mover.length === 1 ? '' : 's'} mudam de pasta` : 'Já está tudo arrumado.'}{plano.certos ? ` · ${plano.certos} já ${plano.certos === 1 ? 'está' : 'estão'} no sítio certo` : ''}{plano.semDono ? ` · ${plano.semDono} sem registo na app (ficam onde estão)` : ''}{plano.fora ? ` · ${plano.fora} fora desta pasta (não mexo)` : ''}</p>
           {plano.mover.length > 0 && (
             <div className={`max-h-48 overflow-y-auto space-y-0.5 font-mono text-[10.5px] ${sub}`}>
-              {plano.mover.map(m => <p key={m.id} className="truncate" title={`${m.nome}: ${m.de} → ${m.para}`}><span className={claro ? 'text-slate-700' : 'text-slate-200'}>{m.nome}</span>: {m.de} → <span className="text-emerald-500">{m.para}</span></p>)}
+              {plano.mover.map(m => <p key={m.id} className="truncate" title={`${m.nome}: ${m.de} → ${m.para}`}><span className={claro ? 'text-slate-700' : 'text-slate-200'}>{m.nome}</span>: {m.de} → <span className="text-emerald-500">{m.para}</span>{m.novo && resolver ? <span className="text-amber-500"> (não está na app)</span> : null}</p>)}
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -6612,7 +6642,7 @@ const ArrumarDrive = ({ pastaUrl, conta, itens, claro, sub, showToast, rotulo = 
   );
 };
 const IcoDoc = ({ d }) => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
-const PainelDoc = ({ doc, claro, vazio }) => {
+const PainelDoc = ({ doc, claro, vazio, altura = 'h-[calc(100vh-170px)] min-h-[420px]', onFechar }) => {
   const [res, setRes] = useState(null);
   const [grande, setGrande] = useState(false); // ampliado por cima da página (sem ocupar o ecrã todo)
   const chave = doc ? doc.chave : null;
@@ -6674,13 +6704,14 @@ const PainelDoc = ({ doc, claro, vazio }) => {
     : <iframe key={res.url} src={res.url} title={doc.titulo} className="w-full h-full border-0 bg-white" />);
   return (
     <>
-      <div className={`flex flex-col overflow-hidden rounded-xl border h-[calc(100vh-170px)] min-h-[420px] ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
-        {cabecalho(false, <button type="button" onClick={() => setGrande(true)} disabled={!ok} className={btn(false)} title="Ampliar" aria-label="Ampliar"><IcoDoc d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></button>)}
+      <div className={`flex flex-col overflow-hidden rounded-xl border ${altura} ${onFechar ? (claro ? 'bg-white shadow-2xl' : 'bg-slate-900 shadow-2xl') : ''} ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+        {cabecalho(false, <button type="button" onClick={() => setGrande(true)} disabled={!ok} className={btn(false)} title="Ampliar" aria-label="Ampliar"><IcoDoc d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></button>,
+          onFechar ? <button type="button" onClick={onFechar} className={`${btn(false)} ml-1`} title="Fechar (Esc)" aria-label="Fechar"><IcoDoc d="M6 6l12 12M18 6L6 18" /></button> : null)}
         <div className={`flex-1 min-h-0 ${claro ? 'bg-slate-100' : 'bg-slate-950/50'}`}>{conteudo(false)}</div>
       </div>
       {grande && ok && createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/70 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) setGrande(false); }}>
-          <div className="flex flex-col overflow-hidden rounded-xl shadow-2xl bg-neutral-900 w-[min(960px,94vw)] h-[92vh] animate-modalIn" role="dialog" aria-modal="true" aria-label={doc ? doc.titulo : 'Documento'}>
+          <div data-doc-grande="1" className="flex flex-col overflow-hidden rounded-xl shadow-2xl bg-neutral-900 w-[min(960px,94vw)] h-[92vh] animate-modalIn" role="dialog" aria-modal="true" aria-label={doc ? doc.titulo : 'Documento'}>
             {cabecalho(true, null, <button type="button" onClick={() => setGrande(false)} className={`${btn(true)} ml-1`} title="Fechar (Esc)" aria-label="Fechar"><IcoDoc d="M6 6l12 12M18 6L6 18" /></button>)}
             <div className="flex-1 min-h-0">{conteudo(true)}</div>
           </div>
@@ -6688,7 +6719,7 @@ const PainelDoc = ({ doc, claro, vazio }) => {
     </>
   );
 };
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos, onMesEmissao }) => {
   // Pasta dos recibos no Drive (a mesma de Definições → Recibos no Google Drive)
   const cfgD = cfgDrive || {};
   const [verCfg, setVerCfg] = useState(false);
@@ -6924,11 +6955,18 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   );
   if (!anos.length) return <div className="space-y-3">{barraImp}{avisoDrive}{caixaImp}{!imp && <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente.{onImportar ? ' Importa-os aqui ou em Receitas.' : ' Junta-os em Receitas.'}</p>}{caixaCfg}</div>;
   const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-  const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
+  const dataDe = r => String(r.dataRecibo || r.data || '');
+  const dataTxt = r => (/^\d{4}-\d{2}-\d{2}/.test(dataDe(r)) ? `${dataDe(r).slice(8, 10)}/${dataDe(r).slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
+  // Guardado em Receitas num mês diferente do da data (o que conta para os impostos e a SS é o mês da emissão do recibo verde)
+  const mesK = d => { const m = /^(\d{4})-(\d{2})-\d{2}/.exec(String(d || '')); return m ? `${+m[1]}-${+m[2]}` : null; };
+  const noutroMes = r => { const kd = mesK(dataDe(r)); return kd && kd !== r.k ? kd : null; };
+  const emissaoNoutro = r => { const kd = mesK(r.dataRecibo || (r.reciboVerde ? r.data : null)); return kd && kd !== r.k ? kd : null; };
+  const nomeMesK = k => { const [a, m] = String(k).split('-').map(Number); return a && m ? `${MESES_PT_F[m - 1]}${a !== new Date().getFullYear() ? ` ${a}` : ''}` : ''; };
+  const paraPassar = (lista || []).filter(emissaoNoutro);
   const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
   const chaveR = r => `${r.k}:${r.id}`;
   const comPainel = largoDoc && !!obterFicheiro;
-  const dia = r => (/^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? Date.parse(String(r.data).slice(0, 10)) : null);
+  const dia = r => (/^\d{4}-\d{2}-\d{2}/.test(dataDe(r)) ? Date.parse(dataDe(r).slice(0, 10)) : null);
   const repetidos = new Set();
   (lista || []).forEach((a, i) => (lista || []).slice(i + 1).forEach(b => { const da = dia(a), db = dia(b); if (da != null && db != null && Math.abs(da - db) <= 2 * 864e5 && Math.abs(ili(a) - ili(b)) <= 1) { repetidos.add(chaveR(a)); repetidos.add(chaveR(b)); } }));
   // Por defeito, o recibo mais recente que tem PDF
@@ -6954,6 +6992,15 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
       </div>
       {avisoDrive}
       {caixaImp}
+      {paraPassar.length > 0 && onMesEmissao && (
+        <div className="rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500 text-xs space-y-1.5">
+          <p>⚠ {paraPassar.length === 1 ? '1 recibo está guardado' : `${paraPassar.length} recibos estão guardados`} em Receitas num mês diferente do da emissão: {paraPassar.map(r => `${dataTxt(r)} (está em ${nomeMesK(r.k)})`).join(', ')}. Para o IVA, a SS e o IRS conta o mês em que o recibo foi emitido.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => { onMesEmissao(paraPassar.map(r => ({ k: r.k, id: r.id }))); if (showToast) showToast(`${paraPassar.length === 1 ? 'Recibo passado' : `${paraPassar.length} recibos passados`} para o mês da emissão (Ctrl+Z desfaz)`); }} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Passar para o mês da emissão</button>
+            <span className="opacity-80">O dinheiro continua a contar para investir no mês seguinte, como até agora.</span>
+          </div>
+        </div>
+      )}
       {anos.map((a, i) => {
         const rs = lista.filter(r => r.ano === a);
         const aberto = anoAberto == null ? i === 0 : anoAberto === a;
@@ -6985,6 +7032,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                         <span className={`px-1.5 rounded ${r.tipo === 'sem' ? (claro ? 'bg-slate-100' : 'bg-white/5') : (claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/10 text-blue-300')}`}>{r.tipo === 'sem' ? 'Sem taxas' : 'Com taxas'}</span>
                         {r.pais && <span>{r.pais}</span>}{r.emitidoPorSara && <span>emitido pela Sara</span>}
                         {repetidos.has(chaveR(r)) && <span className="px-1.5 rounded bg-amber-500/15 text-amber-500" title="Há outro recibo deste cliente com o mesmo valor e a mesma data — se for o mesmo, apaga um deles em Receitas">⚠ repetido?</span>}
+                        {noutroMes(r) && <span className={`px-1.5 rounded ${emissaoNoutro(r) ? 'bg-amber-500/15 text-amber-500' : (claro ? 'bg-slate-100' : 'bg-white/5')}`} title={`Em Receitas está guardado em ${nomeMesK(r.k)}${emissaoNoutro(r) ? ', mas o recibo foi emitido noutro mês' : ''}`}>em Receitas: {nomeMesK(r.k)}</span>}
                       </span>
                     </span>
                     <span className="text-right tabular-nums md:order-none font-medium md:font-normal">{eur(ili(r))}<span className={`md:hidden block text-[11px] ${sub}`}>{num(r.iva) ? `IVA ${eur(r.iva)} · ` : ''}{num(r.retIRS) ? `ret. ${eur(r.retIRS)}` : ''}</span></span>
@@ -7365,19 +7413,43 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   };
   const pdfDaFatura = f => gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva });
   const [aSinc, setASinc] = useState(false);
+  // Faturas emitidas por ano (o da data da fatura), como nos recibos; o mais recente fica aberto
+  const [anoAbertoF, setAnoAbertoF] = useState(null);
+  const anoFat = f => String(f.data || f.mes || '').slice(0, 4) || '—';
   const sincronizarDrive = async () => {
     if (!fd.pasta || aSinc) return;
     setASinc(true);
     try {
+      // 0) as que estão soltas na pasta principal e são deste cliente (pelo nº e o mês do nome): vão para Cliente / Ano / Trimestre
+      const ligadasAgora = new Map(); let arrumadas = 0; const numsSoltos = new Set();
+      try {
+        const raiz = idPastaDrive(fd.pasta); const token = await tokenPara(contaFD);
+        const soltas = (await filhosDrive(token, raiz, false)).filter(x => EXT_DOC.test(x.name));
+        for (const x of soltas) {
+          const n = lerNomeFatura(x.name); if (!n.numero) continue;
+          const casa = f => Number(f.numero) === Number(n.numero) && (!n.mes || mesesDaFatura(f).includes(n.mes));
+          const cands = faturas.filter(casa);
+          const deOutro = (trab.faturas || []).some(o => String(o.cid) !== String(cid) && casa(o));
+          if (cands.length !== 1 || deOutro || (cands[0].drive && cands[0].drive.id && cands[0].drive.id !== x.id)) { numsSoltos.add(Number(n.numero)); continue; }
+          const f = cands[0];
+          const destino = await pastaCliAnoTrim(token, raiz, c.nome, f.data || ultimoDiaDe(f.mes));
+          const mv = await moverNoDrive(token, x.id, raiz, destino.id);
+          const dr = { id: x.id, url: (mv && mv.webViewLink) || x.webViewLink, nome: x.name, mod: (mv && mv.modifiedTime) || x.modifiedTime };
+          ligarDrive(f.id, dr); ligadasAgora.set(f.id, x.id); arrumadas += 1;
+        }
+      } catch (e) { console.warn('Faturas soltas no Drive:', e); }
       const noDrive = await listarFaturasDrive({ cliente: c.nome, pastaUrl: fd.pasta, conta: contaFD });
       const idsDrive = new Set(noDrive.map(x => x.id));
-      const usados = new Set();
-      let enviadas = 0, ligadas = 0, semPdf = 0;
+      const usados = new Set([...ligadasAgora.values()]);
+      let enviadas = 0, ligadas = 0, semPdf = 0, porVer = 0;
       // 1) as da app que ainda não estão no Drive
       for (const f of faturas) {
+        if (ligadasAgora.has(f.id)) continue;
         if (f.drive && idsDrive.has(f.drive.id)) { usados.add(f.drive.id); continue; }
         const igual = noDrive.find(x => !usados.has(x.id) && (x.name === nomePdfDe(f) || (lerNomeFatura(x.name).numero && Number(lerNomeFatura(x.name).numero) === Number(f.numero))));
         if (igual) { usados.add(igual.id); ligarDrive(f.id, igual); ligadas += 1; continue; }
+        // há um ficheiro solto com este nº na pasta principal (de que cliente não sei): não envia outra cópia
+        if (numsSoltos.has(Number(f.numero))) { porVer += 1; continue; }
         let fich = null;
         if (f.pdf && f.pdf.url) { try { const r = await fetch(f.pdf.url); if (r.ok) fich = new File([await r.blob()], nomePdfDe(f), { type: 'application/pdf' }); } catch (e) { /* sem acesso direto */ } }
         if (!fich && !f.antiga) fich = new File([pdfDaFatura(f)], nomePdfDe(f), { type: 'application/pdf' });
@@ -7392,7 +7464,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         for (const x of novos) { try { itens.push({ file: await ficheiroDoDrive(contaFD, x), drive: { id: x.id, url: x.webViewLink, nome: x.name, mod: x.modifiedTime } }); } catch (e) { console.error('Drive → app:', e); } }
         if (itens.length) juntarFicheiros(itens);
       }
-      if (showToast) showToast([enviadas ? `${enviadas} enviada${enviadas === 1 ? '' : 's'} para o Drive` : '', ligadas ? `${ligadas} ligada${ligadas === 1 ? '' : 's'} à que já lá estava` : '', novos.length ? `${novos.length} no Drive que não ${novos.length === 1 ? 'estava' : 'estavam'} aqui — confirma e carrega em Juntar` : '', semPdf ? `${semPdf} sem PDF para enviar` : ''].filter(Boolean).join(' · ') || 'Está tudo igual no Drive e aqui ✓');
+      if (showToast) showToast([arrumadas ? `${arrumadas} arrumada${arrumadas === 1 ? '' : 's'} em ${c.nome} / Ano / Trimestre` : '', porVer ? `${porVer} com um ficheiro solto na pasta principal — usa «Arrumar a pasta das faturas» (em Os meus dados)` : '', enviadas ? `${enviadas} enviada${enviadas === 1 ? '' : 's'} para o Drive` : '', ligadas ? `${ligadas} ligada${ligadas === 1 ? '' : 's'} à que já lá estava` : '', novos.length ? `${novos.length} no Drive que não ${novos.length === 1 ? 'estava' : 'estavam'} aqui — confirma e carrega em Juntar` : '', semPdf ? `${semPdf} sem PDF para enviar` : ''].filter(Boolean).join(' · ') || 'Está tudo igual no Drive e aqui ✓');
     } catch (e) { console.error('Sincronizar faturas:', e); if (showToast) showToast(`Não consegui falar com o Drive: ${e.message || e}`, 'error'); }
     setASinc(false);
   };
@@ -7406,6 +7478,34 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     setARever(null);
   };
   const ignorarPend = p => mudar(tr => ({ ...tr, faturasDrivePend: (tr.faturasDrivePend || []).filter(x => x.id !== p.id), faturasDriveIgnorar: [...new Set([...(tr.faturasDriveIgnorar || []), p.id])].slice(-500) }));
+  // «Arrumar a pasta das faturas»: os ficheiros soltos que ainda não estão ligados a nenhuma fatura da app.
+  // De que fatura são: pelo nº e o mês do nome (ex.: 8_Invoice_December_25); se não chegar, a IA lê o PDF (cliente e data).
+  const mesesDaFatura = x => [String(x.mes || '').slice(0, 7), String(x.data || '').slice(0, 7)];
+  const resolverFaturaSolta = async f => {
+    const todas = trab.faturas || [];
+    const nomeCli = x => { const cl = (clientes || []).find(y => String(y.id) === String(x.cid)); return cl ? cl.nome : ''; };
+    const deFat = x => ({ cliente: nomeCli(x), data: x.data || ultimoDiaDe(x.mes), fid: x.drive && x.drive.id ? null : x.id, copia: !!(x.drive && x.drive.id) });
+    const n = lerNomeFatura(f.name);
+    const cands = n.numero ? todas.filter(x => Number(x.numero) === Number(n.numero) && (!n.mes || mesesDaFatura(x).includes(n.mes))) : [];
+    const cam = f.caminho || [];
+    const c0 = cam.length ? clienteDoNomeF(clientes, cam[0]) : null;
+    if (cam.length && !c0) return null; // numa pasta que não é de um cliente: não mexe
+    const doC0 = c0 ? cands.filter(x => String(x.cid) === String(c0.id)) : cands;
+    const x1 = doC0.length === 1 ? doC0[0] : doC0.find(y => y.pdf && y.pdf.nome === f.name);
+    if (x1 && nomeCli(x1)) return deFat(x1);
+    let d = null; try { d = await lerFaturaIA(await ficheiroDoDrive(contaFD, f)); } catch (e) { d = null; }
+    const c2 = c0 || (d ? clienteDoNomeF(clientes, d.nomeCliente) : null);
+    if (!c2) return null;
+    const y = cands.find(z => String(z.cid) === String(c2.id)) || (n.numero ? todas.find(z => String(z.cid) === String(c2.id) && Number(z.numero) === Number(n.numero) && !(z.drive && z.drive.id)) : null);
+    if (y) return deFat(y);
+    const v = valoresIA(d, n);
+    return v.data ? { cliente: c2.nome, data: v.data } : null;
+  };
+  const ligarSoltas = lista => mudar(tr => ({
+    ...tr,
+    faturas: (tr.faturas || []).map(f => { const l = lista.find(x => x.fid === f.id); return l && !(f.drive && f.drive.id) ? { ...f, drive: l.drive } : f; }),
+    faturasDrivePend: (tr.faturasDrivePend || []).filter(p => !lista.some(x => x.drive.id === p.id)),
+  }));
   const setFD = patch => mudar(tr => ({ ...tr, faturasDrive: { ...(tr.faturasDrive || {}), ...patch } }));
   const [sempreFD, setSempreFD] = useState(() => ligadoSempre(contaFD || '_'));
   useEffect(() => { let vivo = true; sincronizarSempre().then(() => { if (vivo) setSempreFD(ligadoSempre(contaFD || '_')); }); return () => { vivo = false; }; }, [contaFD]);
@@ -7569,7 +7669,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                   <button type="button" onClick={ligarSempreFD} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10">Manter sempre ligado</button>
                 </p>
               )}
-              {fd.pasta && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={fd.pasta} conta={contaFD} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta das faturas"
+              {fd.pasta && <div className="sm:col-span-2"><ArrumarDrive pastaUrl={fd.pasta} conta={contaFD} claro={claro} sub={sub} showToast={showToast} rotulo="Arrumar a pasta das faturas" resolver={resolverFaturaSolta} onLigar={ligarSoltas}
                 itens={(trab.faturas || []).filter(f => f.drive && f.drive.id).map(f => { const cl = (clientes || []).find(x => String(x.id) === String(f.cid)); return { id: f.drive.id, cliente: cl ? cl.nome : '', data: f.data || ultimoDiaDe(f.mes) }; }).filter(x => x.cliente)} /></div>}
               <p className={`sm:col-span-2 text-[11px] ${sub}`}>Cada fatura fica em <strong>pasta das faturas / Cliente / Ano / Nº_Trimestre</strong>, pela data da fatura (se guardares uma solta na pasta principal, a app arruma-a). O nº e o mês vêm do nome do ficheiro (ex.: 8_Invoice_October_26.pdf). As pastas que a app usa ficam verdes no Drive, para se ver que estão ligadas à app. A app nunca apaga nada no Drive.</p>
             </div>
@@ -7582,7 +7682,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <p className="text-sm font-semibold">Faturas emitidas</p>
           <span className="flex items-center gap-3">
-            {fd.pasta && <button type="button" onClick={sincronizarDrive} disabled={aSinc} className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-60" title={`Envia para o Drive as que lá faltam e traz as que estão no Drive e não estão aqui (FATURAS / ${c.nome} / ano / mês)`}>{aSinc ? 'A ver o Drive…' : '☁ Sincronizar com o Drive'}</button>}
+            {fd.pasta && <button type="button" onClick={sincronizarDrive} disabled={aSinc} className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-60" title={`Envia para o Drive as que lá faltam e traz as que estão no Drive e não estão aqui (pasta das faturas / ${c.nome} / Ano / Trimestre; as soltas na pasta principal são arrumadas)`}>{aSinc ? 'A ver o Drive…' : '☁ Sincronizar com o Drive'}</button>}
             {!antigas && <button type="button" onClick={novaAntiga} className="text-xs text-blue-400 hover:text-blue-300" title="Faturas que fizeste fora da app: ficam aqui com o PDF, para as teres à mão">+ Juntar faturas antigas</button>}
           </span>
         </div>
@@ -7650,8 +7750,22 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
           );
         })()}
         {!faturas.length ? (!antigas && <p className={`text-sm ${sub}`}>Ainda nenhuma.</p>) : (
-          <div className="space-y-1">
-            {faturas.map(f => (
+          <div className="space-y-2">
+            {[...new Set(faturas.map(anoFat))].sort((a, b) => b.localeCompare(a)).map((a, i) => {
+            const fs = faturas.filter(f => anoFat(f) === a);
+            const aberto = anoAbertoF == null ? i === 0 : anoAbertoF === a;
+            const tot = fs.reduce((x, f) => x + (Number(f.total) || 0), 0);
+            return (
+            <div key={a} className={`rounded-xl border ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
+              <button type="button" onClick={() => setAnoAbertoF(aberto ? '-' : a)} aria-expanded={aberto} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
+                <span className={`text-[10px] ${sub}`} style={{ transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                <span className="font-semibold">{a}</span>
+                <span className={`text-xs ${sub}`}>{fs.length} fatura{fs.length === 1 ? '' : 's'}</span>
+                <span className="flex-1" />
+                <span className="text-sm tabular-nums"><strong>{cuEur(tot)}</strong></span>
+              </button>
+              {aberto && <div className={`border-t px-1 py-1 space-y-1 ${claro ? 'border-slate-100' : 'border-white/[0.05]'}`}>
+            {fs.map(f => (
               <div key={f.id} onClick={largoDoc ? e => { if (!e.target.closest('button,a')) setDocSel(f.id); } : undefined}
                 className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 rounded-lg ${largoDoc ? 'cursor-pointer' : ''} ${largoDoc && fPrev && fPrev.id === f.id && docSel !== 'rascunho' ? (claro ? 'bg-blue-50 ring-1 ring-blue-200' : 'bg-blue-500/10 ring-1 ring-blue-500/30') : (claro ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]')}`}>
                 <span className="font-medium tabular-nums w-12">nº {f.numero}</span>
@@ -7667,6 +7781,10 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
                 <button type="button" onClick={() => anular(f)} className={`px-2 py-1 rounded-md text-xs ${sub} hover:text-red-400`}>{f.antiga ? 'Tirar' : 'Anular'}</button>
               </div>
             ))}
+              </div>}
+            </div>
+            );
+            })}
           </div>
         )}
       </div>
@@ -7674,6 +7792,23 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
     {largoDoc && <div className="sticky top-[150px] min-w-0"><PainelDoc doc={docPrev} claro={claro} vazio="Ainda não há faturas deste cliente." /></div>}
     </div>
   );
+};
+
+// Um documento numa janela por cima da página (ex.: o clip 📎 de um recibo nas Receitas): ver, ampliar, descarregar
+const PreviewDocModal = ({ doc, claro, onFechar }) => {
+  const fechar = useRef(onFechar); fechar.current = onFechar;
+  useEffect(() => {
+    const k = e => { if (e.key !== 'Escape' || document.querySelector('[data-doc-grande]')) return; e.stopImmediatePropagation(); e.preventDefault(); fechar.current(); };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, []);
+  if (!doc) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[65] flex items-center justify-center p-3 sm:p-6 bg-black/60 animate-backdropIn" onMouseDown={e => { if (e.target === e.currentTarget) fechar.current(); }}>
+      <div className="w-[min(760px,94vw)] h-[88vh] animate-modalIn" role="dialog" aria-modal="true" aria-label={doc.titulo || 'Documento'}>
+        <PainelDoc doc={doc} claro={claro} altura="h-full" onFechar={() => fechar.current()} />
+      </div>
+    </div>, document.body);
 };
 
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
@@ -8280,7 +8415,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 // ══ O separador ══
 const NAV_TRAB_FEITO = new Set();
 const ORDEM_VISIVEL = { ids: [] };
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -8576,10 +8711,24 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
         </button>
       )}
       {onCliente && (
-        <button type="button" onClick={() => setSel({ tipo: 'clientes' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'clientes' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
-          <IcoT n="pessoas" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Clientes
-        </button>
+        <div className={`flex items-center rounded-lg !mt-0.5 ${sel.tipo === 'clientes' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+          <button type="button" onClick={() => setSel({ tipo: 'clientes' })} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-sm text-left">
+            <IcoT n="pessoas" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Clientes
+          </button>
+          {clientes.some(c => c.estado !== 'antigo') && <button type="button" onClick={() => alternarSecao('menu-clientes')} aria-expanded={!secFechadas.has('menu-clientes')} title={secFechadas.has('menu-clientes') ? 'Mostrar os clientes' : 'Esconder os clientes'} className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-md ${claro ? 'hover:bg-slate-200' : 'hover:bg-white/10'}`}>{seta(secFechadas.has('menu-clientes'))}</button>}
+        </div>
       )}
+      {onCliente && !secFechadas.has('menu-clientes') && clientes.filter(c => c.estado !== 'antigo').sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt')).map(c => {
+        const n = (trab.tarefas || []).filter(t => String(t.cid) === String(c.id) && t.estado !== 'feito').length;
+        const ativo = sel.tipo === 'cliente' && String(sel.id) === String(c.id) && aba === 'ficha';
+        return (
+          <button key={c.id} type="button" onClick={() => { setSel({ tipo: 'cliente', id: c.id }); setAba('ficha'); }} title={`Ficha de ${c.nome}`} className={`w-full flex items-center gap-2 pl-8 pr-2 py-1 rounded-lg text-[13px] text-left !mt-0 ${ativo ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.cor || '#64748b' }} />
+            <span className="flex-1 min-w-0 truncate">{c.nome}</span>
+            {n > 0 && <span className={`text-[11px] tabular-nums ${sub}`}>{n}</span>}
+          </button>
+        );
+      })}
       <div className={`flex items-center rounded-lg !mt-0.5 ${sel.tipo === 'freelancers' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <button type="button" onClick={() => setSel({ tipo: 'freelancers' })} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-sm text-left">
           <IcoT n="freelancer" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Freelancers
@@ -8875,7 +9024,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
             } : null} />}
           {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} showToast={showToast} inputClass={inputClass}
-            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
+            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onMesEmissao={onMesEmissaoRecibos} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
@@ -8969,7 +9118,7 @@ const tipoDoNome = n => (/\.png$/i.test(n) ? 'image/png' : /\.jpe?g$/i.test(n) ?
 const docsDaPasta = async (token, id, niveis) => {
   const out = [];
   const andar = async (pid, n, caminho) => {
-    (await filhosDrive(token, pid, false)).filter(f => EXT_DOC.test(f.name)).forEach(f => out.push({ ...f, caminho }));
+    (await filhosDrive(token, pid, false)).filter(f => EXT_DOC.test(f.name)).forEach(f => out.push({ ...f, caminho, pai: pid }));
     if (n > 0) for (const p of await filhosDrive(token, pid, true)) await andar(p.id, n - 1, [...caminho, p.name]);
   };
   await andar(id, niveis, []);
@@ -9117,6 +9266,17 @@ const verificarFaturasDrive = async ({ trab, clientes, conta, desde }) => {
   const jaPend = new Set((trab.faturasDrivePend || []).map(p => p.id));
   const acoes = []; let falhou = null;
   const pend = (f, cid, motivo) => { if (!jaPend.has(f.id)) acoes.push({ tipo: 'pend', item: { id: f.id, nome: f.name, url: f.webViewLink, mod: f.modifiedTime, cid: cid != null ? cid : null, motivo } }); };
+  const nomeCliDe = cid => { const cl = (clientes || []).find(x => String(x.id) === String(cid)); return cl ? cl.nome : ''; };
+  // Solta (fora de Cliente / Ano / Trimestre): arruma-a na pasta certa (só muda de pasta, não apaga nada)
+  const arrumarSolta = async (f, cam, nomeCli, data, drive) => {
+    if (cam.length >= 3 && /º_Trimestre$/i.test(String((cam[2] || {}).name || ''))) return;
+    if (!nomeCli || !data) return;
+    try {
+      const destino = cam.length ? await pastaAnoTrim(token, cam[0].id, data) : await pastaFaturas(token, raiz, nomeCli, data);
+      const de = (f.parents || [])[0];
+      if (destino && destino.id && de && destino.id !== de) { const mv = await moverNoDrive(token, f.id, de, destino.id); if (mv && mv.modifiedTime) drive.mod = mv.modifiedTime; }
+    } catch (e) { /* fica onde está */ }
+  };
   for (const f of (j.files || []).filter(x => EXT_DOC.test(x.name))) {
     if (ignorar.has(f.id)) continue;
     try {
@@ -9130,6 +9290,7 @@ const verificarFaturasDrive = async ({ trab, clientes, conta, desde }) => {
       const ligada = faturas.find(x => x.drive && x.drive.id === f.id);
       if (ligada) {
         if (ligada.drive.mod && String(f.modifiedTime) <= String(ligada.drive.mod)) continue;
+        await arrumarSolta(f, cam, nomeCliDe(ligada.cid), ligada.data || ultimoDiaDe(ligada.mes), drive);
         // guardada outra vez por cima (corrigida): as feitas fora da app voltam a ser lidas
         if (!ligada.drive.mod || !ligada.antiga) { acoes.push({ tipo: 'ligar', fid: ligada.id, drive }); continue; }
         acoes.push({ tipo: 'corrigir', fid: ligada.id, drive, ...valoresIA(await ler(), n) });
@@ -9144,23 +9305,14 @@ const verificarFaturasDrive = async ({ trab, clientes, conta, desde }) => {
       if (mesma) {
         // A mesma fatura guardada outra vez com outro nome: passa a usar a mais recente (não cria outra)
         if (mesma.drive && mesma.drive.mod && String(f.modifiedTime) <= String(mesma.drive.mod)) continue;
+        await arrumarSolta(f, cam, c.nome, mesma.data || ultimoDiaDe(mesma.mes), drive);
         if (!mesma.antiga) { acoes.push({ tipo: 'ligar', fid: mesma.id, drive }); continue; }
         acoes.push({ tipo: 'corrigir', fid: mesma.id, drive, ...valoresIA(await ler(), n) });
         continue;
       }
       const v = valoresIA(await ler(), n);
       if (!(v.valor > 0) || !v.data || !v.mes) { pend(f, c.id, d ? 'não consegui ler o valor ou a data' : 'a IA não conseguiu ler o PDF'); continue; }
-      // Solta (fora de Cliente / Ano / Mês): arruma-a na pasta certa (só muda de pasta, não apaga nada)
-      if (cam.length < 3 || !/º_Trimestre$/i.test(String((cam[2] || {}).name || ''))) {
-        try {
-          const destino = cam.length ? await pastaAnoTrim(token, cam[0].id, v.data) : await pastaFaturas(token, raiz, c.nome, v.data);
-          const de = (f.parents || [])[0];
-          if (destino && destino.id && de && destino.id !== de) {
-            const mv = await driveApi(token, `${DRV}/${encodeURIComponent(f.id)}?addParents=${encodeURIComponent(destino.id)}&removeParents=${encodeURIComponent(de)}&supportsAllDrives=true&fields=id,modifiedTime,webViewLink`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-            if (mv && mv.modifiedTime) drive.mod = mv.modifiedTime;
-          }
-        } catch (e) { /* fica onde está */ }
-      }
+      await arrumarSolta(f, cam, c.nome, v.data, drive);
       acoes.push({ tipo: 'nova', cid: c.id, numero: Number(n.numero), ...v, drive });
     } catch (e) { console.warn('Fatura no Drive:', f.name, e); if (!falhou || String(f.modifiedTime) < falhou) falhou = String(f.modifiedTime); }
   }
@@ -9232,5 +9384,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, cliente, data, pastaUrl
   return { nome, pasta: `${nomeCli}/${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
+export { Trabalho, PreviewDocModal, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
 export const FICHEIRO_APP = 'trabalho';
