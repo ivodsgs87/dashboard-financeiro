@@ -12784,7 +12784,8 @@ ${transacoesOrdenadas.map(t => `<tr>
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
 {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} contaDriveRecibos={(G.recibosDrive || {}).conta || ''}
    onImportarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? importarReciboFicheiro : null} recibosDrivePend={(G.recibosDrive || {}).pasta ? (G.recibosDrivePend || []) : []}
-   onIgnorarReciboDrive={ignorarReciboDrive}
+   onIgnorarReciboDrive={ignorarReciboDrive} nIgnoradosDrive={(G.recibosDriveIgnorar || []).length}
+   onDesignorarDrive={() => { saveUndo(); uG('recibosDriveIgnorar', []); showToast('Os ficheiros ignorados voltam a aparecer na próxima sincronização — carrega em «☁ Ver o Drive agora»'); }}
    onMesEmissaoRecibos={lista => passarParaMesEmissao(lista, true)}
    onApagarRecibo={(k, id) => { saveUndo(); setM(p => { const m2 = p[k]; if (!m2) return p; return { ...p, [k]: { ...m2, regCom: (m2.regCom || []).filter(x => x.id !== id), regSem: (m2.regSem || []).filter(x => x.id !== id) } }; }); }}
    onMarcarRecibo={(k, id, patch) => { saveUndo(); setM(p => { const m2 = p[k]; if (!m2) return p; const f = l => (l || []).map(x => (x.id === id ? { ...x, ...(typeof patch === 'function' ? patch(x) : patch) } : x)); return { ...p, [k]: { ...m2, regCom: f(m2.regCom), regSem: f(m2.regSem) } }; }); }}

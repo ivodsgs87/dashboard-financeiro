@@ -6924,7 +6924,7 @@ const PainelDoc = ({ doc, claro, vazio, altura = 'h-[calc(100vh-170px)] min-h-[4
     </>
   );
 };
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos, onMesEmissao, onApagarRecibo, onMarcarRecibo }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc, cfgDrive, onCfgDrive, itensDriveTodos, onMesEmissao, onApagarRecibo, onMarcarRecibo, nIgnorados = 0, onDesignorar }) => {
   // Pasta dos recibos no Drive (a mesma de Definições → Recibos no Google Drive)
   const cfgD = cfgDrive || {};
   const [verCfg, setVerCfg] = useState(false);
@@ -7128,6 +7128,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
           {pendMeus.map(linhaPend)}
         </div>
       )}
+      {nIgnorados > 0 && onDesignorar && <p className={`text-[11px] ${sub}`}>{nIgnorados} ficheiro{nIgnorados === 1 ? '' : 's'} do Drive ignorado{nIgnorados === 1 ? '' : 's'} · <button type="button" onClick={onDesignorar} className="text-blue-400 hover:underline" title="Volta a mostrar os ficheiros em que carregaste em «Ignorar» (na próxima sincronização)">voltar a mostrar</button></p>}
     </div>
   ) : null;
   // Caixa da pasta dos recibos no Drive (fechada; abre sozinha se ainda não houver pasta)
@@ -8688,7 +8689,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 // ══ O separador ══
 const NAV_TRAB_FEITO = new Set();
 const ORDEM_VISIVEL = { ids: [] };
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onApagarRecibo, onMarcarRecibo, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onApagarRecibo, onMarcarRecibo, nIgnoradosDrive, onDesignorarDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -9297,7 +9298,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
             } : null} />}
           {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
           {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} showToast={showToast} inputClass={inputClass}
-            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onMesEmissao={onMesEmissaoRecibos} onApagarRecibo={onApagarRecibo} onMarcarRecibo={onMarcarRecibo} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
+            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onMesEmissao={onMesEmissaoRecibos} onApagarRecibo={onApagarRecibo} onMarcarRecibo={onMarcarRecibo} nIgnorados={nIgnoradosDrive || 0} onDesignorar={onDesignorarDrive} onSincDrive={onSincRecibosDrive} recSinc={recSinc} cfgDrive={cfgRecibosDrive} onCfgDrive={onCfgRecibosDrive} itensDriveTodos={itensRecibosDrive} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
