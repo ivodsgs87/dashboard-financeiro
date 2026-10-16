@@ -19,7 +19,7 @@ import {
   patNum, patIdx, patKey, patIso, patDataAceite, patCorte, patIdxHoje, patTemPortfolio,
   patHistoricoPortfolio, patRotulo, patSerie, patDetalhe, patPoupanca, patRetornoReal, patVida, patInvestDoPortfolio,
   patRegistosEfetivos, CompararAnos, CHAT_URLS, ChatGemini, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos,
-  SincronizarRecibosDrive, dividirTrabalho, juntarTrabalho, semCarimbo
+  novoIdRecibo, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, dividirTrabalho, juntarTrabalho, semCarimbo
 } from './patrimonio';
 
 // Separadores grandes que só são precisos quando se abrem: vêm em ficheiros à parte
@@ -2265,6 +2265,42 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  }, []);
  const [acaoRapida, setAcaoRapida] = useState(null);
  const [importPend, setImportPend] = useState(null); // recibo do Drive para abrir no «Importar Fatura» das Receitas
+ // Recibos ↔ Drive: sozinho ao abrir a app, ao voltar à janela e de 10 em 10 minutos (sem janelas da Google)
+ const [recSinc, setRecSinc] = useState(null);
+ const [recAbrir, setRecAbrir] = useState(null); // { a: 'o que está a fazer' } | { feito: 'resumo' }
+ const refRecDrive = useRef({});
+ const correrRecDrive = useRef(null);
+ useEffect(() => {
+   const cfg0 = (G && G.recibosDrive) || {};
+   if (!cfg0.pasta || !(user && user.uid)) { correrRecDrive.current = null; return undefined; }
+   let parar = false, aCorrer = false, ultima = 0;
+   const correr = async manual => {
+     if (parar || aCorrer || (!manual && (document.hidden || Date.now() - ultima < 120000))) return;
+     aCorrer = true; ultima = Date.now();
+     try {
+       const R = refRecDrive.current; if (!R.juntar) return;
+       const cfg = (R.G && R.G.recibosDrive) || cfg0;
+       const mod = await carregarTrabalho();
+       if (manual) await mod.carregarGis().catch(() => {});
+       else if (!(await mod.tokenSemJanela(cfg.conta))) return; // sozinho, só com a ligação permanente
+       const out = await sincronizarRecibosComDrive({ cfg, M: R.M, clientes: (R.G && R.G.clientes) || [], mod, ignorados: (R.G && R.G.recibosDriveIgnorar) || [], pendAntes: (R.G && R.G.recibosDrivePend) || [],
+         onEnviar: (k, id, f, r) => refRecDrive.current.enviar(k, id, f, r, true), onJuntar: (k, id, p, f) => refRecDrive.current.juntar(k, id, p, f, true),
+         progresso: manual ? t => setRecSinc({ a: t }) : () => {} });
+       const R2 = refRecDrive.current;
+       if (JSON.stringify(out.semPar) !== JSON.stringify((R2.G && R2.G.recibosDrivePend) || [])) setG(p => ({ ...p, recibosDrivePend: out.semPar }));
+       const txt = resumoRecibosDrive(out, !manual);
+       if (manual) { setRecSinc({ feito: txt || 'Está tudo igual no Drive e na app ✓' }); showToast(`☁ ${txt || 'Está tudo igual no Drive e na app ✓'}`); }
+       else if (out.juntos || out.enviados) showToast(`☁ ${txt}`);
+     } catch (e) { console.warn('Recibos ↔ Drive:', e); if (manual) setRecSinc({ feito: `⚠ ${e.message || e}` }); }
+     finally { aCorrer = false; }
+   };
+   correrRecDrive.current = () => correr(true);
+   const t0 = setTimeout(() => correr(false), 8000);
+   const iv = setInterval(() => correr(false), 600000);
+   const voltou = () => { if (!document.hidden) setTimeout(() => correr(false), 2500); };
+   window.addEventListener('focus', voltou); document.addEventListener('visibilitychange', voltou);
+   return () => { parar = true; clearTimeout(t0); clearInterval(iv); window.removeEventListener('focus', voltou); document.removeEventListener('visibilitychange', voltou); };
+ }, [((G && G.recibosDrive) || {}).pasta, ((G && G.recibosDrive) || {}).conta, user && user.uid]); // eslint-disable-line react-hooks/exhaustive-deps
  // Telemóvel: deslizar o dedo para o lado muda de separador dentro da secção
  const toqueRef = useRef(null);
  const onToqueIni = e => {
@@ -3906,8 +3942,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      } catch (e) { console.error('Recibo → Drive:', e); showToast(`O recibo não foi para o Drive: ${e.message || e}`, 'error'); return false; }
    };
    // Recibo verde que estava só no Drive: junta-se ao registo (valores lidos pela IA + o PDF guardado na app)
-   const juntarReciboDoDrive = async (k, id, patch, f) => {
-     saveUndo();
+   const juntarReciboDoDrive = async (k, id, patch, f, semUndo) => {
+     if (!semUndo) saveUndo();
      setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ...patch } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
      if (!f || !(user && user.uid) || typeof enviarAnexo !== 'function') return;
      try {
@@ -3915,6 +3951,31 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        setM(p => { const md = p[k] || {}; const upd = l => (l || []).map(x => (x.id === id ? { ...x, ...(x.faturaId && x.ficheiroUrl && !x.faturaPdfUrl ? { faturaPdfUrl: x.ficheiroUrl, faturaPdfNome: x.ficheiroNome } : {}), ficheiroUrl: r0.url, ficheiroCaminho: r0.caminho, ficheiroNome: f.name || 'recibo.pdf', ficheiroTipo: f.type || 'application/pdf' } : x)); return { ...p, [k]: { ...md, regCom: upd(md.regCom), regSem: upd(md.regSem) } }; });
      } catch (e) { console.error('Recibo do Drive → app:', e); }
    };
+   // Um recibo verde importado no Trabalho (cliente → Recibos → Importar recibos): junta-se ao registo escolhido
+   // ou cria um registo novo «com taxas» no mês da data (como o «Importar Fatura» das Receitas)
+   const importarReciboFicheiro = async ({ cid, file, d, alvo, drive }) => {
+     const v = Math.round((Number(d.valorIliquido) || 0) * 100) / 100;
+     const pais = d.pais || 'PT';
+     const valores = { val: v, valIliq: v, iva: Number(d.valorIva) || 0, taxaIva: d.taxaIva != null && d.taxaIva !== '' ? (Number(d.taxaIva) || 0) : (pais === 'PT' ? 23 : 0), retIRS: Number(d.retencaoIRS) || 0, pais, reciboVerde: true };
+     const ligDrive = drive ? { driveUrl: drive.url, driveNome: drive.nome } : {};
+     let k, id, base;
+     if (alvo) {
+       k = alvo.k; id = alvo.id;
+       const md = M[k] || {}; base = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id) || {};
+       await juntarReciboDoDrive(k, id, { ...(base.reciboVerde ? {} : valores), ...ligDrive }, file);
+     } else {
+       k = mesDoRecibo(d.data) || mesKey; id = novoIdRecibo();
+       base = { id, cid, desc: d.descricao || 'Serviços', data: d.data || new Date().toISOString().slice(0, 10), ...valores, ...ligDrive };
+       saveUndo();
+       setM(p => { const md = p[k] || defM; return { ...p, [k]: { ...md, regCom: [...(md.regCom || []), base] } }; });
+       await juntarReciboDoDrive(k, id, {}, file, true);
+     }
+     if (drive) setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== drive.id) }));
+     else await enviarReciboDrive(k, id, file, { ...base, ...valores, data: d.data || base.data }, true);
+     return { k, id };
+   };
+   refRecDrive.current = { M, G, juntar: juntarReciboDoDrive, enviar: enviarReciboDrive };
+   const ignorarReciboDrive = id => { saveUndo(); setG(p => ({ ...p, recibosDrivePend: (p.recibosDrivePend || []).filter(x => x.id !== id), recibosDriveIgnorar: [...new Set([...(p.recibosDriveIgnorar || []), id])].slice(-500) })); };
  const Receitas = () => {
    const [editRecibo, setEditRecibo] = useState(null);
    const [showReciboModal, setShowReciboModal] = useState(false);
@@ -14214,6 +14275,9 @@ ${transacoesOrdenadas.map(t => `<tr>
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
 {tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} contaDriveRecibos={(G.recibosDrive || {}).conta || ''}
+   onImportarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? importarReciboFicheiro : null} recibosDrivePend={(G.recibosDrive || {}).pasta ? (G.recibosDrivePend || []) : []}
+   onIgnorarReciboDrive={ignorarReciboDrive}
+   onSincRecibosDrive={(G.recibosDrive || {}).pasta ? () => { if (correrRecDrive.current) correrRecDrive.current(); } : null} recSinc={recSinc}
    obterRecibo={(k, id) => { const md = M[k] || {}; const r = [...(md.regCom || []), ...(md.regSem || [])].find(x => x.id === id); if (!r) return null; const nome = r.ficheiroNome || `${String(r.desc || 'recibo').replace(/[\\/:*?"<>|]+/g, ' ')}.pdf`; if (!r.ficheiro && r.ficheiroUrl) return { url: r.ficheiroUrl, nome, tipo: r.ficheiroTipo || 'application/pdf' }; if (!r.ficheiro) return null; const [cab, dados] = String(r.ficheiro).split(','); const tipo = r.ficheiroTipo || ((/data:([^;]+)/.exec(cab) || [])[1]) || 'application/pdf'; const bin = atob(dados); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); const blob = new Blob([u8], { type: tipo }); return { url: URL.createObjectURL(blob), blob, nome, tipo, revogar: true }; }}
    navSub={navSub && navSub.tab === 'trabalho' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('trabalho', sub)} onNavSubstituir={sub => navSubstituir('trabalho', sub)} trab={trabalho} mudar={mudarTrab} modo={trabModo} clientes={G.clientes || []} cu={G.clickup} theme={theme} inputClass={inputClass} ano={ano} mesNum={meses.indexOf(mes) + 1} showToast={showToast} onPrecos={precos => cuMudar(() => ({ precos }))}
    faturado={faturadoClientes} onCu={patch => cuMudar(() => patch)}
@@ -14471,10 +14535,9 @@ ${transacoesOrdenadas.map(t => `<tr>
                  className={`w-full text-sm px-2 py-1.5 rounded ${theme === 'light' ? 'bg-white border border-slate-300' : 'bg-slate-700 border border-slate-600'}`}
                  onBlur={e => { const v = e.target.value.trim(); if (v !== ((G.recibosDrive || {}).conta || '')) uG('recibosDrive', { ...(G.recibosDrive || {}), conta: v }); }} />
                {(G.recibosDrive || {}).pasta && <LigacaoDriveRecibos conta={(G.recibosDrive || {}).conta} carregar={carregarTrabalho} showToast={showToast} />}
-               {(G.recibosDrive || {}).pasta && <SincronizarRecibosDrive cfg={G.recibosDrive || {}} M={M} clientes={G.clientes || []} carregar={carregarTrabalho} showToast={showToast} ignorados={G.recibosDriveIgnorar || []}
-                 onEnviar={(k, id, f, r) => enviarReciboDrive(k, id, f, r, true)} onJuntar={juntarReciboDoDrive}
-                 onCriar={(file, drive) => { setShowSidebar(false); setTab('receitas'); setImportPend({ file, drive, em: Date.now() }); }}
-                 onIgnorar={id => uG('recibosDriveIgnorar', [...new Set([...(G.recibosDriveIgnorar || []), id])].slice(-500))} />}
+               {(G.recibosDrive || {}).pasta && <SincronizarRecibosDrive estado={recSinc} onCorrer={() => { setRecSinc({ a: 'A começar…' }); if (correrRecDrive.current) correrRecDrive.current(); }} pend={G.recibosDrivePend || []} clientes={G.clientes || []} aAbrir={recAbrir}
+                 onCriar={async f => { setRecAbrir(f.id); try { const mod = await carregarTrabalho(); await mod.carregarGis().catch(() => {}); const file = await mod.ficheiroDoDrive((G.recibosDrive || {}).conta, { id: f.id, name: f.nome }); setShowSidebar(false); setTab('receitas'); setImportPend({ file, drive: { url: f.url, nome: f.nome, id: f.id }, em: Date.now() }); } catch (e) { showToast(`Não consegui abrir o recibo do Drive: ${e.message || e}`, 'error'); } setRecAbrir(null); }}
+                 onIgnorar={ignorarReciboDrive} />}
              </div>
            </div>
 
