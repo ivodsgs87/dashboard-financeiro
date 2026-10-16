@@ -6,14 +6,14 @@ import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardar
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, IRS_CFG_PADRAO,
-  mesDoRecibo, mesEmissaoDe, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
-  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
-  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
-  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
-  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
-  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcPrazosCPCV
+  mesDoRecibo, mesEmissaoDe, comPlanoDe, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico,
+  copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
+  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
+  trabValor, isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor,
+  jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes,
+  taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo,
+  TemaCtx, Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1557,9 +1557,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // marcado "orcProx" só conta para a Alocação/transferências do mês seguinte — para investir
  // uma vez por mês. Este mês perde esses recibos e ganha os do mês anterior marcados assim.
  const _mAntOrc = M[patKey(patIdx(mesKey) - 1)] || {};
- const orcEntra = [...(_mAntOrc.regCom || []), ...(_mAntOrc.regSem || [])].filter(r => r && r.orcProx);
- const orcSai = [...regCom, ...regSem].filter(r => r && r.orcProx);
- const regsOrc = [...regCom, ...regSem].filter(r => r && !r.orcProx).concat(orcEntra);
+ // E ao contrário: um recibo marcado "orcAnt" é do mês em que foi passado (impostos), mas o dinheiro conta no plano do
+ // mês anterior (ex.: o trabalho de setembro pago a 1 de outubro, já investido com o plano de setembro).
+ const _mProxOrc = M[patKey(patIdx(mesKey) + 1)] || {};
+ const orcDoAnt = [...(_mAntOrc.regCom || []), ...(_mAntOrc.regSem || [])].filter(r => r && r.orcProx);
+ const orcDoProx = [...(_mProxOrc.regCom || []), ...(_mProxOrc.regSem || [])].filter(r => r && r.orcAnt);
+ const orcEntra = [...orcDoAnt, ...orcDoProx];
+ const orcSai = [...regCom, ...regSem].filter(r => r && (r.orcProx || r.orcAnt));
+ const regsOrc = [...regCom, ...regSem].filter(r => r && !r.orcProx && !r.orcAnt).concat(orcEntra);
+ const somaVal = l => l.reduce((a, r) => a + (Number(r.val) || 0), 0);
  const _somaOrc = f => regsOrc.reduce((a, r) => a + (Number(f(r)) || 0), 0);
  const totRecOrc = _somaOrc(r => r.val);
  const valTax = orcEntra.length || orcSai.length
@@ -3053,15 +3059,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          <button onClick={() => setTab('receitas')} className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap">Receitas →</button>
        </div>
        <div className="grid grid-cols-3 gap-3">
-         {num('Receitas', fmt(recM), nRec ? `${nRec} recibo${nRec === 1 ? '' : 's'}` : 'ainda nenhuma')}
+         {num('Receitas', fmt(recM), regsOrc.length ? `${regsOrc.length} recibo${regsOrc.length === 1 ? '' : 's'}` : 'ainda nenhuma')}
          {num(`Impostos (${fmtP(taxa)})`, valTax > 0.5 ? `−${fmt(valTax)}` : fmt(0), 'reserva', valTax > 0.5 ? 'text-orange-400' : '')}
          {num('Líquido', fmt(recLiq), null, claro ? 'text-slate-900' : 'text-white')}
        </div>
        {(vPorRec > 0.5 || comOrc) && (
          <div className="mt-2 space-y-0.5">
            {vPorRec > 0.5 && <p className="text-xs text-slate-500">{fmt(recM - vPorRec)} já recebidos · <span className="text-blue-400">vai entrar {fmt(vPorRec)}</span> de {porRec.length === 1 ? 'uma fatura à espera de pagamento' : `${porRec.length} faturas à espera de pagamento`}</p>}
-           {orcEntra.length > 0 && <p className="text-xs text-slate-500"><Ico e="📥"/>Inclui {fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de recibos de {nomeAntM}</p>}
-           {orcSai.length > 0 && <p className="text-xs text-slate-500"><Ico e="⏭"/>{fmt(orcSai.reduce((a, r) => a + (Number(r.val) || 0), 0))} deste mês ficam para {meses[(idxSel + 1) % 12]}</p>}
+           {orcDoAnt.length > 0 && <p className="text-xs text-slate-500"><Ico e="📥"/>Inclui {fmt(somaVal(orcDoAnt))} de recibos de {nomeAntM}</p>}
+           {orcDoProx.length > 0 && <p className="text-xs text-slate-500"><Ico e="📥"/>Inclui {fmt(somaVal(orcDoProx))} de recibos passados em {meses[(idxSel + 1) % 12]} (o dinheiro é deste mês)</p>}
+           {orcSai.some(r => r.orcProx) && <p className="text-xs text-slate-500"><Ico e="⏭"/>{fmt(somaVal(orcSai.filter(r => r.orcProx)))} deste mês ficam para {meses[(idxSel + 1) % 12]}</p>}
+           {orcSai.some(r => r.orcAnt) && <p className="text-xs text-slate-500"><Ico e="⏮"/>{fmt(somaVal(orcSai.filter(r => r.orcAnt)))} de recibos deste mês contam no plano de {nomeAntM}</p>}
          </div>
        )}
 
@@ -3271,15 +3279,21 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          </div>
        ))}
-       {orcEntra.length > 0 && (
-         <p className="text-xs text-blue-400"><Ico e="📥"/>Inclui {fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de {orcEntra.length === 1 ? 'um recibo' : `${orcEntra.length} recibos`} de {nomeAnt} que passaste para investir este mês.</p>
+       {orcDoAnt.length > 0 && (
+         <p className="text-xs text-blue-400"><Ico e="📥"/>Inclui {fmt(somaVal(orcDoAnt))} de {orcDoAnt.length === 1 ? 'um recibo' : `${orcDoAnt.length} recibos`} de {nomeAnt} que passaste para investir este mês.</p>
        )}
-       {orcSai.length > 0 && (
-         <p className="text-xs text-slate-400"><Ico e="⏭"/>{fmt(orcSai.reduce((a, r) => a + (Number(r.val) || 0), 0))} de recibos deste mês ficam para investir em {nomeProx}.</p>
+       {orcDoProx.length > 0 && (
+         <p className="text-xs text-blue-400"><Ico e="📥"/>Inclui {fmt(somaVal(orcDoProx))} de {orcDoProx.length === 1 ? 'um recibo passado' : `${orcDoProx.length} recibos passados`} em {nomeProx}: o dinheiro é deste mês.</p>
+       )}
+       {orcSai.some(r => r.orcProx) && (
+         <p className="text-xs text-slate-400"><Ico e="⏭"/>{fmt(somaVal(orcSai.filter(r => r.orcProx)))} de recibos deste mês ficam para investir em {nomeProx}.</p>
+       )}
+       {orcSai.some(r => r.orcAnt) && (
+         <p className="text-xs text-slate-400"><Ico e="⏮"/>{fmt(somaVal(orcSai.filter(r => r.orcAnt)))} de recibos deste mês já contaram no plano de {nomeAnt}.</p>
        )}
        {guia.porAlocar > 50 && (regCom.length + regSem.length) > 0 && (() => {
          // Recibos que ainda contam este mês — o mais recente primeiro (normalmente é esse que chegou depois)
-         const lista = [...regCom.map(r => ({ r, k: 'regCom' })), ...regSem.map(r => ({ r, k: 'regSem' }))].filter(x => !x.r.orcProx).sort((a, b) => String(b.r.data || '').localeCompare(String(a.r.data || ''))).slice(0, 4);
+         const lista = [...regCom.map(r => ({ r, k: 'regCom' })), ...regSem.map(r => ({ r, k: 'regSem' }))].filter(x => !x.r.orcProx && !x.r.orcAnt).sort((a, b) => String(b.r.data || '').localeCompare(String(a.r.data || ''))).slice(0, 4);
          const passar = (k, id) => { const l = k === 'regCom' ? regCom : regSem; uM(k, l.map(x => x.id === id ? { ...x, orcProx: true } : x)); };
          return (
            <div className={`text-xs p-2 rounded-lg border space-y-2 ${claro ? 'border-blue-300 bg-blue-50' : 'border-blue-500/30 bg-blue-500/10'}`}>
@@ -4055,10 +4069,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          ['regCom', 'regSem'].forEach(l => {
            const r = (md[l] || []).find(x => x.id === id); if (!r) return;
            const kd = mesEmissaoDe(r); if (!kd || kd === k) return;
-           const [ya, ma] = k.split('-').map(Number), [yd, mdn] = kd.split('-').map(Number);
-           const antes = yd * 12 + mdn < ya * 12 + ma;
            const mdD = q[kd] || defM;
-           q = { ...q, [k]: { ...q[k], [l]: (q[k][l] || []).filter(x => x.id !== id) }, [kd]: { ...mdD, [l]: [...(mdD[l] || []), { ...r, orcProx: antes }] } };
+           q = { ...q, [k]: { ...q[k], [l]: (q[k][l] || []).filter(x => x.id !== id) }, [kd]: { ...mdD, [l]: [...(mdD[l] || []), comPlanoDe(r, k, kd)] } };
          });
        });
        return q;
@@ -4515,10 +4527,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        ficheiroNome: editRecibo.ficheiroNome || null,
        ficheiroTipo: editRecibo.ficheiroTipo || null,
        emitidoPorSara: editRecibo.emitidoPorSara || false,
-       taxaRetIRS: editRecibo.taxaRetIRS != null ? editRecibo.taxaRetIRS : null
+       taxaRetIRS: editRecibo.taxaRetIRS != null ? editRecibo.taxaRetIRS : null,
+       orcProx: !!editRecibo.orcProx,
+       orcAnt: !!editRecibo.orcAnt
      } : x));
      setShowReciboModal(false);
      setEditRecibo(null);
+   };
+   // Passa o recibo para o mês ao lado (o mês em que foi passado, que é o que conta para os impostos);
+   // o dinheiro continua no plano (Alocação e transferências) do mês onde estava
+   const moverRecibo = delta => {
+     const r0 = editRecibo; if (!r0) return;
+     const l = r0.tipo === 'com' ? 'regCom' : 'regSem';
+     const kd = patKey(patIdx(mesKey) + delta);
+     saveRecibo();
+     const fica = comPlanoDe(r0, mesKey, kd); const plano = fica.orcAnt || fica.orcProx;
+     setM(p => {
+       const md = p[mesKey] || defM; const reg = (md[l] || []).find(x => x.id === r0.id); if (!reg) return p;
+       const novo = comPlanoDe(reg, mesKey, kd);
+       const mdD = p[kd] || defM;
+       return { ...p, [mesKey]: { ...md, [l]: (md[l] || []).filter(x => x.id !== r0.id) }, [kd]: { ...mdD, [l]: [...(mdD[l] || []), novo] } };
+     });
+     const [yd, mdn] = kd.split('-').map(Number);
+     showToast(`Passou para ${meses[mdn - 1]} ${yd}${plano ? ` · o dinheiro continua no plano de ${meses[patIdx(mesKey) % 12]}` : ''}`);
    };
    
    // Função para fazer upload do ficheiro do recibo
@@ -4780,6 +4811,29 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                  <span className="font-bold text-green-400">{fmt(totalPagar)}</span>
                </div>
              </div>
+             {(() => {
+               // Mês do recibo (impostos) e plano do dinheiro
+               const iA = patIdx(mesKey), nAnt = meses[(iA + 11) % 12], nEste = meses[iA % 12], nProx = meses[(iA + 1) % 12];
+               const emi = mesEmissaoDe(editRecibo);
+               const outro = emi && emi !== mesKey ? meses[Number(emi.split('-')[1]) - 1] : null;
+               const plano = editRecibo.orcAnt ? nAnt : editRecibo.orcProx ? nProx : nEste;
+               const bt = 'px-2.5 py-1 rounded-lg text-xs bg-slate-600/40 hover:bg-slate-600/70', btSug = 'px-2.5 py-1 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium';
+               return (
+                 <div className="p-3 rounded-xl border border-slate-600/50 space-y-2 text-sm">
+                   <div className="flex items-center gap-1.5">
+                     <span className="text-slate-400">Mês do recibo</span>
+                     <Info rotulo="Mês do recibo e plano do dinheiro" largura={280}>O mês em que o recibo foi passado é o que conta para os impostos (trimestres da Segurança Social e do IVA). O dinheiro pode contar no plano de outro mês (Alocação e transferências): ao passar o recibo para o mês ao lado, o dinheiro continua no plano onde estava.</Info>
+                     <span className="ml-auto font-medium">{nEste}</span>
+                   </div>
+                   {outro && <p className="text-xs text-amber-400">Pela data, este recibo foi passado em {outro}.</p>}
+                   <div className="flex flex-wrap gap-2">
+                     <button type="button" onClick={() => moverRecibo(-1)} className={outro === nAnt ? btSug : bt}>◀ Passar para {nAnt}</button>
+                     <button type="button" onClick={() => moverRecibo(1)} className={outro === nProx ? btSug : bt}>Passar para {nProx} ▶</button>
+                   </div>
+                   <p className="text-xs text-slate-500">O dinheiro conta no plano de <strong>{plano}</strong>{plano !== nEste && <button type="button" onClick={() => setEditRecibo({ ...editRecibo, orcAnt: false, orcProx: false })} className="ml-2 text-blue-400 hover:underline">contar em {nEste}</button>}</p>
+                 </div>
+               );
+             })()}
            </div>
            <div className="p-4 border-t border-slate-700 flex justify-end gap-2">
              <Button variant="secondary" onClick={() => {setShowReciboModal(false); setEditRecibo(null);}}>Cancelar</Button>
@@ -4864,7 +4918,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · SS ≈ ${fmt(_e.ss)} · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
        {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
-       {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12]; return r.orcProx
+       {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12], _pa = meses[(patIdx(mesKey) + 11) % 12]; return r.orcAnt
+         ? <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcAnt: false } : x))} title={`O recibo é deste mês (impostos), mas o dinheiro contou no plano de ${_pa}. Clica para contar no plano deste mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 flex-shrink-0 whitespace-nowrap">← {_pa.slice(0, 3)}</button>
+         : r.orcProx
          ? <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
          : <button onClick={() => uM('regCom', regCom.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
         {r.pais && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 hidden sm:inline">{r.pais === 'PT' ? '🇵🇹' : r.pais === 'UE' ? '🇪🇺' : '🌍'}</span>}
@@ -4905,7 +4961,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
          return <span className="text-[10px] text-emerald-400/80 flex-shrink-0 hidden sm:inline" title={`IRS ≈ ${fmt(_e.irsPorPagar)} · sem SS · líquido ≈ ${fmt(_e.liquido)}`}>≈{fmt(_e.liquido)}</span>;
        })()}
         {r.emitidoPorSara && <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">Sara</span>}
-        {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12]; return r.orcProx
+        {(() => { const _px = meses[(patIdx(mesKey) + 1) % 12], _pa = meses[(patIdx(mesKey) + 11) % 12]; return r.orcAnt
+         ? <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcAnt: false } : x))} title={`O recibo é deste mês (impostos), mas o dinheiro contou no plano de ${_pa}. Clica para contar no plano deste mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 flex-shrink-0 whitespace-nowrap">← {_pa.slice(0, 3)}</button>
+         : r.orcProx
          ? <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: false } : x))} title={`Este recibo só entra na Alocação de ${_px}. Clica para voltar a contar já este mês.`} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex-shrink-0 whitespace-nowrap">→ {_px.slice(0, 3)}</button>
          : <button onClick={() => uM('regSem', regSem.map(x => x.id === r.id ? { ...x, orcProx: true } : x))} title={`Investir este recibo só em ${_px} (fica neste mês para os impostos)`} aria-label="Investir só no mês seguinte" className="text-slate-500 hover:text-blue-400 p-0.5 sm:p-1 flex-shrink-0 text-xs">⏭</button>; })()}
        {(r.ficheiro || r.ficheiroUrl) && (
@@ -5246,7 +5304,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <h3 className="text-base sm:text-lg font-semibold mb-1 text-center"><Ico e="💰"/>Disponível: {fmt(disp)}</h3>
  {/* De onde vem o disponível (para perceber quando dá 0) */}
  <p className={`text-[11px] text-center mb-4 ${theme === 'light' ? 'text-slate-500' : 'text-slate-400'}`}>
-   Recibos {fmt(orcEntra.length || orcSai.length ? totRecOrc : totRec)}{orcEntra.length > 0 ? ` (inclui ${fmt(orcEntra.reduce((a, r) => a + (Number(r.val) || 0), 0))} de ${meses[(patIdx(mesKey) + 11) % 12]})` : ''} − impostos {fmt(valTax)} − casal {fmt(minhaAB)} − pessoais {fmt(totPess)} − férias {fmt(ferias)} = <span className={restante < 0 ? 'text-red-400 font-medium' : 'font-medium'}>{fmt(restante)}</span>
+   Recibos {fmt(orcEntra.length || orcSai.length ? totRecOrc : totRec)}{orcEntra.length > 0 ? ` (inclui ${fmt(somaVal(orcEntra))} de recibos de ${[orcDoAnt.length ? meses[(patIdx(mesKey) + 11) % 12] : null, orcDoProx.length ? meses[(patIdx(mesKey) + 1) % 12] : null].filter(Boolean).join(' e ')})` : ''} − impostos {fmt(valTax)} − casal {fmt(minhaAB)} − pessoais {fmt(totPess)} − férias {fmt(ferias)} = <span className={restante < 0 ? 'text-red-400 font-medium' : 'font-medium'}>{fmt(restante)}</span>
  </p>
  
  {/* Slider Amortização vs Investimentos */}

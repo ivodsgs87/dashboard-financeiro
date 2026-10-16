@@ -800,6 +800,14 @@ const IRS_CFG_PADRAO = { conjunto: true, coef: 0.75, saraBruto: 0, saraRetencao:
 const mesDoRecibo = d => { const m = /^(\d{4})-(\d{2})-\d{2}/.exec(String(d || '')); return m && +m[2] >= 1 && +m[2] <= 12 ? `${+m[1]}-${+m[2]}` : null; };
 // Mês de emissão de um registo de Receitas: o da data do recibo verde (só quando já tem o recibo verde)
 const mesEmissaoDe = r => mesDoRecibo(r && (r.dataRecibo || (r.reciboVerde ? r.data : null)));
+// Um registo que muda de mês (o dos impostos) continua no plano do dinheiro onde estava, se for o mês ao lado:
+// orcProx = conta no plano do mês seguinte; orcAnt = conta no plano do mês anterior. Mais longe que isso, passa a contar no mês novo.
+const comPlanoDe = (r, kDe, kPara) => {
+  const ix = k => { const [y, m] = String(k).split('-').map(Number); return y * 12 + m - 1; };
+  const plano = ix(kDe) + (r.orcProx ? 1 : r.orcAnt ? -1 : 0), d = plano - ix(kPara);
+  const { orcProx, orcAnt, ...resto } = r;
+  return { ...resto, ...(d === 1 ? { orcProx: true } : d === -1 ? { orcAnt: true } : {}) };
+};
 const retencaoPadrao = coef => (Number(coef) >= 0.75 ? 23 : 11.5);
 const impNum = v => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const impIRSEscaloes = rend => {
@@ -2744,21 +2752,21 @@ export {
   StableInput, StableDateInput, SliderWithInput, useLargura, grafMarcas, grafCompacto, GrafCaixa, GraficoLinhas,
   LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart, GraficoBarras, PieChart, AddClienteInput,
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
-  mesDoRecibo, mesEmissaoDe, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita,
-  ICO_SVG, Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos,
-  _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra,
-  mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO,
-  CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN,
-  MESES_EN, cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId,
-  trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto,
-  trabValor, pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel,
-  mediana, trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes,
-  trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN,
-  cronoLerSinal, cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec,
-  fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos,
-  nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO,
-  confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard,
-  Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  mesDoRecibo, mesEmissaoDe, comPlanoDe, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta,
+  transfFeita, ICO_SVG, Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc,
+  anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto,
+  _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS,
+  CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes,
+  CU_NOMES_EN, MESES_EN, cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO,
+  trabId, trabDia, trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas,
+  trabValorAuto, trabValor, pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO,
+  trabMedivel, mediana, trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes,
+  trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H,
+  CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3,
+  fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES,
+  semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal,
+  DIALOGO, confirmar, avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card,
+  StatCard, Button, ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcIso, vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
