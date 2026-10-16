@@ -1789,18 +1789,7 @@ const lerPptx = async blob => {
     if (rNotas) notas = paragrafosXml((await z.texto(juntarCaminho(cam, rNotas.alvo))).replace(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*?type="sldNum"[\s\S]*?<\/p:sp>/g, ''));
     // ligações ao Drive escritas no próprio slide (fora das relações)
     (xml.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)[\w-]{15,}/g) || []).forEach(u => { const id = /([\w-]{15,})$/.exec(u)[1]; if (!vistos.has(id)) { vistos.add(id); videos.push({ id, fonte: 'DRIVE', ligacao: true }); } });
-    // O código que a Google dá a este slide (é o que vai no link «#slide=id.…»): quando o .pptx foi gravado pela Google,
-    // as formas chamam-se «Google Shape;55;g3fa…_0_7» — a última parte é o slide. NÃO é a posição (o «p3» pode ser o 31.º slide).
-    const cont = {}; (xml.match(/name="Google Shape;[^";]*;[\w-]+"/g) || []).forEach(t => { const k = /;([\w-]+)"$/.exec(t)[1]; cont[k] = (cont[k] || 0) + 1; });
-    const gid = Object.keys(cont).sort((a, b) => cont[b] - cont[a])[0] || null;
-    slides.push({ n: i + 1, gid, texto: paragrafosXml(xml), notas, videos, imagens });
-  }
-  // Os slides que vieram do PowerPoint original (sem nomes da Google) ficam p1, p2, p3… pela ordem em que aparecem
-  {
-    const usados = new Set();
-    slides.forEach(s => { if (s.gid && !usados.has(s.gid)) usados.add(s.gid); else s.gid = null; });
-    let k = 0;
-    slides.forEach(s => { if (!s.gid) { do { k++; } while (usados.has(`p${k}`)); s.gid = `p${k}`; } s.objectId = s.gid; delete s.gid; });
+    slides.push({ n: i + 1, texto: paragrafosXml(xml), notas, videos, imagens });
   }
   // imagens do modelo (logótipo, fundos): aparecem em metade dos slides ou mais — não são referências
   const vezes = {}; slides.forEach(s => s.imagens.forEach(x => { vezes[x.caminho] = (vezes[x.caminho] || 0) + 1; }));
@@ -2118,7 +2107,10 @@ const framesDoVideo = async (blob, n = 8) => {
   } finally { URL.revokeObjectURL(url); }
 };
 // «Ver» os slides: o visualizador leve da Google (abre muito mais depressa do que o editor), já no slide da tarefa
-const urlVerSlides = (url, cid, slide) => comConta(`https://docs.google.com/presentation/d/${googleId(url)}/embed?start=false&loop=false${slide ? `&slide=id.${slide}` : ''}`, cid);
+// O slide vai como «id.<código>» (Google Slides) ou como o número do slide (1, 2, 3…), que a Google também aceita
+// e é o que serve nos .pptx (aí os códigos dos slides não se sabem: o «p3» pode ser o 31.º slide)
+const urlVerSlides = (url, cid, alvo) => comConta(`https://docs.google.com/presentation/d/${googleId(url)}/embed?start=false&loop=false${alvo ? `&slide=${alvo}` : ''}`, cid);
+const alvoDoSlide = s => (!s ? null : s.objectId ? `id.${s.objectId}` : s.n ? String(s.n) : null);
 // «Ver» uma folha ou um documento: a pré-visualização da Google, só de leitura (não dá para apagar nada sem querer)
 const urlLerGoogle = (url, cid) => {
   const id = googleId(url), tg = tipoGoogle(url);
@@ -2126,7 +2118,7 @@ const urlLerGoogle = (url, cid) => {
   return comConta(`https://docs.google.com/${tg === 'sheets' ? 'spreadsheets' : 'document'}/d/${id}/preview`, cid) + (gid ? `#gid=${gid}` : '');
 };
 // O slide de cada tarefa, quando a app o descobriu sozinha (para a próxima vez abrir logo nele, sem esperar)
-const LS_SLIDE_BRIEF = 'brief-slide-2'; // (o «brief-slide» antigo guardava códigos adivinhados pela posição, errados nos .pptx)
+const LS_SLIDE_BRIEF = 'brief-slide-3'; // guarda o alvo pronto («id.g…» ou o número); as versões antigas guardavam códigos adivinhados
 const slideGuardadoDe = (tid, fid) => { try { return (JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}')[`${tid}:${fid}`]) || null; } catch (e) { return null; } };
 const guardarSlideDe = (tid, fid, sl) => { try { const o = JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}'); o[`${tid}:${fid}`] = sl; const ks = Object.keys(o); ks.slice(0, Math.max(0, ks.length - 300)).forEach(k => delete o[k]); localStorage.setItem(LS_SLIDE_BRIEF, JSON.stringify(o)); } catch (e) { /* */ } };
 const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
@@ -2168,10 +2160,11 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const fidBrief = googleId(a.url);
   const slideJaSabido = (() => {
     const bs = tarefa && tarefa.briefSlide;
-    if (bs && bs.id === fidBrief) return bs.objectId || null; // escolhido à mão sem código: só se sabe depois de ler o brief
-    return slideDoLink(a.url) || (tarefa ? slideGuardadoDe(tarefa.id, fidBrief) : null);
+    if (bs && bs.id === fidBrief) return alvoDoSlide(bs); // escolhido à mão (código ou número do slide)
+    const sl = slideDoLink(a.url); if (sl) return `id.${sl}`;
+    return tarefa ? slideGuardadoDe(tarefa.id, fidBrief) : null;
   })();
-  const slideDescoberto = slideT ? (slideT.objectId || null) : null;
+  const slideDescoberto = alvoDoSlide(slideT);
   const [urlVer, setUrlVer] = useState(() => (tg === 'slides' ? urlVerSlides(a.url, cid, slideJaSabido) : protegido ? urlLerGoogle(a.url, cid) : null));
   const slideAberto = useRef(slideJaSabido); // o slide em que o «Ver» abriu
   useEffect(() => {
@@ -2183,8 +2176,8 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const urlEditor = (() => {
     const base = urlEditarGoogle(a.url, cid);
     if (!slideT || slideDoLink(a.url)) return base;
-    if (slideT.objectId) return `${base.split('#')[0]}#slide=id.${slideT.objectId}`;
-    return base;
+    const alvo = alvoDoSlide(slideT);
+    return alvo ? `${base.split('#')[0]}#slide=${alvo}` : base;
   })();
   const copiar = async (txt, qual) => { try { await navigator.clipboard.writeText(txt); setCopiado(qual); setTimeout(() => setCopiado(''), 1500); } catch (e) { /* sem acesso à área de transferência */ } };
   // Folhas/documentos dos clientes: se estiveram em «Editar», ao fechar pergunta à Google se o ficheiro mudou
@@ -2228,7 +2221,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const marcarSlide = n => {
     const s = slides && slides[n - 1]; if (!s || !tarefa || !mudar) return;
     mudar(tr => opTarefa(tr, tarefa.id, x => ({ ...x, briefSlide: { id: googleId(a.url), n, ...(s.objectId ? { objectId: s.objectId } : {}) } })));
-    if (tg === 'slides') { slideAberto.current = s.objectId || null; setUrlVer(urlVerSlides(a.url, cid, s.objectId || null)); }
+    if (tg === 'slides') { const alvo = alvoDoSlide(s); slideAberto.current = alvo; setUrlVer(urlVerSlides(a.url, cid, alvo)); }
     if (aba !== 'editar' && aba !== 'ver') setAba('ver');
     setChaveIframe(k => k + 1);
   };
@@ -2299,6 +2292,10 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
             {slides.map(s => <option key={s.n} value={s.n} className="bg-slate-800 text-white">★ Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 40)}` : ''}</option>)}
           </select>
         )}
+        {/* Ainda não se sabe o slide da tarefa: lê o brief para o encontrar (pode pedir a janela da Google) */}
+        {tg === 'slides' && !slideT && !slideJaSabido && (aCarregar
+          ? <span className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-white/70 tabular-nums">A procurar o slide da tarefa…{aCarregar.p != null ? ` ${Math.round(aCarregar.p * 100)}%` : ''}</span>
+          : !(doc && !doc.erro) && <button type="button" onClick={() => carregar()} className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-amber-300 hover:bg-white/20" title="Lê o brief para saber qual é o slide desta tarefa e vai lá">★ Ir ao slide da tarefa</button>)}
         {slideT && (
           <button type="button" onClick={() => { if (aba !== 'editar' && aba !== 'ver') setAba('ver'); setChaveIframe(k => k + 1); }} className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-amber-300 hover:bg-white/20" title={`Voltar ao slide desta tarefa: ${tituloSlide(slideT) || `slide ${slideT.n}`}`}>
             {slides && slides.length > 1 ? 'Ir ao slide' : `★ Slide ${slideT.n}`}
