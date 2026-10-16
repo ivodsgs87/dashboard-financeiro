@@ -1343,13 +1343,14 @@ const alvoReciboDrive = (M, clientes, d, nomeFich, usados) => {
     [['regCom', md.regCom], ['regSem', md.regSem]].forEach(([lista, l]) => (l || []).forEach(x => {
       if (usados.has(`${k}:${x.id}`) || x.driveUrl) return;
       if (c && String(x.cid) !== String(c.id)) return;
-      if ((x.ficheiro || x.ficheiroUrl) && (x.reciboVerde || !x.faturaId)) return; // já tem o PDF do recibo (o PDF da fatura não conta)
+      // já tem o PDF do recibo na app (o PDF da fatura não conta): este ficheiro do Drive é esse mesmo — só fica ligado
+      const soLigar = !!((x.ficheiro || x.ficheiroUrl) && (x.reciboVerde || !x.faturaId));
       if (Math.abs((Number(x.valIliq ?? x.val) || 0) - v) > 1) return;
       const dias = /^\d{4}-\d{2}-\d{2}/.test(String(x.data || '')) ? Math.abs(Date.parse(String(x.data).slice(0, 10)) - tR) / 864e5 : null;
       const forte = dias != null && dias <= 5;
-      if (!c && !forte) return; // sem saber o cliente, só com o mesmo valor e a mesma data
+      if ((!c || soLigar) && !forte) return; // sem saber o cliente (ou se já tem PDF), só com o mesmo valor e a mesma data
       if (!forte && (dm < -1 || dm > 2)) return;
-      cands.push({ k, lista, r: x, p: forte ? dias : 10 + Math.abs(dm) });
+      cands.push({ k, lista, r: x, soLigar, p: forte ? dias : 10 + Math.abs(dm) });
     }));
   });
   cands.sort((a, b) => a.p - b.p);
@@ -1361,7 +1362,11 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   Object.entries(M || {}).forEach(([k, md]) => [['regCom', md && md.regCom], ['regSem', md && md.regSem]].forEach(([lista, l]) => (l || []).forEach(r => regs.push({ k, lista, r }))));
   // 1) Drive → app
   progresso('A ver a pasta dos recibos no Drive…');
-  const noDrive = await mod.listarRecibosDrive({ pastaUrl: cfg.pasta, conta: cfg.conta });
+  const todosDrive = await mod.listarRecibosDrive({ pastaUrl: cfg.pasta, conta: cfg.conta });
+  // só os anos que a app tem (os recibos de anos antigos, sem registos, não interessam)
+  const anosApp = Object.entries(M || {}).filter(([, md]) => md && ((md.regCom || []).length || (md.regSem || []).length)).map(([k]) => Number(k.split('-')[0])).filter(Boolean);
+  const anoMin = anosApp.length ? Math.min(...anosApp) : new Date().getFullYear();
+  const noDrive = todosDrive.filter(f => { const a = /^\d{4}$/.test(String((f.caminho || [])[0] || '').trim()) ? Number(String(f.caminho[0]).trim()) : Number(String(f.modifiedTime || '').slice(0, 4)) || Number((/(20\d{2})/.exec(f.name) || [])[1]) || 0; return a >= anoMin; });
   const ligadosId = new Set(regs.map(x => idDriveDe(x.r.driveUrl)).filter(Boolean));
   const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
   const soltos = noDrive.filter(f => !ligadosId.has(f.id) && !ligadosNome.has(f.name) && !ignorados.includes(f.id));
@@ -1373,13 +1378,14 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   const fila = [...porLer];
   const ler = async () => { for (let f = fila.shift(); f; f = fila.shift()) { n += 1; progresso(`A ler os recibos novos do Drive (${n} de ${porLer.length})…`); let file = null, d = null; try { file = await mod.ficheiroDoDrive(cfg.conta, f); ficheiros.set(f.id, file); d = await mod.lerFaturaIA(file); } catch (e) { /* fica por juntar */ } lidos.set(f.id, d ? { nomeCliente: d.nomeCliente || '', descricao: d.descricao || '', valorIliquido: Number(d.valorIliquido) || 0, valorIva: Number(d.valorIva) || 0, taxaIva: d.taxaIva != null ? Number(d.taxaIva) || 0 : null, retencaoIRS: Number(d.retencaoIRS) || 0, pais: d.pais || '', data: d.data || '' } : null); } };
   await Promise.all([ler(), ler(), ler()]);
-  let juntos = 0; const semPar = []; const usados = new Set();
+  let juntos = 0, ligados = 0; const semPar = []; const usados = new Set();
   for (const f of soltos) {
     const d = lidos.get(f.id) || null;
     const res = alvoReciboDrive(M, clientes, d, f.name, usados);
     if (res.alvo) {
       const { k, r } = res.alvo;
       usados.add(`${k}:${r.id}`);
+      if (res.alvo.soLigar) { await onJuntar(k, r.id, { driveUrl: f.webViewLink, driveNome: f.name }, null); ligados += 1; continue; }
       let file = ficheiros.get(f.id) || null;
       if (!file) { try { file = await mod.ficheiroDoDrive(cfg.conta, f); } catch (e) { file = null; } }
       const valores = r.reciboVerde ? {} : { val: res.v, valIliq: res.v, iva: Number(d.valorIva) || 0, ...(d.taxaIva != null ? { taxaIva: Number(d.taxaIva) || 0 } : {}), retIRS: Number(d.retencaoIRS) || 0, ...(d.pais ? { pais: d.pais } : {}), reciboVerde: true };
@@ -1401,9 +1407,9 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
     if (!f) { semAcesso += 1; DRIVE_REC_FALHAS.add(`${k}:${r.id}`); continue; }
     if (await onEnviar(k, r.id, f, r)) enviados += 1; else DRIVE_REC_FALHAS.add(`${k}:${r.id}`);
   }
-  return { juntos, enviados, semAcesso, semPar };
+  return { juntos, ligados, enviados, semAcesso, semPar, lidos: porLer.length };
 };
-const resumoRecibosDrive = (o, auto) => [o.juntos ? `${o.juntos} recibo${o.juntos === 1 ? '' : 's'} do Drive junto${o.juntos === 1 ? '' : 's'} aos registos em Receitas` : '', o.enviados ? `${o.enviados} enviado${o.enviados === 1 ? '' : 's'} para o Drive` : '', !auto && o.semAcesso ? `${o.semAcesso} com PDF que não consegui abrir para enviar` : '', o.semPar.length ? `${o.semPar.length} no Drive por juntar (Trabalho → cliente → Recibos)` : ''].filter(Boolean).join(' · ');
+const resumoRecibosDrive = (o, auto) => [o.juntos ? `${o.juntos} recibo${o.juntos === 1 ? '' : 's'} do Drive junto${o.juntos === 1 ? '' : 's'} aos registos em Receitas` : '', o.ligados ? `${o.ligados} já ${o.ligados === 1 ? 'tinha' : 'tinham'} o PDF — ${o.ligados === 1 ? 'ficou ligado' : 'ficaram ligados'} ao do Drive` : '', o.enviados ? `${o.enviados} enviado${o.enviados === 1 ? '' : 's'} para o Drive` : '', !auto && o.semAcesso ? `${o.semAcesso} com PDF que não consegui abrir para enviar` : '', o.semPar.length ? `${o.semPar.length} no Drive por juntar (Trabalho → cliente → Recibos)` : ''].filter(Boolean).join(' · ');
 // Definições → Recibos no Google Drive: o botão e a lista dos que ficaram por juntar
 const SincronizarRecibosDrive = ({ estado, onCorrer, pend = [], clientes = [], onCriar, onIgnorar, aAbrir }) => (
   <div className="space-y-2">
