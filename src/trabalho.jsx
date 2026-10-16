@@ -1,7 +1,7 @@
 // Separador "Trabalho": pastas e subpastas por cliente, tarefas com estados, cronómetro,
 // notas/reuniões e orçamento automático. Substitui o ClickUp. Só é descarregado quando se abre.
 // Os dados (trab) vêm do OrcamentoApp, que os guarda no Firestore; aqui só se lê e se pede para mudar.
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
@@ -24,6 +24,7 @@ const ICONES_T = {
   lapis: '<path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/>',
   nota: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
   criativos: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5 6 9M14 5l-2 4M20 5l-2 4"/><path d="m10.5 12 4 2.5-4 2.5z"/>',
+  todas: '<path d="M10 6h10M10 12h10M10 18h10"/><path d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17"/>',
 };
 const IcoT = ({ n, className = 'w-4 h-4' }) => (
   <svg className={`shrink-0 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONES_T[n] || '' }} />
@@ -274,6 +275,11 @@ const dataPrazo = iso => { const d = trabDia(iso); if (!d) return ''; return d.s
 const dataHora = iso => { if (!iso) return '—'; const d = new Date(iso); return `${dataCurta(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const paraInputLocal = iso => { if (!iso) return ''; const d = new Date(iso); return `${trabDia(iso)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
+// Ecrã de telemóvel (< 640 px): uma só consulta partilhada por todas as linhas
+const MQ_TEL = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 639px)') : null;
+const ouvirTel = cb => { if (!MQ_TEL) return () => {}; if (MQ_TEL.addEventListener) MQ_TEL.addEventListener('change', cb); else MQ_TEL.addListener(cb); return () => { if (MQ_TEL.removeEventListener) MQ_TEL.removeEventListener('change', cb); else MQ_TEL.removeListener(cb); }; };
+const useTelemovel = () => useSyncExternalStore(ouvirTel, () => !!(MQ_TEL && MQ_TEL.matches), () => false);
+
 // ── Linha de uma tarefa ──
 // Somar tempo à mão: carregas no tempo, escreves (ex.: 30m, 1h30) e ao sair soma-se ao que já lá estava
 const opSomarTempo = (trab, id, horas) => {
@@ -317,6 +323,40 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
   const v = trabValor(t, cu, clientes);
   const hoje = trabDia(new Date().toISOString());
   const atrasada = t.prazo && t.prazo < hoje && t.estado !== 'feito' && t.estado !== 'review';
+  const tel = useTelemovel();
+  if (tel) {
+    const fraco = claro ? 'text-slate-500' : 'text-slate-400';
+    const temIcones = (t.anexos || []).length > 0 || (t.notas && String(t.notas).trim());
+    return (
+      <div onClick={e => cliqueNaLinha(e, () => onAbrir(t.id))} className={`group cursor-pointer flex items-start gap-2.5 px-2 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : 'border-transparent'}`}>
+        <span className="pt-0.5"><EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} /></span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <button type="button" onClick={() => onAbrir(t.id)} className={`flex-1 min-w-0 text-left ${t.estado === 'feito' ? 'opacity-60' : ''}`}>
+              <NomeTarefa t={t} cu={cu} claro={claro} prefixo={etiquetaTipo(t, cu) ? 'nunca' : 'sempre'} className={`text-sm ${t.estado === 'feito' ? 'line-through decoration-slate-500/60' : ''}`} />
+            </button>
+            {v > 0 && <span className={`shrink-0 text-xs tabular-nums ${claro ? 'text-emerald-700' : 'text-emerald-400'}`}>{eur(v)}</span>}
+          </div>
+          <div className={`mt-0.5 flex items-center gap-1.5 min-w-0 text-[11px] ${fraco}`}>
+            <EtiquetaTipo t={t} cu={cu} claro={claro} maxw="max-w-[40%]" />
+            {t.prazo && <span className={`shrink-0 tabular-nums ${atrasada ? 'text-red-400 font-medium' : ''}`} title="Prazo">{dataPrazo(t.prazo)}</span>}
+            {(t.freelancerId || t.outsourcing) && <QuemFaz t={t} claro={claro} editavel={false} className="shrink-0 max-w-[90px]" />}
+            {temIcones && (
+              <span className="shrink-0 inline-flex items-center gap-1">
+                {(t.anexos || []).length > 0 && <IcoA n="clip" className="w-3 h-3" />}
+                {t.notas && String(t.notas).trim() && <IcoT n="nota" className="w-3 h-3" />}
+              </span>
+            )}
+            {(mostrarPasta && nomePasta) && <span className="flex-1 min-w-0 truncate">{nomePasta}</span>}
+          </div>
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-0.5">
+          <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
+          <span className={`text-[11px] ${fraco}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div onClick={e => cliqueNaLinha(e, () => onAbrir(t.id))} className={`group cursor-pointer flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl border transition-colors ${corre ? (claro ? 'border-red-200 bg-red-50 shadow-[inset_3px_0_0_0_#ef4444]' : 'border-red-500/30 bg-red-500/[0.08] shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-transparent hover:border-slate-200 hover:bg-slate-50' : 'border-transparent hover:border-slate-700 hover:bg-white/[0.03]'}`}>
       <EstadoPill estado={t.estado} theme={theme} compacto onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
@@ -336,7 +376,7 @@ const LinhaTarefa = ({ t, cu, clientes, theme, onAbrir, mudar, mostrarPasta, nom
       {(t.freelancerId || t.outsourcing) && <QuemFaz t={t} claro={claro} editavel={false} className="shrink-0 max-w-[110px]" />}
       <EtiquetaTipo t={t} cu={cu} claro={claro} className="hidden sm:inline-block" />
       {t.prazo && <span className={`hidden sm:inline text-xs tabular-nums ${atrasada ? 'text-red-400 font-medium' : claro ? 'text-slate-500' : 'text-slate-400'}`} title="Prazo">{dataPrazo(t.prazo)}</span>}
-      <span className={`w-14 text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
+      <span className={`min-w-[3.5rem] text-right text-xs ${claro ? 'text-slate-500' : 'text-slate-400'}`}><TempoSomar t={t} mudar={mudar} claro={claro} /></span>
       <span className={`hidden sm:inline w-16 text-right text-xs tabular-nums ${v ? (claro ? 'text-emerald-700' : 'text-emerald-400') : 'opacity-40'}`}>{v ? eur(v) : '—'}</span>
       <BotaoCrono aCorrer={corre} theme={theme} onIniciar={() => { if (t.estado === 'todo') avisarEstadoPC(t, 'curso'); mudar(tr => opIniciar(tr, t.id)); }} onParar={() => mudar(opParar)} />
       {APAGAR.pedir && <button type="button" onClick={e => { e.stopPropagation(); APAGAR.pedir(t); }} className={`shrink-0 w-6 h-6 hidden sm:group-hover:inline-flex focus:inline-flex items-center justify-center rounded-md ${claro ? 'text-slate-400' : 'text-slate-500'} hover:text-red-400`} title="Apagar a tarefa" aria-label="Apagar a tarefa">
@@ -508,14 +548,15 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
     </div>
   );
 };
-const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, mostrarPasta, onCriarNoEstado }) => {
+const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, mostrarPasta, onCriarNoEstado, comCliente = false }) => {
   const claro = useClaro(theme);
   const largo = useLargo();
   const cheio = useLargo('(min-width: 1400px)');
   const [fechados, alternar] = useGruposFechados();
   const [novaEm, setNovaEm] = useState(null);
   const [txt, setTxt] = useState('');
-  const nomePasta = t => (mostrarPasta ? caminho(trab, t.pastaId).map(p => p.nome).slice(-2).join(' / ') : '');
+  const nomeCliT = t => { const c = (clientes || []).find(x => String(x.id) === String(t.cid)); return c ? c.nome : String(t.cid || '').replace(/^cu:/, ''); };
+  const nomePasta = t => { if (!mostrarPasta) return ''; const pp = caminho(trab, t.pastaId).map(p => p.nome).slice(-2).join(' / '); return comCliente ? [nomeCliT(t), pp].filter(Boolean).join(' · ') : pp; };
   // Ordenar por coluna (carrega no título; outra vez inverte; à terceira volta ao normal) — sempre dentro de cada estado
   const [ordem, setOrdemEstado] = useState(() => { try { return JSON.parse(localStorage.getItem('trab-ordem')) || null; } catch (e) { return null; } });
   const setOrdem = o => { setOrdemEstado(o); try { localStorage.setItem('trab-ordem', JSON.stringify(o)); } catch (e) { /* sem armazenamento */ } };
@@ -7234,8 +7275,23 @@ const VisaoGeral = ({ trab, cu, clientes, theme, mudar, onAbrir, ano, mesNum }) 
     <div className="space-y-4">
       {linhasCli.length > 0 && (
         <Card>
-          <h3 className="font-semibold mb-3 text-sm">{meses[mesNum - 1]} até agora</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          <div className="flex items-baseline justify-between gap-2 mb-2 sm:mb-3">
+            <h3 className="font-semibold text-sm">{meses[mesNum - 1]} até agora</h3>
+            <span className="sm:hidden text-sm font-semibold tabular-nums">{eur(linhasCli.reduce((a, [, c]) => a + c.v, 0))}</span>
+          </div>
+          <div className="sm:hidden divide-y divide-white/5">
+            {linhasCli.map(([cid, c]) => (
+              <div key={cid} className="flex items-center gap-2.5 py-1.5">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: corCli(cid) }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{nomeCli(cid)}</p>
+                  <p className={`text-[11px] truncate ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{c.porDia ? `${c.dias.size} dia${c.dias.size === 1 ? '' : 's'} × ${eur(c.porDia)}` : `${c.n} entregue${c.n === 1 ? '' : 's'}`} · {tempoTxt(c.h)}</p>
+                </div>
+                <span className="text-sm font-semibold tabular-nums shrink-0">{eur(c.v)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-2">
             {linhasCli.map(([cid, c]) => (
               <div key={cid} className={`rounded-xl p-3 ${claro ? 'bg-slate-100' : 'bg-slate-800/60'}`} style={{ borderLeft: `3px solid ${corCli(cid)}` }}>
                 <p className="text-sm font-medium">{nomeCli(cid)}</p>
@@ -7405,13 +7461,18 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }, [trab.tarefas]);
   const contar = id => descendentes(trab, id).reduce((a, x) => a + (abertasPorPasta[x] || 0), 0);
 
+  const [filtroTodas, setFiltroTodasEstado] = useState(() => { try { return { cid: '', feitas: '30', ...(JSON.parse(localStorage.getItem('trab-todas')) || {}) }; } catch (e) { return { cid: '', feitas: '30' }; } });
+  const setFiltroTodas = f => { setFiltroTodasEstado(f); try { localStorage.setItem('trab-todas', JSON.stringify(f)); } catch (e) { /* sem armazenamento */ } };
+  const desde30 = trabDia(new Date(Date.now() - 30 * 86400000).toISOString());
   let tarefas = [];
   if (pasta) { const ids = new Set(descendentes(trab, pasta.id)); tarefas = (trab.tarefas || []).filter(t => ids.has(t.pastaId)); }
   else if (sel.tipo === 'cliente') tarefas = (trab.tarefas || []).filter(t => String(t.cid) === String(sel.id));
   else if (freeSel) tarefas = tarefasDoFreelancer(trab, freeSel);
+  else if (sel.tipo === 'todas') tarefas = (trab.tarefas || []).filter(t => (!filtroTodas.cid || String(t.cid) === String(filtroTodas.cid))
+    && (t.estado !== 'feito' || filtroTodas.feitas === 'todas' || (filtroTodas.feitas === '30' && trabDia(t.feita || t.review || t.criada || '') >= desde30)));
   if (procura.trim()) {
     const q = procura.trim().toLowerCase();
-    tarefas = (pasta || sel.tipo === 'cliente' || freeSel ? tarefas : (trab.tarefas || [])).filter(t => t.nome.toLowerCase().includes(q));
+    tarefas = (pasta || sel.tipo === 'cliente' || sel.tipo === 'todas' || freeSel ? tarefas : (trab.tarefas || [])).filter(t => t.nome.toLowerCase().includes(q));
   }
   const ordenar = l => l.slice().sort((a, b) => (a.prazo || '9999').localeCompare(b.prazo || '9999') || String(a.criada).localeCompare(String(b.criada)));
   tarefas = ordenar(tarefas);
@@ -7547,6 +7608,9 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
       <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${sel.tipo === 'geral' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <IcoT n="casa" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Visão geral
       </button>
+      <button type="button" onClick={() => setSel({ tipo: 'todas' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'todas' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
+        <IcoT n="todas" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Todas as tarefas
+      </button>
       <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left !mt-0.5 ${sel.tipo === 'timesheet' ? (claro ? 'bg-slate-200/70 font-semibold' : 'bg-white/10 font-semibold') : claro ? 'hover:bg-slate-100' : 'hover:bg-white/5'}`}>
         <IcoT n="relogio" className={`w-4 h-4 ${claro ? 'text-slate-500' : 'text-slate-400'}`} /> Timesheet
       </button>
@@ -7629,7 +7693,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
     </div>
   );
 
-  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'criativos' ? 'Criativos' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : freeSel ? freeSel.nome : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
+  const titulo = pasta ? pasta.nome : sel.tipo === 'cliente' ? (cliente ? cliente.nome : 'Cliente') : sel.tipo === 'timesheet' ? 'Timesheet' : sel.tipo === 'todas' ? 'Todas as tarefas' : sel.tipo === 'criativos' ? 'Criativos' : sel.tipo === 'clientes' ? 'Clientes' : sel.tipo === 'tipos' ? 'Tipos de tarefa e preços' : sel.tipo === 'freelancers' ? 'Freelancers' : freeSel ? freeSel.nome : sel.tipo === 'calendario' ? 'Calendário de projetos' : 'Visão geral';
   const migalhas = pasta ? [cliente ? cliente.nome : '', ...caminho(trab, pasta.id).slice(0, -1).map(p => p.nome)].filter(Boolean) : [];
   const notasAlvo = pasta ? (pasta.notas || []) : sel.tipo === 'cliente' ? ((trab.notasCliente || {})[sel.id] || []) : [];
   const mudarNotas = notas => mudar(tr => (pasta ? opPasta(tr, pasta.id, { notas }) : { ...tr, notasCliente: { ...(tr.notasCliente || {}), [sel.id]: notas } }));
@@ -7676,6 +7740,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               <button type="button" onClick={() => setArvoreMob(!arvoreMob)} aria-expanded={arvoreMob} className={chip(arvoreMob)}><IcoT n="pasta" className="w-3.5 h-3.5" /> Pastas</button>
               {sepM}
               <button type="button" onClick={() => setSel({ tipo: 'geral' })} className={chip(sel.tipo === 'geral')}>{ic('casa')} Visão geral</button>
+              <button type="button" onClick={() => setSel({ tipo: 'todas' })} className={chip(sel.tipo === 'todas')}>{ic('todas')} Todas</button>
               <button type="button" onClick={() => setSel({ tipo: 'timesheet' })} className={chip(sel.tipo === 'timesheet')}>{ic('relogio')} Timesheet</button>
               <button type="button" onClick={() => setSel({ tipo: 'criativos' })} className={chip(sel.tipo === 'criativos')}>{ic('criativos')} Criativos</button>
               {calendario && <button type="button" onClick={() => setSel({ tipo: 'calendario' })} className={chip(sel.tipo === 'calendario')}>{ic('calendario')} Calendário</button>}
@@ -7875,8 +7940,27 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               {sel.tipo === 'cliente' && !procura.trim() && !filhasDe(trab, null, sel.id).length && (
                 <Card><p className="text-sm">Ainda não há pastas para {cliente ? cliente.nome : 'este cliente'}. Carrega no <strong>+</strong> ao lado do nome, à esquerda.</p></Card>
               )}
+              {sel.tipo === 'todas' && !procura.trim() && (() => {
+                const cids = [...new Set((trab.tarefas || []).map(t => String(t.cid || '')).filter(Boolean))];
+                const nome = id => { const c = (clientes || []).find(x => String(x.id) === id); return c ? c.nome : id.replace(/^cu:/, ''); };
+                const caixaSel = `rounded-lg border px-2 py-1 text-xs ${claro ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-900/60 border-slate-600 text-slate-200'}`;
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={filtroTodas.cid} onChange={e => setFiltroTodas({ ...filtroTodas, cid: e.target.value })} aria-label="Cliente" className={caixaSel}>
+                      <option value="">Todos os clientes</option>
+                      {cids.map(id => [id, nome(id)]).sort((a, b) => a[1].localeCompare(b[1], 'pt')).map(([id, n]) => <option key={id} value={id}>{n}</option>)}
+                    </select>
+                    <select value={filtroTodas.feitas} onChange={e => setFiltroTodas({ ...filtroTodas, feitas: e.target.value })} aria-label="Tarefas feitas" className={caixaSel}>
+                      <option value="30">Feitas: últimos 30 dias</option>
+                      <option value="todas">Feitas: todas</option>
+                      <option value="nao">Sem as feitas</option>
+                    </select>
+                    <span className={`text-xs ${sub}`}>{tarefas.length} tarefa{tarefas.length === 1 ? '' : 's'}<span className="hidden min-[900px]:inline"> · marca várias para mudar o estado, o prazo ou a prioridade de uma vez</span></span>
+                  </div>
+                );
+              })()}
               <div>
-                <ListaTarefas tarefas={tarefas} trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} mostrarPasta={!pasta || descendentes(trab, pasta.id).length > 1}
+                <ListaTarefas comCliente={sel.tipo === 'todas'} tarefas={tarefas} trab={trab} cu={cu} clientes={clientes} theme={theme} mudar={mudar} onAbrir={setTarefaAberta} mostrarPasta={!pasta || descendentes(trab, pasta.id).length > 1}
                   onCriarNoEstado={pasta ? (txt, estado) => mudar(tr => { const n = opNovaTarefa(tr, { pastaId: pasta.id, cid: pasta.cid, nome: txt, prazo: '' }); const nova = n.tarefas[n.tarefas.length - 1]; return estado === 'todo' ? n : opEstado(n, nova.id, estado); }) : null} />
               </div>
             </div>
