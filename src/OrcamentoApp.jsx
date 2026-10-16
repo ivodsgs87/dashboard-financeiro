@@ -4777,11 +4777,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCores = Object.fromEntries((G.categoriasExtrato || defG.categoriasExtrato).map(c => [c.nome, c.cor]));
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
- return (
- <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
- 
- {/* Layout Editor para Despesas Casal */}
- {showLayoutEditor && (
+ // Peças da página Despesas (a lista, o resumo e os números para o gráfico)
+ return {
+   editor: <>{showLayoutEditor && (
    <LayoutEditor 
      tabName="abanca"
      widgetDefs={{
@@ -4794,10 +4792,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      onUpdateLayout={(layout) => updateTabLayout('abanca', layout)}
      onReset={() => resetTabLayout('abanca')}
    />
- )}
- 
- {avisoDesp('despABanca', 'Despesas do casal')}
- <div className="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:gap-6 2xl:items-start">
+ )}</>,
+   aviso: avisoDesp('despABanca', 'Despesas do casal'),
+   lista: (
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -4828,7 +4825,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  />
  </Card>
- <div className="space-y-6 2xl:sticky 2xl:top-40">
+   ),
+   resumo: (
  <Card className="space-y-3">
    <div className="grid grid-cols-3 gap-4 text-center 2xl:grid-cols-1 2xl:gap-2 2xl:text-left">
      <div className="2xl:flex 2xl:items-baseline 2xl:justify-between"><p className="text-xs text-slate-500">Total (100%)</p><p className="text-xl font-bold">{fmt(totAB)}</p></div>
@@ -4861,39 +4859,22 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      </div>
    </div>
  </Card>
- 
- {porCat.length > 0 && (
- <Card>
- <h3 className="text-lg font-semibold mb-4 2xl:mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
- <div className="flex flex-col lg:flex-row 2xl:flex-col gap-6 2xl:gap-4 items-center">
- <PieChart data={pieData} size={180}/>
- <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-1 gap-2 2xl:gap-0.5">
- {porCat.sort((a,b) => b.val - a.val).map(c => (
- <div key={c.cat} className="flex items-center gap-2 p-2 2xl:py-1 bg-slate-700/30 2xl:bg-transparent rounded-lg">
- <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
- <div className="flex-1 min-w-0">
-   <p className="text-xs font-medium truncate">{c.cat}<span className="hidden 2xl:inline font-normal text-slate-500"> · {((c.val/totAB)*100).toFixed(0)}%</span></p>
-   <p className="text-xs text-slate-500 2xl:hidden">{((c.val/totAB)*100).toFixed(0)}%</p>
- </div>
- <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
- </div>
- ))}
- </div>
- </div>
- </Card>
- )}
- </div>
- </div>
- </div>
- );
+   ),
+   porCat, catCores,
+ };
  };
 
  // DESPESAS: as do casal e as pessoais na mesma página
  const Despesas = () => {
+   const [distrib, setDistrib] = useState('casal');
+   const C = ABanca(), P = Pessoais();
    const irSec = id => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
    const caixa = 'text-left rounded-xl p-2.5 sm:p-3 tile hover:brightness-110 min-w-0';
+   const D = distrib === 'casal' ? C : P;
+   const totD = distrib === 'casal' ? totAB : totPess;
    return (
      <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
+       {C.editor}{P.editor}
        <Card>
          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
            <h3 className="font-semibold"><Ico e="💳"/>Despesas fixas por mês</h3>
@@ -4917,8 +4898,42 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            </div>
          </div>
        </Card>
-       <section id="desp-casal" className="scroll-mt-24">{ABanca()}</section>
-       <section id="desp-pessoais" className="scroll-mt-24">{Pessoais()}</section>
+       <div className="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:gap-6 2xl:items-start">
+         <div className="space-y-6 min-w-0">
+           <section id="desp-casal" className="space-y-3 scroll-mt-24">{C.aviso}{C.lista}</section>
+           <section id="desp-pessoais" className="space-y-3 scroll-mt-24">{P.aviso}{P.lista}</section>
+         </div>
+         <div className="space-y-6 2xl:sticky 2xl:top-40">
+           {C.resumo}
+           <Card>
+             <div className="flex items-center justify-between gap-2 mb-4">
+               <h3 className="text-lg font-semibold"><Ico e="📊"/>Por categoria</h3>
+               <div className="inline-flex rounded-lg p-0.5 tile" role="group" aria-label="Despesas do gráfico">
+                 {[['casal', 'Casal'], ['pessoais', 'Pessoais']].map(([k, l]) => (
+                   <button key={k} onClick={() => setDistrib(k)} aria-pressed={distrib === k} className={`px-2.5 py-1 rounded-md text-xs font-medium ${distrib === k ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}>{l}</button>
+                 ))}
+               </div>
+             </div>
+             {D.porCat.length > 0 ? (
+               <div className="flex flex-col lg:flex-row 2xl:flex-col gap-6 2xl:gap-4 items-center">
+                 <PieChart data={D.porCat.map(c => ({ value: c.val, color: D.catCores[c.cat] || '#64748b', label: c.cat }))} size={180}/>
+                 <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-1 gap-2 2xl:gap-0.5">
+                   {[...D.porCat].sort((a, b) => b.val - a.val).map(c => (
+                     <div key={c.cat} className="flex items-center gap-2 p-2 2xl:py-1 bg-slate-700/30 2xl:bg-transparent rounded-lg">
+                       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: D.catCores[c.cat] }}/>
+                       <div className="flex-1 min-w-0">
+                         <p className="text-xs font-medium truncate">{c.cat}<span className="hidden 2xl:inline font-normal text-slate-500"> · {fmtPct(totD > 0 ? c.val / totD * 100 : 0, 0)}</span></p>
+                         <p className="text-xs text-slate-500 2xl:hidden">{fmtPct(totD > 0 ? c.val / totD * 100 : 0, 0)}</p>
+                       </div>
+                       <p className="text-sm font-semibold" style={{ color: D.catCores[c.cat] }}>{fmt(c.val)}</p>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             ) : <p className="text-sm text-slate-500">Ainda sem despesas aqui.</p>}
+           </Card>
+         </div>
+       </div>
      </div>
    );
  };
@@ -4934,11 +4949,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const catCores = Object.fromEntries((G.categoriasExtrato || defG.categoriasExtrato).map(c => [c.nome, c.cor]));
  const pieData = porCat.map(c => ({value: c.val, color: catCores[c.cat] || '#64748b', label: c.cat}));
  
- return (
- <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
- 
- {/* Layout Editor para Despesas Pessoais */}
- {showLayoutEditor && (
+ // Peças da página Despesas (a lista, o resumo e os números para o gráfico)
+ return {
+   editor: <>{showLayoutEditor && (
    <LayoutEditor 
      tabName="pessoais"
      widgetDefs={{
@@ -4950,10 +4963,9 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      onUpdateLayout={(layout) => updateTabLayout('pessoais', layout)}
      onReset={() => resetTabLayout('pessoais')}
    />
- )}
- 
- {avisoDesp('despPess', 'Despesas pessoais')}
- <div className="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_360px] 2xl:gap-6 2xl:items-start">
+ )}</>,
+   aviso: avisoDesp('despPess', 'Despesas pessoais'),
+   lista: (
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
@@ -4979,35 +4991,14 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  )}
  />
  </Card>
- <div className="space-y-6 2xl:sticky 2xl:top-40">
+   ),
+   resumo: (
  <Card className="!py-4">
  <div className="flex items-baseline justify-between gap-3"><p className="text-xs text-slate-500">Total Despesas Pessoais</p><p className="text-xl font-bold">{fmt(totPess)}</p></div>
  </Card>
- 
- {porCat.length > 0 && (
- <Card>
- <h3 className="text-lg font-semibold mb-4 2xl:mb-4"><Ico e="📊"/>Distribuição por Categoria</h3>
- <div className="flex flex-col lg:flex-row 2xl:flex-col gap-6 2xl:gap-4 items-center">
- <PieChart data={pieData} size={180}/>
- <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-1 gap-2 2xl:gap-0.5">
- {porCat.sort((a,b) => b.val - a.val).map(c => (
- <div key={c.cat} className="flex items-center gap-2 p-2 2xl:py-1 bg-slate-700/30 2xl:bg-transparent rounded-lg">
- <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background: catCores[c.cat]}}/>
- <div className="flex-1 min-w-0">
-   <p className="text-xs font-medium truncate">{c.cat}<span className="hidden 2xl:inline font-normal text-slate-500"> · {((c.val/totPess)*100).toFixed(0)}%</span></p>
-   <p className="text-xs text-slate-500 2xl:hidden">{((c.val/totPess)*100).toFixed(0)}%</p>
- </div>
- <p className="text-sm font-semibold" style={{color: catCores[c.cat]}}>{fmt(c.val)}</p>
- </div>
- ))}
- </div>
- </div>
- </Card>
- )}
- </div>
- </div>
- </div>
- );
+   ),
+   porCat, catCores,
+ };
  };
 
  // INVESTIMENTOS
@@ -11421,9 +11412,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const tabs = [
    {id:'painel',icon:'📊',label:'Painel',submenu:[{id:'resumo',icon:'📊',label:'Este mês'},{id:'ano',icon:'🧭',label:'O meu ano'}]},
    {id:'dinheiro',icon:'💰',label:'Dinheiro',submenu:[{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas'},{id:'invest',icon:'📈',label:'Alocação'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
+   {id:'trabalho',icon:'🗂',label:'Trabalho'},
    {id:'notas',icon:'📓',label:'Notas'},
    {id:'sep1',separator:true},
-   {id:'planear',icon:'🗂',label:'Planear',submenu:[{id:'trabalho',icon:'🗂',label:'Trabalho'},{id:'calfin',icon:'🗓',label:'Calendário fiscal'},{id:'agenda',icon:'📋',label:'Rotina do mês'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'casamento',icon:'💍',label:'Casamento'}]},
+   {id:'planear',icon:'📅',label:'Planear',submenu:[{id:'calfin',icon:'🗓',label:'Calendário fiscal'},{id:'agenda',icon:'📋',label:'Rotina do mês'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'casamento',icon:'💍',label:'Casamento'}]},
    {id:'patrimoniog',icon:'🏛',label:'Património',submenu:[{id:'patrimonio',icon:'🏛',label:'Património'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'transacoes',icon:'📝',label:'Transações'}]}
  ];
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
@@ -14190,7 +14182,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
  {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
- {tab==='despesas' && Despesas()}
+ {tab==='despesas' && <AbaEstavel key="despesas" render={Despesas} />}
  {tab==='invest' && <AbaEstavel key="invest" render={Invest} />}
  {tab==='sara' && <AbaEstavel key="sara" render={Sara} />}
  {tab==='historico' && <AbaEstavel key="historico" render={Historico} />}
