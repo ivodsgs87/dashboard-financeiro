@@ -89,9 +89,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   useEffect(() => { if (tab === 'calendario') { try { localStorage.setItem('trab-sel', JSON.stringify({ tipo: 'calendario' })); } catch (e) { /* sem armazenamento */ } setTab('trabalho'); } }, [tab]);
   // A Performance e o Histórico passaram para «O meu ano»; o Portfolio para dentro do Património
   useEffect(() => {
-    const ir = (alvo, id) => { setTab(alvo); setTimeout(() => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350); };
+    const ir = (alvo, id) => { setTab(alvo); let n = 0; const tentar = () => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else if (n++ < 25) setTimeout(tentar, 60); }; setTimeout(tentar, 120); };
     if (tab === 'performance' || tab === 'historico') ir('ano', 'ano-detalhe');
     else if (tab === 'portfolio') ir('patrimonio', 'portfolio-valores');
+    else if (tab === 'impostos') ir('ano', 'cartao-impostos');
+    else if (tab === 'abanca') ir('despesas', 'desp-casal');
+    else if (tab === 'pessoais') ir('despesas', 'desp-pessoais');
   }, [tab]);
   // ── Recuar: cada mudança de separador fica no histórico do browser (botão ←, seta ←, botão de recuar do rato e gesto de voltar do telemóvel).
   // Só muda de ecrã (separador, mês e posição na página) — nunca mexe nos dados.
@@ -302,7 +305,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   // Atalhos de teclado
   // Ordem das tabs para atalhos de teclado (1-9, 0)
   // Corresponde à ordem visual na barra de navegação
-  const tabOrder = ['resumo','ano','performance','historico','receitas','abanca','pessoais','credito','sara','invest','portfolio','transacoes','calendario','agenda','extrato'];
+  const tabOrder = ['resumo','ano','receitas','despesas','invest','sara','notas','trabalho','agenda','patrimonio','credito','transacoes'];
   
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -2158,7 +2161,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const nDias = new Date(y, m, 0).getDate();
    const est = (feito, d) => feito ? 'ok' : (idx < hIdx || (idx === hIdx && d < hDia)) ? 'atrasado' : 'futuro';
    const pagos = tipo => (G.impostosPagos || []).filter(p => p.tipo === tipo && patNum(p.valor) > 0 && String(p.data || '').startsWith(`${y}-${String(m).padStart(2, '0')}`));
-   const irImp = () => { setTab('resumo'); setTimeout(() => document.getElementById('cartao-impostos')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); };
+   const irImp = () => setTab('impostos');
    const L = [];
    // Prestação da casa (dia 1)
    const prest = patNum((creditoAtual || {}).prestacao);
@@ -2415,7 +2418,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      const ivaPend = mesIva && !pi.ivaAntPago && pi.ivaTrimestreAnterior >= 0.5;
      const ok = pi.ssEste.pago && !ivaPend;
      L.push({ id: 'imp', icon: '🏛', titulo: 'Pagar impostos', estado: ok ? 'ok' : 'falta',
-       detalhe: [pi.ssEste.pago ? 'SS ✓' : `SS ${fmt(pi.ssEste.valor)} até dia 20`, mesIva ? (pi.ivaAntPago ? 'IVA ✓' : pi.ivaTrimestreAnterior < 0.5 ? 'IVA: só declarar' : `IVA ${fmt(pi.ivaTrimestreAnterior)} até dia 25`) : null].filter(Boolean).join(' · '), ir: () => { setTab('resumo'); setTimeout(() => document.getElementById('cartao-impostos')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); } });
+       detalhe: [pi.ssEste.pago ? 'SS ✓' : `SS ${fmt(pi.ssEste.valor)} até dia 20`, mesIva ? (pi.ivaAntPago ? 'IVA ✓' : pi.ivaTrimestreAnterior < 0.5 ? 'IVA: só declarar' : `IVA ${fmt(pi.ivaTrimestreAnterior)} até dia 25`) : null].filter(Boolean).join(' · '), ir: () => setTab('impostos') });
    }
    const ep = estadoMesSel;
    L.push({ id: 'port', icon: '💎', titulo: 'Atualizar Portfolio', estado: idx > hojeIdx ? 'na' : ep.port === 'ok' ? 'ok' : ep.port === 'igual' ? 'parcial' : 'falta',
@@ -2656,6 +2659,122 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    return L.join('\n');
  };
 
+ // Impostos do ano (SS, IVA e IRS + pagamentos registados). Vive em «O meu ano»; para anos passados só há os pagamentos.
+ const cartaoImpostos = anoVer => {
+   if (anoVer !== anoAtualSistema) return (
+     <Card>
+       <h3 className="font-semibold"><Ico e="📊"/>Impostos de {anoVer}</h3>
+       <p className="text-xs text-slate-500 mt-1">A previsão de SS, IVA e IRS é só para o ano corrente. Aqui ficam os pagamentos que registaste em {anoVer}.</p>
+       <PagamentosImpostos impostosPagos={G.impostosPagos} anoAtual={anoVer} theme={theme} onAdd={handleAddPagamento} onUpdate={handleUpdatePagamento} onDelete={handleDeletePagamento} fmt={fmt} showToast={showToast} confirmDelete={confirmDelete} />
+     </Card>
+   );
+   return (<><Card>
+   {(() => {
+     const pi = previsaoImpostos;
+     const nm = i => meses[((i % 12) + 12) % 12];
+     const mm = i => String(((i % 12) + 12) % 12 + 1).padStart(2, '0');
+     const ss = pi.ssEste.pago ? pi.ssProx : pi.ssEste;
+     const sub = 'text-[10px] text-slate-500';
+     const fx = f => `×${f.toFixed(2).replace('.', ',')}`;
+     const ivaZero = !pi.ivaAntPago && pi.ivaTrimestreAnterior < 0.5;
+     const mesIva = pi.dataLimiteIva.getMonth() + 1;
+     const cfg = pi.irsCfg;
+     const receber = pi.irsAPagarReceber >= 0;
+     return (<>
+   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+     <div className="flex items-center gap-2">
+       <h3 className="font-semibold"><Ico e="📊"/>Impostos {anoAtualSistema}</h3>
+       {pi.calibracao?.ativa && (
+         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title="As previsões de SS e IVA estão afinadas com os pagamentos que registaste">
+           🎯 Afinado com os teus pagamentos
+         </span>
+       )}
+     </div>
+     <div className="flex items-center gap-2" title={`SS paga em ${anoAtualSistema} + IVA dos trimestres de ${anoAtualSistema} + IRS de ${anoAtualSistema}`}>
+       <span className="text-xs text-slate-500">Total previsto no ano:</span>
+       <span className="text-lg font-bold text-orange-400">{fmt(pi.totalImpostos)}</span>
+     </div>
+   </div>
+
+   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+     {/* SS: o próximo pagamento */}
+     <div className="p-3 tile rounded-xl">
+       <div className="flex items-center gap-2 mb-1">
+         <span className="text-blue-400"><Ico e="🏛" className="ico-solo"/></span>
+         <span className="text-xs text-slate-400">SS a pagar em {nm(ss.mes)}</span>
+       </div>
+       <p className="text-xl font-bold text-blue-400">{fmt(ss.valor)}</p>
+       <p className={`${sub} mt-1`}>Entre 10 e 20/{mm(ss.mes)} · base {ss.nomeBase}{ss.anoBase !== anoAtualSistema ? `/${ss.anoBase}` : ''}{ss.rec > 0 ? ` (${fmt(ss.rec)})` : ''}</p>
+       {ss.igualA != null
+         ? <p className="text-[10px] text-slate-400">Igual ao que pagaste em {nm(ss.igualA)} (mesma declaração)</p>
+         : ss.ajustado && Math.abs(pi.fatorSS - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title={`A fórmula dá ${fmt(ss.formula)}; ajustada pela diferença entre a fórmula e o que pagaste na última declaração`}><Ico e="🎯"/>Fórmula {fmt(ss.formula)} {fx(pi.fatorSS)}</p>}
+       <p className="text-[10px] mt-0.5">{pi.ssEste.pago ? <span className="text-emerald-400">✓ {nm(pi.ssEste.mes)} pago: {fmt(pi.ssEste.valor)}</span> : <span className="text-amber-400"><Ico e="⏳"/>Por pagar</span>}</p>
+       <p className={sub}>Depois, a partir de {nm(pi.ssDepois.mes)}: {pi.ssDepois.incompleto ? `depende de ${pi.ssDepois.nomeBase}` : `~${fmt(pi.ssDepois.valor)}/mês`}</p>
+     </div>
+
+     {/* IVA do trimestre que se paga agora */}
+     <div className={`p-3 rounded-xl ${!pi.ivaAntPago && !ivaZero && pi.diasParaIva > 0 && pi.diasParaIva <= 7 ? 'bg-red-500/10 border border-red-500/40' : 'tile'}`}>
+       <div className="flex items-center justify-between mb-1">
+         <div className="flex items-center gap-2">
+           <span className="text-orange-400"><Ico e="💶" className="ico-solo"/></span>
+           <span className="text-xs text-slate-400">IVA T{pi.trimestreAnterior}/{pi.anoTrimestreAnterior}</span>
+         </div>
+         {!pi.ivaAntPago && pi.diasParaIva > 0 && (
+           <span className={`text-[10px] px-1.5 py-0.5 rounded ${pi.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-300'}`}>{pi.diasParaIva}d</span>
+         )}
+       </div>
+       <p className="text-xl font-bold text-orange-400">{fmt(pi.ivaTrimestreAnterior)}</p>
+       {pi.ivaAntPago
+         ? <p className="text-[10px] mt-1 text-emerald-400">✓ Pago</p>
+         : ivaZero
+           ? <p className={`${sub} mt-1`}>Sem IVA nas faturas deste trimestre. A declaração entrega-se na mesma, até 20/{String(mesIva).padStart(2, '0')}.</p>
+           : <p className={`${sub} mt-1`}>Pagar até 25/{String(mesIva).padStart(2, '0')} <span className="text-amber-400 ml-1"><Ico e="⏳"/>Por pagar</span></p>}
+       {!pi.ivaAntPago && !ivaZero && pi.paresIVA > 0 && Math.abs(pi.fatorIVA - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title="Ajustado pela diferença entre o IVA das faturas e o que pagaste (por exemplo, IVA que deduziste)"><Ico e="🎯"/>Ajustado aos teus pagamentos {fx(pi.fatorIVA)}</p>}
+     </div>
+
+     {/* IVA do trimestre a decorrer */}
+     <div className="p-3 tile rounded-xl">
+       <div className="flex items-center gap-2 mb-1">
+         <span className="text-purple-400"><Ico e="📊" className="ico-solo"/></span>
+         <span className="text-xs text-slate-400">IVA T{pi.trimestreAtual}/{pi.anoTrimestreAtual} (a acumular)</span>
+       </div>
+       <p className="text-xl font-bold text-purple-400">{fmt(pi.ivaTrimestreAtual)}</p>
+       <p className={`${sub} mt-1`}>Até agora, das faturas deste trimestre · paga-se em {pi.mesPagarIvaAtual}</p>
+     </div>
+
+     {/* IRS do ano */}
+     <div className={`p-3 rounded-xl ${receber ? 'tile' : 'tile'}`}>
+       <div className="flex items-center justify-between mb-1">
+         <div className="flex items-center gap-2">
+           <span className={receber ? 'text-emerald-400' : 'text-red-400'}>📋</span>
+           <span className="text-xs text-slate-400">IRS {anoAtualSistema} · {receber ? 'a receber' : 'a pagar'} em {anoAtualSistema + 1}</span>
+         </div>
+         <button onClick={abrirIrsConfig} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 hover:bg-slate-600 text-slate-300" title="Salário da Sara, deduções e coeficiente"><Ico e="⚙"/>Ajustar</button>
+       </div>
+       <p className={`text-xl font-bold ${receber ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(pi.irsAPagarReceber))}</p>
+       <p className={`${sub} mt-1`}>Imposto {fmt(pi.irsEstimado)} · já retido{pi.porConta > 0 ? ' e pago' : ''} {fmt(pi.irsRetencoes)}</p>
+       <p className={sub}>{cfg.conjunto ? 'Em conjunto com a Sara' : 'Declaração separada'} · coeficiente {String(cfg.coef).replace('.', ',')} · {pi.mesesComDados} meses de receitas</p>
+       {pi.faltaSara && <button onClick={abrirIrsConfig} className="text-[10px] text-amber-400 hover:underline text-left"><Ico e="⚠"/>Falta o salário da Sara — a conta ainda não está completa</button>}
+     </div>
+   </div>
+     </>);
+   })()}
+   
+   {/* PAGAMENTOS DE IMPOSTOS */}
+   <PagamentosImpostos
+     impostosPagos={G.impostosPagos}
+     anoAtual={anoAtualSistema}
+     theme={theme}
+     onAdd={handleAddPagamento}
+     onUpdate={handleUpdatePagamento}
+     onDelete={handleDeletePagamento}
+     fmt={fmt}
+     showToast={showToast}
+     confirmDelete={confirmDelete}
+   />
+ </Card></>);
+ };
+
  const Resumo = () => {
  const [editarPassos, setEditarPassos] = useState(false);
  const porCli = clientes.map(c=>({...c,tot:regCom.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)+regSem.filter(r=>r.cid===c.id).reduce((a,r)=>a+r.val,0)})).filter(c=>c.tot>0);
@@ -2764,8 +2883,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      case 'tarefas': return (
        <Card key={widgetId}>
          <div className="flex justify-between items-center mb-3">
-           <h3 className="font-semibold"><Ico e="📅"/>Próximas Datas Fiscais</h3>
-           <button onClick={() => setTab('calfin')} className="text-xs text-blue-400 hover:text-blue-300">Ver no calendário →</button>
+           <h3 className="font-semibold whitespace-nowrap"><Ico e="📅"/>Datas fiscais</h3>
+           <span className="flex items-center gap-3 whitespace-nowrap">
+             <button onClick={() => setTab('impostos')} className="text-xs text-blue-400 hover:text-blue-300" title="Previsão de SS, IVA e IRS do ano e pagamentos registados (em «O meu ano»)">Impostos<span className="hidden sm:inline"> do ano</span> →</button>
+             <button onClick={() => setTab('calfin')} className="text-xs text-blue-400 hover:text-blue-300">Calendário →</button>
+           </span>
          </div>
          <div className="space-y-2">
            {tarefasPend.atrasadas?.length === 0 && tarefasPend.proximasTarefas?.length === 0 && (
@@ -2843,11 +2965,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    const sinal = { ok: <span className="text-emerald-400">✓</span>, parcial: <span className="text-amber-400">◐</span>, falta: <span className="text-red-400">✕</span>, na: <span className="text-slate-500">•</span> };
    return (
      <Card>
-       <div className="flex items-center justify-between mb-3">
-         <h3 className="font-semibold"><Ico e="🧭"/>Rotina de {mes}</h3>
-         <div className="flex items-center gap-3">
-           <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length} feitos</span>
-           <button onClick={() => setEditarPassos(v => !v)} className="text-xs text-slate-400 hover:text-blue-400" title="Escolher os passos que aparecem (os que não usas saem daqui e da Rotina)">{editarPassos ? 'feito' : 'escolher passos'}</button>
+       <div className="flex items-center justify-between gap-2 mb-3">
+         <h3 className="font-semibold whitespace-nowrap"><Ico e="🧭"/>Rotina de {mes}</h3>
+         <div className="flex items-center gap-2.5 sm:gap-3 whitespace-nowrap">
+           <span className={`text-xs ${feitos === conta.length && conta.length ? 'text-emerald-400' : 'text-slate-500'}`}>{feitos}/{conta.length}<span className="hidden sm:inline"> feitos</span></span>
+           <button onClick={() => setEditarPassos(v => !v)} className="text-xs text-slate-400 hover:text-blue-400" title="Escolher os passos que aparecem (os que não usas saem daqui e da Rotina)">{editarPassos ? 'feito' : <>escolher<span className="hidden sm:inline"> passos</span></>}</button>
            <button onClick={() => { setTab('agenda'); window.scrollTo({ top: 0 }); }} className="text-xs text-blue-400 hover:text-blue-300">ver tudo →</button>
          </div>
        </div>
@@ -2875,12 +2997,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            <div key={x.id} className={`rounded-xl border transition-colors ${cor[x.estado]}`}>
              <button onClick={x.ir} className="w-full text-left px-2.5 pt-2 hover:brightness-110">
                <div className="flex items-center gap-2 min-w-0">
-                 <span className="text-[11px] text-slate-500 w-4 shrink-0">{k + 1}</span>
-                 <span className="text-sm font-medium flex-1 min-w-0 truncate" title={x.titulo}><Ico e={x.icon}/>{x.titulo}</span>
+                 <span className="hidden sm:inline text-[11px] text-slate-500 w-4 shrink-0">{k + 1}</span>
+                 <span className="text-sm font-medium flex-1 min-w-0 truncate" title={x.titulo}><span className="hidden sm:inline"><Ico e={x.icon}/></span>{x.titulo}</span>
                  <span className="text-sm shrink-0">{sinal[x.estado]}</span>
                </div>
              </button>
-             <div className="flex items-center gap-2 pl-8 pr-2.5 pb-2 min-w-0">
+             <div className="flex items-center gap-2 pl-2.5 sm:pl-8 pr-2.5 pb-2 min-w-0">
                <button onClick={x.ir} className="flex-1 min-w-0 text-left text-xs text-slate-500 truncate" title={x.detalhe}>{x.manual ? `Marcado à mão · ${x.detalhe}` : x.detalhe}</button>
                {x.manual
                  ? <button onClick={alternar} className="shrink-0 text-[11px] text-slate-400 hover:text-red-400" title="Voltar a usar o estado dos dados">↺ Anular</button>
@@ -3041,113 +3163,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  </div>
 
 
- {/* ── Impostos do ano ── */}
- {/* PREVISÃO IMPOSTOS - Layout Horizontal Compacto */}
- <div id="cartao-impostos" className="scroll-mt-24"><Card>
-   {(() => {
-     const pi = previsaoImpostos;
-     const nm = i => meses[((i % 12) + 12) % 12];
-     const mm = i => String(((i % 12) + 12) % 12 + 1).padStart(2, '0');
-     const ss = pi.ssEste.pago ? pi.ssProx : pi.ssEste;
-     const sub = 'text-[10px] text-slate-500';
-     const fx = f => `×${f.toFixed(2).replace('.', ',')}`;
-     const ivaZero = !pi.ivaAntPago && pi.ivaTrimestreAnterior < 0.5;
-     const mesIva = pi.dataLimiteIva.getMonth() + 1;
-     const cfg = pi.irsCfg;
-     const receber = pi.irsAPagarReceber >= 0;
-     return (<>
-   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-     <div className="flex items-center gap-2">
-       <h3 className="font-semibold"><Ico e="📊"/>Impostos {anoAtualSistema}</h3>
-       {pi.calibracao?.ativa && (
-         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" title="As previsões de SS e IVA estão afinadas com os pagamentos que registaste">
-           🎯 Afinado com os teus pagamentos
-         </span>
-       )}
-     </div>
-     <div className="flex items-center gap-2" title={`SS paga em ${anoAtualSistema} + IVA dos trimestres de ${anoAtualSistema} + IRS de ${anoAtualSistema}`}>
-       <span className="text-xs text-slate-500">Total previsto no ano:</span>
-       <span className="text-lg font-bold text-orange-400">{fmt(pi.totalImpostos)}</span>
-     </div>
-   </div>
-
-   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-     {/* SS: o próximo pagamento */}
-     <div className="p-3 tile rounded-xl">
-       <div className="flex items-center gap-2 mb-1">
-         <span className="text-blue-400"><Ico e="🏛" className="ico-solo"/></span>
-         <span className="text-xs text-slate-400">SS a pagar em {nm(ss.mes)}</span>
-       </div>
-       <p className="text-xl font-bold text-blue-400">{fmt(ss.valor)}</p>
-       <p className={`${sub} mt-1`}>Entre 10 e 20/{mm(ss.mes)} · base {ss.nomeBase}{ss.anoBase !== anoAtualSistema ? `/${ss.anoBase}` : ''}{ss.rec > 0 ? ` (${fmt(ss.rec)})` : ''}</p>
-       {ss.igualA != null
-         ? <p className="text-[10px] text-slate-400">Igual ao que pagaste em {nm(ss.igualA)} (mesma declaração)</p>
-         : ss.ajustado && Math.abs(pi.fatorSS - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title={`A fórmula dá ${fmt(ss.formula)}; ajustada pela diferença entre a fórmula e o que pagaste na última declaração`}><Ico e="🎯"/>Fórmula {fmt(ss.formula)} {fx(pi.fatorSS)}</p>}
-       <p className="text-[10px] mt-0.5">{pi.ssEste.pago ? <span className="text-emerald-400">✓ {nm(pi.ssEste.mes)} pago: {fmt(pi.ssEste.valor)}</span> : <span className="text-amber-400"><Ico e="⏳"/>Por pagar</span>}</p>
-       <p className={sub}>Depois, a partir de {nm(pi.ssDepois.mes)}: {pi.ssDepois.incompleto ? `depende de ${pi.ssDepois.nomeBase}` : `~${fmt(pi.ssDepois.valor)}/mês`}</p>
-     </div>
-
-     {/* IVA do trimestre que se paga agora */}
-     <div className={`p-3 rounded-xl ${!pi.ivaAntPago && !ivaZero && pi.diasParaIva > 0 && pi.diasParaIva <= 7 ? 'bg-red-500/10 border border-red-500/40' : 'tile'}`}>
-       <div className="flex items-center justify-between mb-1">
-         <div className="flex items-center gap-2">
-           <span className="text-orange-400"><Ico e="💶" className="ico-solo"/></span>
-           <span className="text-xs text-slate-400">IVA T{pi.trimestreAnterior}/{pi.anoTrimestreAnterior}</span>
-         </div>
-         {!pi.ivaAntPago && pi.diasParaIva > 0 && (
-           <span className={`text-[10px] px-1.5 py-0.5 rounded ${pi.diasParaIva <= 7 ? 'bg-red-500/20 text-red-400' : 'bg-slate-600 text-slate-300'}`}>{pi.diasParaIva}d</span>
-         )}
-       </div>
-       <p className="text-xl font-bold text-orange-400">{fmt(pi.ivaTrimestreAnterior)}</p>
-       {pi.ivaAntPago
-         ? <p className="text-[10px] mt-1 text-emerald-400">✓ Pago</p>
-         : ivaZero
-           ? <p className={`${sub} mt-1`}>Sem IVA nas faturas deste trimestre. A declaração entrega-se na mesma, até 20/{String(mesIva).padStart(2, '0')}.</p>
-           : <p className={`${sub} mt-1`}>Pagar até 25/{String(mesIva).padStart(2, '0')} <span className="text-amber-400 ml-1"><Ico e="⏳"/>Por pagar</span></p>}
-       {!pi.ivaAntPago && !ivaZero && pi.paresIVA > 0 && Math.abs(pi.fatorIVA - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title="Ajustado pela diferença entre o IVA das faturas e o que pagaste (por exemplo, IVA que deduziste)"><Ico e="🎯"/>Ajustado aos teus pagamentos {fx(pi.fatorIVA)}</p>}
-     </div>
-
-     {/* IVA do trimestre a decorrer */}
-     <div className="p-3 tile rounded-xl">
-       <div className="flex items-center gap-2 mb-1">
-         <span className="text-purple-400"><Ico e="📊" className="ico-solo"/></span>
-         <span className="text-xs text-slate-400">IVA T{pi.trimestreAtual}/{pi.anoTrimestreAtual} (a acumular)</span>
-       </div>
-       <p className="text-xl font-bold text-purple-400">{fmt(pi.ivaTrimestreAtual)}</p>
-       <p className={`${sub} mt-1`}>Até agora, das faturas deste trimestre · paga-se em {pi.mesPagarIvaAtual}</p>
-     </div>
-
-     {/* IRS do ano */}
-     <div className={`p-3 rounded-xl ${receber ? 'tile' : 'tile'}`}>
-       <div className="flex items-center justify-between mb-1">
-         <div className="flex items-center gap-2">
-           <span className={receber ? 'text-emerald-400' : 'text-red-400'}>📋</span>
-           <span className="text-xs text-slate-400">IRS {anoAtualSistema} · {receber ? 'a receber' : 'a pagar'} em {anoAtualSistema + 1}</span>
-         </div>
-         <button onClick={abrirIrsConfig} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 hover:bg-slate-600 text-slate-300" title="Salário da Sara, deduções e coeficiente"><Ico e="⚙"/>Ajustar</button>
-       </div>
-       <p className={`text-xl font-bold ${receber ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(Math.abs(pi.irsAPagarReceber))}</p>
-       <p className={`${sub} mt-1`}>Imposto {fmt(pi.irsEstimado)} · já retido{pi.porConta > 0 ? ' e pago' : ''} {fmt(pi.irsRetencoes)}</p>
-       <p className={sub}>{cfg.conjunto ? 'Em conjunto com a Sara' : 'Declaração separada'} · coeficiente {String(cfg.coef).replace('.', ',')} · {pi.mesesComDados} meses de receitas</p>
-       {pi.faltaSara && <button onClick={abrirIrsConfig} className="text-[10px] text-amber-400 hover:underline text-left"><Ico e="⚠"/>Falta o salário da Sara — a conta ainda não está completa</button>}
-     </div>
-   </div>
-     </>);
-   })()}
-   
-   {/* PAGAMENTOS DE IMPOSTOS */}
-   <PagamentosImpostos
-     impostosPagos={G.impostosPagos}
-     anoAtual={anoAtualSistema}
-     theme={theme}
-     onAdd={handleAddPagamento}
-     onUpdate={handleUpdatePagamento}
-     onDelete={handleDeletePagamento}
-     fmt={fmt}
-     showToast={showToast}
-     confirmDelete={confirmDelete}
-   />
- </Card></div>
+ {/* Os impostos do ano estão em «O meu ano» (cartaoImpostos) */}
 
 
  {/* ── Comparação com o mês anterior (a faturação do ano está em «O meu ano») ── */}
@@ -3203,7 +3219,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="m-mais"><AbaEstavel key="resumo-horas" render={() => Performance({ so: ['metricas'] })} /></div>
  {/* Telemóvel: abrir/fechar os cartões secundários */}
  <div className="sm:hidden flex flex-col gap-2">
-   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: distribuição, transferências, impostos, horas…'}</button>
+   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: distribuição, transferências, horas…'}</button>
    <button onClick={() => { setTab('ano'); window.scrollTo({ top: 0 }); }} className="w-full py-2 text-sm text-blue-400">Como está a correr o ano? Ver «O meu ano» →</button>
  </div>
  </div>);
@@ -3784,10 +3800,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
                    const aboveAvg = m.horas > mediaHoras;
                    
                    return (
-                     <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                     <div key={i} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full">
                        {m.horas > 0 && (
-                         <div className="text-xs text-slate-400 mb-1 font-medium">
-                           {fmtDec(m.horas, Number.isInteger(m.horas) ? 0 : 1)}h
+                         <div className="text-[9px] sm:text-xs text-slate-400 mb-1 font-medium whitespace-nowrap">
+                           <span className="sm:hidden">{Math.round(m.horas)}</span><span className="hidden sm:inline">{fmtDec(m.horas, Number.isInteger(m.horas) ? 0 : 1)}h</span>
                          </div>
                        )}
                        <div 
@@ -4785,11 +4801,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
- <h3 className="text-lg font-semibold"><Ico e="🏠"/>Despesas do Casal (Fixas Partilhadas)</h3>
- <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
+ <h3 className="text-base sm:text-lg font-semibold"><Ico e="🏠"/>Casal</h3>
+ <p className="text-xs text-slate-500">Despesas fixas partilhadas (ABanca)</p>
  </div>
  <div className="flex items-center gap-2">
- <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/>Gerar texto</Button>
+ <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/><span className="hidden sm:inline">Gerar texto</span></Button>
  <Button onClick={()=>uG('despABanca',[...despABanca,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
  </div>
  </div>
@@ -4872,6 +4888,41 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  );
  };
 
+ // DESPESAS: as do casal e as pessoais na mesma página
+ const Despesas = () => {
+   const irSec = id => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+   const caixa = 'text-left rounded-xl p-2.5 sm:p-3 tile hover:brightness-110 min-w-0';
+   return (
+     <div className="space-y-6 max-w-4xl lg:max-w-none mx-auto">
+       <Card>
+         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
+           <h3 className="font-semibold"><Ico e="💳"/>Despesas fixas por mês</h3>
+           <span className="text-xs text-slate-500">o que mudas aqui vale para todos os meses</span>
+         </div>
+         <div className="grid grid-cols-3 gap-2">
+           <button onClick={() => irSec('desp-casal')} className={caixa}>
+             <p className="text-[11px] sm:text-xs text-slate-500 truncate">Casal (tua parte)</p>
+             <p className="text-base sm:text-xl font-bold text-pink-400 tabular-nums">{fmt(minhaAB)}</p>
+             <p className="text-[11px] text-slate-500">{fmtP(contrib)} de {fmt(totAB)}</p>
+           </button>
+           <button onClick={() => irSec('desp-pessoais')} className={caixa}>
+             <p className="text-[11px] sm:text-xs text-slate-500 truncate">Pessoais</p>
+             <p className="text-base sm:text-xl font-bold text-blue-400 tabular-nums">{fmt(totPess)}</p>
+             <p className="text-[11px] text-slate-500">{despPess.length} {despPess.length === 1 ? 'despesa' : 'despesas'}</p>
+           </button>
+           <div className={`${caixa} hover:brightness-100`}>
+             <p className="text-[11px] sm:text-xs text-slate-500 truncate">Total</p>
+             <p className="text-base sm:text-xl font-bold tabular-nums">{fmt(minhaAB + totPess)}</p>
+             <p className="text-[11px] text-slate-500">{recLiq > 0 ? `${fmtPct((minhaAB + totPess) / recLiq * 100, 0)} do líquido` : 'por mês'}</p>
+           </div>
+         </div>
+       </Card>
+       <section id="desp-casal" className="scroll-mt-24">{ABanca()}</section>
+       <section id="desp-pessoais" className="scroll-mt-24">{Pessoais()}</section>
+     </div>
+   );
+ };
+
  // PESSOAIS
  const Pessoais = () => {
  // Agrupar despesas por categoria
@@ -4906,11 +4957,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <Card>
  <div className="flex justify-between items-center mb-6">
  <div>
- <h3 className="text-lg font-semibold"><Ico e="👤"/>Despesas Pessoais (Activo Bank)</h3>
- <p className="text-xs text-emerald-400">✓ Alterações aplicam-se a todos os meses automaticamente</p>
+ <h3 className="text-base sm:text-lg font-semibold"><Ico e="👤"/>Pessoais</h3>
+ <p className="text-xs text-slate-500">Despesas fixas só tuas (Activo Bank)</p>
  </div>
  <div className="flex items-center gap-2">
- <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/>Gerar texto</Button>
+ <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/><span className="hidden sm:inline">Gerar texto</span></Button>
  <Button onClick={()=>uG('despPess',[...despPess,{id:Date.now(),desc:'',cat:'Outros',val:0}])}>+</Button>
  </div>
  </div>
@@ -11369,11 +11420,11 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // (a Performance e o Histórico passaram para «O meu ano»; o Portfolio para dentro do Património)
  const tabs = [
    {id:'painel',icon:'📊',label:'Painel',submenu:[{id:'resumo',icon:'📊',label:'Este mês'},{id:'ano',icon:'🧭',label:'O meu ano'}]},
-   {id:'dinheiro',icon:'💰',label:'Dinheiro',submenu:[{id:'receitas',icon:'💰',label:'Receitas'},{id:'abanca',icon:'🏠',label:'Casal'},{id:'pessoais',icon:'👤',label:'Pessoais'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
+   {id:'dinheiro',icon:'💰',label:'Dinheiro',submenu:[{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas'},{id:'invest',icon:'📈',label:'Alocação'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'notas',icon:'📓',label:'Notas'},
    {id:'sep1',separator:true},
    {id:'planear',icon:'🗂',label:'Planear',submenu:[{id:'trabalho',icon:'🗂',label:'Trabalho'},{id:'calfin',icon:'🗓',label:'Calendário fiscal'},{id:'agenda',icon:'📋',label:'Rotina do mês'},{id:'vendacasa',icon:'🏠',label:'Venda da Casa'},{id:'casamento',icon:'💍',label:'Casamento'}]},
-   {id:'patrimoniog',icon:'🏛',label:'Património',submenu:[{id:'patrimonio',icon:'🏛',label:'Património'},{id:'invest',icon:'📈',label:'Alocação'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'transacoes',icon:'📝',label:'Transações'}]}
+   {id:'patrimoniog',icon:'🏛',label:'Património',submenu:[{id:'patrimonio',icon:'🏛',label:'Património'},{id:'credito',icon:'🏦',label:'Crédito'},{id:'transacoes',icon:'📝',label:'Transações'}]}
  ];
  // Sub-menus sempre visíveis: o grupo ativo mostra os seus separadores numa segunda linha.
  // Ao voltar a um grupo, abre o último separador que usaste nele.
@@ -11383,10 +11434,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano'] },
-   { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'abanca', 'pessoais', 'sara'] },
+   { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'despesas', 'invest', 'sara'] },
    { id: 'notas', label: 'Notas', titulo: 'Notas', subs: ['notas'] },
    { id: 'planear', label: 'Planear', titulo: 'Planear', subs: ['trabalho', 'calfin', 'agenda', 'vendacasa', 'casamento'] },
-   { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['patrimonio', 'invest', 'credito', 'transacoes'] },
+   { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['patrimonio', 'credito', 'transacoes'] },
  ];
  const grupoMob = gruposMob.find(g => g.subs && g.subs.includes(tab)) || null;
  const ultMobRef = useRef({});
@@ -14004,7 +14055,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 {/* Exportar */}
                 <button onClick={(e) => { setShowExportMenu(!showExportMenu); if (!showExportMenu) { const r = e.currentTarget.getBoundingClientRect(); setExportMenuPos({top: r.bottom + 4, right: window.innerWidth - r.right}); } }} className={btn(showExportMenu, 'hidden sm:inline-flex')} title="Exportar" aria-label="Exportar"><svg {...ic}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></button>
                 {/* Personalizar layout — só nas tabs com cartões configuráveis */}
-                {['resumo', 'receitas', 'abanca', 'pessoais', 'invest', 'portfolio'].includes(tab) && (
+                {['resumo', 'receitas', 'despesas', 'invest'].includes(tab) && (
                   <button onClick={() => setShowLayoutEditor(!showLayoutEditor)} className={btn(showLayoutEditor, 'hidden sm:inline-flex')} title="Personalizar layout" aria-label="Personalizar layout"><svg {...ic}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></button>
                 )}
               </div>
@@ -14127,7 +14178,8 @@ ${transacoesOrdenadas.map(t => `<tr>
         )}
         {tab==='resumo' && <AbaEstavel key="resumo" render={Resumo} />}
  {tab==='ano' && <MeuAno G={G} M={M} ano={ano} theme={theme} metas={metas} totais={totaisAnuais} serie={patSerieApp} impostos={previsaoImpostos} trab={trabalho} onMeta={uMeta}
-   onIr={t => { if (t === 'performance' || t === 'historico') { const el = document.getElementById('ano-detalhe'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } setTab(t); window.scrollTo({ top: 0 }); }} />}
+   onIr={t => { const aqui = { performance: 'ano-detalhe', historico: 'ano-detalhe', impostos: 'cartao-impostos' }[t]; if (aqui) { const el = document.getElementById(aqui); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; } setTab(t); window.scrollTo({ top: 0 }); }} />}
+ {tab==='ano' && <div id="cartao-impostos" className="max-w-6xl mx-auto mt-4 scroll-mt-24">{cartaoImpostos(ano)}</div>}
  {tab==='ano' && (
    // O que vinha da Performance e do Histórico (comparar anos, horas, trimestres e as tabelas por ano)
    <div id="ano-detalhe" className="max-w-6xl mx-auto mt-4 space-y-4 scroll-mt-4">
@@ -14138,8 +14190,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  )}
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
  {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
- {tab==='abanca' && ABanca()}
- {tab==='pessoais' && Pessoais()}
+ {tab==='despesas' && Despesas()}
  {tab==='invest' && <AbaEstavel key="invest" render={Invest} />}
  {tab==='sara' && <AbaEstavel key="sara" render={Sara} />}
  {tab==='historico' && <AbaEstavel key="historico" render={Historico} />}
