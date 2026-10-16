@@ -1988,7 +1988,7 @@ const CRONO_LONGO_H = 4; // a partir de quantas horas seguidas pergunta se te es
 const CRONO_PAUSA_MIN = 20; // minutos sem sinal (PC a dormir, app fechada, ou longe do PC) que contam como pausa
 const cronoLerSinal = () => { try { return JSON.parse(localStorage.getItem('crono-sinal') || 'null'); } catch (e) { return null; } };
 const cronoGravarSinal = (id, t) => { try { localStorage.setItem('crono-sinal', JSON.stringify({ id, t })); } catch (e) { /* sem armazenamento */ } };
-const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, theme }) => {
+const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, onBrief, theme }) => {
   const corre = trabACorrer(trab);
   const [, setTic] = useState(0);
   const [aberto, setAberto] = useState(false);
@@ -2076,6 +2076,12 @@ const CronoTopo = ({ trab, onParar, onPararEm, onCortar, onAbrir, theme }) => {
           <span className="font-semibold tabular-nums">{trabRelogio(ms)}</span>
           <span className="hidden md:inline max-w-[140px] truncate">{corre.tarefa.nome}</span>
         </button>
+        {onBrief && (corre.tarefa.anexos || []).some(x => x && x.tipo === 'link' && x.url && (/docs\.google\.com\/presentation\//.test(x.url) || /\.pptx$/i.test(x.nome || ''))) && (
+          <button type="button" onClick={() => onBrief(corre.tarefa.id)} className={`h-6 px-2 ml-0.5 inline-flex items-center gap-1 rounded-full border text-[11px] font-medium ${claro ? 'border-blue-200 hover:bg-blue-100' : 'border-blue-400/30 hover:bg-white/10'}`} title="Abrir o brief desta tarefa" aria-label="Abrir o brief desta tarefa">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+            Brief
+          </button>
+        )}
         <button type="button" onClick={onParar} className={`w-6 h-6 inline-flex items-center justify-center rounded-full ${claro ? 'hover:bg-blue-100' : 'hover:bg-white/10'}`} title="Parar o cronómetro" aria-label="Parar o cronómetro">
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
         </button>

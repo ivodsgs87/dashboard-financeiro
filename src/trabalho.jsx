@@ -1940,10 +1940,26 @@ const nomeLivre = async (dir, nome) => {
   for (let i = 1; i < 200; i++) { const n = i === 1 ? nome : `${m[1]}_${i}${m[2] || ''}`; try { await dir.getFileHandle(n); } catch (e) { return n; } }
   return `${Date.now()}_${nome}`;
 };
+// A pasta parece ser a de UM projeto (tem @Exports, Assets ou Projects lá dentro) e não a de todos os projetos?
+const pareceProjeto = async dir => {
+  if (!dir) return false;
+  try { for await (const [nome, e] of dir.entries()) { if (e.kind === 'directory' && /^(@exports|assets|projects)$/i.test(nome)) return true; } } catch (e) { /* sem acesso */ }
+  return false;
+};
+// Escolher a pasta de todos os projetos (ex.: C:\WORK). Nunca guarda a pasta de um só projeto no lugar dela
+// (era assim que a app ficava a procurar tudo dentro de um projeto e não encontrava os outros)
+const escolherRaizProjetos = async () => {
+  const d = await window.showDirectoryPicker({ id: 'projetos', mode: 'readwrite' });
+  if (await pareceProjeto(d)) { const e = new Error(`«${d.name}» é a pasta de um projeto, não a de todos os projetos. Escolhe a pasta de cima (ex.: C:\\WORK).`); e.projeto = d; throw e; }
+  await idbGravar('raiz-projetos', d);
+  return d;
+};
+let AVISOU_RAIZ_PROJETO = false; // o aviso da pasta errada aparece uma vez por sessão (não a cada tarefa que abres)
 const pastaDoProjetoDaTarefa = async (tarefa, pedir) => {
   if (!tarefa || typeof window === 'undefined' || !window.showDirectoryPicker) return null;
   const raiz = await idbLer('raiz-projetos');
   if (!raiz || !(await permissaoLer(raiz, pedir))) return null;
+  if (await pareceProjeto(raiz)) return null; // a «pasta dos projetos» é só um projeto: não dá para encontrar os outros
   const nf = nomesFicheiros(TRAB_ATUAL.trab, tarefa);
   if (!nf || !nf.conceito) return null;
   const kc = `proj:${nf.jogo ? nf.jogo.id : ''}:${slugF(nf.conceito)}`;
@@ -2024,12 +2040,15 @@ const trazerBriefParaRefs = async (t, showToast) => {
     let raiz = await idbLer('raiz-projetos');
     if (!raiz) {
       aviso('Escolhe a pasta onde estão os teus projetos (ex.: C:\\WORK) — é só desta vez.');
-      try { raiz = await window.showDirectoryPicker({ id: 'projetos', mode: 'readwrite' }); await idbGravar('raiz-projetos', raiz); }
-      catch (e) { aviso('Sem a pasta dos projetos não consigo copiar os assets do brief. Escolhe-a quando quiseres no painel Enviar para o Drive.', 'error'); return; }
+      try { raiz = await escolherRaizProjetos(); }
+      catch (e) { aviso(e && e.projeto ? `${e.message} Os assets do brief não foram copiados.` : 'Sem a pasta dos projetos não consigo copiar os assets do brief. Escolhe-a quando quiseres no painel Enviar para o Drive.', 'error'); return; }
     }
     if (!(await permissaoLer(raiz, true))) { aviso('O browser não deu acesso à pasta dos projetos — os assets do brief não foram copiados.', 'error'); return; }
     // A pasta escolhida como «pasta dos projetos» é só um projeto (ex.: escolhida por engano)? Então não dá para encontrar os outros
-    try { let projetoSo = false; for await (const [nome, e] of raiz.entries()) { if (e.kind === 'directory' && /^(@exports|assets|projects)$/i.test(nome)) { projetoSo = true; break; } } if (projetoSo) { aviso(`A pasta dos projetos está a apontar para «${raiz.name}», que é só um projeto. Escolhe outra vez a pasta de todos os projetos (ex.: C:\\WORK) em Enviar para o Drive → «Mudar a pasta de todos os projetos».`, 'error'); return; } } catch (e) { /* segue */ }
+    if (await pareceProjeto(raiz)) {
+      if (!AVISOU_RAIZ_PROJETO) { AVISOU_RAIZ_PROJETO = true; aviso(`A pasta de todos os projetos está a apontar para «${raiz.name}», que é só um projeto — por isso a app não encontra os outros. Em «Enviar para o Drive», carrega em «Escolher a pasta de todos os projetos» e escolhe C:\\WORK.`, 'error'); }
+      return;
+    }
     let d = null;
     for (let i = 0; i < 24 && !d; i++) { d = await pastaDoProjetoDaTarefa(t, false).catch(() => null); if (!d || !d.refs) { d = null; if (i === 1) aviso('À espera da pasta do projeto para copiar o brief…'); await new Promise(ok => setTimeout(ok, 5000)); } }
     if (!d) { aviso(`Não encontrei a pasta deste projeto (com a pasta Assets) dentro de ${raiz.name} — os assets do brief não foram copiados.`, 'error'); return; }
@@ -4033,9 +4052,11 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     let raizP = novaRaiz ? null : await idbLer('raiz-projetos');
     if (!raizP) {
       if (!pedir) { setEstadoExp('sem-raiz'); return; }
-      try { raizP = await window.showDirectoryPicker({ id: 'projetos', mode: 'readwrite' }); await idbGravar('raiz-projetos', raizP); } catch (e) { return; }
+      try { raizP = await escolherRaizProjetos(); }
+      catch (e) { if (e && e.projeto) { setEstadoExp(''); setAchados({ raizErrada: e.projeto.name, recusada: true, itens: [] }); } return; }
     }
     if (!(await permissaoLer(raizP, pedir))) { setEstadoExp('sem-licenca'); return; }
+    if (await pareceProjeto(raizP)) { setAchados({ raizErrada: raizP.name, itens: [] }); setEstadoExp(''); return; }
     setEstadoExp('a procurar');
     try {
       const kc = `exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`;
@@ -4675,6 +4696,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             if (estadoExp === 'a procurar') return <p className={linha}>A procurar exports novos na pasta dos projetos…</p>;
             if (estadoExp === 'sem-raiz') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk} title="A app passa a encontrar sozinha os exports novos na @Exports do projeto">Encontrar os exports sozinho (escolher a pasta dos projetos)</button><button type="button" onClick={() => { setExpDesligado(true); try { localStorage.setItem('exp-auto-off', '1'); } catch (e) { /* */ } }} className={`${sub} hover:text-red-400`} aria-label="Não mostrar mais">✕</button></p>;
             if (estadoExp === 'sem-licenca') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk}>Procurar exports novos</button><span>(o browser pede autorização à pasta dos projetos)</span></p>;
+            if (achados && achados.raizErrada) return <p className={linha}><span>{achados.recusada ? <>«{achados.raizErrada}» é a pasta de um projeto, não a de todos os projetos.</> : <>A pasta de todos os projetos está a apontar para <code>{achados.raizErrada}</code>, que é só um projeto.</>}</span><button type="button" onClick={() => procurarExports(true, true)} className={lnk}>Escolher a pasta de todos os projetos (ex.: C:\WORK)</button></p>;
             if (achados && achados.nada) return <p className={linha}>Não encontrei o projeto de {nomeBonitoC(r.conceito)} em <code>{achados.raiz || 'pasta dos projetos'}</code>. <button type="button" onClick={escolherPastaProjeto} className={lnk} title="Escolhe a pasta do projeto (ou a @Exports dele): a app passa a usá-la para este conceito">Escolher a pasta deste projeto</button><button type="button" onClick={() => procurarExports(true, true)} className={`${lnk} opacity-70`} title="A pasta onde estão todos os projetos (ex.: C:\\WORK)">Mudar a pasta de todos os projetos</button></p>;
             if (achados && achados.semExports) return <p className={linha}>O projeto <code>{achados.projeto}</code> ainda não tem a pasta @Exports. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button><button type="button" onClick={escolherPastaProjeto} className={`${lnk} opacity-70`}>Escolher outra pasta</button></p>;
             if (achados) return <p className={linha}>{achados.todos ? 'Não há exports' : 'Sem exports novos'} em <code>{achados.projeto}</code>. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button><button type="button" onClick={escolherPastaProjeto} className={`${lnk} opacity-70`}>Escolher outra pasta</button></p>;
@@ -7801,6 +7823,24 @@ const PreviewDocModal = ({ doc, claro, onFechar }) => {
     </div>, document.body);
 };
 
+// O brief da tarefa que está a contar no cronómetro (botão «Brief» ao lado do cronómetro, em qualquer separador)
+const briefDaTarefa = t => (t && (t.anexos || []).find(x => tipoAnexo(x) === 'link' && googleId(x.url) && (tipoGoogle(x.url) === 'slides' || /\.pptx$/i.test(x.nome || '')))) || null;
+const BriefCrono = ({ trab, tarefaId, clientes, cu, mudar, onFechar }) => {
+  // Fora do Trabalho, a conta Google de cada cliente ainda não foi lida: lê-a aqui (é com ela que o brief abre)
+  if (!TRAB_ATUAL.trab) {
+    TRAB_ATUAL.trab = trab; TRAB_ATUAL.cu = cu; TRAB_ATUAL.clientes = clientes;
+    CONTA_LINKS.padrao = (trab && trab.contaGoogle) || '';
+    CONTA_LINKS.porCliente = {}; (clientes || []).forEach(c => { if (c && c.contaGoogle) CONTA_LINKS.porCliente[String(c.id)] = c.contaGoogle; });
+  }
+  const t = ((trab && trab.tarefas) || []).find(x => x.id === tarefaId);
+  const a = briefDaTarefa(t);
+  const fechar = useRef(onFechar); fechar.current = onFechar;
+  useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); fechar.current(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, []);
+  useEffect(() => { if (!a) fechar.current(); }, [a]);
+  if (!t || !a) return null;
+  return createPortal(<PreviaGoogle a={a} cid={t.cid} tarefa={t} mudar={mudar} onFechar={() => fechar.current()} />, document.body);
+};
+
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
 const PAISES_RECIBO = [['PT', 'Portugal'], ['UE', 'UE'], ['Fora UE', 'Fora da UE']];
 const MOEDAS = ['EUR', 'USD', 'GBP', 'CHF'];
@@ -9372,5 +9412,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, cliente, data, pastaUrl
   return { nome, pasta: `${nomeCli}/${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, PreviewDocModal, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
+export { Trabalho, PreviewDocModal, BriefCrono, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
 export const FICHEIRO_APP = 'trabalho';
