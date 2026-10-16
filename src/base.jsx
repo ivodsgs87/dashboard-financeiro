@@ -284,6 +284,8 @@ const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fm
         {rotulos.map((l, i) => (mostraX(i) ? <text key={i} x={X(i)} y={height - 6} textAnchor={n > 1 && i === n - 1 ? 'end' : n > 1 && i === 0 ? 'start' : 'middle'} fontSize="11" style={{ fill: 'var(--graf-eixo)' }}>{l}</text> : null))}
         {series.map((s, k) => s.area && <path key={'a' + k} d={area(s.valores)} fill={s.cor} fillOpacity="0.12" />)}
         {series.map((s, k) => <path key={'l' + k} d={caminho(s.valores)} fill="none" stroke={s.cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.tracejado ? '5 4' : undefined} />)}
+        {series.map((s, k) => s.pontos && s.valores.map((v, i) => (v == null || !Number.isFinite(v) ? null
+          : <circle key={`p${k}-${i}`} cx={X(i)} cy={Y(v)} r="3" fill={s.cor} fillOpacity={s.fracos && s.fracos[i] ? 0.3 : 1} pointerEvents="none" />)))}
         {hi != null && <line x1={X(hi)} x2={X(hi)} y1={pt} y2={pt + ih} strokeWidth="1" style={{ stroke: 'var(--graf-eixo)', opacity: 0.6 }} />}
         {ultI >= 0 && hi == null && <circle cx={X(ultI)} cy={Y(s0.valores[ultI])} r="4" fill={s0.cor} strokeWidth="2" style={{ stroke: 'var(--graf-fundo)' }} />}
         {hi != null && series.map((s, k) => (s.valores[hi] != null && Number.isFinite(s.valores[hi])
@@ -294,7 +296,7 @@ const GraficoLinhas = ({ series, rotulos, height = 220, formatarValor = v => _fm
       </svg>
       {hi != null && (
         <GrafCaixa x={X(hi)} largura={w} titulo={rotulos[hi]}
-          linhas={[...series.filter(s => s.valores[hi] != null && Number.isFinite(s.valores[hi])).map(s => ({ cor: series.length > 1 ? s.cor : null, valor: formatarValor(s.valores[hi]), nome: s.nome })), ...(extraTip ? extraTip(hi) : [])]} />
+          linhas={[...series.filter(s => s.valores[hi] != null && Number.isFinite(s.valores[hi])).map(s => ({ cor: series.length > 1 ? s.cor : null, valor: formatarValor(s.valoresTip ? s.valoresTip[hi] : s.valores[hi]), nome: typeof s.nomeTip === 'function' ? s.nomeTip(hi) : s.nome })), ...(extraTip ? extraTip(hi) : [])]} />
       )}
     </div>
   );
