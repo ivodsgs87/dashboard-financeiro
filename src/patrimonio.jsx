@@ -1369,7 +1369,15 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   const noDrive = todosDrive.filter(f => { const a = /^\d{4}$/.test(String((f.caminho || [])[0] || '').trim()) ? Number(String(f.caminho[0]).trim()) : Number(String(f.modifiedTime || '').slice(0, 4)) || Number((/(20\d{2})/.exec(f.name) || [])[1]) || 0; return a >= anoMin; });
   const ligadosId = new Set(regs.map(x => idDriveDe(x.r.driveUrl)).filter(Boolean));
   const ligadosNome = new Set(regs.map(x => x.r.driveNome).filter(Boolean));
-  const soltos = noDrive.filter(f => !ligadosId.has(f.id) && !ligadosNome.has(f.name) && !ignorados.includes(f.id));
+  // O mesmo PDF duas vezes no Drive (ex.: uma cópia enviada antes de a app o reconhecer): mesmo tamanho que um já ligado
+  const tamLigado = new Map(todosDrive.filter(f => (ligadosId.has(f.id) || ligadosNome.has(f.name)) && Number(f.size)).map(f => [Number(f.size), f]));
+  const copias = [];
+  const soltos = noDrive.filter(f => {
+    if (ligadosId.has(f.id) || ligadosNome.has(f.name) || ignorados.includes(f.id)) return false;
+    const igual = Number(f.size) && tamLigado.get(Number(f.size));
+    if (igual && igual.id !== f.id) { copias.push({ id: f.id, nome: f.name, url: f.webViewLink, igualA: igual.name }); return false; }
+    return true;
+  });
   // o que a IA já leu noutras vezes (os que ficaram por juntar) não volta a ser lido
   const lidos = new Map(pendAntes.map(p => [p.id, p.d || null]));
   const ficheiros = new Map();
@@ -1395,7 +1403,7 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
   }
   // 2) App → Drive: os recibos com PDF que ainda não estão lá
   const faltam = regs.filter(x => (x.r.ficheiro || x.r.ficheiroUrl) && !x.r.driveUrl && (x.r.reciboVerde || !x.r.faturaId) && !usados.has(`${x.k}:${x.r.id}`) && !DRIVE_REC_FALHAS.has(`${x.k}:${x.r.id}`));
-  let enviados = 0, semAcesso = 0;
+  let enviados = 0, semAcesso = 0; const usadosDrive = new Set();
   for (let i = 0; i < faltam.length; i++) {
     const { k, r } = faltam[i];
     progresso(`A enviar para o Drive os recibos que lá faltam (${i + 1} de ${faltam.length})…`);
@@ -1405,11 +1413,14 @@ const sincronizarRecibosComDrive = async ({ cfg, M, clientes, mod, ignorados = [
       else { const res = await fetch(r.ficheiroUrl); if (res.ok) f = new File([await res.blob()], r.ficheiroNome || 'recibo.pdf', { type: r.ficheiroTipo || 'application/pdf' }); }
     } catch (e) { f = null; }
     if (!f) { semAcesso += 1; DRIVE_REC_FALHAS.add(`${k}:${r.id}`); continue; }
+    // já está no Drive (um PDF com exatamente o mesmo tamanho, ainda sem dono): liga-se a esse, não vai outra cópia
+    const mesmo = soltos.find(x => Number(x.size) === f.size && !semPar.some(y => y.id === x.id && y.cid != null && String(y.cid) !== String(r.cid)) && !usadosDrive.has(x.id));
+    if (mesmo) { usadosDrive.add(mesmo.id); await onJuntar(k, r.id, { driveUrl: mesmo.webViewLink, driveNome: mesmo.name }, null); ligados += 1; const iP = semPar.findIndex(y => y.id === mesmo.id); if (iP >= 0) semPar.splice(iP, 1); continue; }
     if (await onEnviar(k, r.id, f, r)) enviados += 1; else DRIVE_REC_FALHAS.add(`${k}:${r.id}`);
   }
-  return { juntos, ligados, enviados, semAcesso, semPar, lidos: porLer.length };
+  return { juntos, ligados, enviados, semAcesso, semPar, lidos: porLer.length, copias };
 };
-const resumoRecibosDrive = (o, auto) => [o.juntos ? `${o.juntos} recibo${o.juntos === 1 ? '' : 's'} do Drive junto${o.juntos === 1 ? '' : 's'} aos registos em Receitas` : '', o.ligados ? `${o.ligados} já ${o.ligados === 1 ? 'tinha' : 'tinham'} o PDF — ${o.ligados === 1 ? 'ficou ligado' : 'ficaram ligados'} ao do Drive` : '', o.enviados ? `${o.enviados} enviado${o.enviados === 1 ? '' : 's'} para o Drive` : '', !auto && o.semAcesso ? `${o.semAcesso} com PDF que não consegui abrir para enviar` : '', o.semPar.length ? `${o.semPar.length} no Drive por juntar (Trabalho → cliente → Recibos)` : ''].filter(Boolean).join(' · ');
+const resumoRecibosDrive = (o, auto) => [o.juntos ? `${o.juntos} recibo${o.juntos === 1 ? '' : 's'} do Drive junto${o.juntos === 1 ? '' : 's'} aos registos em Receitas` : '', o.ligados ? `${o.ligados} já ${o.ligados === 1 ? 'tinha' : 'tinham'} o PDF — ${o.ligados === 1 ? 'ficou ligado' : 'ficaram ligados'} ao do Drive` : '', o.enviados ? `${o.enviados} enviado${o.enviados === 1 ? '' : 's'} para o Drive` : '', !auto && o.semAcesso ? `${o.semAcesso} com PDF que não consegui abrir para enviar` : '', o.semPar.length ? `${o.semPar.length} no Drive por juntar (Trabalho → cliente → Recibos)` : '', !auto && (o.copias || []).length ? `${o.copias.length} PDF${o.copias.length === 1 ? '' : 's'} repetido${o.copias.length === 1 ? '' : 's'} no Drive (${o.copias.map(c => `${c.nome} = ${c.igualA}`).join('; ')}) — podes apagar a cópia` : ''].filter(Boolean).join(' · ');
 // Definições → Recibos no Google Drive: o botão e a lista dos que ficaram por juntar
 const SincronizarRecibosDrive = ({ estado, onCorrer, pend = [], clientes = [], onCriar, onIgnorar, aAbrir }) => (
   <div className="space-y-2">
