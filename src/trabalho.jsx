@@ -442,6 +442,41 @@ const useLargo = (q = '(min-width: 900px)') => {
 // Nome · Tipo · ícones (anexo, notas, Trello, Drive, spreadsheet) · Estado · Quem faz · Prioridade · Criada · Tempo · Prazo · Terminada · Valor
 const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_130px_96px_100px_64px_68px_88px_48px_68px_60px] items-center gap-x-2.5';
 const COLS_CURTO = 'grid grid-cols-[minmax(0,1fr)_100px_130px_96px_88px_64px_88px_48px_60px] items-center gap-x-2.5';
+// Larguras das colunas da lista de tarefas: arrastas as divisórias do cabeçalho (fica guardado; duplo clique repõe)
+const COLS_CHAVES = ['tipo', 'icones', 'estado', 'quem', 'prio', 'criada', 'tempo', 'prazo', 'feita', 'valor'];
+const COLS_CHAVES_CURTO = ['tipo', 'icones', 'estado', 'quem', 'prio', 'tempo', 'prazo', 'valor'];
+const COLS_PADRAO = { tipo: 112, icones: 130, estado: 96, quem: 100, prio: 72, criada: 68, tempo: 88, prazo: 56, feita: 76, valor: 60 };
+const COLS_PADRAO_CURTO = { tipo: 100, icones: 130, estado: 96, quem: 88, prio: 72, tempo: 88, prazo: 56, valor: 60 };
+const COLS_MIN = 36;
+const LARG = (() => { try { return JSON.parse(localStorage.getItem('trab-colunas')) || {}; } catch (e) { return {}; } })(); // { cheio: {...}, curto: {...} }
+const LARG_OUV = new Set(); let LARG_VER = 0;
+const mudarLarg = (modo, patch) => { LARG[modo] = patch ? { ...(LARG[modo] || {}), ...patch } : {}; LARG_VER += 1; try { localStorage.setItem('trab-colunas', JSON.stringify(LARG)); } catch (e) { /* */ } LARG_OUV.forEach(f => f()); };
+const useLarguras = () => useSyncExternalStore(f => { LARG_OUV.add(f); return () => LARG_OUV.delete(f); }, () => LARG_VER, () => 0);
+const largurasDe = cheio => { const base = cheio ? COLS_PADRAO : COLS_PADRAO_CURTO; const l = LARG[cheio ? 'cheio' : 'curto'] || {}; const o = {}; Object.keys(base).forEach(k => { o[k] = Math.max(COLS_MIN, Number(l[k]) || base[k]); }); return o; };
+const gridColunas = cheio => { const w = largurasDe(cheio); return `minmax(0,1fr) ${(cheio ? COLS_CHAVES : COLS_CHAVES_CURTO).map(k => `${w[k]}px`).join(' ')}`; };
+// Divisória do cabeçalho: arrastar para o lado muda a largura desta coluna (e da que está ao lado, se não for a do nome)
+const Divisoria = ({ chave, ant, cheio }) => {
+  const comecar = e => {
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX; const w0 = largurasDe(cheio); const modo = cheio ? 'cheio' : 'curto';
+    const mover = ev => {
+      const dx = ev.clientX - x0; // para a esquerda (dx < 0): esta coluna fica mais larga
+      let nova = Math.max(COLS_MIN, w0[chave] - dx);
+      const patch = { [chave]: nova };
+      if (ant) { const da = nova - w0[chave]; const na = w0[ant] - da; if (na < COLS_MIN) { nova = w0[chave] + (w0[ant] - COLS_MIN); patch[chave] = nova; patch[ant] = COLS_MIN; } else patch[ant] = na; }
+      mudarLarg(modo, patch);
+    };
+    const parar = () => { window.removeEventListener('pointermove', mover); window.removeEventListener('pointerup', parar); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    window.addEventListener('pointermove', mover); window.addEventListener('pointerup', parar);
+    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+  };
+  return (
+    <span role="separator" aria-orientation="vertical" title="Arrasta para ajustar a largura (duplo clique repõe todas)" onPointerDown={comecar} onClick={e => e.stopPropagation()} onDoubleClick={e => { e.stopPropagation(); mudarLarg(cheio ? 'cheio' : 'curto', null); }}
+      className="absolute -left-[7px] top-1 bottom-1 w-[9px] cursor-col-resize flex justify-center group/div z-10">
+      <span className="w-px h-full bg-current opacity-0 group-hover/cab:opacity-30 group-hover/div:!opacity-100 group-hover/div:bg-blue-500" />
+    </span>
+  );
+};
 // Grupos fechados/abertos (fica lembrado)
 const useGruposFechados = () => {
   const [f, setF] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-grupos-fechados')) || []); } catch (e) { return new Set(); } });
@@ -510,6 +545,7 @@ const NomeTarefa = ({ t, cu, claro, prefixo = 'sempre', quebra = false, classNam
   );
 };
 const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio = true, marcada = false, algumaMarcada = false, onMarcar }) => {
+  useLarguras();
   const claro = useClaro(theme);
   const corre = (t.tempos || []).some(x => !x.fim);
   const v = trabValor(t, cu, clientes);
@@ -520,7 +556,7 @@ const LinhaTabela =({ t, cu, clientes, theme, mudar, onAbrir, nomePasta, cheio =
   const editavaNoClique = useRef(false); // carregar na linha para acabar de mudar o nome não abre a tarefa
   const gravarNome = v => { setEditar(false); const n = v.trim(); if (n && n !== t.nome) mudar(tr => opTarefa(tr, t.id, x => ({ ...x, nome: n }))); };
   return (
-    <div onMouseDownCapture={() => { editavaNoClique.current = editar; }} onClick={e => { if (!editar && !editavaNoClique.current) cliqueNaLinha(e, () => onAbrir(t.id)); }} className={`${cheio ? COLS : COLS_CURTO} group ${editar ? '' : 'cursor-pointer'} px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50 border-red-100 shadow-[inset_3px_0_0_0_#ef4444]' : 'bg-red-500/[0.09] border-red-500/10 shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
+    <div onMouseDownCapture={() => { editavaNoClique.current = editar; }} onClick={e => { if (!editar && !editavaNoClique.current) cliqueNaLinha(e, () => onAbrir(t.id)); }} style={{ gridTemplateColumns: gridColunas(cheio) }} className={`grid items-center gap-x-2.5 group ${editar ? '' : 'cursor-pointer'} px-3 ${nomePasta ? 'h-11' : 'h-[38px]'} border-b text-[13px] transition-colors ${marcada ? (claro ? 'bg-blue-50 border-blue-100' : 'bg-blue-500/[0.08] border-blue-500/10') : corre ? (claro ? 'bg-red-50 border-red-100 shadow-[inset_3px_0_0_0_#ef4444]' : 'bg-red-500/[0.09] border-red-500/10 shadow-[inset_3px_0_0_0_#ef4444]') : claro ? 'border-slate-100 hover:bg-slate-50' : 'border-white/[0.04] hover:bg-white/[0.03]'}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         {onMarcar && (
           <input type="checkbox" checked={marcada} onChange={() => {}} onClick={e => { e.stopPropagation(); onMarcar(t.id, e.shiftKey); }}
@@ -581,6 +617,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
   const largo = useLargo();
   const cheio = useLargo('(min-width: 1400px)');
   const [fechados, alternar] = useGruposFechados();
+  useLarguras();
   const [novaEm, setNovaEm] = useState(null);
   const [txt, setTxt] = useState('');
   const nomeCliT = t => { const c = (clientes || []).find(x => String(x.id) === String(t.cid)); return c ? c.nome : String(t.cid || '').replace(/^cu:/, ''); };
@@ -615,7 +652,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
     const ativo = ordem && ordem.col === col;
     return (
       <button type="button" onClick={() => clicarOrdem(col)} title={`Ordenar por ${txt.toLowerCase()}`}
-        className={`flex items-center min-w-0 ${alinhar === 'centro' ? 'justify-center' : alinhar === 'dir' ? 'justify-end' : 'justify-start'} ${ativo ? 'text-blue-400' : ''} hover:text-blue-400`}>
+        className={`w-full flex items-center min-w-0 ${alinhar === 'centro' ? 'justify-center' : alinhar === 'dir' ? 'justify-end' : 'justify-start'} ${ativo ? 'text-blue-400' : ''} hover:text-blue-400`}>
         <span className="relative whitespace-nowrap">{txt}{ativo && <span className={`absolute top-1/2 -translate-y-1/2 text-[8px] ${alinhar === 'dir' ? 'right-full mr-0.5' : 'left-full ml-0.5'}`}>{ordem.dir === -1 ? '▼' : '▲'}</span>}</span>
       </button>
     );
@@ -626,6 +663,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
   const [marcadas, setMarcadas] = useState(() => new Set());
   const ultimaMarcada = useRef(null);
   const visiveis = grupos.filter(g => !fechados.has(g.id)).flatMap(g => g.lista.map(t => t.id));
+  ORDEM_VISIVEL.ids = visiveis; // as setas do cartão aberto seguem esta ordem
   const idsTodos = new Set(tarefas.map(t => t.id));
   const sel = [...marcadas].filter(id => idsTodos.has(id));
   const marcar = (id, shift) => setMarcadas(prev => {
@@ -695,8 +733,9 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
             {!fechado && (
               <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
                 {largo && g.lista.length > 0 && (
-                  <div className={`${cheio ? COLS : COLS_CURTO} px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
-                    {cabOrdem('nome', 'Nome')}{cabOrdem('tipo', 'Tipo')}{(() => {
+                  <div style={{ gridTemplateColumns: gridColunas(cheio) }} className={`grid items-center gap-x-2.5 group/cab px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
+                    {(() => { const ks = cheio ? COLS_CHAVES : COLS_CHAVES_CURTO; const cel = (k, no) => <div key={k} className="relative h-full flex items-center min-w-0"><Divisoria chave={k} ant={ks[ks.indexOf(k) - 1] || null} cheio={cheio} />{no}</div>; return <>
+                    {cabOrdem('nome', 'Nome')}{cel('tipo', cabOrdem('tipo', 'Tipo'))}{cel('icones', (() => {
                       // Só mostra o ícone de cada coluna quando alguma tarefa deste grupo o pode ter (ex.: jogos sem Trello não mostram o do Trello)
                       const jg = x => (trab ? jogoDaTarefa(trab, x) : null);
                       const tem = {
@@ -715,7 +754,8 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
                           <span>{tem.folha && <IcoFolha s={11} />}</span>
                         </span>
                       );
-                    })()}<span className="text-center">Estado</span>{cabOrdem('quem', 'Quem faz', 'centro')}{cabOrdem('prio', 'Prioridade', 'centro')}{cheio && cabOrdem('criada', 'Criada', 'centro')}{cabOrdem('tempo', 'Tempo')}{cabOrdem('prazo', 'Prazo', 'centro')}{cheio && cabOrdem('feita', 'Terminada', 'centro')}{cabOrdem('valor', 'Valor', 'dir')}
+                    })())}{cel('estado', <span className="w-full text-center">Estado</span>)}{cel('quem', cabOrdem('quem', 'Quem faz', 'centro'))}{cel('prio', cabOrdem('prio', 'Prioridade', 'centro'))}{cheio && cel('criada', cabOrdem('criada', 'Criada', 'centro'))}{cel('tempo', cabOrdem('tempo', 'Tempo'))}{cel('prazo', cabOrdem('prazo', 'Prazo', 'centro'))}{cheio && cel('feita', cabOrdem('feita', 'Terminada', 'centro'))}{cel('valor', cabOrdem('valor', 'Valor', 'dir'))}
+                    </>; })()}
                   </div>
                 )}
                 {g.lista.map(t => (largo
@@ -1226,16 +1266,20 @@ const LinkFolha = ({ t, claro }) => {
   const trab = TRAB_ATUAL.trab;
   const jogo = trab ? jogoDaTarefa(trab, t) : null;
   if (!jogo || jogo.semJogo || !jogo.sheet) return null;
+  const entregas = versoesDrive(t.drive).filter(d => d.nomeBase);
+  const naFolhaN = entregas.filter(d => d.folha && d.folha.ok).length;
   const folha = versoesDrive(t.drive).map(d => d.folha).find(f => f && f.ok) || (t.drive && t.drive.folha);
   const ok = !!(folha && folha.ok);
+  const parcial = ok && entregas.length > 1 && naFolhaN < entregas.length; // ex.: a V1 está, a V2 ainda não
   const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1];
   const url = ok && id && folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${folha.gid}&range=A${folha.linha}` : jogo.sheet;
   return (
     <a href={urlAbrir(url, t.cid)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir a spreadsheet"
-      title={ok ? `Já está na spreadsheet${folha.tab ? ` (${folha.tab}, linha ${folha.linha})` : ''}` : t.estado === 'feito' ? 'Abrir a spreadsheet do jogo (a app não registou esta tarefa lá)' : 'Ainda não está na spreadsheet — abrir a spreadsheet do jogo'}
-      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md ${ok ? 'text-emerald-500' : claro ? 'text-slate-300 hover:text-emerald-600' : 'text-slate-600 hover:text-emerald-400'} ${claro ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/10'}`}>
+      title={parcial ? `Na spreadsheet só ${naFolhaN} de ${entregas.length} entregas (${entregas.filter(d => !(d.folha && d.folha.ok)).map(d => `V${versaoDaPasta(d) || '?'}`).join(', ')} ainda não)` : ok ? `Já está na spreadsheet${folha.tab ? ` (${folha.tab}, linha ${folha.linha})` : ''}` : t.estado === 'feito' ? 'Abrir a spreadsheet do jogo (a app não registou esta tarefa lá)' : 'Ainda não está na spreadsheet — abrir a spreadsheet do jogo'}
+      className={`shrink-0 relative inline-flex items-center px-1 h-5 rounded-md ${parcial ? 'text-amber-500' : ok ? 'text-emerald-500' : claro ? 'text-slate-300 hover:text-emerald-600' : 'text-slate-600 hover:text-emerald-400'} ${claro ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/10'}`}>
       <IcoFolha />
-      {ok && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+      {parcial && <span className={`absolute -right-1.5 -bottom-1 px-[3px] rounded-full bg-amber-500 text-white text-[8px] leading-[11px] font-bold tabular-nums ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}>{naFolhaN}/{entregas.length}</span>}
+      {ok && !parcial && <span className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 inline-flex items-center justify-center ring-2 ${claro ? 'ring-white' : 'ring-slate-900'}`}><svg width="6" height="6" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 5.2 2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
     </a>
   );
 };
@@ -2325,7 +2369,7 @@ const MenuMais = ({ claro, itens }) => {
 };
 // No ecrã grande a janela da tarefa cabe toda no ecrã: cada coluna rola sozinha se precisar
 const COL_XL = 'xl:h-full xl:overflow-y-auto xl:pr-1 xl:-mr-1 [scrollbar-width:thin]';
-const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota }) => {
+const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota, nav }) => {
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
@@ -2338,6 +2382,22 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const [verManual, setVerManual] = useState(false); // "Juntar tempo à mão" aberto
   useEffect(() => { if (!gravou) return undefined; const i = setTimeout(() => setGravou(false), 1600); return () => clearTimeout(i); }, [gravou]);
   useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); onFechar(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [onFechar]);
+  // Setas para a tarefa anterior / seguinte (o cartão fica aberto); também com ← → quando não estás a escrever
+  useEffect(() => {
+    if (!nav) return undefined;
+    const k = e => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      const el = document.activeElement;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|VIDEO)$/.test(el.tagName))) return;
+      if (document.querySelector('[role=dialog][aria-modal=true]')) return; // há outra janela por cima
+      // com o cartão aberto, ← → mudam de tarefa (e não recuam/avançam na app)
+      e.preventDefault(); e.stopImmediatePropagation();
+      const id = e.key === 'ArrowLeft' ? nav.ant : nav.seg;
+      if (id) nav.ir(id);
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [nav && nav.ant, nav && nav.seg]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!t) return null;
   const set = patch => mudar(tr => opTarefa(tr, t.id, x => ({ ...x, ...patch })));
   const v = trabValor(t, cu, clientes);
@@ -2378,8 +2438,16 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
   const custo = Number(t.custoOutsourcing) || 0;
   const comFicheiros = (trab.jogos || []).some(j => String(j.cid) === String(t.cid));
+  const seta = (lado, id) => (
+    <button type="button" onClick={() => id && nav.ir(id)} disabled={!id} aria-label={lado === 'esq' ? 'Tarefa anterior' : 'Tarefa seguinte'} title={`${lado === 'esq' ? 'Tarefa anterior' : 'Tarefa seguinte'} (${lado === 'esq' ? '←' : '→'}) · ${nav.pos} de ${nav.total}`}
+      className={`hidden sm:flex absolute top-1/2 -translate-y-1/2 ${lado === 'esq' ? 'left-1.5 lg:left-3' : 'right-1.5 lg:right-3'} z-[1] w-9 h-14 lg:w-10 lg:h-16 items-center justify-center rounded-xl border shadow-lg transition disabled:opacity-0 disabled:pointer-events-none ${claro ? 'bg-white/90 border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900' : 'bg-slate-800/90 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={lado === 'esq' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} /></svg>
+    </button>
+  );
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-0 sm:p-4 lg:p-6 animate-backdropIn backdrop-blur-md" onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
+    <div className={`fixed inset-0 z-50 flex items-start sm:items-center justify-center p-0 sm:p-4 lg:p-6 ${nav ? 'sm:px-12 lg:px-16' : ''} animate-backdropIn backdrop-blur-md`} onMouseDown={e => { if (e.target === e.currentTarget) onFechar(); }} style={{ background: claro ? 'rgba(15,23,42,.25)' : 'rgba(0,0,0,.45)' }}>
+      {nav && seta('esq', nav.ant)}
+      {nav && seta('dir', nav.seg)}
       <div className={`w-full max-w-[1760px] h-full sm:h-auto sm:max-h-full overflow-y-auto xl:overflow-hidden xl:flex xl:flex-col shadow-2xl sm:rounded-2xl border animate-modalIn ${claro ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>
         <div className={`sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b ${claro ? 'bg-white/95 border-slate-200' : 'bg-slate-900/95 border-slate-700'}`}>
           <EstadoPill estado={t.estado} theme={theme} onMudar={e => { avisarEstadoPC(t, e); mudar(tr => opEstado(tr, t.id, e)); }} />
@@ -3288,7 +3356,7 @@ const driveApi = async (token, url, opts = {}) => {
 const idPastaDrive = url => { const m = /folders\/([A-Za-z0-9_-]{10,})/.exec(String(url || '')) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(String(url || '')); return m ? m[1] : null; };
 const filhosDrive = async (token, pai, pastas) => {
   const q = encodeURIComponent(`'${pai}' in parents and trashed=false${pastas ? " and mimeType='application/vnd.google-apps.folder'" : " and mimeType!='application/vnd.google-apps.folder'"}`);
-  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink,modifiedTime)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+  const j = await driveApi(token, `${DRV}?q=${q}&fields=files(id,name,webViewLink,modifiedTime,size)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
   return j.files || [];
 };
 // Acha a pasta pelo nome (sem ligar a maiúsculas; a da versão aceita nomes mais compridos, ex.: _MIDDLE_EAST) ou cria-a
@@ -3381,11 +3449,44 @@ const linhasDaFolha = async (token, sheetUrl, tab, forcar) => {
   const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
   if (!id || !tab) return null;
   const k = `${id}|${tab}`; const c = cacheFolhas.get(k);
-  if (!forcar && c && Date.now() - c.em < 60000) return c.nomes;
+  // forcar: true = lê sempre; um número = lê se o que está guardado for mais antigo do que isso (uma leitura por tab em cada volta)
+  if (c && (forcar === true ? false : typeof forcar === 'number' ? c.em >= forcar : Date.now() - c.em < 60000)) return c.nomes;
   const vals = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(`'${tab}'!A:A`)}`);
   const nomes = new Map(); (vals.values || []).forEach((l, i) => { const n = String((l && l[0]) || '').trim().toUpperCase(); if (n && !nomes.has(n)) nomes.set(n, i + 1); });
   cacheFolhas.set(k, { em: Date.now(), nomes });
   return nomes;
+};
+// A tab do jogo numa spreadsheet (com cache de 10 minutos)
+const META_FOLHAS = new Map();
+const tabDaFolhaJogo = async (token, sheetUrl, nomesJogo) => {
+  const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(sheetUrl || '')) || [])[1];
+  if (!id) return null;
+  let c = META_FOLHAS.get(id);
+  if (!c || Date.now() - c.em > 600000) {
+    const ss = await driveApi(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title,gridProperties)`);
+    c = { em: Date.now(), folhas: (ss.sheets || []).map(x => x.properties) }; META_FOLHAS.set(id, c);
+  }
+  const f = tabDoJogo(c.folhas, sheetUrl, nomesJogo || []);
+  return f ? { tab: f.title, gid: f.sheetId } : null;
+};
+// Confere na coluna A se cada entrega (V1, V2…) está na spreadsheet — também as que foram juntas à mão ou noutro sítio
+const acertarFolhaDrive = async (token, sheetUrl, nomesJogo, drive, forcar) => {
+  if (!drive) return drive;
+  const acerta = async d => {
+    if (!d || !d.nomeBase) return d;
+    let tab = d.folha && d.folha.tab, gid = d.folha && d.folha.gid;
+    if (!tab) { try { const x = await tabDaFolhaJogo(token, sheetUrl, nomesJogo); if (!x) return d; tab = x.tab; gid = x.gid; } catch (e) { return d; } }
+    let nomes; try { nomes = await linhasDaFolha(token, sheetUrl, tab, forcar); } catch (e) { return d; }
+    if (!nomes) return d;
+    const linha = nomes.get(String(d.nomeBase).trim().toUpperCase());
+    if (linha && !(d.folha && d.folha.ok && d.folha.linha === linha)) return { ...d, folha: { ...(d.folha || {}), ok: true, linha, tab, gid, erro: undefined } };
+    if (!linha && d.folha && d.folha.ok) return { ...d, folha: { ...d.folha, ok: false, linha: null, tirada: true } };
+    return d;
+  };
+  const novo = await acerta(drive);
+  const ant = drive.anteriores ? await Promise.all(drive.anteriores.map(acerta)) : null;
+  const mudou = novo !== drive || (ant && ant.some((x, i) => x !== drive.anteriores[i]));
+  return mudou ? { ...novo, ...(ant ? { anteriores: ant } : {}) } : drive;
 };
 // Tira da spreadsheet as linhas com estes nomes (coluna A da tab do jogo) — para refazer pela ordem certa
 const tirarDaSpreadsheet = async (token, sheetUrl, nomes, nomesJogo = []) => {
@@ -3604,8 +3705,13 @@ const FilaEnvios = () => {
       <div className={`flex items-center gap-2 px-3.5 py-2.5 ${min ? '' : `border-b ${claro ? 'border-slate-100' : 'border-slate-800'}`}`}>
         {ativos.length > 0 && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" aria-hidden="true" />}
         <span className="flex-1 text-[13px] font-semibold" aria-live="polite">{titulo}</span>
-        <button type="button" onClick={() => setMin(m => !m)} className={`w-7 h-7 rounded-md text-sm ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label={min ? 'Mostrar a fila' : 'Esconder a fila'} aria-expanded={!min}>{min ? '▴' : '–'}</button>
-        {!ativos.length && <button type="button" onClick={() => { FILA.itens = []; filaAvisar(); }} className={`w-7 h-7 rounded-md text-sm ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar a fila">✕</button>}
+        {/* os botões encostam à direita, alinhados com a percentagem e a barra de baixo */}
+        <span className="flex items-center -mr-2">
+          <button type="button" onClick={() => setMin(m => !m)} className={`w-7 h-7 inline-flex items-center justify-center rounded-md ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label={min ? 'Mostrar a fila' : 'Esconder a fila'} aria-expanded={!min}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={min ? 'M6 15l6-6 6 6' : 'M5 12h14'} /></svg>
+          </button>
+          {!ativos.length && <button type="button" onClick={() => { FILA.itens = []; filaAvisar(); }} className={`w-7 h-7 inline-flex items-center justify-center rounded-md ${sub} ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Fechar a fila"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
+        </span>
       </div>
       {!min && (
         <div className="max-h-[50vh] overflow-y-auto">
@@ -3666,7 +3772,10 @@ const acharExportsConceito = async (raiz, { conceito, jogo, cliente }) => {
     if (nivel <= 1 && (pk.length || pj.length)) { const f = subs.filter(([, n]) => (pk.length && tem(n, pk) === pk.length) || (pj.length && tem(n, pj) === pj.length)); if (f.length) escolher = f; }
     escolher.forEach(([e, n]) => fila.push([e, nivel + 1, [...cam, n]]));
   }
-  const pontos = a => { const np = tem(a.projeto, pc) / pc.length; if (np < 1) return 0; return np + (pj.length ? tem(a.cam.join(' '), pj) / pj.length * 0.3 : 0); };
+  // A pasta do projeto nem sempre tem o nome todo do conceito (ex.: «Halloween - Trick or Treat Savings» → TRICK_OR_TREAT_SAVINGS):
+  // chega ter a maior parte das palavras (com uma palavra só, tem de ser essa)
+  const minimo = pc.length === 1 ? 1 : pc.length <= 3 ? 2 / 3 : 0.6;
+  const pontos = a => { const np = tem(a.projeto, pc) / pc.length; if (np < minimo - 1e-9) return 0; return np + (pj.length ? tem(a.cam.join(' '), pj) / pj.length * 0.3 : 0); };
   const l = achados.map(a => ({ ...a, p: pontos(a) })).filter(a => a.p > 0).sort((x, y) => y.p - x.p || x.projeto.length - y.projeto.length);
   return l[0] || null;
 };
@@ -3717,7 +3826,7 @@ const VideoGrande = ({ url, imagem, formato, nome, tempo = 0, onFechar, opcoes, 
 // Pré-visualização do export (o 9:16 primeiro), logo que se arrastam os ficheiros — dá para trocar de formato
 const ehImagemF = f => !!f && (/^image\//.test(f.type || '') || /\.(png|jpe?g|webp|gif)$/i.test(f.name || ''));
 // Resolução de cada formato (vídeo)
-const RES_FORMATO = { '9:16': [1080, 1920], '4:5': [1080, 1350], '16:9': [1920, 1080], '1:1': [1080, 1080] };
+const RES_FORMATO = { '9:16': [1080, 1920], '4:5': [1536, 1920], '16:9': [1920, 1080], '1:1': [1080, 1080] }; // os tamanhos que o Ivo usa (4:5 = 1536×1920)
 const ORDEM_FORMATOS = ['9:16', '4:5', '16:9', '1:1'];
 const segTxt = s => `${(Math.round(s * 100) / 100).toFixed(2).replace('.', ',')} s`;
 // Verificação antes de enviar: resolução certa para o formato, formatos pedidos em Entrega todos lá, mesma duração em todos
@@ -3935,13 +4044,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
         const a = await acharExportsConceito(raizP, { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '' });
         if (a) { dirExp = a.dir; alvo = { dir: a.dir, projeto: a.projeto }; await idbGravar(kc, { ...alvo, em: Date.now() }); }
       }
-      if (!dirExp) { setAchados({ projeto: '', itens: [], nada: true }); setEstadoExp(''); return; }
-      const ignorar = new Set([...ignoradosRef.current, ...versoesDoConceito(trab, t, slugF(r.conceito)).flatMap(x => x.ficheiros.map(f => f.nome)), ...lista.map(x => nomeDe(x))]);
-      const ult = Math.max(0, ...versoesDrive(t.drive).map(d => Date.parse(d.em) || 0));
-      const desde = ult ? ult + 1000 : (Date.parse(t.criada) || 0) - 12 * 3600000;
-      const itens0 = await exportsNovos(dirExp, { desde, ignorar });
-      const itens = await Promise.all(itens0.map(async x => ({ ...x, meta: await lerVideo(x.file) }))); // resolução e duração, para avisar já aqui
-      setAchados({ projeto: (alvo && alvo.projeto) || dirExp.name, dir: dirExp, itens });
+      if (!dirExp) { setAchados({ projeto: '', itens: [], nada: true, raiz: raizP.name }); setEstadoExp(''); return; }
+      await listarAchados(dirExp, (alvo && alvo.projeto) || dirExp.name, false);
     } catch (e) { /* sem acesso */ }
     setEstadoExp('');
   };
@@ -3952,6 +4056,33 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     const f = () => { if (Date.now() - ult < 15000 || aEnviarRef.current) return; ult = Date.now(); if (!(cacheEnvio.get(t.id) || []).length) procurarExports(false); };
     window.addEventListener('focus', f); return () => window.removeEventListener('focus', f);
   }, [t.id, r.conceito, expDesligado]); // eslint-disable-line react-hooks/exhaustive-deps
+  const kcExp = () => `exp:${jogo ? jogo.id : ''}:${slugF(r.conceito)}`;
+  const listarAchados = async (dirExp, projeto, todos) => {
+    const ignorar = new Set([...ignoradosRef.current, ...versoesDoConceito(trab, t, slugF(r.conceito)).flatMap(x => x.ficheiros.map(f => f.nome)), ...lista.map(x => nomeDe(x))]);
+    const ult = Math.max(0, ...versoesDrive(t.drive).map(d => Date.parse(d.em) || 0));
+    const desde = todos ? 0 : ult ? ult + 1000 : (Date.parse(t.criada) || 0) - 12 * 3600000;
+    const itens0 = await exportsNovos(dirExp, { desde, ignorar });
+    const itens = await Promise.all(itens0.map(async x => ({ ...x, meta: await lerVideo(x.file) })));
+    setAchados({ projeto: projeto || dirExp.name, dir: dirExp, itens, todos });
+  };
+  const escolherPastaProjeto = async () => {
+    if (!window.showDirectoryPicker) return;
+    let d; try { d = await window.showDirectoryPicker({ id: 'projeto', mode: 'readwrite' }); } catch (e) { return; }
+    if (!(await permissaoLer(d, true))) { setEstadoExp('sem-licenca'); return; }
+    setEstadoExp('a procurar');
+    try {
+      let dirExp = null, projeto = d.name;
+      if (d.name.toLowerCase() === '@exports') { dirExp = d; projeto = '@Exports'; }
+      else {
+        for await (const [nome, e] of d.entries()) if (e.kind === 'directory' && nome.toLowerCase() === '@exports') { dirExp = e; break; }
+        if (!dirExp) { const cli = (TRAB_ATUAL.clientes || []).find(c => String(c.id) === String(t.cid)); const a = await acharExportsConceito(d, { conceito: r.conceito, jogo: jogo ? jogo.nome : '', cliente: cli ? cli.nome : '' }); if (a) { dirExp = a.dir; projeto = a.projeto; } }
+        if (!dirExp) dirExp = d; // os exports estão soltos nesta pasta
+      }
+      await idbGravar(kcExp(), { dir: dirExp, projeto, em: Date.now(), manual: true });
+      await listarAchados(dirExp, projeto, true);
+    } catch (e) { /* sem acesso */ }
+    setEstadoExp('');
+  };
   const usarAchados = async () => {
     const a = achados; if (!a || !a.itens.length) return;
     setAchados(null);
@@ -4261,6 +4392,25 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
     setResultado(reg); set({ drive: reg });
   };
   const nomesJogo = () => [jogo.nome, jogo.nomeFatura, ...(jogo.aliases || [])];
+  // A spreadsheet pode ter mudado à mão (ou noutro sítio): o estado de cada versão confere-se logo ao abrir e ao voltar à app
+  const resRef = useRef(resultado); resRef.current = resultado;
+  const chaveFolhaT = versoesDrive(resultado).map(d => d.nomeBase || '').join('|');
+  useEffect(() => {
+    if (!jogo || !jogo.sheet || !chaveFolhaT.replace(/\|/g, '')) return undefined;
+    let vivo = true, ult = 0;
+    const ver = async () => {
+      if (Date.now() - ult < 5000) return; ult = Date.now();
+      const tk = tokenGuardado() || (ligadoSempre(conta || '_') ? await tokenDrive(conta).catch(() => null) : null);
+      if (!tk || !vivo) return;
+      const atual = resRef.current;
+      const novo = await acertarFolhaDrive(tk, jogo.sheet, nomesJogo(), atual, true).catch(() => null);
+      if (vivo && novo && novo !== atual && resRef.current === atual) { setResultado(novo); set({ drive: novo }); }
+    };
+    ver();
+    const f = () => setTimeout(ver, 800);
+    window.addEventListener('focus', f);
+    return () => { vivo = false; window.removeEventListener('focus', f); };
+  }, [t.id, jogo && jogo.sheet, chaveFolhaT]); // eslint-disable-line react-hooks/exhaustive-deps
   // Spreadsheet de uma versão: juntar ou tirar
   const folhaVersao = async (d, tirar) => {
     if (!d || !jogo || !jogo.sheet || !d.nomeBase) return;
@@ -4470,7 +4620,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   <IcoT n="pasta" className={`w-5 h-5 mt-0.5 ${claro ? 'text-blue-600' : 'text-blue-300'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold">Encontrei {achados.itens.length} export{achados.itens.length === 1 ? '' : 's'} novo{achados.itens.length === 1 ? '' : 's'}</p>
-                    <p className={`text-[11.5px] ${sub}`}>Na @Exports de <code className={claro ? 'text-slate-700' : 'text-slate-200'}>{achados.projeto}</code> · desde o último envio</p>
+                    <p className={`text-[11.5px] ${sub}`}>Na @Exports de <code className={claro ? 'text-slate-700' : 'text-slate-200'}>{achados.projeto}</code> · {achados.todos ? 'todos os que lá estão (sem os já enviados)' : 'desde o último envio'}</p>
                   </div>
                 </div>
                 {(() => {
@@ -4519,8 +4669,8 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
             if (estadoExp === 'a procurar') return <p className={linha}>A procurar exports novos na pasta dos projetos…</p>;
             if (estadoExp === 'sem-raiz') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk} title="A app passa a encontrar sozinha os exports novos na @Exports do projeto">Encontrar os exports sozinho (escolher a pasta dos projetos)</button><button type="button" onClick={() => { setExpDesligado(true); try { localStorage.setItem('exp-auto-off', '1'); } catch (e) { /* */ } }} className={`${sub} hover:text-red-400`} aria-label="Não mostrar mais">✕</button></p>;
             if (estadoExp === 'sem-licenca') return <p className={linha}><button type="button" onClick={() => procurarExports(true)} className={lnk}>Procurar exports novos</button><span>(o browser pede autorização à pasta dos projetos)</span></p>;
-            if (achados && achados.nada) return <p className={linha}>Não encontrei o projeto de {nomeBonitoC(r.conceito)} na pasta dos projetos. <button type="button" onClick={() => procurarExports(true, true)} className={lnk}>Escolher outra pasta</button></p>;
-            if (achados) return <p className={linha}>Sem exports novos em <code>{achados.projeto}</code>. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button></p>;
+            if (achados && achados.nada) return <p className={linha}>Não encontrei o projeto de {nomeBonitoC(r.conceito)} em <code>{achados.raiz || 'pasta dos projetos'}</code>. <button type="button" onClick={escolherPastaProjeto} className={lnk} title="Escolhe a pasta do projeto (ou a @Exports dele): a app passa a usá-la para este conceito">Escolher a pasta deste projeto</button><button type="button" onClick={() => procurarExports(true, true)} className={`${lnk} opacity-70`} title="A pasta onde estão todos os projetos (ex.: C:\\WORK)">Mudar a pasta de todos os projetos</button></p>;
+            if (achados) return <p className={linha}>{achados.todos ? 'Não há exports' : 'Sem exports novos'} em <code>{achados.projeto}</code>. <button type="button" onClick={() => procurarExports(true)} className={lnk}>Ver outra vez</button><button type="button" onClick={escolherPastaProjeto} className={`${lnk} opacity-70`}>Escolher outra pasta</button></p>;
             return null;
           })()}
           <div
@@ -6504,7 +6654,22 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
     }).filter(({ r, dd, forte }) => (forte || (dd >= -1 && dd <= 2)) && !r.driveUrl && !(r.temFicheiro && (r.reciboVerde || !r.faturaId)) && Math.abs(ili(r) - v) <= 1)
       .sort((a, b) => a.p - b.p).map(x => x.r);
   };
-  const ivAc = l => (l.acao && l.acao !== 'novo' && l.acao !== 'fora' ? l.acao : null);
+  const ivAc = l => (l.acao && l.acao !== 'novo' && l.acao !== 'fora' && !l.acao.startsWith('ligar|') ? l.acao : null);
+  // O mesmo recibo já está na app (mesmo valor e data, e já com o PDF): não se importa outra vez
+  const repetidoDe = (v, data) => {
+    if (!(v > 0) || !/^\d{4}-\d{2}-\d{2}/.test(String(data || ''))) return null;
+    const tD = Date.parse(String(data).slice(0, 10)); const [y0, m0] = String(data).split('-').map(Number);
+    return (lista || []).find(r => r.temFicheiro && (r.reciboVerde || !r.faturaId) && Math.abs(ili(r) - v) <= 1
+      && (/^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? Math.abs(Date.parse(String(r.data).slice(0, 10)) - tD) / 864e5 <= 5 : r.ano === y0 && r.mes === m0)) || null;
+  };
+  const acaoInicial = (l, linhas) => {
+    const v = Number(l.valor) || 0;
+    const rp = repetidoDe(v, l.data);
+    if (rp) return l.drive ? `ligar|${rp.k}|${rp.id}` : 'fora';
+    const usados = new Set(linhas.map(ivAc).filter(Boolean));
+    const c = candidatosDe(v, l.data).find(r => !usados.has(`${r.k}|${r.id}`));
+    return c ? `${c.k}|${c.id}` : 'novo';
+  };
   const mudarImp = (id, patch) => setImp(x => (x ? { ...x, linhas: x.linhas.map(l => (l.id === id ? { ...l, ...(typeof patch === 'function' ? patch(l) : patch) } : l)) } : x));
   const juntarRecibos = async ficheiros => {
     const novas = Array.from(ficheiros || []).filter(f => /pdf|image/.test(f.type || '') || /\.(pdf|png|jpe?g|webp)$/i.test(f.name)).map(f => ({ id: trabId() + Math.random().toString(36).slice(2, 6), file: f, lendo: true, d: null, data: '', valor: '', acao: '' }));
@@ -6519,9 +6684,8 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
         // destino sugerido: o primeiro registo com o mesmo valor que ainda não foi escolhido por outra linha
         setImp(x => {
           if (!x) return x;
-          const usados = new Set(x.linhas.map(ivAc).filter(Boolean));
-          const c = candidatosDe(v, data).find(r => !usados.has(`${r.k}|${r.id}`));
-          return { ...x, linhas: x.linhas.map(y => (y.id === l.id ? { ...y, lendo: false, d, data, valor: v > 0 ? String(v) : '', acao: c ? `${c.k}|${c.id}` : 'novo' } : y)) };
+          const nova = { ...l, lendo: false, d, data, valor: v > 0 ? String(v) : '' };
+          return { ...x, linhas: x.linhas.map(y => (y.id === l.id ? { ...nova, acao: acaoInicial(nova, x.linhas.filter(z => z.id !== l.id)) } : y)) };
         });
       }
     };
@@ -6541,7 +6705,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
     }
     setImp(x => {
       const linhas = [...((x && x.linhas) || [])];
-      novas.forEach(l => { if (linhas.some(y => y.drive && y.drive.id === l.drive.id)) return; const usados = new Set(linhas.map(ivAc).filter(Boolean)); const c = candidatosDe(Number(l.valor) || 0, l.data).find(r => !usados.has(`${r.k}|${r.id}`)); linhas.push({ ...l, acao: c ? `${c.k}|${c.id}` : 'novo' }); });
+      novas.forEach(l => { if (linhas.some(y => y.drive && y.drive.id === l.drive.id)) return; linhas.push({ ...l, acao: acaoInicial(l, linhas) }); });
       return { ...(x || {}), linhas };
     });
     setATrazer(null);
@@ -6552,17 +6716,18 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
     const falta = vai.find(l => !l.data || !(num(String(l.valor).replace(',', '.')) > 0));
     if (falta) { avisoApp(`Falta a data ou o valor em ${falta.file.name}.`); return; }
     setImp(x => ({ ...x, aGuardar: true }));
-    let juntos = 0, novos = 0, erros = 0;
+    let juntos = 0, novos = 0, erros = 0, ligados = 0, repetidos = 0;
     for (const l of vai) {
-      const [k, id] = l.acao !== 'novo' ? l.acao.split('|') : [null, null];
+      const soLigar = l.acao.startsWith('ligar|');
+      const [k, id] = soLigar ? l.acao.split('|').slice(1) : l.acao !== 'novo' ? l.acao.split('|') : [null, null];
       const r0 = k ? (lista || []).find(r => r.k === k && String(r.id) === id) : null;
       try {
-        await onImportar({ file: l.file, d: { ...(l.d || {}), data: l.data, valorIliquido: num(String(l.valor).replace(',', '.')) }, alvo: r0 ? { k: r0.k, id: r0.id } : null, drive: l.drive || null });
-        if (r0) juntos += 1; else novos += 1;
+        const out = await onImportar({ file: soLigar ? null : l.file, d: { ...(l.d || {}), data: l.data, valorIliquido: num(String(l.valor).replace(',', '.')) }, alvo: r0 ? { k: r0.k, id: r0.id } : null, drive: l.drive || null, soLigar });
+        if (out && out.repetido) repetidos += 1; else if (soLigar) ligados += 1; else if (r0) juntos += 1; else novos += 1;
       } catch (e) { console.error('Importar recibo:', e); erros += 1; }
     }
     setImp(null);
-    const txt = [juntos ? `${juntos} junto${juntos === 1 ? '' : 's'} ao registo que já existia` : '', novos ? `${novos} registo${novos === 1 ? '' : 's'} novo${novos === 1 ? '' : 's'} em Receitas` : '', erros ? `${erros} com erro` : ''].filter(Boolean).join(' · ');
+    const txt = [juntos ? `${juntos} junto${juntos === 1 ? '' : 's'} ao registo que já existia` : '', novos ? `${novos} registo${novos === 1 ? '' : 's'} novo${novos === 1 ? '' : 's'} em Receitas` : '', ligados ? `${ligados} já ${ligados === 1 ? 'estava' : 'estavam'} na app — só ${ligados === 1 ? 'ficou ligado' : 'ficaram ligados'} ao Drive` : '', repetidos ? `${repetidos} repetido${repetidos === 1 ? '' : 's'} (já ${repetidos === 1 ? 'estava' : 'estavam'} na app) — não ${repetidos === 1 ? 'entrou' : 'entraram'}` : '', erros ? `${erros} com erro` : ''].filter(Boolean).join(' · ');
     if (showToast) showToast(`Recibos importados: ${txt}`, erros ? 'error' : undefined); else if (erros) avisoApp(txt);
   };
   const mesNome = data => { const [a, m] = String(data || '').split('-').map(Number); return a && m ? `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1]} ${a}` : '—'; };
@@ -6589,18 +6754,21 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
               const v = num(String(l.valor).replace(',', '.'));
               const cands = candidatosDe(v, l.data);
               const outros = new Set(L.filter(y => y.id !== l.id).map(ivAc).filter(Boolean));
+              const rp = !l.lendo ? repetidoDe(v, l.data) : null;
               return (
                 <div key={l.id} className={`grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_140px_110px_minmax(0,1.3fr)_24px] gap-2 px-2 py-1.5 items-center border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'} ${l.acao === 'fora' ? 'opacity-50' : ''}`}>
                   <span className="col-span-2 sm:col-span-1 min-w-0 text-xs">
                     <span className="block truncate" title={l.file.name}>{l.drive ? '☁ ' : ''}{l.file.name}</span>
+                    {rp && <span className="block text-amber-500" title="Mesmo valor e data de um recibo que já tem o PDF na app">⚠ já está na app: «{rp.desc || 'Recibo'}» {rp.data ? `${String(rp.data).slice(8, 10)}/${String(rp.data).slice(5, 7)}` : ''} · {eur(ili(rp))}</span>}
                     {l.lendo ? <span className="text-blue-400">a ler…</span> : !l.d ? <span className="text-amber-500">a IA não leu — põe a data e o valor</span> : <span className={`${sub} block truncate`} title={l.d.nomeCliente || ''}>{l.d.nomeCliente || '?'}{num(l.d.retencaoIRS) ? ` · ret. ${eur(l.d.retencaoIRS)}` : ''}{num(l.d.valorIva) ? ` · IVA ${eur(l.d.valorIva)}` : ''}</span>}
                   </span>
                   <input type="date" value={l.data} onChange={e => mudarImp(l.id, { data: e.target.value })} aria-label="Data do recibo" className={icI} />
                   <input type="number" step="0.01" value={l.valor} onChange={e => mudarImp(l.id, { valor: e.target.value })} aria-label="Valor ilíquido" placeholder={l.lendo ? 'a ler…' : '0,00'} className={`${icI} text-right tabular-nums`} />
                   <select value={l.acao} disabled={l.lendo} onChange={e => mudarImp(l.id, { acao: e.target.value })} aria-label="Onde fica" className={`col-span-2 sm:col-span-1 ${icI}`}>
                     {l.lendo && <option value="">…</option>}
+                    {rp && l.drive && <option value={`ligar|${rp.k}|${rp.id}`}>Já está na app — só ligar ao Drive</option>}
                     {cands.map(r => { const k = `${r.k}|${r.id}`; return <option key={k} value={k} disabled={outros.has(k)}>Juntar a «{r.desc || 'Recibo'}» · {mesNome(`${r.ano}-${r.mes}`)} · {eur(ili(r))}{r.faturaId ? ' (da fatura)' : ''}</option>; })}
-                    <option value="novo">Criar registo novo em {mesNome(l.data)}</option>
+                    <option value="novo">{rp ? 'Criar outro registo (repetido!)' : `Criar registo novo em ${mesNome(l.data)}`}</option>
                     <option value="fora">Não importar</option>
                   </select>
                   <button type="button" onClick={() => setImp(x => ({ ...x, linhas: x.linhas.filter(y => y.id !== l.id) }))} className={`text-xs ${sub} hover:text-red-400`} aria-label="Tirar esta linha">✕</button>
@@ -6689,6 +6857,9 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
   const chaveR = r => `${r.k}:${r.id}`;
   const comPainel = largoDoc && !!obterFicheiro;
+  const dia = r => (/^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? Date.parse(String(r.data).slice(0, 10)) : null);
+  const repetidos = new Set();
+  (lista || []).forEach((a, i) => (lista || []).slice(i + 1).forEach(b => { const da = dia(a), db = dia(b); if (da != null && db != null && Math.abs(da - db) <= 2 * 864e5 && Math.abs(ili(a) - ili(b)) <= 1) { repetidos.add(chaveR(a)); repetidos.add(chaveR(b)); } }));
   // Por defeito, o recibo mais recente que tem PDF
   const rSel = (lista || []).find(r => chaveR(r) === docSel) || (lista || []).find(r => r.temFicheiro) || null;
   const docPrev = comPainel && rSel ? {
@@ -6742,6 +6913,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
                         <span className="md:hidden">{dataTxt(r)} ·</span>
                         <span className={`px-1.5 rounded ${r.tipo === 'sem' ? (claro ? 'bg-slate-100' : 'bg-white/5') : (claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/10 text-blue-300')}`}>{r.tipo === 'sem' ? 'Sem taxas' : 'Com taxas'}</span>
                         {r.pais && <span>{r.pais}</span>}{r.emitidoPorSara && <span>emitido pela Sara</span>}
+                        {repetidos.has(chaveR(r)) && <span className="px-1.5 rounded bg-amber-500/15 text-amber-500" title="Há outro recibo deste cliente com o mesmo valor e a mesma data — se for o mesmo, apaga um deles em Receitas">⚠ repetido?</span>}
                       </span>
                     </span>
                     <span className="text-right tabular-nums md:order-none font-medium md:font-normal">{eur(ili(r))}<span className={`md:hidden block text-[11px] ${sub}`}>{num(r.iva) ? `IVA ${eur(r.iva)} · ` : ''}{num(r.retIRS) ? `ret. ${eur(r.retIRS)}` : ''}</span></span>
@@ -8033,6 +8205,8 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
+const NAV_TRAB_FEITO = new Set();
+const ORDEM_VISIVEL = { ids: [] };
 const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
@@ -8115,7 +8289,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }, []);
   const [abertas, setAbertas] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('trab-abertas')) || []); } catch (e) { return new Set(); } });
   const alternar = id => setAbertas(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); try { localStorage.setItem('trab-abertas', JSON.stringify([...n])); } catch (e) { /* sem armazenamento */ } return n; });
-  const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || 'tarefas'; } catch (e) { return 'tarefas'; } });
+  const [aba, setAba] = useState(() => { try { const a = localStorage.getItem('trab-aba-inicial'); localStorage.removeItem('trab-aba-inicial'); return a || localStorage.getItem('trab-aba') || 'tarefas'; } catch (e) { return 'tarefas'; } });
+  useEffect(() => { try { localStorage.setItem('trab-aba', aba); } catch (e) { /* sem armazenamento */ } }, [aba]); // ao voltar ao Trabalho, abre onde estavas
   // Recuar/avançar da app: cada ecrã (cliente, pasta, separador da ficha) fica no histórico
   const navT = useRef({ primeiro: true, deFora: false, ult: null, desde: Date.now() });
   useEffect(() => {
@@ -8131,6 +8306,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }, [sel, aba]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!navSub || !navSub.sub) return;
+    // cada passo do recuar/avançar aplica-se uma vez (ao voltar a abrir o Trabalho pelo menu não volta a uma página antiga)
+    if (NAV_TRAB_FEITO.has(navSub.k)) return; NAV_TRAB_FEITO.add(navSub.k);
     const s2 = navSub.sub.sel || { tipo: 'geral' }, a2 = navSub.sub.aba || aba;
     if (JSON.stringify({ sel: s2, aba: a2 }) === navT.current.ult) return;
     navT.current.deFora = true;
@@ -8235,30 +8412,20 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
   }, [chaveTrello, focoTic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Spreadsheet: se apagaste (ou juntaste) uma linha à mão, o ícone acompanha — confere a coluna A ao abrir a lista e ao voltar à app
-  const comFolhaT = tarefas.filter(t => { const j = jogoDaTarefa(trab, t); return j && !j.semJogo && j.sheet && versoesDrive(t.drive).some(d => d.nomeBase && d.folha && d.folha.tab); });
+  const comFolhaT = tarefas.filter(t => { const j = jogoDaTarefa(trab, t); return j && !j.semJogo && j.sheet && versoesDrive(t.drive).some(d => d.nomeBase); });
   const chaveFolha = comFolhaT.map(t => t.id + ':' + versoesDrive(t.drive).map(d => `${d.nomeBase}${d.folha && d.folha.ok ? d.folha.linha : '-'}`).join('/')).join(',');
   useEffect(() => {
     if (!comFolhaT.length) return undefined;
     let vivo = true;
+    const inicio = Date.now(); // ao abrir a lista e ao voltar à app, a spreadsheet lê-se de novo (uma vez por tab)
     (async () => {
       const mud = {};
       for (const t of comFolhaT) {
         const j = jogoDaTarefa(trab, t); const conta = contaDe(t.cid);
         const tk = tokenGuardadoDe(conta) || (ligadoSempre(conta || '_') ? await tokenDrive(conta).catch(() => null) : null);
         if (!tk || !vivo) continue;
-        const acerta = async d => {
-          if (!d || !d.nomeBase || !d.folha || !d.folha.tab) return d;
-          let nomes; try { nomes = await linhasDaFolha(tk, j.sheet, d.folha.tab, false); } catch (e) { return d; }
-          if (!nomes) return d;
-          const linha = nomes.get(String(d.nomeBase).trim().toUpperCase());
-          if (linha && !(d.folha.ok && d.folha.linha === linha)) return { ...d, folha: { ...d.folha, ok: true, linha, erro: undefined } };
-          if (!linha && d.folha.ok) return { ...d, folha: { ...d.folha, ok: false, linha: null, tirada: true } };
-          return d;
-        };
-        const novo = await acerta(t.drive);
-        const ant = t.drive && t.drive.anteriores ? await Promise.all(t.drive.anteriores.map(acerta)) : null;
-        const mudou = novo !== t.drive || (ant && ant.some((x, i) => x !== t.drive.anteriores[i]));
-        if (mudou) mud[t.id] = { ...novo, ...(ant ? { anteriores: ant } : {}) };
+        const novo = await acertarFolhaDrive(tk, j.sheet, [j.nome, j.nomeFatura, ...(j.aliases || [])], t.drive, inicio);
+        if (novo && novo !== t.drive) mud[t.id] = novo;
       }
       if (vivo && Object.keys(mud).length) mudar(tr => ({ ...tr, tarefas: (tr.tarefas || []).map(x => (x.id in mud ? { ...x, drive: mud[x.id] } : x)) }));
     })();
@@ -8704,7 +8871,13 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
         </div>
       )}
       {aApagarT && <ConfirmarApagar t={aApagarT} claro={claro} onSim={() => apagarTarefaJa(aApagarT)} onNao={() => setAApagarT(null)} />}
-      {tarefaSel && <DetalheTarefa t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
+      {tarefaSel && <DetalheTarefa key={tarefaSel.id} nav={(() => {
+        // Tarefa anterior / seguinte: pela ordem da lista que está aberta; senão, as da mesma pasta
+        const vis = (ORDEM_VISIVEL.ids || []).filter(id => (trab.tarefas || []).some(x => x.id === id));
+        const ordem = vis.includes(tarefaSel.id) ? vis : (trab.tarefas || []).filter(x => x.pastaId === tarefaSel.pastaId).sort((a, b) => String(a.criada || '').localeCompare(String(b.criada || ''))).map(x => x.id);
+        const i = ordem.indexOf(tarefaSel.id);
+        return i >= 0 && ordem.length > 1 ? { ant: ordem[i - 1] || null, seg: ordem[i + 1] || null, pos: i + 1, total: ordem.length, ir: id => setTarefaAberta(id) } : null;
+      })()} t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
     </div>
   );
 };
