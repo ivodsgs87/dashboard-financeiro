@@ -2931,7 +2931,10 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
            )}
            {faltaActivo && (
              <div className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
-               <span className="flex-1 min-w-0 text-red-400"><span className="font-medium"><Ico e="🏦"/>Fica no Activo {fmt(guia.fica)}</span> <span className="text-xs">· precisas de {fmt(guia.totPess)} para as despesas pessoais{aMais ? ` · alocaste ${fmt(aMais)} a mais do que o disponível` : ''}</span></span>
+               <span className="flex-1 min-w-0 text-red-400">
+                 <span className="font-medium"><Ico e="🏦"/>Faltam {fmt(guia.totPess - guia.fica)} no Activo este mês</span>
+                 <span className="block text-xs">Depois das transferências do mês, o Activo fica com {fmt(guia.fica)}, e as tuas despesas pessoais precisam de {fmt(guia.totPess)}. {aMais ? `A causa: a Alocação tem ${fmt(aMais)} a mais do que sobra.` : 'As receitas registadas ainda não chegam para tudo.'}</span>
+               </span>
                {aMais > 0 && <button onClick={() => setTab('invest')} className="text-xs px-2 py-1 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-400 whitespace-nowrap">Rever a Alocação →</button>}
                <button onClick={irTransf} className="text-xs px-2 py-1 rounded-md hover:bg-red-500/15 text-red-400 whitespace-nowrap">Ver as contas →</button>
              </div>
