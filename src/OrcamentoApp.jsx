@@ -14133,7 +14133,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    <div id="ano-detalhe" className="max-w-6xl mx-auto mt-4 space-y-4 scroll-mt-4">
      <Card><CompararAnos G={G} M={M} theme={theme} anoAtual={ano} /></Card>
      <AbaEstavel key="ano-horas" render={() => Performance({ so: ['horas'] })} />
-     <AbaEstavel key="ano-historico" render={() => Historico({ so: ['trimestres', 'tabelas'] })} />
+     <AbaEstavel key="ano-historico" render={() => Historico({ so: ['trimestres', 'alltime', 'tabelas'] })} />
    </div>
  )}
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
