@@ -1152,6 +1152,15 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
     linhas: [['Valor desse trabalho (pelos preços)', f(tw.valorSub)], ['Pago a freelancers', f(tw.custoSub)], ['Margem', `${f(tw.valorSub - tw.custoSub)} (${pct((tw.valorSub - tw.custoSub) / Math.max(1, tw.valorSub) * 100)})`, true]],
   });
 
+  // Mês a mês: o ano anterior ao lado, o mês em curso à parte e uns números por baixo
+  const recAnt = Array.from({ length: 12 }, (_, i) => recDe(ano - 1, i + 1));
+  const temAnt = recAnt.some(v => v > 0);
+  const mesCurso = ano === anoHoje ? mesHoje - 1 : -1; // índice do mês que ainda não acabou
+  const fechados = recMes.map((v, i) => ({ v, i })).filter(x => x.i < ateMes && x.i !== mesCurso && x.v > 0);
+  const melhorM = fechados.length ? fechados.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+  const mediaM = fechados.length ? fechados.reduce((a, x) => a + x.v, 0) / fechados.length : 0;
+  const naMeta = metaMes > 0 ? fechados.filter(x => x.v >= metaMes).length : 0;
+  const corAnt = claro ? '#cbd5e1' : '#475569';
   const ritmoOk = metaRec > 0 && proj >= metaRec;
   const metasL = [
     { l: 'Faturação', v: rec, m: metaRec, cor: '#3b82f6' },
@@ -1179,24 +1188,43 @@ const MeuAno = ({ G, M, ano, theme, metas, totais, serie, impostos, onIr, trab =
           nota={(Number(totais.liquidoAnual) || 0) > 0 ? `${pct(taxaPoupancaDe(poupado, Number(totais.liquidoAnual)))} do que ficou depois dos impostos · investido ${f(totais.investAnual)} + amortizado ${f(totais.amortAnual)}` : 'Investido + amortizado'} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:items-start">
         <AnoCaixa className="lg:col-span-3">
           <div className="flex items-center justify-between gap-2 mb-3">
             <h3 className={`font-semibold ${forte}`}><Ico e="📊"/>Mês a mês</h3>
             <AnoVer onIr={onIr} tab="performance" />
           </div>
-          <GraficoBarras height={250} aria={`Faturação por mês em ${ano}`}
+          <GraficoBarras height={260} aria={`Faturação por mês em ${ano}${temAnt ? ` e em ${ano - 1}` : ''}`}
             rotulos={meses.map(m => m.slice(0, 3))}
-            series={[{ nome: 'Faturado', valores: recMes, cor: (i, v) => (i >= ateMes ? '#64748b' : metaMes > 0 ? (v >= metaMes ? '#059669' : '#d97706') : '#3b82f6') }]}
+            series={[
+              ...(temAnt ? [{ nome: String(ano - 1), valores: recAnt, cor: corAnt }] : []),
+              { nome: String(ano), valores: recMes, cor: (i, v) => (i >= ateMes ? '#64748b' : i === mesCurso ? '#3b82f6' : metaMes > 0 ? (v >= metaMes ? '#059669' : '#d97706') : '#3b82f6') },
+            ]}
             referencia={metaMes > 0 ? { valor: metaMes, nome: 'Meta mensal' } : null}
+            tituloTip={i => `${meses[i]}${i === mesCurso ? ' (em curso)' : ''}`}
+            extraTip={i => (temAnt && recAnt[i] > 0 && i < ateMes && i !== mesCurso ? [{ nome: `vs ${ano - 1}`, valor: `${recMes[i] >= recAnt[i] ? '+' : '−'}${pct(Math.abs(recMes[i] - recAnt[i]) / recAnt[i] * 100)}` }] : [])}
             apagado={i => i >= ateMes} />
-          {metaMes > 0 && (
-            <div className={`flex flex-wrap justify-center gap-4 mt-2 text-xs ${sub}`}>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#059669' }} />Acima da meta</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#d97706' }} />Abaixo</span>
-              <span>– – Meta mensal {f(metaMes)}</span>
-            </div>
-          )}
+          <div className={`flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 text-xs ${sub}`}>
+            {metaMes > 0 && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#059669' }} />Acima da meta</span>}
+            {metaMes > 0 && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#d97706' }} />Abaixo</span>}
+            {mesCurso >= 0 && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#3b82f6' }} />Em curso</span>}
+            {temAnt && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: corAnt }} />{ano - 1}</span>}
+            {metaMes > 0 && <span>– – Meta mensal {f(metaMes)}</span>}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+            {[
+              ['Média por mês', fechados.length ? f(mediaM) : '—', fechados.length ? `${fechados.length} ${fechados.length === 1 ? 'mês fechado' : 'meses fechados'}` : ''],
+              ['Melhor mês', melhorM ? f(melhorM.v) : '—', melhorM ? meses[melhorM.i] : ''],
+              metaMes > 0 ? ['Meses na meta', fechados.length ? `${naMeta} de ${fechados.length}` : '—', `meta de ${f(metaMes)}/mês`] : ['Total do ano', f(rec), ''],
+              recAntes > 0 ? [`Face a ${ano - 1}`, `${rec >= recAntes ? '+' : '−'}${pct(Math.abs(rec - recAntes) / recAntes * 100)}`, `${f(recAntes)} no mesmo período`] : ['Projeção', f(proj), ano === anoHoje ? 'ao ritmo atual' : ''],
+            ].map(([r, v, n]) => (
+              <div key={r} className={`rounded-xl px-3 py-2 ${claro ? 'bg-slate-50' : 'bg-white/[0.03]'}`}>
+                <p className={`text-[11px] ${sub}`}>{r}</p>
+                <p className={`text-base font-semibold tabular-nums ${forte}`}>{v}</p>
+                {n && <p className={`text-[11px] truncate ${sub}`}>{n}</p>}
+              </div>
+            ))}
+          </div>
         </AnoCaixa>
         <AnoCaixa className="lg:col-span-2">
           <h3 className={`font-semibold mb-3 ${forte}`}><Ico e="💬"/>Em resumo</h3>

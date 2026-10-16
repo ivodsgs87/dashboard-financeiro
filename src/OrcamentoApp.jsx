@@ -2273,7 +2273,17 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Preview de um recibo (o clip 📎 nas Receitas): uma janela com o documento e o botão de descarregar
  const [prevRec, setPrevRec] = useState(null); // { k, id }
  const [modTrabPrev, setModTrabPrev] = useState(null);
- const [briefCrono, setBriefCrono] = useState(null); // tarefa do cronómetro cujo brief está aberto
+ const [briefCrono, setBriefCrono] = useState(null); // { tid, visivel }: o brief da tarefa do cronómetro (carregado em fundo, para abrir logo)
+ // Enquanto o cronómetro conta numa tarefa com brief, o brief vai sendo carregado em fundo (no PC): o botão «Brief» abre-o logo
+ const tarefaCrono = (() => { const c = trabACorrer(trabalho); return c ? c.tarefa : null; })();
+ const temBriefCrono = !!(tarefaCrono && (tarefaCrono.anexos || []).some(x => x && x.tipo === 'link' && x.url && (/docs\.google\.com\/presentation\//.test(x.url) || /\.pptx$/i.test(x.nome || ''))));
+ const tidCrono = tarefaCrono ? tarefaCrono.id : null;
+ useEffect(() => {
+   if (!tidCrono || !temBriefCrono) { setBriefCrono(null); return undefined; }
+   if (typeof window !== 'undefined' && window.innerWidth < 768) return undefined; // no telemóvel só carrega quando carregas no botão
+   const tm = setTimeout(() => carregarTrabalho().then(m => { setModTrabPrev(() => m); setBriefCrono(b => (b && b.tid === tidCrono ? b : { tid: tidCrono, visivel: false })); }).catch(() => {}), 2500);
+   return () => clearTimeout(tm);
+ }, [tidCrono, temBriefCrono]);
  const abrirPrevRecibo = (k, r, alternativa) => { carregarTrabalho().then(m => { setModTrabPrev(() => m); setPrevRec({ k, id: r.id }); }).catch(() => { if (alternativa) alternativa(); }); };
  const docPrevRec = (() => {
    if (!prevRec) return null;
@@ -14184,7 +14194,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 if (sel && tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel } })); return; }
                 if (sel) { try { localStorage.setItem('trab-sel', JSON.stringify(sel)); localStorage.setItem('trab-aba-inicial', 'tarefas'); } catch (e) { /* sem armazenamento */ } }
                 setTab('trabalho'); window.scrollTo({ top: 0 });
-              }} onBrief={tid => carregarTrabalho().then(m => { setModTrabPrev(() => m); setBriefCrono(tid); }).catch(() => {})} />
+              }} onBrief={tid => carregarTrabalho().then(m => { setModTrabPrev(() => m); setBriefCrono({ tid, visivel: true }); }).catch(() => {})} />
               {/* Estado: offline / a guardar / guardado */}
               {!isOnline ? (
                 <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-amber-600' : 'text-amber-400'}`} title="Sem internet — guarda quando voltar"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"/><span className="hidden sm:inline">Offline</span></span>
@@ -14307,7 +14317,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
  {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
  {docPrevRec && modTrabPrev && modTrabPrev.PreviewDocModal && <modTrabPrev.PreviewDocModal doc={docPrevRec} claro={theme === 'light'} onFechar={() => setPrevRec(null)} />}
- {briefCrono && modTrabPrev && modTrabPrev.BriefCrono && <modTrabPrev.BriefCrono trab={trabalho} tarefaId={briefCrono} clientes={G.clientes || []} cu={G.clickup} mudar={mudarTrab} onFechar={() => setBriefCrono(null)} />}
+ {briefCrono && modTrabPrev && modTrabPrev.BriefCrono && <modTrabPrev.BriefCrono trab={trabalho} tarefaId={briefCrono.tid} visivel={briefCrono.visivel} clientes={G.clientes || []} cu={G.clickup} mudar={mudarTrab} onFechar={() => setBriefCrono(b => (b ? { ...b, visivel: false } : b))} />}
  {tab==='despesas' && <AbaEstavel key="despesas" render={Despesas} />}
  {tab==='invest' && <AbaEstavel key="invest" render={Invest} />}
  {tab==='sara' && <AbaEstavel key="sara" render={Sara} />}

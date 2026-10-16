@@ -2106,11 +2106,17 @@ const framesDoVideo = async (blob, n = 8) => {
     return await new Promise(ok => c.toBlob(ok, 'image/png'));
   } finally { URL.revokeObjectURL(url); }
 };
+// «Ver» os slides: o visualizador leve da Google (abre muito mais depressa do que o editor), já no slide da tarefa
+const urlVerSlides = (url, cid, slide) => comConta(`https://docs.google.com/presentation/d/${googleId(url)}/embed?start=false&loop=false${slide ? `&slide=id.${slide}` : ''}`, cid);
+// O slide de cada tarefa, quando a app o descobriu sozinha (para a próxima vez abrir logo nele, sem esperar)
+const LS_SLIDE_BRIEF = 'brief-slide';
+const slideGuardadoDe = (tid, fid) => { try { return (JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}')[`${tid}:${fid}`]) || null; } catch (e) { return null; } };
+const guardarSlideDe = (tid, fid, sl) => { try { const o = JSON.parse(localStorage.getItem(LS_SLIDE_BRIEF) || '{}'); o[`${tid}:${fid}`] = sl; const ks = Object.keys(o); ks.slice(0, Math.max(0, ks.length - 300)).forEach(k => delete o[k]); localStorage.setItem(LS_SLIDE_BRIEF, JSON.stringify(o)); } catch (e) { /* */ } };
 const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const tg = tipoGoogle(a.url);
   const conta = contaDe(cid);
-  const abas = tg === 'slides' ? [['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
-  const [aba, setAba] = useState('editar');
+  const abas = tg === 'slides' ? [['ver', 'Ver'], ['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
+  const [aba, setAba] = useState(tg === 'slides' ? 'ver' : 'editar');
   const [doc, setDoc] = useState(null); // o que lerBrief devolveu | { erro, ativar, recente, original }
   const [aCarregar, setACarregar] = useState(null); // null | { p, n }
   const [prog, setProg] = useState({});
@@ -2125,7 +2131,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
     try { const d = await lerBrief(conta, a.url, (p, n) => setACarregar({ p, n })); setDoc(d); setACarregar(null); return d; }
     catch (e) { setDoc({ erro: e.message, ativar: e.ativar, recente: e.recente, original: e.original }); setACarregar(null); return null; }
   };
-  const abrir = async qual => { setAba(qual); if (qual !== 'editar') await carregar(); };
+  const abrir = async qual => { setAba(qual); if (qual !== 'editar' && qual !== 'ver') await carregar(); };
   // Nos slides, lê logo em fundo (para saber qual é o slide desta tarefa) — só se já houver acesso, sem abrir janelas da Google
   useEffect(() => {
     if (tg !== 'slides') return;
@@ -2139,6 +2145,20 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   // Abre já no slide da tarefa — a não ser que haja o bloco «Para o After» (que fica no topo e é o que interessa)
   useEffect(() => { if (aba !== 'texto' || !refSlide.current || !slideT) return; const tx = textosParaAE(slideT.texto); if (!tx.falas.length && !tx.ecra.length) refSlide.current.scrollIntoView({ block: 'start' }); }, [aba, nTarefa, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // URL do editor já no slide da tarefa (quando dá para saber)
+  // O slide desta tarefa que já se sabe antes de ler o brief: escolhido à mão, no link, ou descoberto noutra vez
+  const fidBrief = googleId(a.url);
+  const slideJaSabido = (() => {
+    const bs = tarefa && tarefa.briefSlide;
+    if (bs && bs.id === fidBrief) return bs.objectId || (bs.n ? `p${bs.n}` : null);
+    return slideDoLink(a.url) || (tarefa ? slideGuardadoDe(tarefa.id, fidBrief) : null);
+  })();
+  const slideDescoberto = slideT ? (slideT.objectId || (doc && doc.tipo === 'pptx' ? `p${slideT.n}` : null)) : null;
+  const [urlVer, setUrlVer] = useState(() => (tg === 'slides' ? urlVerSlides(a.url, cid, slideJaSabido) : null));
+  useEffect(() => {
+    if (tg !== 'slides' || !slideDescoberto || slideJaSabido === slideDescoberto) return;
+    if (tarefa) guardarSlideDe(tarefa.id, fidBrief, slideDescoberto);
+    if (!slideJaSabido) setUrlVer(urlVerSlides(a.url, cid, slideDescoberto)); // da 1.ª vez vai ao slide quando o descobre
+  }, [slideDescoberto]); // eslint-disable-line react-hooks/exhaustive-deps
   const urlEditor = (() => {
     const base = urlEditarGoogle(a.url, cid);
     if (!slideT || slideDoLink(a.url)) return base;
@@ -2151,7 +2171,8 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
   const marcarSlide = n => {
     const s = slides && slides[n - 1]; if (!s || !tarefa || !mudar) return;
     mudar(tr => opTarefa(tr, tarefa.id, x => ({ ...x, briefSlide: { id: googleId(a.url), n, ...(s.objectId ? { objectId: s.objectId } : {}) } })));
-    if (aba !== 'editar') setAba('editar');
+    if (tg === 'slides') setUrlVer(urlVerSlides(a.url, cid, s.objectId || (doc && doc.tipo === 'pptx' ? `p${n}` : null)));
+    if (aba !== 'editar' && aba !== 'ver') setAba('ver');
     setChaveIframe(k => k + 1);
   };
   const [framesK, setFramesK] = useState({}); // chave do vídeo → 'a fazer' | 'ok' | 'erro:…'
@@ -2222,7 +2243,7 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
           </select>
         )}
         {slideT && (
-          <button type="button" onClick={() => { if (aba !== 'editar') setAba('editar'); setChaveIframe(k => k + 1); }} className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-amber-300 hover:bg-white/20" title={`Voltar ao slide desta tarefa: ${tituloSlide(slideT) || `slide ${slideT.n}`}`}>
+          <button type="button" onClick={() => { if (aba !== 'editar' && aba !== 'ver') setAba('ver'); setChaveIframe(k => k + 1); }} className="px-2.5 py-1.5 text-xs rounded-lg bg-white/10 text-amber-300 hover:bg-white/20" title={`Voltar ao slide desta tarefa: ${tituloSlide(slideT) || `slide ${slideT.n}`}`}>
             {slides && slides.length > 1 ? 'Ir ao slide' : `★ Slide ${slideT.n}`}
           </button>
         )}
@@ -2236,8 +2257,9 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
         <button type="button" onClick={onFechar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25" aria-label="Fechar">✕</button>
       </div>
       <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-white">
+        {aba === 'ver' && urlVer && <iframe key={'v' + chaveIframe} src={urlVer} title={a.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen" allowFullScreen />}
         {aba === 'editar' && <iframe key={chaveIframe} src={urlEditor} title={a.nome} className="w-full h-full bg-white" allow="autoplay; fullscreen; clipboard-read; clipboard-write" allowFullScreen />}
-        {aba !== 'editar' && (
+        {aba !== 'editar' && aba !== 'ver' && (
           <div className="h-full overflow-auto bg-slate-900 text-slate-100 p-4 sm:p-6">
             {aCarregar && <p className="text-sm text-white/70">{aCarregar.n ? `A descarregar a apresentação… ${aCarregar.p != null ? `${Math.round(aCarregar.p * 100)}%` : tamanhoTxt(aCarregar.n)}` : 'A carregar…'}</p>}
             {!aCarregar && doc && doc.erro && erroBox(doc)}
@@ -7825,7 +7847,7 @@ const PreviewDocModal = ({ doc, claro, onFechar }) => {
 
 // O brief da tarefa que está a contar no cronómetro (botão «Brief» ao lado do cronómetro, em qualquer separador)
 const briefDaTarefa = t => (t && (t.anexos || []).find(x => tipoAnexo(x) === 'link' && googleId(x.url) && (tipoGoogle(x.url) === 'slides' || /\.pptx$/i.test(x.nome || '')))) || null;
-const BriefCrono = ({ trab, tarefaId, clientes, cu, mudar, onFechar }) => {
+const BriefCrono = ({ trab, tarefaId, clientes, cu, mudar, onFechar, visivel = true }) => {
   // Fora do Trabalho, a conta Google de cada cliente ainda não foi lida: lê-a aqui (é com ela que o brief abre)
   if (!TRAB_ATUAL.trab) {
     TRAB_ATUAL.trab = trab; TRAB_ATUAL.cu = cu; TRAB_ATUAL.clientes = clientes;
@@ -7835,10 +7857,11 @@ const BriefCrono = ({ trab, tarefaId, clientes, cu, mudar, onFechar }) => {
   const t = ((trab && trab.tarefas) || []).find(x => x.id === tarefaId);
   const a = briefDaTarefa(t);
   const fechar = useRef(onFechar); fechar.current = onFechar;
-  useEffect(() => { const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); fechar.current(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, []);
+  useEffect(() => { if (!visivel) return undefined; const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); fechar.current(); } }; document.addEventListener('keydown', esc); return () => document.removeEventListener('keydown', esc); }, [visivel]);
   useEffect(() => { if (!a) fechar.current(); }, [a]);
   if (!t || !a) return null;
-  return createPortal(<PreviaGoogle a={a} cid={t.cid} tarefa={t} mudar={mudar} onFechar={() => fechar.current()} />, document.body);
+  // Escondido (já carregado em fundo enquanto o cronómetro conta): ao carregar em «Brief» aparece logo
+  return createPortal(<div className={visivel ? '' : 'invisible pointer-events-none'} aria-hidden={!visivel}><PreviaGoogle a={a} cid={t.cid} tarefa={t} mudar={mudar} onFechar={() => fechar.current()} /></div>, document.body);
 };
 
 // ── Clientes: ficha única (geral, faturação, regras dos recibos, números) que alimenta o resto da app ──
