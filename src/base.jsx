@@ -1663,7 +1663,7 @@ const EntregasClickUp = ({ cu: cuIn, trab = null, M = null, ano, mesNum, cliente
   const nomeCli = c => c.cid == null ? `${c.nomeEsp} (por ligar)` : String(c.cid).startsWith('cu:') ? String(c.cid).slice(3) : ((clientes || []).find(x => String(x.id) === String(c.cid)) || {}).nome || 'Cliente';
   const resumoContagem = (cont, hx) => [...CU_TIPOS.filter(t => cont[t.id] && !t.porHora).map(t => `${cont[t.id]} ${cont[t.id] === 1 ? (t.curto || t.nome).replace(/^./, x => x.toLowerCase()) : t.plural}`), ...(cont.extra || cont.outro ? [`${String(Math.round((hx || 0) * 10) / 10).replace('.', ',')} h à hora`] : [])].join(', ');
   return (
-    <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
+    <div className={`rounded-2xl border p-4 ${claro ? 'bg-white/80 border-slate-200 hover-lift' : 'bg-slate-800/50 border-slate-700/50 hover-lift'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-sm"><span className={sub}>Entregue em {meses[mesNum - 1]}:</span> <strong className="text-lg text-emerald-400 tabular-nums">≈ {f(usaMin ? est.total : est.totalProduzido)}</strong> <span className={`text-xs ${sub}`}>· {est.n - est.nReview} tarefa{est.n - est.nReview === 1 ? '' : 's'} fechada{est.n - est.nReview === 1 ? '' : 's'}{est.nReview ? ` + ${est.nReview} em review` : ''}</span></p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -731,7 +731,7 @@ const ListaTarefas = ({ tarefas, trab, cu, clientes, theme, mudar, onAbrir, most
               {(valor > 0 || horas > 0) && <span className={`text-xs ${sub}`}>· {horas > 0 ? tempoTxt(horas) : ''}{horas > 0 && valor > 0 ? ' · ' : ''}{valor > 0 ? eur(valor) : ''}</span>}
             </div>
             {!fechado && (
-              <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+              <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
                 {largo && g.lista.length > 0 && (
                   <div style={{ gridTemplateColumns: gridColunas(cheio) }} className={`grid items-center gap-x-2.5 group/cab px-3 h-8 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
                     {(() => { const ks = cheio ? COLS_CHAVES : COLS_CHAVES_CURTO; const cel = (k, no) => <div key={k} className="relative h-full flex items-center min-w-0"><Divisoria chave={k} ant={ks[ks.indexOf(k) - 1] || null} cheio={cheio} />{no}</div>; return <>
@@ -827,7 +827,7 @@ const NovaTarefa = ({ onCriar, cid, cu, clientes, theme, inputClass, semPasta, j
   const criar = () => { if (!txt.trim()) return; onCriar(txt.replace(/\s*-\s*$/, ''), prazo, pecasEsc, { trello: comTrello && paraTrello }); setTxt(''); setTipoEsc(null); setAtiva(-1); };
   const nomeTipo = id => { const t = tiposDe(cu, { [id]: 1 }).find(x => x.id === id); return t ? (t.curto || t.nome) : id; };
   return (
-    <div className={`relative rounded-xl border p-2 ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/30'}`}>
+    <div className={`relative rounded-xl border p-2 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-slate-700 bg-slate-900/30 hover-lift'}`}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <input ref={inRef} value={txt} onChange={e => { setTxt(e.target.value); setAtiva(-1); if (!e.target.value.trim()) setTipoEsc(null); }}
@@ -894,7 +894,7 @@ const Notas = ({ notas, onMudar, theme, inputClass }) => {
   };
   return (
     <div className="space-y-3">
-      <div className={`rounded-xl border p-3 space-y-2 ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/30'}`}>
+      <div className={`rounded-xl border p-3 space-y-2 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-slate-700 bg-slate-900/30 hover-lift'}`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className={`inline-flex rounded-lg p-0.5 text-xs ${claro ? 'bg-slate-100' : 'bg-slate-800'}`}>
             {[['reuniao', 'Reunião'], ['nota', 'Nota']].map(([k, n]) => (
@@ -1015,7 +1015,7 @@ const Orcamento = ({ pasta, tarefas, cid, cu, clientes, theme, inputClass, onMud
   const linha = `grid grid-cols-[minmax(0,1fr)_52px_64px_74px] sm:grid-cols-[minmax(0,1fr)_76px_96px_104px] items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5`;
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
-      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
         <div className={`${linha} h-9 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
           <span>Item</span><span className="text-right">Qtd.</span><span className="text-right">Preço</span><span className="text-right">Valor</span>
         </div>
@@ -1130,7 +1130,7 @@ const PrecosCliente = ({ cid, nome, cu, clientes, theme, inputClass, onPrecos })
   return (
     <div className="space-y-3 max-w-3xl">
       <p className={`text-sm ${sub} flex items-center gap-1.5`}><span>Preços de <strong className={claro ? 'text-slate-800' : 'text-slate-100'}>{nome}</strong></span> <Info>Contam no valor de cada tarefa, nos orçamentos e nas receitas estimadas. Vazio = usa o padrão.</Info></p>
-      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
         {[...tiposDe(cu), ...CAMPOS_EXTRA_PRECO].map(t => {
           const base = pre[t.id] != null ? pre[t.id] : padrao[t.id];
           return (
@@ -2990,7 +2990,7 @@ const Freelancers = ({ trab, mudar, cu, clientes, ano, theme, inputClass, abrirI
           const setPreco = (tipo, v) => { const p = { ...pr }; if (v == null) delete p[tipo]; else p[tipo] = v; set({ precos: p }); };
           const ab = aberto === f.id;
           return (
-            <div key={f.id} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'} ${f.estado === 'antigo' ? 'opacity-60' : ''}`}>
+            <div key={f.id} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'} ${f.estado === 'antigo' ? 'opacity-60' : ''}`}>
               <div className="flex items-center">
               <button type="button" onClick={() => setAberto(ab ? null : f.id)} className="flex-1 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
                 <span className={`text-[10px] ${sub} transition-transform`} style={{ transform: ab ? 'rotate(90deg)' : 'none' }}>▶</span>
@@ -3053,7 +3053,7 @@ const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'S
 const EstatFreelancer = ({ tarefas, trab, cu, clientes, ano, claro }) => {
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const forte = claro ? 'text-slate-800' : 'text-slate-100';
-  const cartao = `rounded-xl border p-3 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const cartao = `rounded-xl border p-3 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`;
   const entregues = tarefas.filter(t => trabEntrega(t));
   const doAno = entregues.filter(t => trabEntrega(t).startsWith(`${ano}-`));
   const custo = t => Number(t.custoOutsourcing) || 0;
@@ -5026,7 +5026,7 @@ const EnviarDrive = ({ t, trab, r, set, mudar, claro, sub, inputClass, versaoLot
                   const videoAb = videoEntrega === d.pastaId;
                   const linkFolha = naFolha && jogo.sheet ? (() => { const id = (/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(String(jogo.sheet)) || [])[1]; return id && d.folha.gid != null ? `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${d.folha.gid}&range=A${d.folha.linha}` : jogo.sheet; })() : null;
                   return (
-                    <div key={d.pastaId || d.url} className={`rounded-xl border ${aberto ? 'border-blue-500/60' : claro ? 'border-slate-200' : 'border-slate-700/70'} ${claro ? 'bg-white' : 'bg-slate-900/30'}`}>
+                    <div key={d.pastaId || d.url} className={`rounded-xl border ${aberto ? 'border-blue-500/60' : claro ? 'border-slate-200' : 'border-slate-700/70'} ${claro ? 'bg-white' : 'bg-slate-900/30'} hover-lift`}>
                       <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
                         <span className={`shrink-0 inline-flex items-center justify-center min-w-[2.25rem] h-7 px-1.5 rounded-md text-sm font-semibold ${claro ? 'bg-blue-50 text-blue-700' : 'bg-blue-500/15 text-blue-300'}`}>{v ? `V${v}` : '—'}</span>
                         {(d.enviados || []).some(e => e.id) && <MiniaturaVersao ficheiros={d.enviados} conta={conta} claro={claro} rotulo={`Ver o vídeo da V${v}`} onClick={() => setVideoEntrega(videoAb ? null : d.pastaId)} />}
@@ -5473,7 +5473,7 @@ const Criativos = ({ trab, mudar, clientes, cu, theme, onAbrir, showToast, input
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const forte = claro ? 'text-slate-800' : 'text-slate-100';
   const borda = claro ? 'border-slate-200' : 'border-slate-700/60';
-  const cartao = `rounded-2xl border ${claro ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/80 border-slate-600/50 shadow-lg shadow-black/25'}`;
+  const cartao = `rounded-2xl border hover-lift ${claro ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/80 border-slate-600/50 shadow-lg shadow-black/25'}`;
   const btn = `inline-flex items-center gap-1.5 h-8 px-2.5 text-xs rounded-lg border whitespace-nowrap ${claro ? 'border-slate-200 hover:bg-slate-100 text-slate-700' : 'border-slate-700 hover:bg-white/5 text-slate-200'}`;
   const clis = clientes.filter(c => (trab.jogos || []).some(j => String(j.cid) === String(c.id) && !j.semJogo));
   const lerSel = () => { try { return JSON.parse(localStorage.getItem('criativos-sel')) || {}; } catch (e) { return {}; } };
@@ -6631,7 +6631,7 @@ const TiposTarefa = ({ cu, clientes, theme, inputClass, onPrecos, onCu }) => {
   return (
     <div className="space-y-3">
       <p className={`text-sm ${sub} flex items-center gap-1.5`}>Os tipos de tarefa, com o preço padrão e o de cada cliente. <Info>Vazio = usa o valor cinzento (o padrão ou a tabela do cliente). Estes preços alimentam o valor das tarefas, os orçamentos e as receitas estimadas.</Info></p>
-      <div className={`rounded-xl border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+      <div className={`rounded-xl border overflow-x-auto ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
         <div style={{ minWidth: minW }}>
           <div className={`grid items-end gap-2 px-3 h-10 pb-1.5 border-b text-[11px] font-medium ${claro ? 'border-slate-200 text-slate-400' : 'border-white/[0.08] text-slate-500'}`} style={cols}>
             <span>Tipo de tarefa</span><span className="text-right">Padrão</span>
@@ -7132,7 +7132,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   // Caixa da pasta dos recibos no Drive (fechada; abre sozinha se ainda não houver pasta)
   const abertoCfg = verCfg || !cfgD.pasta;
   const caixaCfg = onCfgDrive && (
-    <div className={`rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+    <div className={`rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
       <button type="button" onClick={() => setVerCfg(v => !v)} className="w-full flex items-center gap-2 text-left">
         <span className={`text-[10px] ${sub}`} style={{ transform: abertoCfg ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
         <span className="text-sm font-semibold flex-1">Recibos no Google Drive</span>
@@ -7242,7 +7242,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
         const aberto = anoAberto == null ? i === 0 : anoAberto === a;
         const tot = rs.reduce((x, r) => x + ili(r), 0), totIva = rs.reduce((x, r) => x + num(r.iva), 0), totRet = rs.reduce((x, r) => x + num(r.retIRS), 0);
         return (
-          <div key={a} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+          <div key={a} className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
             <button type="button" onClick={() => setAnoAberto(aberto ? -1 : a)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-left">
               <span className={`text-[10px] ${sub}`} style={{ transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
               <span className="font-semibold">{a}</span>
@@ -7453,7 +7453,7 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const fd = trab.faturasDrive || {};
   const contaFD = fd.conta || contaDriveRecibos || '';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
-  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`;
   const ic = `${inputClass} text-sm py-1.5`;
   const [mes, setMes] = useState(() => { try { const x = localStorage.getItem('trab-fat-mes'); localStorage.removeItem('trab-fat-mes'); if (x) { const [a, m] = x.split('-').map(Number); if (a && m) return { a, m }; } } catch (e) { /* sem armazenamento */ } return { a: ano, m: mesNum }; });
   const pref = `${mes.a}-${String(mes.m).padStart(2, '0')}-`;
@@ -8101,7 +8101,7 @@ const TxtIn = ({ valor, onGravar, className, placeholder, type = 'text', list, o
 // Ficha do cliente: cada secção fecha com a seta (fica lembrado) e, fechada, mostra um resumo numa linha
 const LS_FICHA_ABERTAS = 'ficha-abertas';
 const SecaoFicha = ({ titulo, info, resumo, aberta, onAlternar, claro, sub, children }) => (
-  <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+  <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
     <div className="flex items-center gap-1.5 px-4 py-2.5">
       <button type="button" onClick={onAlternar} aria-expanded={aberta} className="flex items-center gap-2 min-w-0 flex-1 text-left">
         <span className={`text-[10px] ${sub}`} style={{ transform: aberta ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true">▶</span>
@@ -8121,7 +8121,7 @@ const CampoFicha = ({ rot, info, span = '', grupo, children }) => {
 const FichaCliente = ({ c, trab, faturado, ano, mesNum, cu, clientes, theme, inputClass, onCliente, onCriarDoClickUp, onIrPrecos, onApagar, notas, onAbrirNota, onNovaNota, recibos = [] }) => {
   const claro = useClaro(theme);
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
-  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`;
+  const caixa = `rounded-xl border p-4 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`;
   const [novaTag, setNovaTag] = useState('');
   const [abertas, setAbertas] = useState(() => { try { return { geral: true, fat: true, regras: true, ...(JSON.parse(localStorage.getItem(LS_FICHA_ABERTAS) || '{}') || {}) }; } catch (e) { return { geral: true, fat: true, regras: true }; } });
   const alternar = k => setAbertas(a => { const n2 = { ...a, [k]: !a[k] }; try { localStorage.setItem(LS_FICHA_ABERTAS, JSON.stringify(n2)); } catch (e) { /* sem localStorage */ } return n2; });
@@ -8325,7 +8325,7 @@ const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbr
         )}
         {nAntigos > 0 && <button type="button" onClick={() => setVerAntigos(!verAntigos)} className={`text-xs ${sub} hover:text-blue-400`}>{verAntigos ? 'Esconder antigos' : `Ver antigos (${nAntigos})`}</button>}
       </div>
-      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`}>
+      <div className={`rounded-xl border ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`}>
         <div className={`${cols} h-9 border-b text-[11px] font-medium ${claro ? 'border-slate-100 text-slate-400' : 'border-white/[0.05] text-slate-500'}`}>
           <span>Cliente</span><span className="hidden md:block">Tags</span><span className="text-right">Faturado {ano}</span><span className="text-right">Por entregar</span><span className="hidden md:block text-right">Horas</span><span className="hidden md:block text-right">€/h</span>
         </div>
@@ -8346,7 +8346,7 @@ const ListaClientes = ({ clientes, trab, faturado, ano, mesNum, cu, theme, onAbr
           </button>
         ))}
       </div>
-      <PorTipoPeca linhas={trabPorTipo(trab, cu, clientes)} cu={cu} claro={claro} sub={sub} caixa={`rounded-xl border p-3.5 ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900/30'}`} titulo="Por tipo de peça — todos os clientes" />
+      <PorTipoPeca linhas={trabPorTipo(trab, cu, clientes)} cu={cu} claro={claro} sub={sub} caixa={`rounded-xl border p-3.5 ${claro ? 'border-slate-200 bg-white hover-lift' : 'border-white/[0.06] bg-slate-900/30 hover-lift'}`} titulo="Por tipo de peça — todos os clientes" />
     </div>
   );
 };
@@ -8489,7 +8489,7 @@ const Timesheet = ({ trab, mudar, clientes, theme, onAbrir }) => {
           Esconder fins de semana
         </button>
       </div>
-      <div className={`rounded-xl border overflow-x-auto ${borda} ${claro ? 'bg-white' : 'bg-slate-900/30'}`}>
+      <div className={`rounded-xl border overflow-x-auto ${borda} ${claro ? 'bg-white' : 'bg-slate-900/30'} hover-lift`}>
         <div style={{ minWidth: colTarefa + visiveis.length * 72 + 80 }}>
           <div className={`grid border-b ${borda}`} style={{ gridTemplateColumns: cols }}>
             <div className={`sticky left-0 z-[2] px-3 py-2 text-xs font-medium flex items-end ${fundoFixo} ${sub}`}>Tarefa / onde está</div>
@@ -9143,7 +9143,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
         </button>
             <input value={procura} onChange={e => setProcura(e.target.value)} placeholder="Procurar tarefas…" aria-label="Procurar tarefas" className={`${inputClass} flex-1 min-w-0 text-sm py-2`} />
           </div>
-          <aside className={`rounded-2xl border p-2 lg:max-h-[calc(100vh-220px)] overflow-y-auto ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
+          <aside className={`rounded-2xl border p-2 lg:max-h-[calc(100vh-220px)] overflow-y-auto hover-lift ${claro ? 'bg-white/80 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>{arvore}</aside>
         </div>
         <section className="min-w-0 space-y-3">
           {semArvore && (

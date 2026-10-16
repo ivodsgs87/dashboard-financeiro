@@ -100,7 +100,7 @@ const VendaCasa = ({ G, uG, theme }) => {
   }
 
   // ── Estilos ──
-  const card = theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
+  const card = theme === 'light' ? 'bg-white/80 border-slate-200 shadow-sm hover-lift' : 'bg-slate-800/50 border-slate-700/50 hover-lift';
   const inp = theme === 'light'
     ? 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full'
     : 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full';
@@ -454,7 +454,7 @@ const Casamento = ({ G, uG, theme }) => {
   const n = v => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) ? x : 0; };
   const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
   const claro = theme === 'light';
-  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm' : 'bg-slate-800/50 border-slate-700/50';
+  const card = claro ? 'bg-white/80 border-slate-200 shadow-sm hover-lift' : 'bg-slate-800/50 border-slate-700/50 hover-lift';
   const inp = claro
     ? 'bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full'
     : 'bg-slate-700/50 border border-slate-600 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-full';
