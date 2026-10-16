@@ -2273,6 +2273,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Preview de um recibo (o clip 📎 nas Receitas): uma janela com o documento e o botão de descarregar
  const [prevRec, setPrevRec] = useState(null); // { k, id }
  const [modTrabPrev, setModTrabPrev] = useState(null);
+ const [briefCrono, setBriefCrono] = useState(null); // tarefa do cronómetro cujo brief está aberto
  const abrirPrevRecibo = (k, r, alternativa) => { carregarTrabalho().then(m => { setModTrabPrev(() => m); setPrevRec({ k, id: r.id }); }).catch(() => { if (alternativa) alternativa(); }); };
  const docPrevRec = (() => {
    if (!prevRec) return null;
@@ -14183,7 +14184,7 @@ ${transacoesOrdenadas.map(t => `<tr>
                 if (sel && tab === 'trabalho') { window.dispatchEvent(new CustomEvent('trab-ir', { detail: { sel } })); return; }
                 if (sel) { try { localStorage.setItem('trab-sel', JSON.stringify(sel)); localStorage.setItem('trab-aba-inicial', 'tarefas'); } catch (e) { /* sem armazenamento */ } }
                 setTab('trabalho'); window.scrollTo({ top: 0 });
-              }} />
+              }} onBrief={tid => carregarTrabalho().then(m => { setModTrabPrev(() => m); setBriefCrono(tid); }).catch(() => {})} />
               {/* Estado: offline / a guardar / guardado */}
               {!isOnline ? (
                 <span className={`inline-flex items-center gap-1.5 text-xs ${claro ? 'text-amber-600' : 'text-amber-400'}`} title="Sem internet — guarda quando voltar"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"/><span className="hidden sm:inline">Offline</span></span>
@@ -14306,6 +14307,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='performance' && <AbaEstavel key="performance" render={Performance} />}
  {tab==='receitas' && <AbaEstavel key="receitas" render={Receitas} />}
  {docPrevRec && modTrabPrev && modTrabPrev.PreviewDocModal && <modTrabPrev.PreviewDocModal doc={docPrevRec} claro={theme === 'light'} onFechar={() => setPrevRec(null)} />}
+ {briefCrono && modTrabPrev && modTrabPrev.BriefCrono && <modTrabPrev.BriefCrono trab={trabalho} tarefaId={briefCrono} clientes={G.clientes || []} cu={G.clickup} mudar={mudarTrab} onFechar={() => setBriefCrono(null)} />}
  {tab==='despesas' && <AbaEstavel key="despesas" render={Despesas} />}
  {tab==='invest' && <AbaEstavel key="invest" render={Invest} />}
  {tab==='sara' && <AbaEstavel key="sara" render={Sara} />}
