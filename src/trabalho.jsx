@@ -6316,70 +6316,308 @@ const NotasLigadas = ({ lista, onAbrir, onNova, claro, sub, caixa, titulo = 'Not
 // Recibos de um cliente (os que juntas em Receitas), por ano
 // ── Pré-visualização de um PDF (ou imagem) ao lado da lista: ecrã inteiro, descarregar e abrir noutro separador ──
 // doc = { chave, titulo, sub, obter: () => ({ url, nome, tipo, blob?, revogar? }) | Promise }
+// ── Leitor de PDF próprio (pdf.js): sem barras do Chrome, a página ocupa a largura toda e ajusta-se ao ecrã inteiro ──
+let PDFJS_P = null;
+const carregarPdfJs = () => {
+  if (window.pdfjsLib) { if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; return Promise.resolve(window.pdfjsLib); }
+  if (!PDFJS_P) {
+    PDFJS_P = new Promise((ok, falha) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; ok(window.pdfjsLib); };
+      s.onerror = () => { PDFJS_P = null; falha(new Error('Não consegui carregar o leitor de PDF.')); };
+      document.head.appendChild(s);
+    });
+  }
+  return PDFJS_P;
+};
+// Uma página desenhada à largura pedida (nítida em ecrãs retina)
+const PaginaPdf = ({ pdf, n, largura, onClick, cursor }) => {
+  const ref = useRef(null);
+  const [alt, setAlt] = useState(null);
+  useEffect(() => {
+    let tarefa = null, vivo = true;
+    (async () => {
+      const pg = await pdf.getPage(n);
+      if (!vivo || !ref.current) return;
+      const v1 = pg.getViewport({ scale: 1 });
+      const esc = largura / v1.width;
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const vp = pg.getViewport({ scale: esc * dpr });
+      const cv = document.createElement('canvas');
+      cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+      tarefa = pg.render({ canvasContext: cv.getContext('2d'), viewport: vp });
+      await tarefa.promise;
+      if (!vivo || !ref.current) return;
+      // troca só no fim (não pisca enquanto redesenha)
+      const alvo = ref.current; alvo.width = cv.width; alvo.height = cv.height; alvo.getContext('2d').drawImage(cv, 0, 0);
+      setAlt(Math.round(v1.height * esc));
+    })().catch(() => {});
+    return () => { vivo = false; if (tarefa) try { tarefa.cancel(); } catch (e) { /* */ } };
+  }, [pdf, n, largura]);
+  return <canvas ref={ref} onClick={onClick} className={`block bg-white shadow-lg rounded-[2px] ${onClick ? cursor || 'cursor-zoom-in' : ''}`} style={{ width: largura, height: alt || Math.round(largura * 1.414) }} />;
+};
+const VisorPdf = ({ dados, cheio, onAmpliar, claro }) => {
+  const caixa = useRef(null);
+  const [larg, setLarg] = useState(0);
+  const [altCx, setAltCx] = useState(0);
+  const [pdf, setPdf] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [razao, setRazao] = useState(1.414); // altura / largura da 1.ª página
+  const [inteira, setInteira] = useState(false); // no ecrã inteiro: a página toda à vista (ou à largura)
+  useEffect(() => {
+    const el = caixa.current; if (!el) return undefined;
+    const medir = () => { const w = Math.floor(el.clientWidth); setLarg(x => (Math.abs(x - w) >= 6 ? w : x)); setAltCx(Math.floor(el.clientHeight)); };
+    medir();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medir) : null;
+    if (ro) ro.observe(el); else window.addEventListener('resize', medir);
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', medir); };
+  }, []);
+  useEffect(() => {
+    let vivo = true, doc = null;
+    setPdf(null); setErro(null);
+    carregarPdfJs().then(lib => lib.getDocument({ data: dados.slice(0) }).promise).then(async d => { doc = d; if (!vivo) { d.destroy(); return; } try { const v = (await d.getPage(1)).getViewport({ scale: 1 }); if (vivo && v.width) setRazao(v.height / v.width); } catch (e) { /* */ } if (vivo) setPdf(d); }).catch(e => { if (vivo) setErro(String((e && e.message) || e)); });
+    return () => { vivo = false; if (doc) doc.destroy(); };
+  }, [dados]);
+  // No painel: a página ocupa a largura toda; no ecrã inteiro: grande, mas não mais do que dá para ler sem andar de lado
+  const wLarg = Math.max(160, Math.min(larg - (cheio ? 48 : 24), cheio ? 1150 : 4000));
+  const w = cheio && inteira && altCx ? Math.max(160, Math.min(wLarg, Math.floor((altCx - 48) / razao))) : wLarg;
+  const paginas = pdf ? Array.from({ length: pdf.numPages }, (_, i) => i + 1) : [];
+  return (
+    <div ref={caixa} className={`h-full overflow-auto ${cheio ? 'py-6' : 'py-3'}`}>
+      {erro ? <p className="p-6 text-sm text-center text-amber-500">{erro}</p>
+        : !pdf || !larg ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>A abrir…</p>
+        : <div className="flex flex-col items-center gap-3">{paginas.map(n => <PaginaPdf key={n} pdf={pdf} n={n} largura={w} onClick={!cheio ? onAmpliar : () => setInteira(x => !x)} cursor={cheio && !inteira ? 'cursor-zoom-out' : 'cursor-zoom-in'} />)}</div>}
+    </div>
+  );
+};
 const PainelDoc = ({ doc, claro, vazio }) => {
   const [res, setRes] = useState(null);
   const caixaRef = useRef(null);
   const [cheio, setCheio] = useState(false);
-  useEffect(() => { const f = () => setCheio(!!document.fullscreenElement); document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); }, []);
+  useEffect(() => { const f = () => setCheio(!!document.fullscreenElement && document.fullscreenElement === caixaRef.current); document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); }, []);
   const chave = doc ? doc.chave : null;
   useEffect(() => {
     let vivo = true; let criado = null;
     setRes(doc ? { aCarregar: true } : null);
     if (!doc) return undefined;
-    Promise.resolve().then(() => doc.obter()).then(r => {
+    (async () => {
+      const r = await doc.obter();
       if (r && r.revogar) { if (!vivo) { URL.revokeObjectURL(r.url); return; } criado = r.url; }
-      if (vivo) setRes(r && r.url ? r : { erro: 'Esta fatura não tem PDF guardado.' });
-    }).catch(e => { if (vivo) setRes({ erro: String((e && e.message) || e) }); });
+      if (!r || !(r.url || r.blob || r.baixar)) { if (vivo) setRes({ erro: 'Esta fatura não tem PDF guardado.' }); return; }
+      const ePdf = !/^image\//.test(r.tipo || '');
+      // Os bytes do PDF, para o leitor próprio: o que já está em memória → o endereço (se o servidor deixar) → o Drive
+      let bytes = null;
+      if (ePdf) {
+        try { if (r.blob) bytes = await r.blob.arrayBuffer(); } catch (e) { /* */ }
+        if (!bytes && r.url && !/drive\.google\.com\//.test(r.url)) { try { const x = await fetch(r.url); if (x.ok) bytes = await x.arrayBuffer(); } catch (e) { /* sem acesso direto */ } }
+        if (!bytes && r.baixar) { try { bytes = await (await r.baixar()).arrayBuffer(); } catch (e) { /* */ } }
+      }
+      if (vivo) setRes({ ...r, bytes });
+    })().catch(e => { if (vivo) setRes({ erro: String((e && e.message) || e) }); });
     return () => { vivo = false; if (criado) URL.revokeObjectURL(criado); };
   }, [chave]); // eslint-disable-line react-hooks/exhaustive-deps
-  const btn = `w-8 h-8 inline-flex items-center justify-center rounded-lg ${claro ? 'text-slate-500 hover:bg-slate-100' : 'text-slate-300 hover:bg-white/10'} disabled:opacity-40`;
-  const ok = res && res.url;
+  const btn = `w-7 h-7 inline-flex items-center justify-center rounded-md ${claro && !cheio ? 'text-slate-500 hover:bg-slate-200/70' : 'text-slate-300 hover:bg-white/10'} disabled:opacity-40`;
+  const ok = res && (res.url || res.bytes);
   const imagem = ok && /^image\//.test(res.tipo || '');
-  const ecra = () => { const el = caixaRef.current; if (!el) return; if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; } if (el.requestFullscreen) el.requestFullscreen().catch(() => window.open(res.url, '_blank', 'noopener')); else window.open(res.url, '_blank', 'noopener'); };
+  const ecra = () => { const el = caixaRef.current; if (!el) return; if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; } if (el.requestFullscreen) el.requestFullscreen().catch(() => {}); };
+  const blobDe = () => (res.blob ? res.blob : res.bytes ? new Blob([res.bytes], { type: res.tipo || 'application/pdf' }) : null);
   const descarregar = async () => {
     if (!ok) return;
-    if (res.blob) { guardarBlobComo(res.blob, res.nome || 'documento.pdf'); return; }
+    const b0 = blobDe(); if (b0) { guardarBlobComo(b0, res.nome || 'documento.pdf'); return; }
     if (res.baixar) { try { guardarBlobComo(await res.baixar(), res.nome || 'documento.pdf'); return; } catch (e) { /* tenta abrir */ } }
     try { const r = await fetch(res.url); if (!r.ok) throw new Error(String(r.status)); guardarBlobComo(await r.blob(), res.nome || 'documento.pdf'); }
     catch (e) { window.open(res.url, '_blank', 'noopener'); } // sem acesso direto: abre, e descarrega-se no visualizador
   };
+  const abrirFora = () => { const b0 = blobDe(); if (b0) { const u = URL.createObjectURL(b0); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); return; } if (res.url) window.open(res.url, '_blank', 'noopener'); };
+  const fundo = cheio ? 'bg-neutral-900' : claro ? 'bg-slate-100' : 'bg-slate-950/50';
   return (
-    <div ref={caixaRef} className={`flex flex-col rounded-xl border overflow-hidden ${cheio ? '' : 'h-[calc(100vh-170px)] min-h-[420px]'} ${claro ? 'border-slate-200 bg-white' : 'border-white/[0.06] bg-slate-900'}`}>
-      <div className={`flex items-center gap-2 px-3 py-2 border-b ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{doc ? doc.titulo : 'Pré-visualização'}</p>
-          {doc && doc.sub && <p className={`text-[11px] truncate ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{doc.sub}</p>}
-        </div>
-        <button type="button" onClick={ecra} disabled={!ok} className={btn} title={cheio ? 'Sair do ecrã inteiro (Esc)' : 'Ecrã inteiro'} aria-label="Ecrã inteiro">
+    <div ref={caixaRef} className={`flex flex-col overflow-hidden ${cheio ? 'bg-neutral-900 text-slate-100' : `rounded-xl border h-[calc(100vh-170px)] min-h-[420px] ${claro ? 'border-slate-200' : 'border-white/[0.06]'}`}`}>
+      <div className={`flex items-center gap-1 pl-3 pr-1.5 h-10 shrink-0 ${cheio ? 'bg-neutral-900' : claro ? 'bg-white border-b border-slate-200' : 'bg-slate-900 border-b border-white/[0.06]'}`}>
+        <p className="flex-1 min-w-0 truncate text-[13px]"><span className="font-semibold">{doc ? doc.titulo : 'Pré-visualização'}</span>{doc && doc.sub && <span className={`ml-2 text-[11px] ${claro && !cheio ? 'text-slate-500' : 'text-slate-400'}`}>{doc.sub}</span>}</p>
+        <button type="button" onClick={ecra} disabled={!ok} className={btn} title={cheio ? 'Sair do ecrã inteiro (Esc)' : 'Ecrã inteiro'} aria-label={cheio ? 'Sair do ecrã inteiro' : 'Ecrã inteiro'}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{cheio ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}</svg>
         </button>
         <button type="button" onClick={descarregar} disabled={!ok} className={btn} title="Descarregar" aria-label="Descarregar">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" /></svg>
         </button>
-        <button type="button" onClick={() => ok && window.open(res.url, '_blank', 'noopener')} disabled={!ok} className={btn} title="Abrir noutro separador" aria-label="Abrir noutro separador">
+        <button type="button" onClick={abrirFora} disabled={!ok} className={btn} title="Abrir noutro separador" aria-label="Abrir noutro separador">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5" /></svg>
         </button>
       </div>
-      <div className={`flex-1 min-h-0 ${claro ? 'bg-slate-100' : 'bg-slate-950/60'}`}>
+      <div className={`flex-1 min-h-0 ${fundo}`}>
         {!doc ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>{vazio || 'Escolhe um documento para o veres aqui.'}</p>
           : !res || res.aCarregar ? <p className={`p-6 text-sm text-center ${claro ? 'text-slate-500' : 'text-slate-400'}`}>A abrir…</p>
           : res.erro ? <p className="p-6 text-sm text-center text-amber-500">{res.erro}</p>
-          : imagem ? <div className="w-full h-full flex items-center justify-center p-3"><img src={res.url} alt={res.nome || ''} className="max-w-full max-h-full object-contain rounded" /></div>
-          : <iframe key={res.url} src={res.url.startsWith('blob:') || res.url.startsWith('data:') ? `${res.url}#view=FitH` : res.url} title={doc.titulo} className="w-full h-full border-0" />}
+          : imagem ? <div className="w-full h-full overflow-auto flex items-start justify-center p-3"><img src={res.url} alt={res.nome || ''} onClick={!cheio ? ecra : undefined} className={`max-w-full shadow-lg ${cheio ? 'max-h-none' : 'cursor-zoom-in'}`} /></div>
+          : res.bytes ? <VisorPdf dados={res.bytes} cheio={cheio} onAmpliar={ecra} claro={claro} />
+          // sem acesso aos bytes (ex.: ficheiro antigo noutro servidor): o leitor do browser, sem barras e à largura
+          : <iframe key={res.url} src={/drive\.google\.com\//.test(res.url) ? res.url : `${res.url}#toolbar=0&navpanes=0&view=FitH`} title={doc.titulo} className="w-full h-full border-0" />}
       </div>
     </div>
   );
 };
-const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro }) => {
+const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, claro, sub, obterFicheiro, onImportar, showToast, inputClass, pendDrive = [], contaDrive = '', onIgnorarDrive, onSincDrive, recSinc }) => {
   const [aEnviar, setAEnviar] = useState(null);
   const inRef = useRef(null); const alvo = useRef(null);
   const [anoAberto, setAnoAberto] = useState(null);
   const largoDoc = useLargo('(min-width: 1536px)'); // ecrã largo: o recibo vê-se ao lado da lista
   const [docSel, setDocSel] = useState(null);
+  const [imp, setImp] = useState(null); // importar vários recibos: { linhas: [{ id, file, lendo, d, data, valor, acao }], aGuardar }
   const anos = [...new Set((lista || []).map(r => r.ano))].sort((a, b) => b - a);
-  if (!anos.length) return <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente. Junta-os em Receitas.</p>;
   const num = v => Number(v) || 0;
   const ili = r => (r.valIliq != null && r.valIliq !== '' ? num(r.valIliq) : num(r.val));
+  // ── Importar recibos verdes (vários de uma vez): a IA lê cada um; se já houver um registo deste cliente com o mesmo
+  // valor (ex.: o que a fatura criou), junta-se a esse; senão cria um novo no mês da data — como o «Importar Fatura» das Receitas
+  // Registos deste cliente com o mesmo valor (±1 €) que ainda não têm o PDF do recibo: primeiro os da mesma data
+  const candidatosDe = (v, data) => {
+    if (!(v > 0) || !/^\d{4}-\d{2}-\d{2}/.test(String(data || ''))) return [];
+    const [y0, m0] = String(data).split('-').map(Number); const t0 = y0 * 12 + m0 - 1; const tD = Date.parse(String(data).slice(0, 10));
+    return (lista || []).map(r => {
+      const dd = r.ano * 12 + r.mes - 1 - t0;
+      const dias = /^\d{4}-\d{2}-\d{2}/.test(String(r.data || '')) ? Math.abs(Date.parse(String(r.data).slice(0, 10)) - tD) / 864e5 : null;
+      return { r, dd, p: dias != null && dias <= 5 ? dias : 10 + Math.abs(dd), forte: dias != null && dias <= 5 };
+    }).filter(({ r, dd, forte }) => (forte || (dd >= -1 && dd <= 2)) && !r.driveUrl && !(r.temFicheiro && (r.reciboVerde || !r.faturaId)) && Math.abs(ili(r) - v) <= 1)
+      .sort((a, b) => a.p - b.p).map(x => x.r);
+  };
+  const ivAc = l => (l.acao && l.acao !== 'novo' && l.acao !== 'fora' ? l.acao : null);
+  const mudarImp = (id, patch) => setImp(x => (x ? { ...x, linhas: x.linhas.map(l => (l.id === id ? { ...l, ...(typeof patch === 'function' ? patch(l) : patch) } : l)) } : x));
+  const juntarRecibos = async ficheiros => {
+    const novas = Array.from(ficheiros || []).filter(f => /pdf|image/.test(f.type || '') || /\.(pdf|png|jpe?g|webp)$/i.test(f.name)).map(f => ({ id: trabId() + Math.random().toString(36).slice(2, 6), file: f, lendo: true, d: null, data: '', valor: '', acao: '' }));
+    if (!novas.length) return;
+    setImp(x => ({ ...(x || {}), linhas: [...((x && x.linhas) || []), ...novas] }));
+    const fila = [...novas];
+    const ler = async () => {
+      for (let l = fila.shift(); l; l = fila.shift()) {
+        let d = null; try { d = await lerFaturaIA(l.file); } catch (e) { d = null; }
+        const data = dataIAValida(d && d.data);
+        const v = d ? Math.round((Number(d.valorIliquido) || 0) * 100) / 100 : 0;
+        // destino sugerido: o primeiro registo com o mesmo valor que ainda não foi escolhido por outra linha
+        setImp(x => {
+          if (!x) return x;
+          const usados = new Set(x.linhas.map(ivAc).filter(Boolean));
+          const c = candidatosDe(v, data).find(r => !usados.has(`${r.k}|${r.id}`));
+          return { ...x, linhas: x.linhas.map(y => (y.id === l.id ? { ...y, lendo: false, d, data, valor: v > 0 ? String(v) : '', acao: c ? `${c.k}|${c.id}` : 'novo' } : y)) };
+        });
+      }
+    };
+    await Promise.all([ler(), ler(), ler()]);
+  };
+  const [aTrazer, setATrazer] = useState(null);
+  const trazerDoDrive = async lista2 => {
+    setATrazer(lista2.length === 1 ? lista2[0].id : 'todos');
+    const novas = [];
+    for (const p of lista2) {
+      try {
+        const file = await ficheiroDoDrive(contaDrive, { id: p.id, name: p.nome });
+        const data = dataIAValida(p.d && p.d.data) || ((/(\d{4}-\d{2}-\d{2})/.exec(p.nome) || [])[1] || '');
+        const v = p.d ? Math.round((Number(p.d.valorIliquido) || 0) * 100) / 100 : 0;
+        novas.push({ id: trabId() + Math.random().toString(36).slice(2, 6), file, lendo: false, d: p.d || null, data, valor: v > 0 ? String(v) : '', acao: '', drive: { id: p.id, url: p.url, nome: p.nome } });
+      } catch (e) { avisoApp(`Não consegui abrir ${p.nome} do Drive: ${e.message || e}`); }
+    }
+    setImp(x => {
+      const linhas = [...((x && x.linhas) || [])];
+      novas.forEach(l => { if (linhas.some(y => y.drive && y.drive.id === l.drive.id)) return; const usados = new Set(linhas.map(ivAc).filter(Boolean)); const c = candidatosDe(Number(l.valor) || 0, l.data).find(r => !usados.has(`${r.k}|${r.id}`)); linhas.push({ ...l, acao: c ? `${c.k}|${c.id}` : 'novo' }); });
+      return { ...(x || {}), linhas };
+    });
+    setATrazer(null);
+  };
+  const guardarImp = async () => {
+    const L = (imp && imp.linhas) || [];
+    const vai = L.filter(l => l.acao !== 'fora');
+    const falta = vai.find(l => !l.data || !(num(String(l.valor).replace(',', '.')) > 0));
+    if (falta) { avisoApp(`Falta a data ou o valor em ${falta.file.name}.`); return; }
+    setImp(x => ({ ...x, aGuardar: true }));
+    let juntos = 0, novos = 0, erros = 0;
+    for (const l of vai) {
+      const [k, id] = l.acao !== 'novo' ? l.acao.split('|') : [null, null];
+      const r0 = k ? (lista || []).find(r => r.k === k && String(r.id) === id) : null;
+      try {
+        await onImportar({ file: l.file, d: { ...(l.d || {}), data: l.data, valorIliquido: num(String(l.valor).replace(',', '.')) }, alvo: r0 ? { k: r0.k, id: r0.id } : null, drive: l.drive || null });
+        if (r0) juntos += 1; else novos += 1;
+      } catch (e) { console.error('Importar recibo:', e); erros += 1; }
+    }
+    setImp(null);
+    const txt = [juntos ? `${juntos} junto${juntos === 1 ? '' : 's'} ao registo que já existia` : '', novos ? `${novos} registo${novos === 1 ? '' : 's'} novo${novos === 1 ? '' : 's'} em Receitas` : '', erros ? `${erros} com erro` : ''].filter(Boolean).join(' · ');
+    if (showToast) showToast(`Recibos importados: ${txt}`, erros ? 'error' : undefined); else if (erros) avisoApp(txt);
+  };
+  const mesNome = data => { const [a, m] = String(data || '').split('-').map(Number); return a && m ? `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m - 1]} ${a}` : '—'; };
+  const icI = `${inputClass || ''} text-sm py-1.5`;
+  const caixaImp = imp && (() => {
+    const L = imp.linhas; const lendo = L.filter(l => l.lendo).length; const vai = L.filter(l => l.acao !== 'fora').length;
+    return (
+      <div className={`rounded-xl border p-3 space-y-3 ${claro ? 'border-blue-200 bg-blue-50/50' : 'border-blue-500/30 bg-blue-500/[0.05]'}`}
+        onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); }}
+        onDrop={e => { if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); juntarRecibos(e.dataTransfer.files); } }}>
+        <p className="text-sm font-medium">Importar recibos verdes</p>
+        <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm cursor-pointer text-center ${claro ? 'border-slate-300 hover:bg-white' : 'border-slate-600 hover:bg-white/5'}`}>
+          <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={e => { juntarRecibos(e.target.files); e.target.value = ''; }} />
+          <span>📎</span><span>Escolhe os PDFs dos recibos (podes escolher vários) ou arrasta-os para aqui</span>
+        </label>
+        {L.length > 0 && (
+          <div className={`rounded-lg border overflow-x-auto ${claro ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/40'}`}>
+            <div className={`hidden sm:grid grid-cols-[minmax(0,1fr)_140px_110px_minmax(0,1.3fr)_24px] gap-2 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide ${sub}`}><span>Ficheiro</span><span>Data</span><span className="text-right">Ilíquido</span><span>Fica em</span><span /></div>
+            {L.map(l => {
+              const v = num(String(l.valor).replace(',', '.'));
+              const cands = candidatosDe(v, l.data);
+              const outros = new Set(L.filter(y => y.id !== l.id).map(ivAc).filter(Boolean));
+              return (
+                <div key={l.id} className={`grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_140px_110px_minmax(0,1.3fr)_24px] gap-2 px-2 py-1.5 items-center border-t ${claro ? 'border-slate-100' : 'border-white/[0.05]'} ${l.acao === 'fora' ? 'opacity-50' : ''}`}>
+                  <span className="col-span-2 sm:col-span-1 min-w-0 text-xs">
+                    <span className="block truncate" title={l.file.name}>{l.drive ? '☁ ' : ''}{l.file.name}</span>
+                    {l.lendo ? <span className="text-blue-400">a ler…</span> : !l.d ? <span className="text-amber-500">a IA não leu — põe a data e o valor</span> : <span className={`${sub} block truncate`} title={l.d.nomeCliente || ''}>{l.d.nomeCliente || '?'}{num(l.d.retencaoIRS) ? ` · ret. ${eur(l.d.retencaoIRS)}` : ''}{num(l.d.valorIva) ? ` · IVA ${eur(l.d.valorIva)}` : ''}</span>}
+                  </span>
+                  <input type="date" value={l.data} onChange={e => mudarImp(l.id, { data: e.target.value })} aria-label="Data do recibo" className={icI} />
+                  <input type="number" step="0.01" value={l.valor} onChange={e => mudarImp(l.id, { valor: e.target.value })} aria-label="Valor ilíquido" placeholder={l.lendo ? 'a ler…' : '0,00'} className={`${icI} text-right tabular-nums`} />
+                  <select value={l.acao} disabled={l.lendo} onChange={e => mudarImp(l.id, { acao: e.target.value })} aria-label="Onde fica" className={`col-span-2 sm:col-span-1 ${icI}`}>
+                    {l.lendo && <option value="">…</option>}
+                    {cands.map(r => { const k = `${r.k}|${r.id}`; return <option key={k} value={k} disabled={outros.has(k)}>Juntar a «{r.desc || 'Recibo'}» · {mesNome(`${r.ano}-${r.mes}`)} · {eur(ili(r))}{r.faturaId ? ' (da fatura)' : ''}</option>; })}
+                    <option value="novo">Criar registo novo em {mesNome(l.data)}</option>
+                    <option value="fora">Não importar</option>
+                  </select>
+                  <button type="button" onClick={() => setImp(x => ({ ...x, linhas: x.linhas.filter(y => y.id !== l.id) }))} className={`text-xs ${sub} hover:text-red-400`} aria-label="Tirar esta linha">✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className={`text-[11px] ${sub}`}>A IA lê a data, o valor, o IVA e a retenção. Se já houver um registo deste cliente com o mesmo valor (por exemplo, o que a fatura criou), o recibo junta-se a esse; senão, cria um registo novo «com taxas» no mês da data. O PDF fica guardado na app e vai para a pasta dos recibos no Drive.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={guardarImp} disabled={imp.aGuardar || lendo > 0 || !vai} className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">{imp.aGuardar ? 'A importar…' : lendo ? `A ler ${lendo} PDF${lendo === 1 ? '' : 's'}…` : `Importar ${vai || ''} recibo${vai === 1 ? '' : 's'}`}</button>
+          <button type="button" onClick={() => setImp(null)} className={`px-3 py-1.5 text-sm rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`}>Cancelar</button>
+        </div>
+      </div>
+    );
+  })();
+  const barraImp = (onImportar || onSincDrive) && (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      {onSincDrive && <button type="button" onClick={onSincDrive} disabled={!!(recSinc && recSinc.a)} className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-60" title="Vai à pasta dos recibos no Drive: junta os PDFs aos registos e envia os que lá faltam (a app também faz isto sozinha)">{recSinc && recSinc.a ? 'A ver o Drive…' : '☁ Ver o Drive agora'}</button>}
+      {onImportar && !imp && <button type="button" onClick={() => setImp({ linhas: [] })} className="text-xs text-blue-400 hover:text-blue-300" title="Junta vários recibos verdes de uma vez: a IA lê cada um">+ Importar recibos</button>}
+    </div>
+  );
+  const avisoDrive = (recSinc && (recSinc.a || recSinc.feito)) || pendDrive.length > 0 ? (
+    <div className="space-y-1.5">
+      {recSinc && (recSinc.a || recSinc.feito) && <p className={`text-[11px] ${sub}`}>☁ {recSinc.a || recSinc.feito}</p>}
+      {pendDrive.length > 0 && (
+        <div className="rounded-lg px-3 py-2 bg-amber-500/10 text-amber-500 text-xs space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex-1 min-w-0">☁ {pendDrive.length === 1 ? 'Há 1 recibo no Drive que não consegui juntar sozinho' : `Há ${pendDrive.length} recibos no Drive que não consegui juntar sozinho`}:</span>
+            {onImportar && pendDrive.length > 1 && <button type="button" onClick={() => trazerDoDrive(pendDrive)} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === 'todos' ? 'A abrir…' : 'Rever todos'}</button>}
+          </div>
+          {pendDrive.map(p => (
+            <div key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <a href={p.url} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline truncate max-w-full sm:max-w-[45%]" title={p.nome}>{p.nome}</a>
+              <span className="opacity-80">— {p.motivo}{p.resumo ? ` · ${p.resumo}` : ''}</span>
+              <span className="flex-1" />
+              {onImportar && <button type="button" onClick={() => trazerDoDrive([p])} disabled={!!aTrazer} className="px-2 py-0.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 disabled:opacity-60">{aTrazer === p.id ? 'A abrir…' : 'Rever e importar'}</button>}
+              {onIgnorarDrive && <button type="button" onClick={() => onIgnorarDrive(p.id)} className="px-1.5 py-0.5 opacity-80 hover:opacity-100" title="Não é um recibo deste cliente (ou não interessa): deixa de aparecer (fica no Drive)">Ignorar</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+  if (!anos.length) return <div className="space-y-3">{barraImp}{avisoDrive}{caixaImp}{!imp && <p className={`text-sm ${sub}`}>Ainda não há recibos deste cliente.{onImportar ? ' Importa-os aqui ou em Receitas.' : ' Junta-os em Receitas.'}</p>}</div>;
   const mesesN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   const dataTxt = r => (r.data && /^\d{4}-\d{2}-\d{2}/.test(r.data) ? `${r.data.slice(8, 10)}/${r.data.slice(5, 7)}` : `${mesesN[r.mes - 1]}`);
   const semPdf = (lista || []).filter(r => !r.temFicheiro).length;
@@ -6394,7 +6632,7 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
   } : null;
   const abrirR = r => { if (comPainel) { setDocSel(chaveR(r)); return; } if (onAbrirFicheiro) onAbrirFicheiro(r.k, r.id); };
   return (
-    <div className={comPainel ? 'grid grid-cols-[minmax(0,56rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
+    <div className={comPainel ? 'grid grid-cols-[minmax(0,50rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
     <div className="space-y-4 min-w-0">
       <input ref={inRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={async e => {
         const f = e.target.files && e.target.files[0]; e.target.value = ''; const r = alvo.current; if (!f || !r) return;
@@ -6402,7 +6640,12 @@ const RecibosCliente = ({ lista, onAbrirFicheiro, onJuntarFicheiro, onIrMes, cla
         try { await onJuntarFicheiro(r.k, r.id, f); } catch (er) { console.error('Recibo:', er); avisoApp('Não consegui enviar o PDF.'); }
         setAEnviar(null);
       }} />
-      {semPdf > 0 && <p className={`text-xs ${sub}`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app — só os que juntaste com o ficheiro (ex.: lidos pela IA) abrem aqui. Usa "+ PDF" para juntar os que faltam.</p>}
+      <div className="flex flex-wrap items-start gap-2">
+        {semPdf > 0 ? <p className={`flex-1 min-w-0 text-xs ${sub}`}>{semPdf} recibo{semPdf === 1 ? '' : 's'} sem PDF guardado na app. Usa «+ PDF» num recibo, ou «+ Importar recibos» para juntar vários de uma vez.</p> : <span className="flex-1" />}
+        {barraImp}
+      </div>
+      {avisoDrive}
+      {caixaImp}
       {anos.map((a, i) => {
         const rs = lista.filter(r => r.ano === a);
         const aberto = anoAberto == null ? i === 0 : anoAberto === a;
@@ -6867,8 +7110,10 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
       chave: `${fPrev.id}:${(fPrev.pdf && fPrev.pdf.url) || ''}:${(fPrev.drive && fPrev.drive.mod) || ''}:${fPrev.total}`,
       titulo: `Fatura nº ${fPrev.numero}`, sub: `${MESES_PT_F[Number(String(fPrev.mes).slice(5, 7)) - 1] || ''} ${String(fPrev.mes).slice(0, 4)} · ${cuEur(fPrev.total)}${fPrev.antiga ? ' · antiga' : ''}`,
       obter: () => {
-        if (fPrev.pdf && fPrev.pdf.url) return { url: fPrev.pdf.url, nome: nomePdfDe(fPrev), tipo: /\.(png|jpe?g|webp)$/i.test(nomePdfDe(fPrev)) ? tipoDoNome(nomePdfDe(fPrev)) : 'application/pdf' };
-        if (fPrev.antiga) return fPrev.drive && fPrev.drive.id ? { url: `https://drive.google.com/file/d/${fPrev.drive.id}/preview`, nome: fPrev.drive.nome || nomePdfDe(fPrev), tipo: 'application/pdf', baixar: () => descarregarDrive(contaFD, fPrev.drive.id, {}) } : null;
+        const nomeP = nomePdfDe(fPrev);
+        const baixar = fPrev.drive && fPrev.drive.id ? () => descarregarDriveSemJanela(contaFD, fPrev.drive.id) : undefined;
+        if (fPrev.pdf && fPrev.pdf.url) return { url: fPrev.pdf.url, nome: nomeP, tipo: tipoDoNome(nomeP), baixar };
+        if (fPrev.antiga) return fPrev.drive && fPrev.drive.id ? { url: `https://drive.google.com/file/d/${fPrev.drive.id}/preview`, nome: fPrev.drive.nome || nomeP, tipo: tipoDoNome(fPrev.drive.nome || nomeP), baixar } : null;
         const blob = new Blob([pdfDaFatura(fPrev)], { type: 'application/pdf' });
         return { url: URL.createObjectURL(blob), blob, nome: nomePdfDe(fPrev), tipo: 'application/pdf', revogar: true };
       },
@@ -6876,8 +7121,8 @@ const FaturasCliente = ({ c, trab, mudar, cu, clientes, ano, mesNum, theme, inpu
   const abrirAntiga = f => { if (largoDoc) { setDocSel(f.id); return; } if (f.pdf && f.pdf.url) { window.open(f.pdf.url, '_blank', 'noopener'); return; } if (f.antiga && f.drive && f.drive.url) { window.open(f.drive.url, '_blank', 'noopener'); return; } verPdf(gerarPdfFatura({ ...dadosPdf(), emissor: { ...dadosPdf().emissor, para: f.para || dadosPdf().emissor.para }, data: dataEN(f.data), numero: f.numero, linhas: f.linhas, subtotal: f.subtotal, ivaTaxa: f.ivaTaxa, ivaValor: f.ivaValor, total: f.total, notaIva: f.notaIva })); };
   const chip = `px-2 py-0.5 rounded-md text-[11px]`;
   return (
-    <div className={largoDoc ? 'grid grid-cols-[minmax(0,56rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
-    <div className="space-y-4 max-w-4xl min-w-0">
+    <div className={largoDoc ? 'grid grid-cols-[minmax(0,50rem)_minmax(0,1fr)] gap-4 items-start' : ''}>
+    <div className={`space-y-4 min-w-0 ${largoDoc ? '' : 'max-w-4xl'}`}>
       <div className={caixa}>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button type="button" onClick={() => mudarMes(-1)} className={`w-8 h-8 rounded-lg ${claro ? 'hover:bg-slate-100' : 'hover:bg-white/10'}`} aria-label="Mês anterior">‹</button>
@@ -7718,7 +7963,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 };
 
 // ══ O separador ══
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo }) => {
+const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onSincRecibosDrive, recSinc }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -8319,7 +8564,8 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
               if (showToast) showToast(`Fichas importadas: ${Object.keys(ids).length} cliente${Object.keys(ids).length === 1 ? '' : 's'}`, 'success');
             } : null} />}
           {abaAtual === 'faturas' && sel.tipo === 'cliente' && !procura.trim() && cliente && !cliente.soTrabalho && <FaturasCliente key={cliente.id} recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} mudar={mudar} cu={cu} clientes={clientes} ano={ano} mesNum={mesNum} theme={theme} inputClass={inputClass} onEnviarAnexo={onEnviarAnexo} onCriarRecibo={onCriarReciboFatura} onApagarRecibo={onApagarReciboFatura} showToast={showToast} onAbrirTarefa={id => setTarefaAberta(id)} contaDriveRecibos={contaDriveRecibos} />}
-          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} />}
+          {abaAtual === 'recibos' && sel.tipo === 'cliente' && !procura.trim() && recibosDe && <RecibosCliente key={sel.id} lista={recibosDe(sel.id)} onAbrirFicheiro={onAbrirRecibo} onJuntarFicheiro={onJuntarRecibo} onIrMes={onIrMes} claro={claro} sub={sub} obterFicheiro={obterRecibo} showToast={showToast} inputClass={inputClass}
+            onImportar={onImportarRecibo ? x => onImportarRecibo({ ...x, cid: sel.id }) : null} pendDrive={recibosDrivePend.filter(p => p.cid == null || String(p.cid) === String(sel.id))} contaDrive={contaDriveRecibos} onIgnorarDrive={onIgnorarReciboDrive} onSincDrive={onSincRecibosDrive} recSinc={recSinc} />}
           {abaAtual === 'jogos' && sel.tipo === 'cliente' && !procura.trim() && <JogosCliente cid={sel.id} trab={trab} cu={cu} clientes={clientes} ano={ano} theme={theme} inputClass={inputClass} mudar={mudar} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
           {abaAtual === 'ficha' && sel.tipo === 'cliente' && cliente && !procura.trim() && (
             <FichaCliente recibos={recibosDe ? recibosDe(cliente.id) : []} c={cliente} trab={trab} faturado={faturado} ano={ano} mesNum={mesNum} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass}
@@ -8490,6 +8736,12 @@ const tokenSemJanela = async conta => {
   if (!ligadoSempre(k)) return null;
   try { const j = await chamarDriveFn('token', { conta: conta || undefined }); guardarAcesso([k, j.email], j); return j.access_token; } catch (e) { return null; }
 };
+const descarregarDriveSemJanela = async (conta, id) => {
+  const t = await tokenSemJanela(conta); if (!t) throw new Error('sem acesso ao Drive');
+  const r = await fetch(`${DRV}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${t}` } });
+  if (!r.ok) throw new Error(`Erro ${r.status} do Drive`);
+  return r.blob();
+};
 const INFO_DRIVE = new Map();
 const infoDrive = async (token, id) => {
   if (INFO_DRIVE.has(id)) return INFO_DRIVE.get(id);
@@ -8646,5 +8898,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, data, pastaUrl, conta, 
   return { nome, pasta: `${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA };
+export { Trabalho, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela };
 export const FICHEIRO_APP = 'trabalho';
