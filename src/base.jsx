@@ -1341,6 +1341,9 @@ const impCalc = (G, M, hoje = new Date()) => {
     const info = { mes: p, base, rec: f.rec, formula: f.val, nomeBase: [0, 1, 2].map(k => curto(base + k)).join('+'), anoBase: Math.floor(base / 12) };
     const pago = somaMes('SS', p);
     if (pago > 0) return { ...info, valor: pago, pago: true };
+    // Valor mensal que a SS fixou na notificação da base de incidência (vale para os 3 meses dessa declaração)
+    const notif = impNum(((G.ssNotificadas) || {})[base]);
+    if (notif > 0) return { ...info, valor: notif, notificada: true };
     const irmao = mesesSSPagos.filter(i => ssBase(i) === base).pop();
     if (irmao != null) return { ...info, valor: somaMes('SS', irmao), igualA: irmao };
     return { ...info, valor: f.val * fatorSS, ajustado: paresSS.length > 0 };

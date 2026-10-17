@@ -281,6 +281,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [ssNotifAberto, setSsNotifAberto] = useState(false);
   const [showImportCSV, setShowImportCSV] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -3049,11 +3050,21 @@ ${linhasOrc}`;
        </div>
        <p className="text-xl font-bold text-blue-400">{fmt(ss.valor)}</p>
        <p className={`${sub} mt-1`}>Entre 10 e 20/{mm(ss.mes)} · base {ss.nomeBase}{ss.anoBase !== anoAtualSistema ? `/${ss.anoBase}` : ''}{ss.rec > 0 ? ` (${fmt(ss.rec)})` : ''}</p>
-       {ss.igualA != null
+       {ss.notificada
+         ? <p className="text-[10px] text-slate-400">Valor da notificação da SS</p>
+         : ss.igualA != null
          ? <p className="text-[10px] text-slate-400">Igual ao que pagaste em {nm(ss.igualA)} (mesma declaração)</p>
          : ss.ajustado && Math.abs(pi.fatorSS - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title={`A fórmula dá ${fmt(ss.formula)}; ajustada pela diferença entre a fórmula e o que pagaste na última declaração`}><Ico e="🎯"/>Fórmula {fmt(ss.formula)} {fx(pi.fatorSS)}</p>}
        <p className="text-[10px] mt-0.5">{pi.ssEste.pago ? <span className="text-emerald-400">✓ {nm(pi.ssEste.mes)} pago: {fmt(pi.ssEste.valor)}</span> : <span className="text-amber-400"><Ico e="⏳"/>Por pagar</span>}</p>
        <p className={sub}>Depois, a partir de {nm(pi.ssDepois.mes)}: {pi.ssDepois.incompleto ? `depende de ${pi.ssDepois.nomeBase}` : `~${fmt(pi.ssDepois.valor)}/mês`}</p>
+       {ss !== pi.ssProx && pi.ssProx.notificada && <p className="text-[10px] text-slate-400">{nm(pi.ssProx.mes)}: {fmt(pi.ssProx.valor)} (valor da notificação)</p>}
+       {!pi.ssProx.pago && (ssNotifAberto
+         ? <form className="flex items-center gap-1.5 mt-1.5" onSubmit={e => { e.preventDefault(); const v = parseFloat(String(e.currentTarget.elements.v.value).replace(/\s/g, '').replace(',', '.')); saveUndo(); const n = { ...(G.ssNotificadas || {}) }; if (v > 0) n[pi.ssProx.base] = v; else delete n[pi.ssProx.base]; uG('ssNotificadas', n); setSsNotifAberto(false); showToast(v > 0 ? 'Valor da SS guardado' : 'Voltou à previsão da app'); }}>
+             <input name="v" autoFocus inputMode="decimal" defaultValue={pi.ssProx.notificada ? String(pi.ssProx.valor).replace('.', ',') : ''} placeholder="ex.: 996,28" aria-label="Contribuição mensal da notificação da SS" className="w-24 px-2 py-1 rounded-md text-xs bg-slate-900/40 border border-slate-600" />
+             <button className="text-xs px-2 py-1 rounded-md bg-blue-600 text-white">Guardar</button>
+             <button type="button" onClick={() => setSsNotifAberto(false)} className="text-xs text-slate-400">✕</button>
+           </form>
+         : <button onClick={() => setSsNotifAberto(true)} className="text-[10px] text-blue-400 hover:underline mt-1" title={`A notificação da SS («contribuição prevista a pagar mensalmente») vale para ${nm(pi.ssProx.base + 3)}, ${nm(pi.ssProx.base + 4)} e ${nm(pi.ssProx.base + 5)} — pagos em ${nm(pi.ssProx.base + 4)}, ${nm(pi.ssProx.base + 5)} e ${nm(pi.ssProx.base + 6)}`}>{pi.ssProx.notificada ? '✎ Mudar valor da notificação' : '✎ Tens a notificação da SS? Põe o valor'}</button>)}
      </div>
 
      {/* IVA do trimestre que se paga agora */}
