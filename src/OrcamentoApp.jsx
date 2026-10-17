@@ -1679,15 +1679,35 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    lista.sort((a, b) => b.n - a.n);
    return { lista, gasto, proj, recLiq, atual, dia, diasMes };
  })();
+ // Cartão «Gastos no banco» (Painel e separador Banco)
+ const renderGastosBanco = () => {
+   if (!alertasBanco) return null;
+   const a = alertasBanco; const rIA = resumoBancoIA && resumoBancoIA.mes === mesBilIso ? resumoBancoIA : null;
+   const mais = a.lista.length > 3 ? a.lista.length - 3 : 0;
+   return (
+     <Card>
+       <div className="flex items-center gap-2 flex-wrap">
+         <h3 className="font-semibold flex items-center gap-1.5"><Ico e="🏦"/>Gastos no banco</h3>
+         <span className="text-xs text-slate-500">{fmt(a.gasto)} gastos{a.recLiq > 0 ? ` · ${Math.round(a.gasto / a.recLiq * 100)}% do rendimento líquido` : ''}</span>
+         <Info>Do Bilance: o que já saiu das contas este mês (sem investimentos, impostos nem transferências entre contas), comparado com o rendimento líquido do mês e com os orçamentos do Bilance. «A este ritmo» projeta o gasto até ao fim do mês. Só aparece um aviso quando um orçamento já passou ou vai passar.</Info>
+         <button type="button" onClick={pedirResumoBanco} disabled={rIA && rIA.a} className="ml-auto text-xs text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Um resumo curto, feito pela IA, de como vão os gastos do mês">{rIA && rIA.a ? 'A pensar…' : '✨ Resumo'}</button>
+       </div>
+       {a.lista.length === 0
+         ? <p className="text-sm text-emerald-400 mt-2">✓ Tudo dentro do previsto{a.atual ? ' até agora' : ''}.</p>
+         : <ul className="mt-2 space-y-1 text-sm">{a.lista.slice(0, 3).map((x, i) => <li key={i} className={`flex gap-2 ${x.n === 2 ? 'text-red-400' : 'text-amber-400'}`}><span>{x.n === 2 ? '●' : '◐'}</span><span className="min-w-0">{x.txt}</span></li>)}{mais > 0 && <li className="text-xs text-slate-500 pl-5">{tab === 'banco' ? `+ ${mais} nos orçamentos abaixo` : <button type="button" onClick={() => setTab('banco')} className="hover:underline">+ {mais} no separador Banco →</button>}</li>}</ul>}
+       {rIA && rIA.texto && <p className={`mt-3 text-sm leading-relaxed rounded-lg p-3 ${theme === 'light' ? 'bg-violet-50 text-slate-700' : 'bg-violet-500/10 text-slate-200'}`}>{rIA.texto}</p>}
+       {rIA && rIA.erro && <p className="mt-2 text-xs text-red-400">{rIA.erro}</p>}
+     </Card>
+   );
+ };
  const pedirResumoBanco = async () => {
    if (!alertasBanco) return;
    setResumoBancoIA({ mes: mesBilIso, a: true });
    const a = alertasBanco;
    const linhasOrc = bilOrcs.filter(o => o.limite > 0).map(o => `- ${o.titulo}: gasto ${Math.round(o.gasto)} € de ${Math.round(o.limite)} €`).join('\n');
-   const pergunta = `Faz-me um resumo curto (3 a 4 frases, português de Portugal, tom calmo, sem alarmismo nem moralismo) de como vão os meus gastos de ${mes} de ${ano}, para me guiar. Diz o que está bem, o que merece atenção e uma sugestão concreta para o resto do mês. Usa só estes números:
+   const pergunta = `Faz-me um resumo curto (3 a 4 frases, português de Portugal, trata-me por tu, tom calmo, sem alarmismo nem moralismo) de como vão os meus gastos de ${mes} de ${ano}, para me guiar. Diz o que está bem, o que merece atenção e uma sugestão concreta para o resto do mês. Não recomendes contabilistas nem consultores. Só digas que um orçamento passou se o gasto for maior do que o limite. Usa só estes números, sem inventar outros:
 - Dia ${a.dia} de ${a.diasMes}${a.atual ? '' : ' (mês já fechado)'}
-- Rendimento líquido previsto do mês: ${Math.round(a.recLiq)} €
-- Gasto até agora (sem investimentos, impostos nem transferências entre contas): ${Math.round(a.gasto)} €${a.atual ? `; a este ritmo, ${Math.round(a.proj)} € no fim do mês` : ''}
+${a.recLiq > 0 ? `- Rendimento líquido previsto do mês: ${Math.round(a.recLiq)} €\n` : ''}- Gasto até agora (sem investimentos, impostos nem transferências entre contas): ${Math.round(a.gasto)} €${a.atual ? `; a este ritmo, ${Math.round(a.proj)} € no fim do mês` : ''}
 - Orçamentos do Bilance:
 ${linhasOrc}`;
    try { const r = await perguntarIA(pergunta, {}); setResumoBancoIA({ mes: mesBilIso, texto: String(r || '').trim() }); }
@@ -3342,25 +3362,7 @@ ${linhasOrc}`;
 
  return (<div key={mesKey} className={`space-y-4 sm:space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
  {agora}
- {alertasBanco && (() => {
-   const a = alertasBanco; const rIA = resumoBancoIA && resumoBancoIA.mes === mesBilIso ? resumoBancoIA : null;
-   const mais = a.lista.length > 3 ? a.lista.length - 3 : 0;
-   return (
-     <Card>
-       <div className="flex items-center gap-2 flex-wrap">
-         <h3 className="font-semibold flex items-center gap-1.5"><Ico e="🏦"/>Gastos no banco</h3>
-         <span className="text-xs text-slate-500">{fmt(a.gasto)} gastos{a.recLiq > 0 ? ` · ${Math.round(a.gasto / a.recLiq * 100)}% do rendimento líquido` : ''}</span>
-         <Info>Do Bilance: o que já saiu das contas este mês (sem investimentos, impostos nem transferências entre contas), comparado com o rendimento líquido do mês e com os orçamentos do Bilance. «A este ritmo» projeta o gasto até ao fim do mês. Só aparece um aviso quando um orçamento já passou ou vai passar.</Info>
-         <button type="button" onClick={pedirResumoBanco} disabled={rIA && rIA.a} className="ml-auto text-xs text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Um resumo curto, feito pela IA, de como vão os gastos do mês">{rIA && rIA.a ? 'A pensar…' : '✨ Resumo'}</button>
-       </div>
-       {a.lista.length === 0
-         ? <p className="text-sm text-emerald-400 mt-2">✓ Tudo dentro do previsto{a.atual ? ' até agora' : ''}.</p>
-         : <ul className="mt-2 space-y-1 text-sm">{a.lista.slice(0, 3).map((x, i) => <li key={i} className={`flex gap-2 ${x.n === 2 ? 'text-red-400' : 'text-amber-400'}`}><span>{x.n === 2 ? '●' : '◐'}</span><span className="min-w-0">{x.txt}</span></li>)}{mais > 0 && <li className="text-xs text-slate-500 pl-5"><button type="button" onClick={() => setTab('banco')} className="hover:underline">+ {mais} no separador Banco →</button></li>}</ul>}
-       {rIA && rIA.texto && <p className={`mt-3 text-sm leading-relaxed rounded-lg p-3 ${theme === 'light' ? 'bg-violet-50 text-slate-700' : 'bg-violet-500/10 text-slate-200'}`}>{rIA.texto}</p>}
-       {rIA && rIA.erro && <p className="mt-2 text-xs text-red-400">{rIA.erro}</p>}
-     </Card>
-   );
- })()}
+ {renderGastosBanco()}
 
  {/* Duas colunas: dinheiro e trabalho à esquerda; transferências e notas à direita */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-start">
@@ -12965,7 +12967,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='casamento' && <Suspense fallback={<SeparadorCarregar/>}><Casamento G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
+ {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco gastosBanco={renderGastosBanco()} theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
 {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}

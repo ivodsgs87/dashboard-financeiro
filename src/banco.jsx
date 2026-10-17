@@ -209,7 +209,7 @@ const Donut = ({ fatias, tam = 132, esp = 16, centro, fundo }) => {
   );
 };
 
-const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes }) => {
+const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, gastosBanco }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const linha = claro ? 'border-slate-200' : 'border-slate-700/60';
@@ -351,6 +351,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes })
         </div>
       </div>
       {estado && estado.erro && <p className="text-xs text-red-400">Não consegui ler o Drive: {estado.erro}</p>}
+      {gastosBanco}
 
       {/* Gasto / Ganho / Total */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
