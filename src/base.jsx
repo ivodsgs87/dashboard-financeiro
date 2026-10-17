@@ -1915,10 +1915,10 @@ const HORAS_TIPO_PADRAO = { video: 6, video3d: 8, ai_clip: 2, variacao: 2, itera
 const trabMedivel = t => (t.estado === 'feito' || t.estado === 'review') && trabHoras(t) > 0.2 && !(Number(t.custoOutsourcing) > 0) && !t.freelancerId && !t.outsourcing;
 const mediana = l => { const s = l.slice().sort((a, b) => a - b); const k = Math.floor(s.length / 2); return !s.length ? 0 : s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
 // Por tipo de peça: horas por peça (mediana), valor por peça e €/h (valor ÷ horas). cid: só esse cliente; semId: sem essa tarefa
-const trabPorTipo = (trab, cu, clientes, cid = null, semId = null) => {
+const trabPorTipo = (trab, cu, clientes, cid = null, semId = null, filtro = null) => {
   const por = {};
   ((trab && trab.tarefas) || []).forEach(t => {
-    if (t.id === semId || !trabMedivel(t) || (cid != null && String(t.cid) !== String(cid))) return;
+    if (t.id === semId || !trabMedivel(t) || (cid != null && String(t.cid) !== String(cid)) || (filtro && !filtro(t))) return;
     const ps = trabPecas(t); if (ps.length !== 1) return; // só as tarefas de um tipo, para a média não se baralhar
     const tipo = ps[0].tipo; if (tipo === 'extra' || tipo === 'outro') return;
     const n = ps[0].n || 1; const h = trabHoras(t); const v = trabValor(t, cu, clientes);
@@ -1927,15 +1927,18 @@ const trabPorTipo = (trab, cu, clientes, cid = null, semId = null) => {
   });
   return Object.values(por).map(o => ({ ...o, horasPorPeca: mediana(o.hPeca), valorPorPeca: o.pecas ? o.valor / o.pecas : 0, eurHora: o.horas > 0 ? o.valor / o.horas : 0 }));
 };
-// Estimativa sugerida para uma tarefa: as horas típicas de cada peça (primeiro as deste cliente, com 2+ tarefas; senão as de todos, com 3+)
-const trabSugerirEstimativa = (t, trab, cu, clientes) => {
+// Estimativa sugerida para uma tarefa: as horas típicas de cada peça — primeiro as do mesmo jogo (2+ tarefas),
+// depois as deste cliente (2+), senão as de todos (3+). chaveJogo(t) diz de que jogo é cada tarefa.
+const trabSugerirEstimativa = (t, trab, cu, clientes, chaveJogo = null) => {
   const ps = trabPecas(t).filter(p => p.tipo !== 'extra' && p.tipo !== 'outro');
   if (!ps.length) return null;
+  const kj = chaveJogo ? chaveJogo(t) : null;
+  const doJogo = {}; if (kj) trabPorTipo(trab, cu, clientes, t.cid, t.id, x => chaveJogo(x) === kj).forEach(o => { if (o.tarefas >= 2) doJogo[o.tipo] = o; });
   const doCli = {}; trabPorTipo(trab, cu, clientes, t.cid, t.id).forEach(o => { if (o.tarefas >= 2) doCli[o.tipo] = o; });
   const todos = {}; trabPorTipo(trab, cu, clientes, null, t.id).forEach(o => { if (o.tarefas >= 3) todos[o.tipo] = o; });
-  let h = 0, amostras = 0, soCliente = true;
-  for (const p of ps) { const o = doCli[p.tipo] || todos[p.tipo]; if (!o) return null; if (!doCli[p.tipo]) soCliente = false; h += o.horasPorPeca * (p.n || 1); amostras += o.tarefas; }
-  return { h: Math.max(0.25, Math.round(h * 4) / 4), amostras, soCliente, tipos: ps.map(p => p.tipo) };
+  let h = 0, amostras = 0, nivel = 2;
+  for (const p of ps) { const o = doJogo[p.tipo] || doCli[p.tipo] || todos[p.tipo]; if (!o) return null; nivel = Math.min(nivel, doJogo[p.tipo] ? 2 : doCli[p.tipo] ? 1 : 0); h += o.horasPorPeca * (p.n || 1); amostras += o.tarefas; }
+  return { h: Math.max(0.25, Math.round(h * 4) / 4), amostras, soJogo: nivel === 2, soCliente: nivel >= 1, tipos: ps.map(p => p.tipo) };
 };
 const horasTipicas = trab => {
   const por = {};

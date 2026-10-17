@@ -2157,6 +2157,7 @@ const guardarSlideDe = (tid, fid, sl) => { try { const o = JSON.parse(localStora
 const LS_ABA_BRIEF = 'brief-aba';
 const abaBriefGuardada = () => { try { return localStorage.getItem(LS_ABA_BRIEF) === 'editar' ? 'editar' : 'ver'; } catch (e) { return 'ver'; } };
 const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
+  const [listaSl, setListaSl] = useState(false); // lista dos slides aberta (com barra de scroll larga)
   const tg = tipoGoogle(a.url);
   const conta = contaDe(cid);
   const abas = tg === 'slides' ? [['ver', 'Ver'], ['editar', 'Editar'], ['texto', 'Texto'], ['videos', 'Vídeos']] : tg === 'drive' ? [['editar', 'Ver']] : [['ver', 'Ver'], ['editar', 'Editar'], ['texto', tg === 'sheets' ? 'Texto (1.ª folha)' : 'Texto']];
@@ -2327,12 +2328,25 @@ const PreviaGoogle = ({ a, cid, tarefa, mudar, onFechar }) => {
       <div className="flex flex-wrap items-center gap-2 mb-2 text-white">
         <p className="min-w-0 flex-1 text-sm font-medium truncate">{(doc && doc.nome) || a.nome}</p>
         {slides && slides.length > 1 && (
-          <select value={nTarefa || ''} onChange={e => { const n = Number(e.target.value); if (n) marcarSlide(n); }} aria-label="O slide desta tarefa"
-            title={slidePalpite ? 'A app escolheu este slide pelas palavras do nome da tarefa — se não for este, escolhe o certo (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)' : 'O slide do brief que é desta tarefa (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)'}
-            className={`max-w-[260px] px-2.5 py-1.5 text-xs rounded-lg font-medium cursor-pointer outline-none ${slideT && !slidePalpite ? 'bg-amber-400 text-slate-900 hover:bg-amber-300' : 'bg-white/10 text-amber-300 ring-1 ring-amber-400/70 hover:bg-white/15'}`}>
-            {!slideT && <option value="">★ Qual é o slide desta tarefa?</option>}
-            {slides.map(s => <option key={s.n} value={s.n} className="bg-slate-800 text-white">{s.n === nTarefa ? '★ ' : ''}Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 40)}` : ''}{s.n === nTarefa && slidePalpite ? ' (palpite)' : ''}</option>)}
-          </select>
+          <div className="relative">
+            <button type="button" onClick={() => setListaSl(v => !v)} aria-haspopup="listbox" aria-expanded={listaSl} aria-label="O slide desta tarefa"
+              title={slidePalpite ? 'A app escolheu este slide pelas palavras do nome da tarefa — se não for este, escolhe o certo (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)' : 'O slide do brief que é desta tarefa (é o que a app usa para os assets da Refs e para abrir o brief no sítio certo)'}
+              className={`max-w-[260px] flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg font-medium cursor-pointer outline-none ${slideT && !slidePalpite ? 'bg-amber-400 text-slate-900 hover:bg-amber-300' : 'bg-white/10 text-amber-300 ring-1 ring-amber-400/70 hover:bg-white/15'}`}>
+              <span className="truncate">{slideT ? `★ Slide ${slideT.n}${tituloSlide(slideT) ? ` · ${tituloSlide(slideT).slice(0, 40)}` : ''}${slidePalpite ? ' (palpite)' : ''}` : '★ Qual é o slide desta tarefa?'}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            {listaSl && <>
+              <div className="fixed inset-0 z-[1]" onMouseDown={() => setListaSl(false)} />
+              <div role="listbox" className="lista-slides absolute left-0 top-full mt-1 z-[2] w-[340px] max-w-[90vw] max-h-[60vh] overflow-y-auto rounded-xl bg-slate-800 border border-slate-600 shadow-2xl py-1">
+                {slides.map(s => (
+                  <button key={s.n} type="button" role="option" aria-selected={s.n === nTarefa} onClick={() => { setListaSl(false); marcarSlide(s.n); }}
+                    className={`w-full text-left px-3 py-1.5 text-xs truncate ${s.n === nTarefa ? 'bg-amber-400/20 text-amber-300 font-semibold' : 'text-white hover:bg-white/10'}`}>
+                    {s.n === nTarefa ? '★ ' : ''}Slide {s.n}{tituloSlide(s) ? ` · ${tituloSlide(s).slice(0, 48)}` : ''}{s.n === nTarefa && slidePalpite ? ' (palpite)' : ''}
+                  </button>
+                ))}
+              </div>
+            </>}
+          </div>
         )}
         {/* Ainda não se sabe o slide da tarefa: lê o brief para o encontrar (pode pedir a janela da Google) */}
         {tg === 'slides' && !slideT && !slideJaSabido && (aCarregar
@@ -2591,6 +2605,12 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
   const setPeca = (tipo, n) => { const base = temMao ? { ...t.pecas } : { ...pecasAtuais }; if (!n) delete base[tipo]; else base[tipo] = n; aplicarTipo(base); };
   const horasTarefa = trabHoras(t);
   const est = Number(t.estimativa) || 0;
+  // Estimativa sugerida (média do mesmo jogo, senão do cliente, senão de todos) — entra sozinha numa tarefa por começar
+  const chaveJogoT = x => { const j = jogoDaTarefa(trab, x); return j ? String(j.id || normJ(j.nome)) : null; };
+  const sugEst = !est && t.estado !== 'feito' ? trabSugerirEstimativa(t, trab, cu, clientes, chaveJogoT) : null;
+  useEffect(() => {
+    if (sugEst && t.estimativa == null && !t.estimativaAuto && !t.estimativaManual && t.estado !== 'feito' && t.estado !== 'review') set({ estimativa: sugEst.h, estimativaAuto: true });
+  }, [t.id, sugEst && sugEst.h]); // eslint-disable-line react-hooks/exhaustive-deps
   const prio = PRIORIDADES.find(x => x[0] === t.prioridade);
   const custo = Number(t.custoOutsourcing) || 0;
   const comFicheiros = (trab.jogos || []).some(j => String(j.cid) === String(t.cid));
@@ -2841,20 +2861,21 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
               <span className="flex-1" />
               <button type="button" onClick={() => setVerManual(m => !m)} className={`text-[13px] ${verManual ? sub : 'text-blue-400 hover:text-blue-300'}`} title="Juntar horas que não ficaram no cronómetro">{verManual ? 'Fechar' : '+ Tempo à mão'}</button>
               <label className={`flex items-center gap-1.5 text-[13px] ${sub}`} title="Opcional: quantas horas achas que vai levar">Estimativa
-                <NumIn valor={t.estimativa ?? null} placeholder="—" onGravar={x => set({ estimativa: x })} className={`${inputClass} !w-16 text-sm py-1 text-right`} />
+                <NumIn valor={t.estimativa ?? null} placeholder="—" onGravar={x => set({ estimativa: x, estimativaManual: true })} className={`${inputClass} !w-16 text-sm py-1 text-right`} />
+                {t.estimativaAuto && !t.estimativaManual && est > 0 && <span className="text-[10px] opacity-70" title="Posta sozinha pela média do teu tempo (mesmo jogo, senão o cliente). Escreve outro valor para mudar.">média</span>}
               </label>
               <p className={`text-sm tabular-nums font-semibold ${est && horasTarefa > est ? 'text-red-400' : ''}`}><HorasVivas t={t} />{est ? <span className={`ml-1 text-xs font-normal ${sub}`}>({Math.round(horasTarefa / est * 100)}%)</span> : null}</p>
             </div>
             {(() => {
               // Estimativa sugerida pelo teu histórico (só quando ainda não puseste uma) e quanto estás a ganhar por hora nesta tarefa
-              const sug = !est && t.estado !== 'feito' ? trabSugerirEstimativa(t, trab, cu, clientes) : null;
+              const sug = sugEst;
               const eh = (t.estado === 'review' || t.estado === 'feito') && horasTarefa >= 0.25 && v > 0 ? v / horasTarefa : 0; // só no fim: a meio, o valor todo a dividir por poucas horas engana
               if (!sug && !eh) return null;
               const nomeT = id => { const x = tiposDe(cu).find(y => y.id === id); return x ? (x.curto || x.nome).toLowerCase() : id; };
               const que = sug && (sug.tipos.length === 1 ? `${sug.amostras} tarefa${sug.amostras === 1 ? '' : 's'} de ${nomeT(sug.tipos[0])}` : `${sug.amostras} tarefas com estas peças`);
               return (
                 <div className={`-mt-0.5 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] ${sub}`}>
-                  {sug && <span>Sugestão: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>≈ {tempoTxt(sug.h)}</b> <span className="opacity-80">(média de {que}{sug.soCliente ? ' deste cliente' : ''})</span> · <button type="button" onClick={() => set({ estimativa: sug.h })} className="text-blue-400 hover:text-blue-300">usar</button></span>}
+                  {sug && <span>Sugestão: <b className={claro ? 'text-slate-700' : 'text-slate-200'}>≈ {tempoTxt(sug.h)}</b> <span className="opacity-80">(média de {que}{sug.soJogo ? ' deste jogo' : sug.soCliente ? ' deste cliente' : ''})</span> · <button type="button" onClick={() => set({ estimativa: sug.h })} className="text-blue-400 hover:text-blue-300">usar</button></span>}
                   {eh > 0 && <span className="ml-auto tabular-nums" title={`Valor da tarefa (${eur(v)}) ÷ horas registadas (${tempoTxt(horasTarefa)})`}>{eur(eh)}/h</span>}
                 </div>
               );
@@ -9535,6 +9556,34 @@ const descarregarDriveSemJanela = async (conta, id) => {
   if (!r.ok) throw new Error(`Erro ${r.status} do Drive`);
   return r.blob();
 };
+// ── Bilance: ficheiros «bilance-dados-….json» no Drive (gravados pela tarefa agendada do Claude ou importados na app) ──
+const BILANCE_Q = "name contains 'bilance-dados' and trashed=false and mimeType!='application/vnd.google-apps.folder'";
+const BILANCE_PASTA = 'Bilance (dados para a app)';
+const bilanceToken = async (conta, comJanela) => (comJanela ? tokenDrive(conta) : tokenSemJanela(conta));
+const bilanceListar = async (conta, comJanela) => {
+  const t = await bilanceToken(conta, comJanela); if (!t) return null;
+  const out = []; let pag = '';
+  do {
+    const j = await driveApi(t, `${DRV}?q=${encodeURIComponent(BILANCE_Q)}&fields=nextPageToken,files(id,name,createdTime,modifiedTime,parents,size)&orderBy=createdTime&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${pag ? `&pageToken=${pag}` : ''}`);
+    out.push(...(j.files || [])); pag = j.nextPageToken || '';
+  } while (pag);
+  return out;
+};
+const bilanceBaixar = async (conta, id, comJanela) => {
+  const t = await bilanceToken(conta, comJanela); if (!t) throw new Error('sem acesso ao Drive');
+  const r = await fetch(`${DRV}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${t}` } });
+  if (!r.ok) throw new Error(`Erro ${r.status} do Drive`);
+  return r.text();
+};
+// Grava sempre um ficheiro novo (nunca por cima de outro), na pasta onde já estão os do Bilance
+const bilanceGuardar = async (conta, nome, texto) => {
+  const t = await tokenDrive(conta);
+  const fs = await bilanceListar(conta, true);
+  let pasta = ((fs || []).find(f => f.parents && f.parents[0]) || {}).parents;
+  pasta = pasta ? pasta[0] : (await pastaDrive(t, 'root', BILANCE_PASTA)).id;
+  const file = new Blob([texto], { type: 'application/json' });
+  return enviarParaDrive(t, { file, nome, pasta });
+};
 const INFO_DRIVE = new Map();
 const infoDrive = async (token, id) => {
   if (INFO_DRIVE.has(id)) return INFO_DRIVE.get(id);
@@ -9696,5 +9745,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, cliente, data, pastaUrl
   return { nome, pasta: `${nomeCli}/${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { Trabalho, PreviewDocModal, BriefCrono, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
+export { bilanceListar, bilanceBaixar, bilanceGuardar, Trabalho, PreviewDocModal, BriefCrono, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
 export const FICHEIRO_APP = 'trabalho';
