@@ -385,6 +385,29 @@ const patReservado = (G, M, idx) => {
 
 // Saldo de cada conta num dado dia, tirado dos extratos importados (separador Extrato):
 // o saldo que vem no último movimento dessa conta até esse dia.
+// Saldos das contas no Bilance (o separador Banco guarda os dados no browser) num dia de corte: o saldo atual
+// menos o que entrou e saiu depois desse dia. Junta as contas do mesmo banco (ex.: as duas do Activo Bank).
+// As contas manuais do Bilance (Trade Republic, dinheiro) ficam de fora — essas vêm do Portfolio da app.
+const PAT_BANCOS_BILANCE = [[/abanca/i, 'ABanca'], [/activo/i, 'Activo Bank'], [/revolut/i, 'Revolut']];
+const patSaldosBilance = corte => {
+  let d = null; try { d = JSON.parse(localStorage.getItem('bilance-v1') || 'null'); } catch (e) { d = null; }
+  const ctx = d && d.contexto; if (!ctx || !Array.isArray(ctx.contas)) return [];
+  const sinc = String(ctx.sincronizado || '').slice(0, 10);
+  const por = {};
+  ctx.contas.forEach(c => {
+    if (c.escondida || /manual/i.test(`${c.banco || ''}`)) return;
+    const b = PAT_BANCOS_BILANCE.find(([re]) => re.test(`${c.banco || ''} ${c.nome || ''}`)); if (!b) return;
+    let saldo = Number(c.saldo) || 0;
+    if (corte && sinc && corte < sinc) (d.transacoes || []).forEach(t => {
+      if (!(t.d > corte)) return;
+      if (t.x) { if (t.de === c.id) saldo += Math.abs(t.v); if (t.para === c.id) saldo -= Math.abs(t.v); }
+      else if (t.c === c.id) saldo -= t.v;
+    });
+    const o = por[b[1]] || (por[b[1]] = { contaId: `bilance:${b[1]}`, nome: b[1], banco: b[1], saldo: 0, data: corte && corte < sinc ? corte : sinc, origem: 'Bilance' });
+    o.saldo = Math.round((o.saldo + saldo) * 100) / 100;
+  });
+  return Object.values(por);
+};
 const patSaldosExtrato = (G, corte) => {
   const contas = (G || {}).contas || [], out = [];
   contas.forEach(c => {
@@ -1702,12 +1725,12 @@ export {
   PAT_COMP, PAT_CONTAS_BASE, PAT_CATS_LIQUIDEZ, patChave, patEhLiquidez, patItemLiq, patRegras, patId,
   patNum, patStr, patIdx, patKey, patSoma, patIso, patFimMes, patDataAceite,
   PAT_DATAS_INICIAIS, patCorte, patIdxHoje, patTemPortfolio, patHistoricoPortfolio, patRotulo, rotuloAnoMes, patTotais,
-  patSerie, patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patRetornoReal, patTxConta, patTxLiquido,
-  patTxEntre, patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar,
-  patSugestaoAportes, patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno, CompararAnos, CHAT_URLS,
-  ChatTexto, ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum, AnoDetalhe, LS_EH_OCULTOS,
-  EH_CORES, EuroHoraClientes, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos, novoIdRecibo, DRIVE_REC_FALHAS,
-  idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive, anoDaTarefa, dividirTrabalho,
-  juntarTrabalho, semCarimbo
+  patSerie, patDetalhe, patReservado, PAT_BANCOS_BILANCE, patSaldosBilance, patSaldosExtrato, patPoupanca, patRetornoReal,
+  patTxConta, patTxLiquido, patTxEntre, patVida, patRetorno, patInvestDoPortfolio, patListaCreditos, patCreditoNoMes,
+  patRascunho, patLimpar, patSugestaoAportes, patMovimentos, patEstadoMeses, patImportar, patRegistosEfetivos, cmpDadosAno,
+  CompararAnos, CHAT_URLS, ChatTexto, ChatGemini, AnoCaixa, AnoVer, AnoBarra, AnoNum,
+  AnoDetalhe, LS_EH_OCULTOS, EH_CORES, EuroHoraClientes, MeuAno, CSS_BASE, CSS_MOBILE, LigacaoDriveRecibos,
+  novoIdRecibo, DRIVE_REC_FALHAS, idDriveDe, dataDoRecibo, alvoReciboDrive, sincronizarRecibosComDrive, resumoRecibosDrive, SincronizarRecibosDrive,
+  anoDaTarefa, dividirTrabalho, juntarTrabalho, semCarimbo
 };
 export const FICHEIRO_APP = 'patrimonio';
