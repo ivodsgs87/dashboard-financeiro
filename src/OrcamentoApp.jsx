@@ -7,14 +7,14 @@ import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
   mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  lerBilanceLocal, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
-  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
-  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
-  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
-  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
-  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcPrazosCPCV
+  lerBilanceLocal, bilPrincipal, bilGastoOrc, bilOrcDe, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta,
+  transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance,
+  estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo,
+  trabACorrer, trabEntrega, trabValor, isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa,
+  CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao,
+  idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar,
+  DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button, ProgressBar,
+  AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -581,6 +581,8 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
     const t1 = setTimeout(ir, 8000); const t2 = setInterval(ir, 3600000);
     return () => { clearTimeout(t1); clearInterval(t2); };
   }, [dataLoaded]);
+  const [bilLocal, setBilLocal] = useState(() => lerBilanceLocal());
+  useEffect(() => { const f = () => setBilLocal(lerBilanceLocal()); window.addEventListener('bilance-atualizado', f); return () => window.removeEventListener('bilance-atualizado', f); }, []);
   // O banco (Bilance) mostra que um cliente pagou: o recibo fica marcado como recebido nesse dia
   useEffect(() => {
     if (!dataLoaded) return undefined;
@@ -1350,10 +1352,49 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // Para o Claude: a app escreve no Drive (pasta do Bilance) um ficheiro com as despesas planeadas e o Portfolio,
  // para ele criar os orçamentos no Bilance e atualizar lá as contas manuais. Só com acesso ao Drive já ligado.
  const keySistema = `${hoje.getFullYear()}-${hoje.getMonth() + 1}`;
+ // Orçamentos do Bilance no mês escolhido (para as despesas mostrarem o gasto real no banco)
+ const mesBilIso = `${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`;
+ const bilOrcs = useMemo(() => {
+   const ctx = bilLocal && bilLocal.contexto; if (!ctx || !Array.isArray(ctx.orcamentos)) return [];
+   const txs = (bilLocal.transacoes || []).filter(t => String(t.d).startsWith(mesBilIso));
+   return ctx.orcamentos.filter(b => !b.periodo).map(b => ({ titulo: b.titulo, limite: Number(b.limite) || 0, categorias: b.categorias || [], gasto: bilGastoOrc(b, txs, ctx), investimento: (b.categorias || []).length > 0 && (b.categorias || []).every(id => bilPrincipal(ctx, id) === 'c07') }));
+ }, [bilLocal, mesBilIso]);
+ // Etiqueta em cada despesa: o orçamento do Bilance a que está ligada e quanto já se gastou nele este mês.
+ // Carregar abre a lista dos orçamentos para escolher outro (ou nenhum).
+ const chipBil = (d, chave, lista) => {
+   if (!bilOrcs.length) return null;
+   const o = bilOrcDe(d, bilOrcs, chave === 'despPess' ? 'activo' : 'abanca');
+   const pass = o && o.limite > 0 && o.gasto > o.limite + 0.005;
+   const cor = !o ? 'text-slate-500 border-dashed border-slate-600' : pass ? 'text-red-400 border-red-500/40 bg-red-500/10' : o.gasto > 0 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-400 border-slate-600';
+   const partilhado = o && [...(G.despABanca || []), ...(G.despPess || [])].filter(x => bilOrcDe(x, bilOrcs, (G.despPess || []).includes(x) ? 'activo' : 'abanca') === o).length > 1;
+   return (
+     <span className={`relative flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] tabular-nums whitespace-nowrap ${cor}`}
+       title={o ? `Bilance: «${o.titulo}» — gasto este mês ${fmt(o.gasto)} de ${fmt(o.limite)}${partilhado ? ' (partilhado com outras despesas)' : ''}. Carrega para mudar o orçamento.` : 'Sem orçamento do Bilance. Carrega para escolher um.'}>
+       🏦 {o ? `${Math.round(o.gasto)}/${Math.round(o.limite)}` : '—'}
+       <select aria-label="Orçamento do Bilance desta despesa" value={o ? o.titulo : '-'} onChange={e => uG(chave, lista.map(x => (x.id === d.id ? { ...x, orcBil: e.target.value } : x)))} className="absolute inset-0 opacity-0 cursor-pointer w-full">
+         <option value="-">Sem orçamento no Bilance</option>
+         {bilOrcs.filter(x => !/^total\b/i.test(x.titulo)).map(x => <option key={x.titulo} value={x.titulo}>{x.titulo} · {Math.round(x.gasto)}/{Math.round(x.limite)} €</option>)}
+       </select>
+     </span>
+   );
+ };
+ // Limites que a app quer no Bilance: a soma das despesas ligadas a cada orçamento, e os dois totais por conta
+ const orcamentosParaBilance = (() => {
+   if (!bilOrcs.length) return [];
+   const soma = {};
+   const linhas = [...(G.despABanca || []).map(d => ['casal', d]), ...(G.despPess || []).map(d => ['pessoal', d])];
+   const tot = { casal: 0, pessoal: 0 };
+   linhas.forEach(([q, d]) => { const v = parseFloat(d.val) || 0; if (!(v > 0)) return; const o = bilOrcDe(d, bilOrcs, q === 'pessoal' ? 'activo' : 'abanca'); if (o) soma[o.titulo] = (soma[o.titulo] || 0) + v; if (!o || !o.investimento) tot[q] += v; });
+   const out = Object.entries(soma).map(([titulo, limite]) => ({ titulo, limite: Math.round(limite * 100) / 100 }));
+   const tAb = bilOrcs.find(o => /^total\b/i.test(o.titulo) && /abanca/i.test(o.titulo)), tAc = bilOrcs.find(o => /^total\b/i.test(o.titulo) && /activo/i.test(o.titulo));
+   if (tAb && tot.casal > 0) out.push({ titulo: tAb.titulo, limite: Math.round(tot.casal * 100) / 100 });
+   if (tAc && tot.pessoal > 0) out.push({ titulo: tAc.titulo, limite: Math.round(tot.pessoal * 100) / 100 });
+   return out;
+ })();
  const portSistema = patTemPortfolio((M[keySistema] || {}).portfolio) ? M[keySistema].portfolio : getPortfolioParaMes(keySistema);
  const appParaClaude = dataLoaded ? JSON.stringify({
    despesas: { casal: (G.despABanca || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })), pessoais: (G.despPess || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })) },
-   contribIvo: G.contrib, orcamentosApp: G.orcamentosGrupos || [], portfolio: { mes: keySistema, itens: patInvestDoPortfolio(portSistema).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })) },
+   contribIvo: G.contrib, orcamentosApp: G.orcamentosGrupos || [], orcamentosBilance: G.bilanceSyncOrc ? orcamentosParaBilance : [], sincronizarOrcamentos: !!G.bilanceSyncOrc, portfolio: { mes: keySistema, itens: patInvestDoPortfolio(portSistema).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })) },
  }) : '';
  useEffect(() => {
    if (!appParaClaude) return undefined;
@@ -5163,7 +5204,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-6">
  <div>
  <h3 className="text-base sm:text-lg font-semibold"><Ico e="🏠"/>Casal</h3>
- <p className="text-xs text-slate-500">Despesas fixas partilhadas (ABanca)</p>
+ <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1">Despesas fixas partilhadas (ABanca) {bilOrcs.length > 0 && <button type="button" onClick={() => uG('bilanceSyncOrc', !G.bilanceSyncOrc)} className={`ml-1 px-1.5 py-0.5 rounded-md border text-[10px] ${G.bilanceSyncOrc ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-slate-600 text-slate-400 hover:text-slate-200'}`} title={G.bilanceSyncOrc ? 'Os limites dos orçamentos no Bilance seguem os valores destas despesas (casal e pessoais). Carrega para desligar.' : 'Ligar: os limites dos orçamentos no Bilance passam a seguir os valores destas despesas (casal e pessoais).'}>🏦 Bilance segue a app: {G.bilanceSyncOrc ? 'sim' : 'não'}</button>} {bilOrcs.length > 0 && <Info>🏦 em cada despesa: quanto já saiu do banco este mês no orçamento do Bilance ligado a ela / o limite desse orçamento (vermelho = passou). Carrega no 🏦 para ligar a outro orçamento. Quando mudas um valor aqui, o limite no Bilance acompanha na próxima atualização (7h26, 13h26 e 19h26); despesas ligadas ao mesmo orçamento somam-se.</Info>}</p>
  </div>
  <div className="flex items-center gap-2">
  <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/><span className="hidden sm:inline">Gerar texto</span></Button>
@@ -5183,6 +5224,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
  <StableInput className={`flex-[2] min-w-0 ${denseInputClass} m-desc`} initialValue={d.desc} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
  <Select value={migrateCat(d.cat)} onChange={e=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg m-grow">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ {chipBil(d, 'despABanca', despABanca)}
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despABanca',despABanca.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despABanca',despABanca.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
@@ -5334,7 +5376,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div className="flex justify-between items-center mb-6">
  <div>
  <h3 className="text-base sm:text-lg font-semibold"><Ico e="👤"/>Pessoais</h3>
- <p className="text-xs text-slate-500">Despesas fixas só tuas (Activo Bank)</p>
+ <p className="text-xs text-slate-500 flex items-center gap-1">Despesas fixas só tuas (Activo Bank) {bilOrcs.length > 0 && <Info>🏦 em cada despesa: quanto já saiu do banco este mês no orçamento do Bilance ligado a ela / o limite desse orçamento (vermelho = passou). Carrega no 🏦 para ligar a outro orçamento. Quando mudas um valor aqui, o limite no Bilance acompanha na próxima atualização (7h26, 13h26 e 19h26); despesas ligadas ao mesmo orçamento somam-se.</Info>}</p>
  </div>
  <div className="flex items-center gap-2">
  <Button variant="secondary" size="sm" onClick={gerarTextoDespesas} className="text-xs"><Ico e="📝"/><span className="hidden sm:inline">Gerar texto</span></Button>
@@ -5349,6 +5391,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} className="text-slate-500 hover:text-slate-300 cursor-grab select-none flex-shrink-0 m-hide">⋮⋮</div>
  <StableInput className={`flex-[2] min-w-0 ${denseInputClass} m-desc`} initialValue={d.desc} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,desc:v}:x))} placeholder="Descrição"/>
  <Select value={migrateCat(d.cat)} onChange={e=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,cat:e.target.value}:x))} className="flex-1 min-w-[100px] !py-1 !rounded-lg m-grow">{cats.map(c=><option key={c} value={c}>{c}</option>)}</Select>
+ {chipBil(d, 'despPess', despPess)}
  <StableInput type="number" className={`w-16 sm:w-20 flex-shrink-0 ${denseInputClass} text-right`} initialValue={d.val} onSave={v=>uG('despPess',despPess.map(x=>x.id===d.id?{...x,val:v}:x))}/>
  <button onClick={()=>uG('despPess',despPess.filter(x=>x.id!==d.id))} className="text-red-400 hover:text-red-300 p-1 flex-shrink-0 m-l1">✕</button><span className="m-br" />
  </div>
