@@ -221,9 +221,14 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
   const [pesq, setPesq] = useState('');
   const [nReg, setNReg] = useState(60);
   const [verSubs, setVerSubs] = useState(null);
+  // No telemóvel o Banco mostra uma secção de cada vez (como o Bilance); no computador vê-se tudo
+  const [secao, setSecao] = useState(ui0.secao || 'resumo');
+  const so = (...ks) => ks.includes(secao) ? '' : 'hidden lg:block';
+  const soGrid = (...ks) => ks.includes(secao) ? '' : 'hidden lg:grid';
+  const irRegistos = () => { setSecao('registos'); setTimeout(() => regRef.current && regRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
   const fileRef = useRef(null);
   const regRef = useRef(null);
-  useEffect(() => { gravarLS(LS_UI, { conta }); }, [conta]);
+  useEffect(() => { gravarLS(LS_UI, { conta, secao }); }, [conta, secao]);
 
   const guardar = d => { setDados(d); const ok = gravarLS(LS_CACHE, d); try { window.dispatchEvent(new Event('bilance-atualizado')); } catch (e) { /* */ } if (!ok) showToast && showToast('O browser não deixou guardar os dados do Bilance (falta espaço). Ficam só até fechares a app.', 'error'); };
 
@@ -307,7 +312,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
     });
   }, [txMes, catSel, pesq, cats]); // eslint-disable-line react-hooks/exhaustive-deps
   const porDiaReg = useMemo(() => { const g = []; let atual = null; registos.slice(0, nReg).forEach(t => { if (!atual || atual.d !== t.d) { atual = { d: t.d, l: [], tot: 0 }; g.push(atual); } atual.l.push(t); atual.tot += partesTx(t).reduce((s, [id, v]) => { const p = principalDe(cats, id); return p === 'c11' || p === 'c15' ? s : s + v; }, 0); }); return g; }, [registos, nReg, cats]);
-  const escolherCat = id => { setCatSel(c => (c === id ? null : id)); setNReg(60); setTimeout(() => regRef.current && regRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
+  const escolherCat = id => { setCatSel(c => (c === id ? null : id)); setNReg(60); irRegistos(); };
 
   const saldoTotal = ((ctx && ctx.contas) || []).filter(c => c.noTotal !== false && !c.escondida).reduce((s, c) => s + (Number(c.saldo) || 0), 0);
   const sinc = ctx && ctx.sincronizado ? new Date(String(ctx.sincronizado).replace(/(\.\d{3})\d+/, '$1') + (/[zZ]|[+-]\d\d:?\d\d$/.test(ctx.sincronizado) ? '' : 'Z')) : null;
@@ -357,10 +362,17 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
         </div>
       </div>
       {estado && estado.erro && <p className="text-xs text-red-400">Não consegui ler o Drive: {estado.erro}</p>}
-      {gastosBanco}
+      <div className="lg:hidden">
+        <div className={`flex gap-0.5 p-1 rounded-xl overflow-x-auto scrollbar-hide ${claro ? 'bg-slate-200/70' : 'bg-white/5'}`} role="tablist" aria-label="Secções do Banco">
+          {[['resumo', 'Resumo'], ['categorias', 'Categorias'], ['orcamentos', 'Orçamentos'], ['dias', 'Dias'], ['registos', 'Registos']].map(([k, l]) => (
+            <button key={k} type="button" role="tab" aria-selected={secao === k} onClick={() => setSecao(k)}
+              className={`flex-1 min-w-max px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${secao === k ? (claro ? 'bg-white text-slate-900 shadow-sm' : 'bg-slate-700 text-white') : sub}`}>{l}</button>
+          ))}
+        </div>
+      </div>
 
       {/* Gasto / Ganho / Total */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 ${soGrid('resumo')}`}>
         <Card className="lg:col-span-2">
           <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-8">
             <div className="flex items-center gap-6 sm:gap-10">
@@ -406,9 +418,11 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <div className={so('resumo')}>{gastosBanco}</div>
+
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 ${soGrid('categorias', 'orcamentos')}`}>
         {/* Categorias */}
-        <Card>
+        <Card className={so('categorias')}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Para onde foi o dinheiro</h3>
             {media3 && <span className={`text-[11px] ${sub}`}>vs média</span>}
@@ -461,7 +475,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
         </Card>
 
         {/* Orçamentos */}
-        <Card>
+        <Card className={so('orcamentos')}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Orçamentos do Bilance</h3>
             {orc.length > 0 && <span className={`text-xs ${sub}`}>{eur0(orc.reduce((s, b) => s + b.gasto, 0))} de {eur0(orc.reduce((s, b) => s + b.limite, 0))}</span>}
@@ -511,9 +525,9 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 ${soGrid('dias', 'resumo')}`}>
         {/* Calendário */}
-        <Card>
+        <Card className={so('dias')}>
           <h3 className="font-semibold mb-3">Dia a dia</h3>
           <div className="grid grid-cols-7 gap-1 text-center">
             {DIAS_SEM.map(d => <div key={d} className={`text-[10px] sm:text-xs ${sub}`}>{d}</div>)}
@@ -522,7 +536,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
               const d = `${mes}-${String(i + 1).padStart(2, '0')}`; const v = R.porDia[d]; const fut = d > hoje;
               const alfa = v ? Math.min(1, Math.abs(v) / maxDia) * 0.55 + 0.1 : 0;
               return (
-                <button key={d} type="button" disabled={!v} onClick={() => { setPesq(''); setCatSel(null); setNReg(400); setTimeout(() => { const el = document.getElementById(`banco-dia-${d}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60); }}
+                <button key={d} type="button" disabled={!v} onClick={() => { setPesq(''); setCatSel(null); setNReg(400); setSecao('registos'); setTimeout(() => { const el = document.getElementById(`banco-dia-${d}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60); }}
                   className={`rounded-lg py-1 sm:py-1.5 text-left px-1.5 border ${d === hoje ? 'border-violet-500' : claro ? 'border-slate-200' : 'border-slate-700/50'} ${fut ? 'opacity-40' : ''}`}
                   style={v ? { background: v > 0 ? `rgba(245,163,0,${alfa})` : `rgba(239,68,68,${alfa * 0.6})` } : undefined}>
                   <div className="text-[10px] sm:text-[11px] opacity-70">{i + 1}</div>
@@ -534,7 +548,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
         </Card>
 
         {/* Últimos 6 meses */}
-        <Card>
+        <Card className={so('resumo')}>
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="font-semibold">Últimos 6 meses</h3>
             <span className={`text-xs ${sub}`}>ganho · gasto</span>
@@ -559,11 +573,11 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
 
       {/* Onde mais gastaste */}
       {comerc.length > 0 && (
-        <Card>
+        <Card className={so('categorias')}>
           <h3 className="font-semibold mb-2">Onde mais gastaste</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
             {comerc.map(c => (
-              <button key={c.nome} type="button" onClick={() => { setPesq(c.nome); setCatSel(null); setNReg(60); setTimeout(() => regRef.current && regRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }} className={`flex items-center justify-between gap-2 py-2 border-b ${linha} text-sm text-left hover:text-violet-400`}>
+              <button key={c.nome} type="button" onClick={() => { setPesq(c.nome); setCatSel(null); setNReg(60); irRegistos(); }} className={`flex items-center justify-between gap-2 py-2 border-b ${linha} text-sm text-left hover:text-violet-400`}>
                 <span className="truncate">{c.n > 1 && <span className="inline-block text-[10px] font-bold bg-violet-600 text-white rounded px-1 mr-1.5">{c.n}×</span>}{c.nome}</span>
                 <span className="tabular-nums font-medium">{eur(-c.total)}</span>
               </button>
@@ -573,7 +587,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
       )}
 
       {/* Registos */}
-      <div ref={regRef} className="scroll-mt-24">
+      <div ref={regRef} className={`scroll-mt-24 ${so('registos')}`}>
         <Card>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <h3 className="font-semibold mr-auto">Registos <span className={`text-sm font-normal ${sub}`}>· {registos.length}</span></h3>
