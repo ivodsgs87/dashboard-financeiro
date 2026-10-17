@@ -34,6 +34,8 @@ const carregarTrabalho = () => import('./trabalho');
 const Trabalho = lazySeparador(carregarTrabalho, 'Trabalho', 'trabalho');
 const carregarNotas = () => import('./notas');
 const Notas = lazySeparador(carregarNotas, 'Notas', 'notas');
+const carregarBanco = () => import('./banco');
+const Banco = lazySeparador(carregarBanco, 'Banco', 'banco');
 const Patrimonio = lazySeparador(carregarPatrimonio, 'Patrimonio', 'patrimonioEcra');
 // O Trabalho e as Notas (os mais usados) descarregam-se logo que a app fica parada; os outros a seguir
 const quandoParado = f => (typeof window !== 'undefined' && window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 4000 }) : setTimeout(f, 1500));
@@ -10044,7 +10046,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // (a Performance e o Histórico passaram para «O meu ano»; o Portfolio para dentro do Património)
  const tabs = [
    {id:'painel',icon:'📊',label:'Painel',submenu:[{id:'resumo',icon:'📊',label:'Este mês'},{id:'ano',icon:'🧭',label:'O meu ano'}]},
-   {id:'dinheiro',icon:'💰',label:'Dinheiro',submenu:[{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas'},{id:'invest',icon:'📈',label:'Alocação'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
+   {id:'dinheiro',icon:'💰',label:'Dinheiro',submenu:[{id:'receitas',icon:'💰',label:'Receitas'},{id:'despesas',icon:'💳',label:'Despesas'},{id:'invest',icon:'📈',label:'Alocação'},{id:'banco',icon:'🏦',label:'Banco'},{id:'sara',icon:'👩',label:'Parceiro/a'}]},
    {id:'trabalho',icon:'🗂',label:'Trabalho'},
    {id:'notas',icon:'📓',label:'Notas'},
    {id:'sep1',separator:true},
@@ -10059,7 +10061,7 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  tabs.forEach(t => (t.submenu || []).forEach(x => { if (!subInfo[x.id]) subInfo[x.id] = { icon: x.icon, label: x.label }; }));
  const gruposMob = [
    { id: 'painel', label: 'Painel', titulo: 'Painel', subs: ['resumo', 'ano'] },
-   { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'despesas', 'invest', 'sara'] },
+   { id: 'dinheiro', label: 'Dinheiro', titulo: 'Dinheiro', subs: ['receitas', 'despesas', 'invest', 'banco', 'sara'] },
    { id: 'notas', label: 'Notas', titulo: 'Notas', subs: ['notas'] },
    { id: 'planear', label: 'Planear', titulo: 'Planear', subs: ['trabalho', 'calfin', 'agenda', 'vendacasa', 'casamento'] },
    { id: 'patrimonio', label: 'Património', titulo: 'Património', subs: ['patrimonio', 'credito', 'transacoes'] },
@@ -12513,7 +12515,7 @@ ${transacoesOrdenadas.map(t => `<tr>
        .hover-lift:hover { box-shadow: 0 10px 24px -10px rgba(15,23,42,.16), 0 3px 8px -4px rgba(15,23,42,.08); }
        ` 
      : `select option{background:#1e293b;color:#e2e8f0}select option:checked{background:#3b82f6}`}
-   ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
+   ::-webkit-scrollbar{width:6px;height:6px}.lista-slides{scrollbar-width:auto;scrollbar-color:#94a3b8 #1e293b}.lista-slides::-webkit-scrollbar{width:14px}.lista-slides::-webkit-scrollbar-track{background:#1e293b;border-radius:7px}.lista-slides::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:7px;border:3px solid #1e293b}.lista-slides::-webkit-scrollbar-thumb:hover{background:#cbd5e1}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${theme === 'light' ? '#cbd5e1' : '#475569'};border-radius:3px}::-webkit-scrollbar-thumb:hover{background:${theme === 'light' ? '#94a3b8' : '#64748b'}}input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}@media print{.no-print{display:none!important}}
  `}</style>
  
  <DialogoHost theme={theme} />
@@ -12824,7 +12826,8 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='casamento' && <Suspense fallback={<SeparadorCarregar/>}><Casamento G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
+ {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
+{tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
