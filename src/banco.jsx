@@ -169,6 +169,17 @@ const gastoOrcamento = (b, txs, cats) => {
   }
   return g;
 };
+// Gasto de um orçamento + a parte em pagamentos grandes (contas fixas, compras únicas), que não se repetem até ao fim do mês
+const gastoOrcamentoDet = (b, txs, cats) => {
+  let g = 0, grandes = 0; const lim = Number(b.limite) || 0;
+  for (const t of txs) {
+    if (b.contas && !b.contas.some(c => daConta(t, c))) continue;
+    let gt = 0;
+    for (const [id, val] of partesTx(t)) if (casaCategoria(b.categorias || [], cats, id)) gt -= val;
+    g += gt; if (gt >= 250 || (lim > 0 && gt >= lim * 0.4)) grandes += gt;
+  }
+  return { gasto: g, grandes };
+};
 
 // ── Peças do ecrã ──
 const Bolinha = ({ id, cats, tam = 32 }) => {
@@ -268,13 +279,24 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
     return { porPrinc: soma, ganho: ganho / ant.length, gasto: gasto / ant.length, n: ant.length };
   }, [txs, meses, mes, conta, cats]);
   const ult6 = useMemo(() => { const out = []; for (let i = 5; i >= 0; i--) { const m = mesSeguinte(mes, -i); const r = resumoMes(txs.filter(t => mesDe(t.d) === m && daConta(t, conta)), cats); out.push({ m, ganho: r.ganho, gasto: r.gasto, tem: txs.some(t => mesDe(t.d) === m) }); } return out; }, [txs, mes, conta, cats]);
-  const orc = useMemo(() => ((ctx && ctx.orcamentos) || []).filter(b => !b.periodo).map(b => ({ ...b, gasto: gastoOrcamento(b, txs.filter(t => mesDe(t.d) === mes), cats) })), [ctx, txs, mes, cats]);
-  const cats_ord = Object.entries(R.porPrinc).filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => b[1] - a[1]);
-  const comerc = Object.values(R.comerciantes).sort((a, b) => b.total - a.total).slice(0, 10);
   const ehMesAtual = mes === mesDe(hojeIso());
   const hoje = hojeIso();
   const diaHoje = Number(hoje.slice(8, 10));
   const diasMes = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate();
+  // Cada orçamento com a projeção para o fim do mês e o estado: passou / vai passar / ok / sem gastos
+  const orc = useMemo(() => {
+    const txM = txs.filter(t => mesDe(t.d) === mes);
+    const frac = Math.max(1, diaHoje) / diasMes;
+    const ordem = { passou: 0, risco: 1, ok: 2, nada: 3 };
+    return ((ctx && ctx.orcamentos) || []).filter(b => !b.periodo).map(b => {
+      const { gasto, grandes } = gastoOrcamentoDet(b, txM, cats); const lim = Number(b.limite) || 0;
+      const proj = ehMesAtual && diaHoje >= 5 && gasto < lim * 0.95 ? Math.max(gasto, grandes + (gasto - grandes) / frac) : gasto; // quase no limite = conta já paga
+      const estado = gasto > lim + 0.5 ? 'passou' : proj > lim + 0.5 ? 'risco' : gasto > 0 ? 'ok' : 'nada';
+      return { ...b, gasto, proj, estado };
+    }).sort((a, b) => ordem[a.estado] - ordem[b.estado] || (b.gasto / (b.limite || 1)) - (a.gasto / (a.limite || 1)));
+  }, [ctx, txs, mes, cats, ehMesAtual, diaHoje, diasMes]);
+  const cats_ord = Object.entries(R.porPrinc).filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => b[1] - a[1]);
+  const comerc = Object.values(R.comerciantes).sort((a, b) => b.total - a.total).slice(0, 10);
 
   const registos = useMemo(() => {
     const q = norm(pesq.trim());
@@ -445,30 +467,47 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
             {orc.length > 0 && <span className={`text-xs ${sub}`}>{eur0(orc.reduce((s, b) => s + b.gasto, 0))} de {eur0(orc.reduce((s, b) => s + b.limite, 0))}</span>}
           </div>
           {!orc.length && <p className={`text-sm ${sub}`}>Não há orçamentos mensais no Bilance.</p>}
-          <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+          {orc.length > 0 && (() => {
+            const n = k => orc.filter(b => b.estado === k).length;
+            return (
+              <div className="flex flex-wrap gap-1.5 mb-3 text-[11px]">
+                {n('passou') > 0 && <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">{n('passou')} passaram</span>}
+                {n('risco') > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500">{n('risco')} vão passar a este ritmo</span>}
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500">{n('ok') + n('nada')} dentro</span>
+              </div>
+            );
+          })()}
+          <div className="space-y-3.5 max-h-[560px] overflow-y-auto pr-1">
             {orc.map(b => {
-              const frac = b.limite > 0 ? b.gasto / b.limite : 0;
-              const esperado = ehMesAtual ? diaHoje / diasMes : 1;
-              const cor = frac > 1 ? '#ef4444' : frac > esperado + 0.1 ? '#f59e0b' : '#22c55e';
+              const lim = b.limite || 0;
+              // a barra vai até ao maior de: limite, gasto, projeção — assim vê-se quanto passou e onde fica o limite
+              const mostraProj0 = ehMesAtual && b.estado !== 'passou' && b.proj > b.gasto + 0.5;
+              const escala = Math.max(lim, b.gasto, mostraProj0 ? b.proj : 0) || 1;
+              const pct = v => Math.max(0, Math.min(100, v / escala * 100));
+              const cor = b.estado === 'passou' ? '#ef4444' : b.estado === 'risco' ? '#f59e0b' : '#22c55e';
+              const mostraProj = mostraProj0;
+              const corBase = b.estado === 'nada' || b.estado === 'ok' ? '#22c55e' : '#94a3b8';
               return (
                 <div key={b.titulo}>
-                  <div className="flex items-center justify-between text-sm gap-2">
+                  <div className="flex items-baseline justify-between text-sm gap-2">
                     <span className="truncate font-medium">{b.titulo}</span>
-                    <span className="tabular-nums whitespace-nowrap">{eur0(b.limite)}</span>
+                    <span className="tabular-nums whitespace-nowrap"><b>{eur0(b.gasto)}</b> <span className={sub}>de {eur0(lim)}</span></span>
                   </div>
-                  <div className="flex items-center justify-between text-xs mt-0.5 mb-1">
-                    <span className={sub}>{eur(b.gasto)} gastos</span>
-                    <span className={frac > 1 ? 'text-red-400' : sub}>{frac > 1 ? `${eur(b.gasto - b.limite)} acima` : `${eur(b.limite - b.gasto)} livres`}</span>
+                  <div className="relative h-2.5 rounded-full overflow-hidden mt-1" style={{ background: fundoBarra }} role="img" aria-label={`${b.titulo}: ${eur(b.gasto)} de ${eur(lim)}`}>
+                    {mostraProj && <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct(b.proj)}%`, background: cor, opacity: 0.3 }} />}
+                    <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct(b.gasto)}%`, background: b.gasto > lim ? `linear-gradient(to right, ${corBase} 0 ${lim / b.gasto * 100}%, ${cor} ${lim / b.gasto * 100}% 100%)` : cor }} />
+                    {escala > lim + 0.5 && <div className={`absolute inset-y-0 w-0.5 ${claro ? 'bg-slate-800' : 'bg-white'}`} style={{ left: `calc(${pct(lim)}% - 1px)` }} title={`Limite: ${eur(lim)}`} />}
                   </div>
-                  <div className="relative">
-                    <Barra frac={frac} cor={cor} fundo={fundoBarra} />
-                    {ehMesAtual && <span className={`absolute top-[-2px] h-3 w-0.5 ${claro ? 'bg-slate-500' : 'bg-slate-300'}`} style={{ left: `${Math.min(100, esperado * 100)}%` }} title="Onde devias estar hoje, a gastar por igual ao longo do mês" />}
+                  <div className="text-xs mt-1">
+                    {b.estado === 'passou' ? <span className="text-red-400">Passou {eur(b.gasto - lim)}</span>
+                      : b.estado === 'risco' ? <span className="text-amber-500">A este ritmo chega a ~{eur0(b.proj)} (passa {eur0(b.proj - lim)})</span>
+                      : <span className={sub}>{lim - b.gasto < 0.5 ? 'Limite atingido' : `${eur(lim - b.gasto)} livres`}{mostraProj ? ` · a este ritmo ~${eur0(b.proj)}` : ''}</span>}
                   </div>
                 </div>
               );
             })}
           </div>
-          {ehMesAtual && orc.length > 0 && <p className={`text-[11px] mt-3 ${sub}`}>O traço mostra onde devias ir hoje se gastasses por igual o mês todo. Os limites mudam-se no Bilance.</p>}
+          {ehMesAtual && orc.length > 0 && <p className={`text-[11px] mt-3 ${sub}`}>Parte clara = onde chegas no fim do mês a este ritmo (contas fixas e compras grandes contam uma vez). O traço é o limite, quando o gasto passa dele. Os limites mudam-se no Bilance.</p>}
         </Card>
       </div>
 
