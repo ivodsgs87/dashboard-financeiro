@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  StableInput, GraficoLinhas, GraficoBarras, meses, Ico, anos, _fmtEUR, clienteDoNome,
-  CU_TIPOS, trabDia, trabMsTempo, trabHoras, trabEntrega, trabPecas, trabValor, ehNaoFaturacao,
-  idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, TemaCtx, Info, VC_DEFAULT
+  StableInput, GraficoLinhas, GraficoBarras, meses, lerBilanceLocal, bilPrincipal, bilPartes, Ico,
+  anos, _fmtEUR, clienteDoNome, CU_TIPOS, trabDia, trabMsTempo, trabHoras, trabEntrega,
+  trabPecas, trabValor, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, TemaCtx, Info,
+  VC_DEFAULT
 } from './base';
 
 // Caixa genérica para pedir valores (substitui o prompt() do browser).
@@ -736,7 +737,7 @@ const patRegistosEfetivos = (G, M) => {
   return out;
 };
 // ══ COMPARAR ANOS ═══════════════════════════════════════════════════════════
-// Dois anos lado a lado: receitas, despesas (do Extrato), investido (das Transações),
+// Dois anos lado a lado: receitas, despesas (do banco), investido (das Transações),
 // juros/dividendos e património. Por defeito compara os mesmos meses dos dois anos.
 const cmpDadosAno = (G, M, y, ateMes) => {
   const recMes = Array(12).fill(0), porCliente = {};
@@ -750,11 +751,23 @@ const cmpDadosAno = (G, M, y, ateMes) => {
     alocado += (v.inv || []).reduce((s2, i) => s2 + patNum(i.val), 0);
   });
   const noAno = d => { const dd = String(d || ''); return Number(dd.slice(0, 4)) === y && Number(dd.slice(5, 7)) <= ateMes; };
-  let despesas = 0, nDesp = 0;
-  ((G || {}).extrato || []).forEach(t => {
+  // Despesas: do banco (Bilance, guardado pelo separador Banco), sem investimentos, transferências entre contas nem
+  // rendimentos; se esse ano não tiver dados do banco, as do antigo Extrato
+  let despesas = 0, nDesp = 0; const mesesDesp = new Set(); let fonteDesp = ''; const despMes = Array(12).fill(0); let foraGrandes = 0;
+  const bil = lerBilanceLocal(); const bctx = bil && bil.contexto;
+  if (bctx) {
+    const sep = new Set(((bctx.categorias) || []).filter(c => c.separada).map(c => c.id));
+    (bil.transacoes || []).forEach(t => {
+      if (!t || t.x || !noAno(t.d)) return;
+      if (t.v <= -5000) { foraGrandes++; return; } // movimentos únicos enormes (ex.: amortização do crédito) ficam de fora
+      bilPartes(t).forEach(([id, v]) => { const p = bilPrincipal(bctx, id); if (p === 'c07' || p === 'c08' || p === 'c11' || p === 'c15' || sep.has(id)) return; despesas -= v; nDesp++; const mi = Number(String(t.d).slice(5, 7)); mesesDesp.add(mi); despMes[mi - 1] -= v; });
+    });
+    if (nDesp) fonteDesp = 'banco';
+  }
+  if (!nDesp) ((G || {}).extrato || []).forEach(t => {
     if (!t || t.tipo !== 'despesa' || !noAno(t.data)) return;
     const v = patNum(t.valorReal != null ? t.valorReal : t.valor);
-    if (v < 0) { despesas += -v; nDesp++; }
+    if (v < 0) { despesas += -v; nDesp++; const mi = Number(String(t.data).slice(5, 7)); mesesDesp.add(mi); despMes[mi - 1] += -v; fonteDesp = 'extrato'; }
   });
   const regras = patRegras(G);
   let investido = 0, nTx = 0, rendimento = 0;
@@ -766,7 +779,7 @@ const cmpDadosAno = (G, M, y, ateMes) => {
   });
   const receitas = recMes.reduce((a, b) => a + b, 0);
   const mesesComReceita = recMes.filter(x => x > 0).length;
-  return { receitas, recMes, porCliente, horas, alocado, despesas, nDesp, investido, nTx, rendimento, mesesComReceita };
+  return { receitas, recMes, porCliente, horas, alocado, despesas, nDesp, mesesDesp: [...mesesDesp].sort((a, b) => a - b), despMes, foraGrandes, fonteDesp, investido, nTx, rendimento, mesesComReceita };
 };
 const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
   const escuro = theme !== 'light';
@@ -788,6 +801,13 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
   const dB = useMemo(() => cmpDadosAno(G, M, anoB, ateMes), [G, M, anoB, ateMes]);
   const patFim = y => { const r = serie.filter(x => x.idx <= y * 12 + ateMes - 1 && x.idx >= y * 12).pop(); return r || null; };
   const pA = patFim(anoA), pB = patFim(anoB);
+  // Despesas: se os dois anos não têm os mesmos meses no banco, compara só os meses que existem nos dois
+  const mesesComuns = dA.mesesDesp.filter(m => dB.mesesDesp.includes(m));
+  const soComuns = dA.nDesp && dB.nDesp && (dA.mesesDesp.length !== mesesComuns.length || dB.mesesDesp.length !== mesesComuns.length) && mesesComuns.length > 0;
+  const somaM = (arr, ms) => ms.reduce((a, m) => a + (arr[m - 1] || 0), 0);
+  const despA = soComuns ? somaM(dA.despMes, mesesComuns) : dA.despesas, despB = soComuns ? somaM(dB.despMes, mesesComuns) : dB.despesas;
+  const recA = soComuns ? somaM(dA.recMes, mesesComuns) : dA.receitas, recB = soComuns ? somaM(dB.recMes, mesesComuns) : dB.receitas;
+  const rotMeses = soComuns ? (mesesComuns.length === 1 ? meses[mesesComuns[0] - 1].slice(0, 3) : `${meses[mesesComuns[0] - 1].slice(0, 3)}–${meses[mesesComuns[mesesComuns.length - 1] - 1].slice(0, 3)}`) : '';
   const f = v => _fmtEUR.format(isFinite(v) ? v : 0);
   const sub = escuro ? 'text-slate-400' : 'text-slate-500';
   const corA = '#d97706', corB = '#3b82f6';
@@ -797,8 +817,8 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
     { l: 'Média por mês com receita', a: dA.mesesComReceita ? dA.receitas / dA.mesesComReceita : 0, b: dB.mesesComReceita ? dB.receitas / dB.mesesComReceita : 0, fm: f },
     ...(dA.horas || dB.horas ? [{ l: 'Horas trabalhadas', a: dA.horas, b: dB.horas, fm: v => `${Math.round(v)} h`, neutro: true }] : []),
     ...(dA.nDesp || dB.nDesp ? [
-      { l: 'Despesas (do Extrato)', a: dA.despesas, b: dB.despesas, fm: f, menosEhBom: true, falta: [!dA.nDesp, !dB.nDesp] },
-      ...(dA.nDesp && dB.nDesp ? [{ l: 'Receitas − despesas', a: dA.receitas - dA.despesas, b: dB.receitas - dB.despesas, fm: f }] : [])
+      { l: `Despesas (${dA.fonteDesp === 'extrato' || dB.fonteDesp === 'extrato' ? 'banco / Extrato' : 'do banco'}${soComuns ? `, ${rotMeses}` : ''})`, a: despA, b: despB, fm: f, menosEhBom: true, falta: [!dA.nDesp, !dB.nDesp] },
+      ...(dA.nDesp && dB.nDesp ? [{ l: `Receitas − despesas${soComuns ? ` (${rotMeses})` : ''}`, a: recA - despA, b: recB - despB, fm: f }] : [])
     ] : []),
     { l: dA.nTx || dB.nTx ? 'Investido (Transações)' : 'Investido (Alocação)', a: dA.nTx || dB.nTx ? dA.investido : dA.alocado, b: dA.nTx || dB.nTx ? dB.investido : dB.alocado, fm: f },
     ...(dA.rendimento || dB.rendimento ? [{ l: 'Juros e dividendos recebidos', a: dA.rendimento, b: dB.rendimento, fm: f }] : []),
@@ -874,7 +894,9 @@ const CompararAnos = ({ G, M, theme, anoAtual, mesAtual }) => {
           </table>
         </div>
       </>)}
-      {!(dA.nDesp && dB.nDesp) && <p className={`text-xs mt-3 ${sub}`}>As despesas só aparecem nos anos com extratos importados no separador Extrato.</p>}
+      {!(dA.nDesp && dB.nDesp) && <p className={`text-xs mt-3 ${sub}`}>As despesas vêm do banco (separador Banco); só aparecem nos anos com dados.</p>}
+      {soComuns ? <p className={`text-xs mt-1 ${sub}`}>As despesas comparam só {rotMeses}: os meses com dados do banco nos dois anos.</p> : null}
+      {(dA.foraGrandes || dB.foraGrandes) ? <p className={`text-xs mt-1 ${sub}`}>Ficam de fora das despesas os movimentos acima de 5 000 € (ex.: amortizações do crédito).</p> : null}
     </div>
   );
 };
