@@ -3,7 +3,7 @@
 // todas as manhãs) ou de um ficheiro importado à mão. Ficam guardados no browser para abrir logo.
 // Nada disto vai para a base de dados da app nem para o GitHub.
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Card, Info, Ico } from './base';
+import { Card, Info, Ico, BIL_CAT_PT, BIL_CAT_COR, BIL_CAT_ICO } from './base';
 
 const LS_CACHE = 'bilance-v1';
 const LS_UI = 'banco-ui';
@@ -24,24 +24,8 @@ const nomeMes = m => { const [y, mm] = m.split('-').map(Number); return `${MESES
 const lerLS = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
 const gravarLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
 
-// ── Categorias do Bilance (os nomes vêm em inglês; aqui ficam como na app do Bilance em português) ──
-const CAT_PT = {
-  c01: 'Comida e Bebida', c01_01: 'Supermercado', c01_02: 'Restaurantes, Entregas', c01_03: 'Álcool, Tabaco', c01_04: 'Café, Lanches',
-  c02: 'Compras', c02_01: 'Roupa, Acessórios', c02_02: 'Produtos de beleza', c02_06: 'Eletrónica', c02_07: 'Presentes',
-  c03: 'Casa', c03_01: 'Renda, Prestação', c03_02: 'Energia, Água', c03_03: 'Manutenção, Reparações', c03_04: 'Seguro da casa', c03_05: 'Móveis, Decoração', c03_06: 'Jardim, Plantas', c03_07: 'Segurança', c03_08: 'Limpeza, Empregada', c03_09: 'Obras',
-  c04: 'Transporte', c04_01: 'Transportes públicos', c04_02: 'Táxi', c04_03: 'Viagens longas', c04_04: 'Combustível', c04_05: 'Estacionamento', c04_06: 'Manutenção do carro', c04_07: 'Aluguer', c04_08: 'Seguro do carro', c04_09: 'Leasing',
-  c05: 'Vida e Lazer', c05_04: 'Telemóvel, Internet', c05_05: 'Jogo, Lotaria', c05_06: 'Hobbies', c05_08: 'TV, Música, Streaming', c05_09: 'Férias, Viagens', c05_10: 'Caridade', c05_11: 'Cultura, Eventos', c05_13: 'Serviços digitais, Software', c05_14: 'Livros, Notícias', c05_15: 'Presentes', c05_16: 'Festas',
-  c06: 'Despesas Financeiras', c06_01: 'Impostos', c06_02: 'Seguros', c06_03: 'Crédito, Juros', c06_04: 'Multas', c06_05: 'Contabilidade', c06_06: 'Comissões bancárias', c06_08: 'Empresa',
-  c07: 'Investimentos', c07_01: 'Imobiliário', c07_02: 'Investimentos financeiros', c07_03: 'Poupança', c07_04: 'Reforma',
-  c08: 'Rendimento', c08_01: 'Salário', c08_02: 'Reembolsos de impostos', c08_03: 'Rendas recebidas', c08_04: 'Subsídios, Bolsas', c08_06: 'Vendas', c08_07: 'Pensão de alimentos', c08_08: 'Presentes', c08_09: 'Apoios', c08_10: 'Juros, Dividendos', c08_12: 'Compensações',
-  c09: 'Outros', c10: 'Por definir', c11: 'Transferências internas',
-  c12: 'Saúde e Educação', c12_01: 'Saúde, Médico', c12_02: 'Bem-estar, Beleza', c12_03: 'Desporto, Ginásio', c12_04: 'Educação, Formação',
-  c13: 'Filhos', c13_01: 'Mesada', c13_02: 'Escola', c13_03: 'Pensão de alimentos', c13_04: 'Atividades', c13_05: 'Saúde', c13_06: 'Roupa', c13_07: 'Brinquedos', c13_08: 'Presentes', c13_09: 'Ama',
-  c14: 'Animais', c14_01: 'Comida', c14_02: 'Veterinário', c14_03: 'Brinquedos', c14_04: 'Serviços', c14_05: 'Hotel',
-  c15: 'Excluídas',
-};
-const CAT_COR = { c01: '#43b649', c02: '#14a37f', c03: '#a3b800', c04: '#4a6ee0', c05: '#1aa3e8', c06: '#d05f5f', c07: '#8b5cf6', c08: '#f5a300', c09: '#94a3b8', c10: '#64748b', c11: '#7c7c9c', c12: '#e8823a', c13: '#ec4899', c14: '#a16207', c15: '#475569' };
-const CAT_ICO = { c01: '🍽', c02: '🛍', c03: '🏠', c04: '🚗', c05: '🎭', c06: '💲', c07: '📈', c08: '💼', c09: '•', c10: '?', c11: '⇄', c12: '🩺', c13: '🧒', c14: '🐾', c15: '⊘' };
+// Categorias do Bilance em português, cores e ícones: em base.jsx (também usadas nas Despesas)
+const CAT_PT = BIL_CAT_PT, CAT_COR = BIL_CAT_COR, CAT_ICO = BIL_CAT_ICO;
 
 // ── Ler o que vem do Bilance (o formato compacto da app ou as linhas tal como a ligação ao Bilance as dá) ──
 const _diaLisboa = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -209,7 +193,7 @@ const Donut = ({ fatias, tam = 132, esp = 16, centro, fundo }) => {
   );
 };
 
-const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes }) => {
+const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, gastosBanco }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const linha = claro ? 'border-slate-200' : 'border-slate-700/60';
@@ -351,6 +335,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes })
         </div>
       </div>
       {estado && estado.erro && <p className="text-xs text-red-400">Não consegui ler o Drive: {estado.erro}</p>}
+      {gastosBanco}
 
       {/* Gasto / Ganho / Total */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">

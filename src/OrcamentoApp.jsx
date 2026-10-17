@@ -7,14 +7,15 @@ import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
   mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  lerBilanceLocal, bilPrincipal, bilPartes, bilGastoOrc, bilOrcDe, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc,
-  transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
-  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia,
-  trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia, planearMes, trabParar, trabPararEm,
-  trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct,
-  ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal,
-  confirmar, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button,
-  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  lerBilanceLocal, BIL_CAT_PT, bilPrincipal, bilPartes, bilGastoOrc, bilNormOrc, bilOrcDe, impostosDoBanco,
+  casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro,
+  impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro,
+  EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia,
+  planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes,
+  juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente,
+  recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Info,
+  Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT,
+  vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -583,6 +584,18 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   }, [dataLoaded]);
   const [bilLocal, setBilLocal] = useState(() => lerBilanceLocal());
   useEffect(() => { const f = () => setBilLocal(lerBilanceLocal()); window.addEventListener('bilance-atualizado', f); return () => window.removeEventListener('bilance-atualizado', f); }, []);
+  // Impostos pagos (SS, IVA, IRS) que aparecem no banco ficam registados sozinhos
+  useEffect(() => {
+    if (!dataLoaded) return undefined;
+    const aplicar = () => {
+      const r = impostosDoBanco(G, M, lerBilanceLocal()); if (!r.vistos.length) return;
+      setG(p => ({ ...p, impostosPagos: [...(p.impostosPagos || []), ...r.novos.filter(n => !(p.impostosPagos || []).some(x => x.txBanco === n.txBanco))], impostosBancoVistos: [...new Set([...(p.impostosBancoVistos || []), ...r.vistos])] }));
+      if (r.novos.length) showToast(r.novos.length === 1 ? `🧾 O banco mostra um pagamento de ${r.novos[0].tipo} (${_fmtEUR.format(r.novos[0].valor)} a ${r.novos[0].data.split('-').reverse().slice(0, 2).join('/')}) — ficou registado nos impostos pagos` : `🧾 O banco mostra ${r.novos.length} pagamentos de impostos — ficaram registados nos impostos pagos`);
+    };
+    aplicar();
+    window.addEventListener('bilance-atualizado', aplicar);
+    return () => window.removeEventListener('bilance-atualizado', aplicar);
+  }, [dataLoaded, G.impostosPagos, M]); // eslint-disable-line react-hooks/exhaustive-deps
   // O banco (Bilance) mostra que um cliente pagou: o recibo fica marcado como recebido nesse dia
   useEffect(() => {
     if (!dataLoaded) return undefined;
@@ -1357,23 +1370,30 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  const bilOrcs = useMemo(() => {
    const ctx = bilLocal && bilLocal.contexto; if (!ctx || !Array.isArray(ctx.orcamentos)) return [];
    const txs = (bilLocal.transacoes || []).filter(t => String(t.d).startsWith(mesBilIso));
-   return ctx.orcamentos.filter(b => !b.periodo).map(b => ({ titulo: b.titulo, limite: Number(b.limite) || 0, categorias: b.categorias || [], gasto: bilGastoOrc(b, txs, ctx), investimento: (b.categorias || []).length > 0 && (b.categorias || []).every(id => bilPrincipal(ctx, id) === 'c07') }));
+   return ctx.orcamentos.filter(b => !b.periodo).map(b => ({ titulo: b.titulo, limite: Number(b.limite) || 0, categorias: b.categorias || [], contas: b.contas || null, gasto: bilGastoOrc(b, txs, ctx), investimento: (b.categorias || []).length > 0 && (b.categorias || []).every(id => bilPrincipal(ctx, id) === 'c07') }));
  }, [bilLocal, mesBilIso]);
  // Etiqueta em cada despesa: o orçamento do Bilance a que está ligada e quanto já se gastou nele este mês.
  // Carregar abre a lista dos orçamentos para escolher outro (ou nenhum).
  const chipBil = (d, chave, lista) => {
    if (!bilOrcs.length) return null;
    const o = bilOrcDe(d, bilOrcs, chave === 'despPess' ? 'activo' : 'abanca');
+   const aCriar = !o && d.criarBil && d.criarBil.cat;
    const pass = o && o.limite > 0 && o.gasto > o.limite + 0.005;
    const cor = !o ? 'text-slate-500 border-dashed border-slate-600' : pass ? 'text-red-400 border-red-500/40 bg-red-500/10' : o.gasto > 0 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-400 border-slate-600';
    const partilhado = o && [...(G.despABanca || []), ...(G.despPess || [])].filter(x => bilOrcDe(x, bilOrcs, (G.despPess || []).includes(x) ? 'activo' : 'abanca') === o).length > 1;
    return (
      <span className={`relative flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] tabular-nums whitespace-nowrap ${cor}`}
-       title={o ? `Bilance: «${o.titulo}» — gasto este mês ${fmt(o.gasto)} de ${fmt(o.limite)}${partilhado ? ' (partilhado com outras despesas)' : ''}. Carrega para mudar o orçamento.` : 'Sem orçamento do Bilance. Carrega para escolher um.'}>
-       🏦 {o ? `${Math.round(o.gasto)}/${Math.round(o.limite)}` : '—'}
-       <select aria-label="Orçamento do Bilance desta despesa" value={o ? o.titulo : '-'} onChange={e => uG(chave, lista.map(x => (x.id === d.id ? { ...x, orcBil: e.target.value } : x)))} className="absolute inset-0 opacity-0 cursor-pointer w-full">
+       title={o ? `Bilance: «${o.titulo}» — gasto este mês ${fmt(o.gasto)} de ${fmt(o.limite)}${partilhado ? ' (partilhado com outras despesas)' : ''}. Carrega para mudar o orçamento.` : aCriar ? `Orçamento novo «${d.desc}» (${BIL_CAT_PT[d.criarBil.cat] || d.criarBil.cat}) — é criado no Bilance na próxima atualização (7h26, 13h26 ou 19h26).` : 'Sem orçamento do Bilance. Carrega para escolher um ou criar um novo.'}>
+       🏦 {o ? `${Math.round(o.gasto)}/${Math.round(o.limite)}` : aCriar ? 'a criar…' : '—'}
+       <select aria-label="Orçamento do Bilance desta despesa" value={o ? o.titulo : aCriar ? `+${d.criarBil.cat}` : '-'} onChange={e => { const v = e.target.value; uG(chave, lista.map(x => (x.id !== d.id ? x : v.startsWith('+') ? { ...x, orcBil: x.desc, criarBil: { cat: v.slice(1) } } : { ...x, orcBil: v, criarBil: null }))); }} className="absolute inset-0 opacity-0 cursor-pointer w-full">
          <option value="-">Sem orçamento no Bilance</option>
          {bilOrcs.filter(x => !/^total\b/i.test(x.titulo)).map(x => <option key={x.titulo} value={x.titulo}>{x.titulo} · {Math.round(x.gasto)}/{Math.round(x.limite)} €</option>)}
+         {Object.keys(BIL_CAT_PT).filter(id => !id.includes('_') && !['c07', 'c08', 'c10', 'c11', 'c15'].includes(id)).map(pid => (
+           <optgroup key={pid} label={`➕ Criar orçamento novo «${d.desc || 'esta despesa'}» em ${BIL_CAT_PT[pid]}`}>
+             <option value={`+${pid}`}>{BIL_CAT_PT[pid]} (tudo)</option>
+             {Object.keys(BIL_CAT_PT).filter(id => id.startsWith(`${pid}_`)).map(id => <option key={id} value={`+${id}`}>{BIL_CAT_PT[id]}</option>)}
+           </optgroup>
+         ))}
        </select>
      </span>
    );
@@ -1391,10 +1411,15 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    if (tAc && tot.pessoal > 0) out.push({ titulo: tAc.titulo, limite: Math.round(tot.pessoal * 100) / 100 });
    return out;
  })();
+ // Orçamentos novos pedidos nas Despesas (🏦 → ➕ Criar): a tarefa agendada cria-os no Bilance (sem conta — escolhe-a lá)
+ const orcamentosCriar = [...(G.despABanca || []).map(d => ['ABanca', d]), ...(G.despPess || []).map(d => ['Activo Bank', d])]
+   .filter(([, d]) => d.criarBil && d.criarBil.cat && String(d.desc || '').trim() && !(bilOrcs || []).some(o => o.titulo === d.desc))
+   .map(([conta, d]) => ({ titulo: String(d.desc).trim(), limite: parseFloat(d.val) || 0, categorias: [d.criarBil.cat], conta }))
+   .filter(x => x.limite > 0);
  const portSistema = patTemPortfolio((M[keySistema] || {}).portfolio) ? M[keySistema].portfolio : getPortfolioParaMes(keySistema);
  const appParaClaude = dataLoaded ? JSON.stringify({
    despesas: { casal: (G.despABanca || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })), pessoais: (G.despPess || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })) },
-   contribIvo: G.contrib, orcamentosApp: G.orcamentosGrupos || [], orcamentosBilance: G.bilanceSyncOrc ? orcamentosParaBilance : [], sincronizarOrcamentos: !!G.bilanceSyncOrc, portfolio: { mes: keySistema, itens: patInvestDoPortfolio(portSistema).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })) },
+   contribIvo: G.contrib, orcamentosApp: G.orcamentosGrupos || [], orcamentosBilance: G.bilanceSyncOrc ? orcamentosParaBilance : [], sincronizarOrcamentos: !!G.bilanceSyncOrc, orcamentosCriar, portfolio: { mes: keySistema, itens: patInvestDoPortfolio(portSistema).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })) },
  }) : '';
  useEffect(() => {
    if (!appParaClaude) return undefined;
@@ -1676,18 +1701,113 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      if (o.gasto > o.limite + 0.5) lista.push({ n: 2, txt: `${o.titulo}: ${_fmtEUR.format(o.gasto)} de ${_fmtEUR.format(o.limite)} (passou ${_fmtEUR.format(o.gasto - o.limite)})` });
      else if (atual && dia >= 7 && frac < 0.9 && o.gasto >= o.limite * 0.5 && o.gasto > o.limite * (frac + 0.25)) lista.push({ n: 1, txt: `${o.titulo}: já vai em ${Math.round(o.gasto / o.limite * 100)}% (${_fmtEUR.format(o.gasto)} de ${_fmtEUR.format(o.limite)}) com ${Math.round(frac * 100)}% do mês passado` });
    });
+   // Orçamentos sem conta escolhida no Bilance, numa categoria com gastos nas duas contas (ex.: Restaurantes)
+   const desde90 = (() => { const x = new Date(hoje); x.setDate(x.getDate() - 92); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; })();
+   bilOrcs.filter(o => !o.contas && !/^total\b/i.test(o.titulo) && /abanca|activo/i.test(o.titulo)).forEach(o => {
+     const contasVistas = new Set();
+     (bilLocal.transacoes || []).forEach(t => { if (t.x || t.d < desde90 || !t.c) return; if (bilPartes(t).some(([id]) => { const p = bilPrincipal(ctx, id); return o.categorias.includes(id) || o.categorias.includes(p); })) contasVistas.add(t.c); });
+     if (contasVistas.size > 1) lista.push({ n: 1, txt: `«${o.titulo}» não tem conta escolhida no Bilance e está a contar as duas contas — escolhe a conta na app do Bilance` });
+   });
    lista.sort((a, b) => b.n - a.n);
    return { lista, gasto, proj, recLiq, atual, dia, diasMes };
  })();
+ // Transferência da Sara para a ABanca (categoria do Bilance com «Sara» no nome), entre o dia 25 do mês anterior e o dia 24
+ const estadoSaraBanco = () => {
+   const ctx = bilLocal && bilLocal.contexto; if (!ctx) return null;
+   const catsSara = new Set(((ctx.categorias) || []).filter(c => /sara|parceir/i.test(c.titulo || '')).map(c => c.id));
+   const [yy, mm] = mesBilIso.split('-').map(Number);
+   const ini = (() => { const d = new Date(yy, mm - 2, 25); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-25`; })(), fim = `${mesBilIso}-24`;
+   const l = (bilLocal.transacoes || []).filter(t => !t.x && t.v > 0 && t.d >= ini && t.d <= fim && (bilPartes(t).some(([id]) => catsSara.has(id))));
+   return { chegou: l, total: l.reduce((a, t) => a + t.v, 0), esperado: contribSaraAB, ini, fim };
+ };
+ // Despesas que se repetem no banco e não estão nas despesas da app (ou são novas — ex.: uma subscrição nova)
+ const despesasRepetidas = () => {
+   const ctx = bilLocal && bilLocal.contexto; if (!ctx || !bilOrcs.length) return [];
+   const meses4 = [0, 1, 2, 3].map(k => { const d = new Date(hoje.getFullYear(), hoje.getMonth() - k, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+   const sep = new Set(((ctx.categorias) || []).filter(c => c.separada).map(c => c.id));
+   const chaveDe = t => bilNormOrc(t.t).replace(/\d+/g, ' ').replace(/\s+/g, ' ').trim();
+   const antes = new Set(), grupos = {};
+   (bilLocal.transacoes || []).forEach(t => {
+     if (t.x || t.p || !(t.v < 0)) return;
+     const id = Array.isArray(t.k) ? t.k[0][0] : (t.k || 'c10'); const pr = bilPrincipal(ctx, id);
+     if (['c07', 'c08', 'c11', 'c15'].includes(pr) || sep.has(id) || id === 'c06_01') return;
+     const ch = chaveDe(t); if (ch.length < 3) return;
+     const mk = String(t.d).slice(0, 7);
+     if (mk < meses4[3]) { antes.add(ch); return; }
+     const g = grupos[ch] || (grupos[ch] = { nome: t.t, meses: {}, conta: t.c, cat: id, primeira: t.d });
+     g.meses[mk] = (g.meses[mk] || 0) - t.v; if (t.d < g.primeira) g.primeira = t.d;
+   });
+   const ligados = []; [...(G.despABanca || []).map(d => [d, 'abanca']), ...(G.despPess || []).map(d => [d, 'activo'])].forEach(([d, c]) => { const o = bilOrcDe(d, bilOrcs, c); if (o) ligados.push(o); });
+   const coberta = id => ligados.some(o => o.categorias.includes(id) || o.categorias.includes(bilPrincipal(ctx, id)));
+   const ign = new Set(G.bancoIgnorados || []);
+   const contas = ctx.contas || [];
+   return Object.entries(grupos).map(([ch, g]) => {
+     const vals = Object.values(g.meses); if (vals.length < 2 || ign.has(ch)) return null;
+     const med = vals.reduce((a, b) => a + b, 0) / vals.length, max = Math.max(...vals), min = Math.min(...vals);
+     if (med < 3 || min <= 0 || max / min > 1.6) return null;
+     const nova = !antes.has(ch) && g.primeira >= `${meses4[1]}-01`, fora = !coberta(g.cat);
+     if (!(nova || (fora && vals.length >= 3))) return null;
+     const conta = contas.find(c => c.id === g.conta) || {};
+     return { chave: ch, nome: g.nome, med: Math.round(med * 100) / 100, cat: g.cat, nova, fora, casal: /abanca/i.test(`${conta.banco || ''} ${conta.nome || ''}`), contaNome: conta.nome || '' };
+   }).filter(Boolean).sort((a, b) => b.med - a.med);
+ };
+ const renderRepetidas = () => {
+   const l = despesasRepetidas(); if (!l.length) return null;
+   const juntar = x => { const chave = x.casal ? 'despABanca' : 'despPess'; const lista = (x.casal ? G.despABanca : G.despPess) || []; uG(chave, [...lista, { id: Date.now(), desc: x.nome, cat: 'Outros', val: Math.round(x.med) }]); showToast(`Juntei «${x.nome}» às despesas ${x.casal ? 'do casal' : 'pessoais'} (${fmt(Math.round(x.med))}/mês) — liga-a a um orçamento no 🏦`); };
+   return (
+     <Card>
+       <div className="flex items-center gap-2 mb-2"><h3 className="font-semibold">🔁 Despesas repetidas para rever</h3><Info>Gastos que aparecem no banco em vários meses com valor parecido e que são novos (começaram nos últimos 2 meses) ou não cabem em nenhum orçamento ligado às tuas despesas da app. «Juntar» acrescenta-os às Despesas (casal se saem da ABanca, pessoais se do Activo Bank); «Ignorar» esconde-os.</Info></div>
+       <div className="space-y-1.5">
+         {l.slice(0, 8).map(x => (
+           <div key={x.chave} className="flex flex-wrap items-center gap-2 text-sm">
+             <span className="font-medium truncate max-w-[45%]">{x.nome}</span>
+             <span className="text-xs text-slate-500">~{fmt(x.med)}/mês · {x.contaNome} · {BIL_CAT_PT[x.cat] || BIL_CAT_PT[bilPrincipal(bilLocal.contexto, x.cat)] || ''}</span>
+             <span className={`text-[10px] px-1.5 py-0.5 rounded ${x.nova ? 'bg-violet-500/15 text-violet-400' : 'bg-amber-500/15 text-amber-400'}`}>{x.nova ? 'nova' : 'fora das despesas'}</span>
+             <span className="ml-auto flex gap-2 text-xs">
+               <button type="button" onClick={() => juntar(x)} className="text-blue-400 hover:text-blue-300">+ Juntar às despesas</button>
+               <button type="button" onClick={() => uG('bancoIgnorados', [...(G.bancoIgnorados || []), x.chave])} className="text-slate-500 hover:text-slate-300">Ignorar</button>
+             </span>
+           </div>
+         ))}
+       </div>
+     </Card>
+   );
+ };
+ // Cartão «Gastos no banco» (Painel e separador Banco)
+ const renderGastosBanco = () => {
+   if (!alertasBanco) return null;
+   const a0 = alertasBanco; const rIA = resumoBancoIA && resumoBancoIA.mes === mesBilIso ? resumoBancoIA : null;
+   const extra = [];
+   const sa = estadoSaraBanco();
+   if (sa && a0.atual && a0.dia >= 5 && !sa.chegou.length && sa.esperado > 0) extra.push({ n: 1, txt: `A transferência da Sara para a ABanca (${fmt(sa.esperado)}) ainda não chegou este mês` });
+   const rep = tab === 'banco' ? [] : despesasRepetidas();
+   if (rep.length) extra.push({ n: 1, txt: <button type="button" onClick={() => setTab('banco')} className="text-left hover:underline">{rep.length === 1 ? `«${rep[0].nome}» repete-se no banco e não está nas despesas` : `${rep.length} despesas repetidas no banco fora das despesas da app`} →</button> });
+   const a = { ...a0, lista: [...a0.lista, ...extra].sort((x, y) => y.n - x.n) };
+   const mais = a.lista.length > 3 ? a.lista.length - 3 : 0;
+   return (
+     <Card>
+       <div className="flex items-center gap-2 flex-wrap">
+         <h3 className="font-semibold flex items-center gap-1.5"><Ico e="🏦"/>Gastos no banco</h3>
+         <span className="text-xs text-slate-500">{fmt(a.gasto)} gastos{a.recLiq > 0 ? ` · ${Math.round(a.gasto / a.recLiq * 100)}% do rendimento líquido` : ''}</span>
+         <Info>Do Bilance: o que já saiu das contas este mês (sem investimentos, impostos nem transferências entre contas), comparado com o rendimento líquido do mês e com os orçamentos do Bilance. «A este ritmo» projeta o gasto até ao fim do mês. Só aparece um aviso quando um orçamento já passou ou vai passar.</Info>
+         <button type="button" onClick={pedirResumoBanco} disabled={rIA && rIA.a} className="ml-auto text-xs text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Um resumo curto, feito pela IA, de como vão os gastos do mês">{rIA && rIA.a ? 'A pensar…' : '✨ Resumo'}</button>
+       </div>
+       {a.lista.length === 0
+         ? <p className="text-sm text-emerald-400 mt-2">✓ Tudo dentro do previsto{a.atual ? ' até agora' : ''}.</p>
+         : <ul className="mt-2 space-y-1 text-sm">{a.lista.slice(0, 3).map((x, i) => <li key={i} className={`flex gap-2 ${x.n === 2 ? 'text-red-400' : 'text-amber-400'}`}><span>{x.n === 2 ? '●' : '◐'}</span><span className="min-w-0">{x.txt}</span></li>)}{mais > 0 && <li className="text-xs text-slate-500 pl-5">{tab === 'banco' ? `+ ${mais} nos orçamentos abaixo` : <button type="button" onClick={() => setTab('banco')} className="hover:underline">+ {mais} no separador Banco →</button>}</li>}</ul>}
+       {rIA && rIA.texto && <p className={`mt-3 text-sm leading-relaxed rounded-lg p-3 ${theme === 'light' ? 'bg-violet-50 text-slate-700' : 'bg-violet-500/10 text-slate-200'}`}>{rIA.texto}</p>}
+       {rIA && rIA.erro && <p className="mt-2 text-xs text-red-400">{rIA.erro}</p>}
+     </Card>
+   );
+ };
  const pedirResumoBanco = async () => {
    if (!alertasBanco) return;
    setResumoBancoIA({ mes: mesBilIso, a: true });
    const a = alertasBanco;
    const linhasOrc = bilOrcs.filter(o => o.limite > 0).map(o => `- ${o.titulo}: gasto ${Math.round(o.gasto)} € de ${Math.round(o.limite)} €`).join('\n');
-   const pergunta = `Faz-me um resumo curto (3 a 4 frases, português de Portugal, tom calmo, sem alarmismo nem moralismo) de como vão os meus gastos de ${mes} de ${ano}, para me guiar. Diz o que está bem, o que merece atenção e uma sugestão concreta para o resto do mês. Usa só estes números:
+   const pergunta = `Faz-me um resumo curto (3 a 4 frases, português de Portugal, trata-me por tu, tom calmo, sem alarmismo nem moralismo) de como vão os meus gastos de ${mes} de ${ano}, para me guiar. Diz o que está bem, o que merece atenção e uma sugestão concreta para o resto do mês. Não recomendes contabilistas nem consultores. Só digas que um orçamento passou se o gasto for maior do que o limite. Usa só estes números, sem inventar outros:
 - Dia ${a.dia} de ${a.diasMes}${a.atual ? '' : ' (mês já fechado)'}
-- Rendimento líquido previsto do mês: ${Math.round(a.recLiq)} €
-- Gasto até agora (sem investimentos, impostos nem transferências entre contas): ${Math.round(a.gasto)} €${a.atual ? `; a este ritmo, ${Math.round(a.proj)} € no fim do mês` : ''}
+${a.recLiq > 0 ? `- Rendimento líquido previsto do mês: ${Math.round(a.recLiq)} €\n` : ''}- Gasto até agora (sem investimentos, impostos nem transferências entre contas): ${Math.round(a.gasto)} €${a.atual ? `; a este ritmo, ${Math.round(a.proj)} € no fim do mês` : ''}
 - Orçamentos do Bilance:
 ${linhasOrc}`;
    try { const r = await perguntarIA(pergunta, {}); setResumoBancoIA({ mes: mesBilIso, texto: String(r || '').trim() }); }
@@ -3342,25 +3462,6 @@ ${linhasOrc}`;
 
  return (<div key={mesKey} className={`space-y-4 sm:space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
  {agora}
- {alertasBanco && (() => {
-   const a = alertasBanco; const rIA = resumoBancoIA && resumoBancoIA.mes === mesBilIso ? resumoBancoIA : null;
-   const mais = a.lista.length > 3 ? a.lista.length - 3 : 0;
-   return (
-     <Card>
-       <div className="flex items-center gap-2 flex-wrap">
-         <h3 className="font-semibold flex items-center gap-1.5"><Ico e="🏦"/>Gastos no banco</h3>
-         <span className="text-xs text-slate-500">{fmt(a.gasto)} gastos{a.recLiq > 0 ? ` · ${Math.round(a.gasto / a.recLiq * 100)}% do rendimento líquido` : ''}</span>
-         <Info>Do Bilance: o que já saiu das contas este mês (sem investimentos, impostos nem transferências entre contas), comparado com o rendimento líquido do mês e com os orçamentos do Bilance. «A este ritmo» projeta o gasto até ao fim do mês. Só aparece um aviso quando um orçamento já passou ou vai passar.</Info>
-         <button type="button" onClick={pedirResumoBanco} disabled={rIA && rIA.a} className="ml-auto text-xs text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Um resumo curto, feito pela IA, de como vão os gastos do mês">{rIA && rIA.a ? 'A pensar…' : '✨ Resumo'}</button>
-       </div>
-       {a.lista.length === 0
-         ? <p className="text-sm text-emerald-400 mt-2">✓ Tudo dentro do previsto{a.atual ? ' até agora' : ''}.</p>
-         : <ul className="mt-2 space-y-1 text-sm">{a.lista.slice(0, 3).map((x, i) => <li key={i} className={`flex gap-2 ${x.n === 2 ? 'text-red-400' : 'text-amber-400'}`}><span>{x.n === 2 ? '●' : '◐'}</span><span className="min-w-0">{x.txt}</span></li>)}{mais > 0 && <li className="text-xs text-slate-500 pl-5"><button type="button" onClick={() => setTab('banco')} className="hover:underline">+ {mais} no separador Banco →</button></li>}</ul>}
-       {rIA && rIA.texto && <p className={`mt-3 text-sm leading-relaxed rounded-lg p-3 ${theme === 'light' ? 'bg-violet-50 text-slate-700' : 'bg-violet-500/10 text-slate-200'}`}>{rIA.texto}</p>}
-       {rIA && rIA.erro && <p className="mt-2 text-xs text-red-400">{rIA.erro}</p>}
-     </Card>
-   );
- })()}
 
  {/* Duas colunas: dinheiro e trabalho à esquerda; transferências e notas à direita */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-start">
@@ -5318,6 +5419,9 @@ ${linhasOrc}`;
        <span className="text-slate-600">=</span>
        <span className="bg-emerald-500/20 px-3 py-1 rounded-lg text-emerald-400 font-bold">{fmt(contribSaraAB)}</span>
        <span className="text-[10px] text-slate-500">(transfere)</span>
+       {(() => { const sa = estadoSaraBanco(); if (!sa) return null; return sa.chegou.length
+         ? <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400" title={`No banco (Bilance), entre ${sa.ini.split('-').reverse().join('/')} e ${sa.fim.split('-').reverse().join('/')}`}>✓ chegou {sa.chegou.map(t => `${t.d.slice(8, 10)}/${t.d.slice(5, 7)}`).join(', ')} · {fmt(sa.total)}{Math.abs(sa.total - sa.esperado) > 1 ? ` (esperado ${fmt(sa.esperado)})` : ''}</span>
+         : <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-500/15 text-slate-400" title="Ainda não vi a transferência no banco (Bilance, categoria «Contribuição Sara»)">⏳ ainda não chegou</span>; })()}
      </div>
    </div>
  </Card>
@@ -12965,7 +13069,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='casamento' && <Suspense fallback={<SeparadorCarregar/>}><Casamento G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
+ {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco gastosBanco={<>{renderGastosBanco()}{renderRepetidas()}</>} theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
 {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
