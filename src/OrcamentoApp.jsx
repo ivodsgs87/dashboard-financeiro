@@ -3056,6 +3056,7 @@ ${linhasOrc}`;
          ? <p className="text-[10px] text-slate-400">Igual ao que pagaste em {nm(ss.igualA)} (mesma declaração)</p>
          : ss.ajustado && Math.abs(pi.fatorSS - 1) > 0.02 && <p className="text-[10px] text-purple-400/80" title={`A fórmula dá ${fmt(ss.formula)}; ajustada pela diferença entre a fórmula e o que pagaste na última declaração`}><Ico e="🎯"/>Fórmula {fmt(ss.formula)} {fx(pi.fatorSS)}</p>}
        <p className="text-[10px] mt-0.5">{pi.ssEste.pago ? <span className="text-emerald-400">✓ {nm(pi.ssEste.mes)} pago: {fmt(pi.ssEste.valor)}</span> : <span className="text-amber-400"><Ico e="⏳"/>Por pagar</span>}</p>
+       {pi.ssDesencontro && <p className="text-[10px] text-amber-400 mt-1" title={`Pelas receitas da app em ${pi.ssDesencontro.nome} (${fmt(pi.ssDesencontro.rec)}) a SS devia ser ~${fmt(pi.ssDesencontro.formula)}/mês. A SS só deixa variar até 25%. Confirma na Segurança Social Direta o que ficou declarado nesse trimestre.`}>⚠ A SS de {pi.ssDesencontro.nome} ({fmt(pi.ssDesencontro.pago)}) não bate com as receitas da app (~{fmt(pi.ssDesencontro.formula)}) — confirma a declaração</p>}
        <p className={sub}>Depois, a partir de {nm(pi.ssDepois.mes)}: {pi.ssDepois.incompleto ? `depende de ${pi.ssDepois.nomeBase}` : `~${fmt(pi.ssDepois.valor)}/mês`}</p>
        {ss !== pi.ssProx && pi.ssProx.notificada && <p className="text-[10px] text-slate-400">{nm(pi.ssProx.mes)}: {fmt(pi.ssProx.valor)} (valor da notificação)</p>}
        {!pi.ssProx.pago && (ssNotifAberto
