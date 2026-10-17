@@ -7,15 +7,15 @@ import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
   mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  lerBilanceLocal, BIL_CAT_PT, bilPrincipal, bilPartes, bilGastoOrc, bilNormOrc, bilOrcDe, impostosDoBanco,
-  casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro,
-  impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro,
-  EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia,
-  planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes,
-  juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente,
-  recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Info,
-  Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT,
-  vcPrazosCPCV
+  lerBilanceLocal, BIL_CAT_PT, bilPrincipal, bilPartes, bilGastoOrc, bilRegistosMes, bilNormOrc, bilOrcDe,
+  impostosDoBanco, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
+  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
+  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
+  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
+  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
+  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -2982,6 +2982,24 @@ ${linhasOrc}`;
    const txAno = (G.transacoes || []).filter(t => t && String(t.data).startsWith(String(ano)));
    const juros = txAno.filter(t => t.tipo === 'dividendo').reduce((a, t) => a + patNum(t.valorTotal), 0);
    if (juros) L.push(`Juros e dividendos recebidos em ${ano}: ${e(juros)}.`);
+   // Banco (dados do Bilance): gastos reais por categoria nos últimos meses e os orçamentos — sem lojas, pessoas nem contas
+   try {
+     const ctx = bilLocal && bilLocal.contexto;
+     if (ctx) {
+       const sep = new Set(((ctx.categorias) || []).filter(c => c.separada).map(c => c.id));
+       const ms = [0, 1, 2, 3].map(k => { const d = new Date(hojeD.getFullYear(), hojeD.getMonth() - k, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+       const porMes = {};
+       (bilLocal.transacoes || []).forEach(t => {
+         const mi = String(t.d).slice(0, 7); if (t.x || !ms.includes(mi)) return;
+         bilPartes(t).forEach(([id, v]) => { const p = bilPrincipal(ctx, id); if (['c07', 'c08', 'c11', 'c15'].includes(p) || sep.has(id)) return; const o = (porMes[mi] = porMes[mi] || { tot: 0, cat: {} }); o.tot -= v; o.cat[p] = (o.cat[p] || 0) - v; });
+       });
+       L.push(`\nBANCO (movimentos reais das contas, sem investimentos nem transferências entre contas):`);
+       ms.slice().reverse().forEach(mi => { const o = porMes[mi]; if (!o) return; L.push(`${mi}${mi === ms[0] ? ' (mês em curso, até hoje)' : ''}: gastos ${e(o.tot)} — ${Object.entries(o.cat).filter(([, v]) => v > 1).sort((a, b) => b[1] - a[1]).map(([c, v]) => `${BIL_CAT_PT[c] || 'Outros'} ${e(v)}`).join(', ')}.`); });
+       if (alertasBanco && alertasBanco.atual) L.push(`Projeção dos gastos do mês em curso: ${e(alertasBanco.proj)}.`);
+       const orcs = bilOrcs.filter(o => !o.investimento && o.limite > 0);
+       if (orcs.length) L.push(`Orçamentos do mês ${mes} ${ano} (gasto/limite): ${orcs.map(o => `${o.titulo} ${e(o.gasto)}/${e(o.limite)}`).join('; ')}.`);
+     }
+   } catch (err) { /* sem dados do banco */ }
    return L.join('\n');
  };
 
@@ -11247,18 +11265,22 @@ ${transacoesOrdenadas.map(t => `<tr>
        alerts.push({tipo:'retainer', severity:'info', cid: cli.id, msg: `${cli.nome}: sem faturação há ${diasSem} dias`});
      }
    });
-   // Alertas de orcamento (extrato)
-   const _oG = G.orcamentosGrupos || [];
-   const _eD = G.extrato || [];
-   const _mN = new Date().getMonth() + 1;
-   const _aN = new Date().getFullYear();
-   _oG.forEach(g => {
-     if (!g.limite || g.limite <= 0) return;
-     const gasto = _eD.filter(t => { const [a,m]=t.data.split("-"); return +a===_aN && +m===_mN && t.tipo==="despesa" && t.categoria!=="transferencia" && (g.categorias||[]).includes(t.categoria); }).reduce((ac,t) => { const ve = t.valorReal != null ? t.valorReal : t.valor; return ac + (ve < 0 ? Math.abs(ve) : 0); }, 0);
-     const pct = (gasto / g.limite) * 100;
-     if (pct >= 100) alerts.push({tipo:"orcamento", severity:"error", msg: (g.icon||"") + " " + g.nome + ": " + Math.round(pct) + "% (" + gasto.toFixed(0) + "/" + g.limite + ")"});
-     else if (pct >= 80) alerts.push({tipo:"orcamento", severity:"warning", msg: (g.icon||"") + " " + g.nome + ": " + Math.round(pct) + "% (" + gasto.toFixed(0) + "/" + g.limite + ")"});
-   });
+   // Alertas de orçamento: os orçamentos do Bilance no mês corrente (dados do separador Banco)
+   const _bCtx = bilLocal && bilLocal.contexto;
+   if (_bCtx && Array.isArray(_bCtx.orcamentos)) {
+     const _mIso = `${_hj.getFullYear()}-${String(_hj.getMonth() + 1).padStart(2, '0')}`;
+     const _txM = (bilLocal.transacoes || []).filter(t => String(t.d).startsWith(_mIso));
+     const _frM = _hj.getDate() / new Date(_hj.getFullYear(), _hj.getMonth() + 1, 0).getDate();
+     _bCtx.orcamentos.filter(b => !b.periodo && Number(b.limite) > 0).forEach(b => {
+       const cats = b.categorias || [];
+       if (cats.length && cats.every(id => bilPrincipal(_bCtx, id) === 'c07')) return; // investimentos não são gasto
+       const gasto = bilGastoOrc(b, _txM, _bCtx), lim = Number(b.limite), pct = gasto / lim * 100;
+       const msg = `🏦 ${b.titulo}: ${Math.round(pct)}% (${gasto.toFixed(0)}/${lim.toFixed(0)} €)`;
+       // passou o limite (mais de 1 €) → vermelho; já a 80% quando ainda falta mais de metade do mês → laranja
+       if (gasto > lim + 1) alerts.push({ tipo: 'orcamento', severity: 'error', msg });
+       else if (pct >= 80 && pct < 99.5 && _frM < 0.55) alerts.push({ tipo: 'orcamento', severity: 'warning', msg });
+     });
+   }
    // Ordenar por severidade: error > warning > info > success
    const severityOrder = { error: 0, warning: 1, info: 2, success: 3 };
    alerts.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
@@ -11267,7 +11289,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    const off = G.alertasDesligados || {};
    const grupoDe = a => a.tipo === 'retainer' ? 'faturacao' : a.tipo === 'tarefa' ? 'tarefas' : a.tipo === 'transf' ? 'transf' : a.tipo === 'orcamento' ? 'orcamento' : /mês anterior/.test(a.msg || '') ? 'variacao' : /Portfolio/.test(a.msg || '') ? 'portfolio' : /[Hh]oras/.test(a.msg || '') ? 'horas' : (a.tipo === 'meta' || a.tipo === 'sucesso') ? 'metas' : a.tipo;
    return alerts.map(a => ({ ...a, grupo: grupoDe(a) })).filter(a => !off[a.grupo]);
- }, [G, M, mesKey, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias, ano, trabalho]);
+ }, [G, M, mesKey, recLiq, totRec, totInv, restante, alocAmort, alocFerias, totPess, metas, transf, minhaAB, ferias, totalFerias, ano, trabalho, bilLocal]);
 
  // Projeção de fim de ano
  const getProjecaoAnual = useCallback(() => {
@@ -11542,40 +11564,35 @@ ${transacoesOrdenadas.map(t => `<tr>
 
  // Export Extrato PDF
  const exportExtratoPDF = () => {
-   const ext = G.extrato || [];
    const mesNum = meses.indexOf(mes) + 1;
-   const txExp = ext.filter(tx => { const p=tx.data.split('-'); return +p[0]===ano && +p[1]===mesNum; });
-   if (!txExp.length) { showToast('Sem movimentos neste mes', 'warning'); return; }
-   const desp = txExp.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0);
-   const rec = txExp.filter(t=>t.tipo==='receita'&&t.categoria!=='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0);
-   const trf = txExp.filter(t=>t.categoria==='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0);
-   const getCat = id => (G.categoriasExtrato||[]).find(c2=>c2.id===id)?.nome || id;
-   const getConta = id => (G.contasExtrato||[]).find(c2=>c2.id===id)?.nome || id;
-   const rows = txExp.sort((a,b)=>a.data.localeCompare(b.data)).map(t=>{
-     const cor=t.categoria==='transferencia'?'#94a3b8':t.tipo==='receita'?'#10b981':'#ef4444';
-     const sinal=t.tipo==='receita'&&t.categoria!=='transferencia'?'+':t.categoria==='transferencia'?'~':'-';
-     return '<tr><td>'+t.data.split('-').reverse().join('/')+'</td><td>'+(t.descricao||'-')+'</td><td>'+getCat(t.categoria)+'</td><td>'+getConta(t.contaId)+'</td><td style="text-align:right;color:'+cor+'">'+sinal+Math.abs(t.valor).toFixed(2).replace('.',',')+' E</td></tr>';
+   const txExp = bilRegistosMes(bilLocal, `${ano}-${String(mesNum).padStart(2, '0')}`);
+   if (!txExp.length) { showToast(bilLocal ? 'Sem movimentos do banco neste mês' : 'Abre primeiro o separador Banco para carregar os dados', 'warning'); return; }
+   const desp = txExp.filter(t=>t.tipo==='despesa').reduce((a,t)=>a-t.valor,0);
+   const rec = txExp.filter(t=>t.tipo==='receita').reduce((a,t)=>a+t.valor,0);
+   const trf = txExp.filter(t=>t.tipo==='transferencia'||t.tipo==='investimento').reduce((a,t)=>a+Math.abs(t.valor),0);
+   const esc = x => String(x).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+   const rows = txExp.map(t=>{
+     const cor=t.tipo==='transferencia'||t.tipo==='investimento'?'#94a3b8':t.valor>0?'#10b981':'#ef4444';
+     return '<tr><td>'+t.data.split('-').reverse().join('/')+'</td><td>'+esc(t.descricao||'-')+'</td><td>'+esc(t.categoria)+'</td><td>'+esc(t.conta)+'</td><td style="text-align:right;color:'+cor+'">'+(t.valor>0?'+':'')+t.valor.toFixed(2).replace('.',',')+' €</td></tr>';
    }).join('');
-   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Extrato '+mes+' '+ano+'</title><style>body{font-family:Arial;margin:40px;color:#1e293b}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #e2e8f0;padding:8px;text-align:left;font-size:13px}th{background:#f1f5f9;font-weight:600}.s{display:flex;gap:20px;margin:20px 0}.s div{padding:10px 20px;border-radius:8px;font-size:14px}.d{background:#fee2e2;color:#dc2626}.r{background:#d1fae5;color:#059669}.b{background:#e0e7ff;color:#4338ca}.t{background:#f1f5f9;color:#64748b}</style></head><body><h1>Extrato Bancario - '+mes+' '+ano+'</h1><div class="s"><div class="d">Despesas: '+desp.toFixed(2).replace('.',',')+' E</div><div class="r">Receitas: '+rec.toFixed(2).replace('.',',')+' E</div><div class="b">Balanco: '+(rec-desp).toFixed(2).replace('.',',')+' E</div>'+(trf>0?'<div class="t">Transf: '+trf.toFixed(2).replace('.',',')+' E</div>':'')+'</div><table><thead><tr><th>Data</th><th>Descricao</th><th>Categoria</th><th>Conta</th><th style="text-align:right">Valor</th></tr></thead><tbody>'+rows+'</tbody></table><p style="font-size:11px;color:#94a3b8;margin-top:30px">'+txExp.length+' movimentos - Gerado em '+new Date().toLocaleDateString('pt-PT')+'</p></body></html>';
+   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Extrato '+mes+' '+ano+'</title><style>body{font-family:Arial;margin:40px;color:#1e293b}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #e2e8f0;padding:8px;text-align:left;font-size:13px}th{background:#f1f5f9;font-weight:600}.s{display:flex;gap:20px;margin:20px 0}.s div{padding:10px 20px;border-radius:8px;font-size:14px}.d{background:#fee2e2;color:#dc2626}.r{background:#d1fae5;color:#059669}.b{background:#e0e7ff;color:#4338ca}.t{background:#f1f5f9;color:#64748b}</style></head><body><h1>Extrato do banco — '+mes+' '+ano+'</h1><div class="s"><div class="d">Despesas: '+desp.toFixed(2).replace('.',',')+' €</div><div class="r">Receitas: '+rec.toFixed(2).replace('.',',')+' €</div><div class="b">Saldo do mês: '+(rec-desp).toFixed(2).replace('.',',')+' €</div>'+(trf>0?'<div class="t">Transferências/investimentos: '+trf.toFixed(2).replace('.',',')+' €</div>':'')+'</div><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Conta</th><th style="text-align:right">Valor</th></tr></thead><tbody>'+rows+'</tbody></table><p style="font-size:11px;color:#94a3b8;margin-top:30px">'+txExp.length+' movimentos (dados do Bilance) — gerado em '+new Date().toLocaleDateString('pt-PT')+'</p></body></html>';
    const w=window.open('','_blank');w.document.write(html);w.document.close();setTimeout(()=>w.print(),300);
  };
 
  // Export Extrato Excel
  const exportExtratoExcel = async () => {
-   const ext = G.extrato || [];
    const mesNum = meses.indexOf(mes) + 1;
-   const txExp = ext.filter(tx => { const p=tx.data.split('-'); return +p[0]===ano && +p[1]===mesNum; }).sort((a,b)=>a.data.localeCompare(b.data));
-   if (!txExp.length) { showToast('Sem movimentos neste mes', 'warning'); return; }
-   const getCat = id => (G.categoriasExtrato||[]).find(c2=>c2.id===id)?.nome || id;
-   const getConta = id => (G.contasExtrato||[]).find(c2=>c2.id===id)?.nome || id;
+   const txExp = bilRegistosMes(bilLocal, `${ano}-${String(mesNum).padStart(2, '0')}`);
+   if (!txExp.length) { showToast(bilLocal ? 'Sem movimentos do banco neste mês' : 'Abre primeiro o separador Banco para carregar os dados', 'warning'); return; }
    try {
      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
      const data = [['Data','Descricao','Categoria','Conta','Tipo','Valor']];
-     txExp.forEach(t => data.push([t.data, t.descricao||'', getCat(t.categoria), getConta(t.contaId), t.tipo, t.valor]));
+     const nomeTipo = { despesa: 'Despesa', receita: 'Receita', transferencia: 'Transferência', investimento: 'Investimento' };
+     txExp.forEach(t => data.push([t.data, t.descricao, t.categoria, t.conta, nomeTipo[t.tipo] || t.tipo, t.valor]));
      data.push([]);
-     data.push(['','','','','Despesas',txExp.filter(t=>t.tipo==='despesa'&&t.categoria!=='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0)]);
-     data.push(['','','','','Receitas',txExp.filter(t=>t.tipo==='receita'&&t.categoria!=='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0)]);
-     data.push(['','','','','Transferencias',txExp.filter(t=>t.categoria==='transferencia').reduce((a,t)=>a+Math.abs(t.valor),0)]);
+     data.push(['','','','','Despesas',txExp.filter(t=>t.tipo==='despesa').reduce((a,t)=>a-t.valor,0)]);
+     data.push(['','','','','Receitas',txExp.filter(t=>t.tipo==='receita').reduce((a,t)=>a+t.valor,0)]);
+     data.push(['','','','','Transferências e investimentos',txExp.filter(t=>t.tipo==='transferencia'||t.tipo==='investimento').reduce((a,t)=>a+Math.abs(t.valor),0)]);
      const ws = XLSX.utils.aoa_to_sheet(data); ws['!cols']=[{wch:12},{wch:40},{wch:18},{wch:16},{wch:14},{wch:14}];
      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Extrato '+mes);
      XLSX.writeFile(wb, 'Extrato_'+ano+'-'+String(mesNum).padStart(2,'0')+'_'+mes+'.xlsx');
@@ -12223,7 +12240,7 @@ ${transacoesOrdenadas.map(t => `<tr>
              <div className="space-y-3">
                <div className="p-3 bg-slate-700/30 rounded-lg space-y-2">
                  <p className="text-xs text-slate-500">Que avisos queres ver (os desligados deixam de contar no sino):</p>
-                 {[['tarefas', '📅 Tarefas do mês atrasadas ou para breve'], ['transf', '💸 Transferências e despesas do mês'], ['faturacao', '🧾 Clientes sem faturação há 45+ dias'], ['variacao', '📉 Receitas vs mês anterior (só no fim do mês)'], ['metas', '🎯 Metas do ano (receitas, investimentos)'], ['horas', '⏱ Horas do mês'], ['portfolio', '📈 Atualizar o Portfolio no fim do mês'], ['orcamento', '🛒 Orçamentos do extrato']].map(([k, nome]) => {
+                 {[['tarefas', '📅 Tarefas do mês atrasadas ou para breve'], ['transf', '💸 Transferências e despesas do mês'], ['faturacao', '🧾 Clientes sem faturação há 45+ dias'], ['variacao', '📉 Receitas vs mês anterior (só no fim do mês)'], ['metas', '🎯 Metas do ano (receitas, investimentos)'], ['horas', '⏱ Horas do mês'], ['portfolio', '📈 Atualizar o Portfolio no fim do mês'], ['orcamento', '🏦 Orçamentos do Bilance (perto ou acima do limite)']].map(([k, nome]) => {
                    const ligado = !(G.alertasDesligados || {})[k];
                    return (
                      <label key={k} className="flex items-center justify-between gap-3 text-sm text-slate-300 cursor-pointer">
@@ -12636,8 +12653,8 @@ ${transacoesOrdenadas.map(t => `<tr>
        <button onClick={() => { exportTransacoesExcel(ano); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}><Ico e="📊"/>Transações Excel</button>
        <div className={`my-1 border-t ${theme === 'light' ? 'border-slate-200' : 'border-slate-700'}`}/>
        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Extrato</div>
-       <button onClick={() => { exportExtratoPDF(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato PDF</button>
-       <button onClick={() => { exportExtratoExcel(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Extrato Excel</button>
+       <button onClick={() => { exportExtratoPDF(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Movimentos do banco (PDF)</button>
+       <button onClick={() => { exportExtratoExcel(); setShowExportMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-slate-700 text-slate-300">Movimentos do banco (Excel)</button>
        <div className="px-3 py-1 text-xs text-slate-500 font-medium">Dados</div>
        <button onClick={() => { fazerBackup(); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}><Ico e="💾"/>Cópia de segurança (descarregar){diasSemBackup != null ? ` · há ${diasSemBackup} ${diasSemBackup === 1 ? 'dia' : 'dias'}` : ''}</button>
        <button onClick={() => { setVerDados(true); setShowExportMenu(false); }} className={`w-full px-4 py-2 text-left text-sm font-medium ${theme === 'light' ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-700 text-slate-300'}`}><Ico e="🩺"/>Verificar dados</button>

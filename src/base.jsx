@@ -894,6 +894,17 @@ const bilGastoOrc = (b, txs, ctx) => {
   }
   return Math.round(g * 100) / 100;
 };
+// Nome de uma categoria do Bilance (em português) e os registos de um mês prontos a exportar
+const bilNomeCat = (ctx, id) => { const s = String(id || 'c10'); if (BIL_CAT_PT[s]) return BIL_CAT_PT[s]; if (s.endsWith(':other')) return BIL_CAT_PT[s.split(':')[0]] || 'Outros'; const c = ((ctx && ctx.categorias) || []).find(x => x.id === s); return (c && c.titulo) || BIL_CAT_PT[bilPrincipal(ctx, s)] || s; };
+const bilRegistosMes = (bil, iso) => {
+  const ctx = bil && bil.contexto; if (!ctx) return [];
+  const conta = id => (((ctx.contas) || []).find(c => c.id === id) || {}).nome || '';
+  return (bil.transacoes || []).filter(t => !t.x && String(t.d).startsWith(iso)).sort((a, b) => String(a.d).localeCompare(String(b.d))).map(t => {
+    const partes = bilPartes(t), p0 = partes.length ? bilPrincipal(ctx, partes[0][0]) : 'c10';
+    const tipo = (t.de || t.para || p0 === 'c11') ? 'transferencia' : p0 === 'c07' ? 'investimento' : t.v > 0 ? 'receita' : 'despesa';
+    return { data: t.d, descricao: t.t || '', categoria: partes.map(([id]) => bilNomeCat(ctx, id)).join(' + ') || 'Por definir', conta: conta(t.c) || [conta(t.de), conta(t.para)].filter(Boolean).join(' → '), tipo, valor: Number(t.v) || 0 };
+  });
+};
 const bilNormOrc = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^\s*(abanca|activo\s*bank)\s*-\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim();
 // Orçamento do Bilance de uma despesa da app: o que escolheste («orcBil»), senão o de nome parecido
 // (palavras em comum, aceitando singular/plural: «Condomínio obras» → «Condomínio (normal + obras)», «AEC» → «ATL e AEC»)
@@ -2920,23 +2931,23 @@ export {
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
   mesDoRecibo, mesEmissaoDe, comPlanoDe, PAGAMENTOS_DESDE, DIAS_PAGAR_PADRAO, hojeIsoPag, somarDiasIso, ddmm,
   diasPagarCli, dataBaseRecibo, PAG_MIN_RECIBOS, mediasPagamento, estadoPagamento, valorQueChega, lerBilanceLocal, CATS_ENTRADA_CLIENTE,
-  BIL_CAT_PT, BIL_CAT_COR, BIL_CAT_ICO, bilPrincipal, bilPartes, bilGastoOrc, bilNormOrc, BIL_VAZIAS,
-  bilPalavras, bilPalIgual, bilOrcDe, RE_IMP_SS, RE_IMP_AT, impostosDoBanco, casarPagamentosBanco, retencaoPadrao,
-  impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG, Ico, IcoTxt,
-  copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC,
-  BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome,
-  clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente,
-  cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN, cuEur, cuLerHoras,
-  cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras,
-  trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor, pascoaDe, feriadosPT,
-  isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana, trabPorTipo, trabSugerirEstimativa,
-  horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar,
-  trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo,
-  reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao,
-  faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente,
-  recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO, confirmar, avisoApp, DialogoHost,
-  MenuTopo, TemaCtx, Info, Card, StatCard, Button, ProgressBar, Row,
-  AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
-  VC_DIAS_SEMANA, vcPrazosCPCV
+  BIL_CAT_PT, BIL_CAT_COR, BIL_CAT_ICO, bilPrincipal, bilPartes, bilGastoOrc, bilNomeCat, bilRegistosMes,
+  bilNormOrc, BIL_VAZIAS, bilPalavras, bilPalIgual, bilOrcDe, RE_IMP_SS, RE_IMP_AT, impostosDoBanco,
+  casarPagamentosBanco, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
+  Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
+  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
+  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
+  CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
+  cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
+  trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
+  pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana,
+  trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes,
+  trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal,
+  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct,
+  ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos, nifPTValido,
+  NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO, confirmar,
+  avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button,
+  ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
+  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
