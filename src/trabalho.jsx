@@ -2541,6 +2541,7 @@ const MenuMais = ({ claro, itens }) => {
 const COL_XL = 'xl:h-full xl:overflow-y-auto xl:pr-1 xl:-mr-1 [scrollbar-width:thin]';
 const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota, nav, perguntarIA }) => {
   const [sugNome, setSugNome] = useState(null); // sugestões de conceito pelo script do brief
+  const [nomeAntes, setNomeAntes] = useState(null); // nome antes de usar uma sugestão (para voltar atrás)
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
@@ -2723,11 +2724,18 @@ Responde só com 3 sugestões de nome do conceito para este vídeo, uma por linh
                   onBlur={e => gravarConceito(e.target.value)}
                   className="flex-1 min-w-0 bg-transparent px-3 py-2 text-base font-semibold resize-none overflow-hidden leading-snug outline-none" />
               </div>
+              {nomeAntes && nomeAntes !== t.nome && !(sugNome && !sugNome.a) && (
+                <div className={`flex items-center gap-2 text-xs ${sub}`}>
+                  <span className="truncate">Nome anterior: «{conceitoDoNome(nomeAntes, cu) || nomeAntes}»</span>
+                  <button type="button" onClick={() => { set({ nome: nomeAntes }); setNomeAntes(null); setGravou(true); }} className="shrink-0 text-blue-400 hover:text-blue-300">↶ Voltar atrás</button>
+                  <button type="button" onClick={() => setNomeAntes(null)} className="shrink-0 hover:text-slate-200" aria-label="Fechar">✕</button>
+                </div>
+              )}
               {sugNome && !sugNome.a && (
                 <div className={`flex flex-wrap items-center gap-1.5 text-xs ${sub}`}>
                   {sugNome.erro ? <span className="text-amber-400">{sugNome.erro}</span> : <>
                     <span>✨ {sugNome.slide ? `Pelo slide ${sugNome.slide}` : 'Pelo script'}{sugNome.n ? ` e ${sugNome.n} nomes deste jogo` : ''}:</span>
-                    {sugNome.lista.map(x => <button key={x} type="button" onClick={() => { gravarConceito(x); setSugNome(null); }} className={`px-2 py-1 rounded-md font-medium ${claro ? 'bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-violet-500/15 text-violet-300 hover:bg-violet-500/25'}`} title="Usar este nome (depois podes acrescentar o resto)">{x}</button>)}
+                    {sugNome.lista.map(x => <button key={x} type="button" onClick={() => { setNomeAntes(t.nome); gravarConceito(x); setSugNome(null); }} className={`px-2 py-1 rounded-md font-medium ${claro ? 'bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-violet-500/15 text-violet-300 hover:bg-violet-500/25'}`} title="Usar este nome (depois podes acrescentar o resto)">{x}</button>)}
                   </>}
                   <button type="button" onClick={() => setSugNome(null)} className="ml-auto hover:text-slate-200" aria-label="Fechar sugestões">✕</button>
                 </div>
