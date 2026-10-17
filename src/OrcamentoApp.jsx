@@ -7,14 +7,14 @@ import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
   mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  lerBilanceLocal, bilPrincipal, bilGastoOrc, bilOrcDe, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta,
-  transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance,
-  estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo,
-  trabACorrer, trabEntrega, trabValor, isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa,
-  CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao,
-  idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar,
-  DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button, ProgressBar,
-  AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  lerBilanceLocal, bilPrincipal, bilPartes, bilGastoOrc, bilOrcDe, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc,
+  transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
+  mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia,
+  trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia, planearMes, trabParar, trabPararEm,
+  trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct,
+  ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal,
+  confirmar, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button,
+  ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1656,6 +1656,43 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
    ? _somaOrc(reservaRecibo)
    : [...regCom, ...regSem].reduce((a, r) => a + reservaRecibo(r), 0);
  const recLiq = (orcEntra.length || orcSai.length ? totRecOrc : totRec) - valTax;
+ // ── Alertas do banco (Bilance): orçamentos passados ou a caminho de passar e gastos face ao rendimento ──
+ const [resumoBancoIA, setResumoBancoIA] = useState(null); // { mes, a, texto, erro }
+ const alertasBanco = (() => {
+   const ctx = bilLocal && bilLocal.contexto; if (!ctx || !bilOrcs.length) return null;
+   const [yy, mm] = mesBilIso.split('-').map(Number);
+   const diasMes = new Date(yy, mm, 0).getDate();
+   const atual = yy === hoje.getFullYear() && mm === hoje.getMonth() + 1;
+   const dia = atual ? hoje.getDate() : diasMes, frac = Math.max(1, dia) / diasMes;
+   const sep = new Set(((ctx.categorias) || []).filter(c => c.separada).map(c => c.id));
+   // Projeção: os gastos grandes (≥ 250 €, ex.: prestação, renda, compras únicas) contam uma vez; só os pequenos se estendem ao resto do mês
+   let gasto = 0, grandes = 0;
+   (bilLocal.transacoes || []).forEach(t => { if (!String(t.d).startsWith(mesBilIso) || t.x) return; bilPartes(t).forEach(([id, v]) => { const p = bilPrincipal(ctx, id); if (p === 'c08' || p === 'c11' || p === 'c15' || p === 'c07' || sep.has(id) || id === 'c06_01') return; gasto -= v; if (Math.abs(v) >= 250) grandes -= v; }); });
+   const proj = atual && dia >= 5 ? grandes + (gasto - grandes) / frac : gasto;
+   const lista = [];
+   if (recLiq > 0 && proj > recLiq) lista.push({ n: 2, txt: `${atual ? 'A este ritmo, os gastos do mês chegam a' : 'Os gastos do mês foram'} ${_fmtEUR.format(proj)} — mais do que o rendimento líquido (${_fmtEUR.format(recLiq)})` });
+   else if (recLiq > 0 && atual && dia >= 5 && proj > recLiq * 0.85) lista.push({ n: 1, txt: `A este ritmo, os gastos chegam a ${_fmtEUR.format(proj)} — ${Math.round(proj / recLiq * 100)}% do rendimento líquido` });
+   bilOrcs.filter(o => !o.investimento && o.limite > 0).forEach(o => {
+     if (o.gasto > o.limite + 0.5) lista.push({ n: 2, txt: `${o.titulo}: ${_fmtEUR.format(o.gasto)} de ${_fmtEUR.format(o.limite)} (passou ${_fmtEUR.format(o.gasto - o.limite)})` });
+     else if (atual && dia >= 7 && frac < 0.9 && o.gasto >= o.limite * 0.5 && o.gasto > o.limite * (frac + 0.25)) lista.push({ n: 1, txt: `${o.titulo}: já vai em ${Math.round(o.gasto / o.limite * 100)}% (${_fmtEUR.format(o.gasto)} de ${_fmtEUR.format(o.limite)}) com ${Math.round(frac * 100)}% do mês passado` });
+   });
+   lista.sort((a, b) => b.n - a.n);
+   return { lista, gasto, proj, recLiq, atual, dia, diasMes };
+ })();
+ const pedirResumoBanco = async () => {
+   if (!alertasBanco) return;
+   setResumoBancoIA({ mes: mesBilIso, a: true });
+   const a = alertasBanco;
+   const linhasOrc = bilOrcs.filter(o => o.limite > 0).map(o => `- ${o.titulo}: gasto ${Math.round(o.gasto)} € de ${Math.round(o.limite)} €`).join('\n');
+   const pergunta = `Faz-me um resumo curto (3 a 4 frases, português de Portugal, tom calmo, sem alarmismo nem moralismo) de como vão os meus gastos de ${mes} de ${ano}, para me guiar. Diz o que está bem, o que merece atenção e uma sugestão concreta para o resto do mês. Usa só estes números:
+- Dia ${a.dia} de ${a.diasMes}${a.atual ? '' : ' (mês já fechado)'}
+- Rendimento líquido previsto do mês: ${Math.round(a.recLiq)} €
+- Gasto até agora (sem investimentos, impostos nem transferências entre contas): ${Math.round(a.gasto)} €${a.atual ? `; a este ritmo, ${Math.round(a.proj)} € no fim do mês` : ''}
+- Orçamentos do Bilance:
+${linhasOrc}`;
+   try { const r = await perguntarIA(pergunta, {}); setResumoBancoIA({ mes: mesBilIso, texto: String(r || '').trim() }); }
+   catch (e) { setResumoBancoIA({ mes: mesBilIso, erro: e.message || String(e) }); }
+ };
  const totAB = despABanca.reduce((a,d)=>a+d.val,0);
  const minhaAB = totAB * (contrib/100);
  const parteSaraAB = totAB * (1-contrib/100);
@@ -3305,6 +3342,25 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
 
  return (<div key={mesKey} className={`space-y-4 sm:space-y-6 ${resumoMaisMob ? '' : 'm-mais-fechado'}`}>
  {agora}
+ {alertasBanco && (() => {
+   const a = alertasBanco; const rIA = resumoBancoIA && resumoBancoIA.mes === mesBilIso ? resumoBancoIA : null;
+   const mais = a.lista.length > 3 ? a.lista.length - 3 : 0;
+   return (
+     <Card>
+       <div className="flex items-center gap-2 flex-wrap">
+         <h3 className="font-semibold flex items-center gap-1.5"><Ico e="🏦"/>Gastos no banco</h3>
+         <span className="text-xs text-slate-500">{fmt(a.gasto)} gastos{a.recLiq > 0 ? ` · ${Math.round(a.gasto / a.recLiq * 100)}% do rendimento líquido` : ''}</span>
+         <Info>Do Bilance: o que já saiu das contas este mês (sem investimentos, impostos nem transferências entre contas), comparado com o rendimento líquido do mês e com os orçamentos do Bilance. «A este ritmo» projeta o gasto até ao fim do mês. Só aparece um aviso quando um orçamento já passou ou vai passar.</Info>
+         <button type="button" onClick={pedirResumoBanco} disabled={rIA && rIA.a} className="ml-auto text-xs text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Um resumo curto, feito pela IA, de como vão os gastos do mês">{rIA && rIA.a ? 'A pensar…' : '✨ Resumo'}</button>
+       </div>
+       {a.lista.length === 0
+         ? <p className="text-sm text-emerald-400 mt-2">✓ Tudo dentro do previsto{a.atual ? ' até agora' : ''}.</p>
+         : <ul className="mt-2 space-y-1 text-sm">{a.lista.slice(0, 3).map((x, i) => <li key={i} className={`flex gap-2 ${x.n === 2 ? 'text-red-400' : 'text-amber-400'}`}><span>{x.n === 2 ? '●' : '◐'}</span><span className="min-w-0">{x.txt}</span></li>)}{mais > 0 && <li className="text-xs text-slate-500 pl-5"><button type="button" onClick={() => setTab('banco')} className="hover:underline">+ {mais} no separador Banco →</button></li>}</ul>}
+       {rIA && rIA.texto && <p className={`mt-3 text-sm leading-relaxed rounded-lg p-3 ${theme === 'light' ? 'bg-violet-50 text-slate-700' : 'bg-violet-500/10 text-slate-200'}`}>{rIA.texto}</p>}
+       {rIA && rIA.erro && <p className="mt-2 text-xs text-red-400">{rIA.erro}</p>}
+     </Card>
+   );
+ })()}
 
  {/* Duas colunas: dinheiro e trabalho à esquerda; transferências e notas à direita */}
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-start">
