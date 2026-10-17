@@ -7,13 +7,14 @@ import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
   mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais, CalendarioFinanceiro, impCalc,
-  anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp,
-  TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor, isoDia, planearMes,
-  trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3,
-  fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, paisDoCliente, recibosDoCliente,
-  regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx, Info, Card,
-  StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
+  lerBilanceLocal, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
+  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
+  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
+  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
+  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
+  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
+  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
+  VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -571,6 +572,27 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
   const [G, setG] = useState(defG);
   const [M, setM] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
+  // Dados do Bilance: vai ao Drive buscar os ficheiros novos em segundo plano (sem abrir janelas da Google),
+  // pouco depois de a app abrir e depois de hora a hora. Assim os pagamentos marcam-se sem abrir o separador Banco.
+  const contaDriveRef = useRef(''); contaDriveRef.current = (G.recibosDrive || {}).conta || '';
+  useEffect(() => {
+    if (!dataLoaded) return undefined;
+    const ir = () => carregarBanco().then(m => m.sincronizarBilance(carregarTrabalho, contaDriveRef.current, false)).catch(() => {});
+    const t1 = setTimeout(ir, 8000); const t2 = setInterval(ir, 3600000);
+    return () => { clearTimeout(t1); clearInterval(t2); };
+  }, [dataLoaded]);
+  // O banco (Bilance) mostra que um cliente pagou: o recibo fica marcado como recebido nesse dia
+  useEffect(() => {
+    if (!dataLoaded) return undefined;
+    const aplicar = () => {
+      const l = casarPagamentosBanco(M, lerBilanceLocal()); if (!l.length) return;
+      setM(p => { const n = { ...p }; l.forEach(x => { const m2 = n[x.k]; if (!m2) return; const f = arr => (arr || []).map(r => (r.id === x.id && !r.recebidoEm ? { ...r, recebidoEm: x.data, recebidoTx: x.tx, porReceber: false } : r)); n[x.k] = { ...m2, regCom: f(m2.regCom), regSem: f(m2.regSem) }; }); return n; });
+      showToast(l.length === 1 ? `💶 O banco mostra que ${l[0].quem || 'o cliente'} pagou ${_fmtEUR.format(l[0].val)} a ${l[0].data.split('-').reverse().slice(0, 2).join('/')} — recibo marcado como recebido` : `💶 O banco mostra ${l.length} pagamentos de clientes — os recibos ficaram marcados como recebidos`);
+    };
+    aplicar();
+    window.addEventListener('bilance-atualizado', aplicar);
+    return () => window.removeEventListener('bilance-atualizado', aplicar);
+  }, [dataLoaded, M]); // eslint-disable-line react-hooks/exhaustive-deps
   // ── Trabalho (tarefas, pastas, tempos): documento à parte no Firestore (users/<uid>/trabalho/dados).
   //    Se as regras do Firestore não deixarem, guarda-se no documento principal (G.trabalho).
   const [trabDoc, setTrabDoc] = useState(null);
@@ -1325,6 +1347,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
  // true quando o que se vê é a cópia do mês anterior (o mês atual ainda não foi
  // tocado). Basta editar/adicionar qualquer valor para deixar de estar "por atualizar".
  const portfolioPorAtualizar = !patTemPortfolio(mesD.portfolio);
+ // Para o Claude: a app escreve no Drive (pasta do Bilance) um ficheiro com as despesas planeadas e o Portfolio,
+ // para ele criar os orçamentos no Bilance e atualizar lá as contas manuais. Só com acesso ao Drive já ligado.
+ const keySistema = `${hoje.getFullYear()}-${hoje.getMonth() + 1}`;
+ const portSistema = patTemPortfolio((M[keySistema] || {}).portfolio) ? M[keySistema].portfolio : getPortfolioParaMes(keySistema);
+ const appParaClaude = dataLoaded ? JSON.stringify({
+   despesas: { casal: (G.despABanca || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })), pessoais: (G.despPess || []).map(d => ({ desc: d.desc, val: d.val, cat: d.cat, bilance: d.bilance || null })) },
+   contribIvo: G.contrib, orcamentosApp: G.orcamentosGrupos || [], portfolio: { mes: keySistema, itens: patInvestDoPortfolio(portSistema).map(i => ({ desc: i.desc, cat: i.cat, val: patNum(i.val) })) },
+ }) : '';
+ useEffect(() => {
+   if (!appParaClaude) return undefined;
+   const t = setTimeout(() => {
+     let ult = ''; try { ult = localStorage.getItem('app-para-claude') || ''; } catch (e) { /* */ }
+     if (ult === appParaClaude) return;
+     const texto = JSON.stringify({ app: 'orcamento-app', versao: 1, geradoEm: new Date().toISOString(), ...JSON.parse(appParaClaude) });
+     carregarTrabalho().then(m => m.appParaClaudeGuardar((G.recibosDrive || {}).conta || '', 'app-para-claude.json', texto)).then(r => { if (r) { try { localStorage.setItem('app-para-claude', appParaClaude); } catch (e) { /* */ } } }).catch(() => {});
+   }, 20000);
+   return () => clearTimeout(t);
+ }, [appParaClaude]); // eslint-disable-line react-hooks/exhaustive-deps
  // Estado do mês escolhido no topo: Portfolio atualizado? Transações registadas?
  const estadoMesSel = (() => {
    const idx = patIdx(mesKey);

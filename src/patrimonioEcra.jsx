@@ -6,8 +6,9 @@ import {
 import {
   txDuplicadosProvaveis, PAT_COMP, patChave, patEhLiquidez, patItemLiq, patRegras, patId, patNum,
   patStr, patIdx, patSoma, patIso, patDataAceite, patCorte, patRotulo, patTotais,
-  patSerie, patDetalhe, patReservado, patSaldosExtrato, patPoupanca, patTxLiquido, patTxEntre, patVida,
-  patRetorno, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patMovimentos, patEstadoMeses, patRegistosEfetivos
+  patSerie, patDetalhe, patReservado, patSaldosBilance, patSaldosExtrato, patPoupanca, patTxLiquido, patTxEntre,
+  patVida, patRetorno, patListaCreditos, patCreditoNoMes, patRascunho, patLimpar, patMovimentos, patEstadoMeses,
+  patRegistosEfetivos
 } from './patrimonio';
 
 const patFmtK = v => {
@@ -273,7 +274,8 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
   const mov = patMovimentos(G, M, registos, mesKey);
   const corteSel = patCorte(G, M, idxSel);
   // Saldos sugeridos pelo Extrato (menos as contas que já vêm do Portfolio, como a Trade Republic)
-  const saldosExtrato = patSaldosExtrato(G, corteSel).filter(x => !itensLiquidez.some(i => { const a = patChave(i.desc), b = patChave(x.nome); return a === b || a.includes(b) || b.includes(a); }));
+  const saldosBil = patSaldosBilance(corteSel);
+  const saldosExtrato = (saldosBil.length ? saldosBil : patSaldosExtrato(G, corteSel)).filter(x => !itensLiquidez.some(i => { const a = patChave(i.desc), b = patChave(x.nome); return a === b || a.includes(b) || b.includes(a); }));
   const linhaDaConta = x => draft.liquidez.find(l => { const a = patChave(l.nome), b = patChave(x.nome), c = patChave(x.banco); return a && (a === b || a.includes(b) || b.includes(a) || (c && (a === c || a.includes(c) || c.includes(a)))); });
   const saldosDiferentes = saldosExtrato.filter(x => { const l = linhaDaConta(x); return !l || Math.abs(patNum(l.val) - x.saldo) > 0.005; });
   const usarSaldosExtrato = () => {
@@ -754,7 +756,7 @@ const Patrimonio = ({ G, uG, M, mesKey, portfolio, temPortfolioProprio, theme, o
             <PatLinhas titulo="Liquidez" cor="#059669" linhas={draft.liquidez} fixas={itensLiquidez} onMoverFixa={x => marcarDinheiro(x, false)} onChange={l => setDraft({ ...draft, liquidez: l })} inp={inp} sub={sub} placeholder="Conta" />
             {saldosDiferentes.length > 0 && (
               <div className={`mt-3 rounded-xl p-3 text-xs ${escuro ? 'bg-slate-700/30' : 'bg-slate-100'}`}>
-                <p className="font-medium">Saldos encontrados no Extrato</p>
+                <p className="font-medium">{saldosBil.length ? 'Saldos das contas no banco (do Bilance)' : 'Saldos encontrados no Extrato'}</p>
                 <ul className={`mt-1 space-y-0.5 ${sub}`}>
                   {saldosDiferentes.map(x => (
                     <li key={x.contaId} className="flex justify-between gap-2"><span>{x.nome} · saldo de {x.data.split('-').reverse().join('/')}</span><span>{f(x.saldo)}</span></li>

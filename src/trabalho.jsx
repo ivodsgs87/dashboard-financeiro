@@ -9584,6 +9584,18 @@ const bilanceGuardar = async (conta, nome, texto) => {
   const file = new Blob([texto], { type: 'application/json' });
   return enviarParaDrive(t, { file, nome, pasta });
 };
+// Ficheiro que a app escreve para o Claude ler (despesas, Portfolio): um só, atualizado no sítio (é da app, não é um
+// documento teu). Só corre com um acesso ao Drive que já exista — nunca abre a janela da Google.
+const appParaClaudeGuardar = async (conta, nome, texto) => {
+  const t = await tokenSemJanela(conta); if (!t) return null;
+  const fs = await bilanceListar(conta, false) || [];
+  const pai = (fs.find(f => f.parents && f.parents[0]) || {}).parents;
+  const pasta = pai ? pai[0] : (await pastaDrive(t, 'root', BILANCE_PASTA)).id;
+  const q = encodeURIComponent(`name='${nome}' and '${pasta}' in parents and trashed=false`);
+  const ex = ((await driveApi(t, `${DRV}?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`)).files || [])[0];
+  const file = new Blob([texto], { type: 'application/json' });
+  return enviarParaDrive(t, { file, nome, pasta, idExistente: ex ? ex.id : null });
+};
 const INFO_DRIVE = new Map();
 const infoDrive = async (token, id) => {
   if (INFO_DRIVE.has(id)) return INFO_DRIVE.get(id);
@@ -9745,5 +9757,5 @@ const guardarReciboNoDrive = async ({ ficheiro, empresa, cliente, data, pastaUrl
   return { nome, pasta: `${nomeCli}/${ano}/${pTrim.name || `${trim}º_Trimestre`}`, url: (res && res.webViewLink) || pTrim.webViewLink || `https://drive.google.com/drive/folders/${pTrim.id}`, id: res && res.id };
 };
 
-export { bilanceListar, bilanceBaixar, bilanceGuardar, Trabalho, PreviewDocModal, BriefCrono, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
+export { bilanceListar, bilanceBaixar, bilanceGuardar, appParaClaudeGuardar, Trabalho, PreviewDocModal, BriefCrono, guardarReciboNoDrive, ligarDriveSempre, desligarDriveSempre, ligadoSempre, sincronizarSempre, carregarGis, ligarGoogleTasks, pedirTasks, listarRecibosDrive, ficheiroDoDrive, lerFaturaIA, tokenSemJanela, descarregarDriveSemJanela, arrumarNoDrive };
 export const FICHEIRO_APP = 'trabalho';

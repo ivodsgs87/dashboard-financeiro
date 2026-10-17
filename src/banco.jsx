@@ -117,6 +117,31 @@ const juntarBilance = (base, f) => {
   return { geradoEm: novo ? f.geradoEm : b.geradoEm, contexto: (novo && f.contexto) || b.contexto || f.contexto, transacoes: lista };
 };
 
+// Vai ao Drive buscar os ficheiros do Bilance que ainda não foram lidos e junta-os ao que está no browser.
+// Sem comJanela só usa um acesso que já exista (não abre a janela da Google). Devolve null se não houver acesso.
+let _aSincronizar = null;
+const sincronizarBilance = (carregar, conta, comJanela) => {
+  if (_aSincronizar && !comJanela) return _aSincronizar;
+  const p = (async () => {
+    const mod = await carregar();
+    if (comJanela && mod.carregarGis) await mod.carregarGis().catch(() => {});
+    const fs = await mod.bilanceListar(conta, comJanela);
+    if (!fs) return null;
+    let d = lerLS(LS_CACHE, null) || { ids: [], geradoEm: null, contexto: null, transacoes: [] };
+    const vistos = new Set(d.ids || []);
+    const novos = fs.filter(f => !vistos.has(f.id)).sort((a, b) => String(a.createdTime || a.name).localeCompare(String(b.createdTime || b.name)));
+    let n = 0;
+    for (const f of novos) {
+      try { const txt = await mod.bilanceBaixar(conta, f.id, comJanela); const fic = lerFicheiroBilance(txt); d = { ...juntarBilance(d, fic), ids: [...(d.ids || []), f.id] }; n++; }
+      catch (e) { d = { ...d, ids: [...(d.ids || []), f.id] }; console.warn('Ficheiro do Bilance ignorado:', f.name, e); }
+    }
+    if (novos.length) { gravarLS(LS_CACHE, d); try { window.dispatchEvent(new Event('bilance-atualizado')); } catch (e) { /* */ } }
+    return { d: novos.length ? d : null, n, total: fs.length };
+  })();
+  _aSincronizar = p; p.finally(() => { if (_aSincronizar === p) _aSincronizar = null; });
+  return p;
+};
+
 // ── Contas do mês ──
 const montarCats = ctx => {
   const m = {};
@@ -205,27 +230,17 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes })
   const regRef = useRef(null);
   useEffect(() => { gravarLS(LS_UI, { conta }); }, [conta]);
 
-  const guardar = d => { setDados(d); if (!gravarLS(LS_CACHE, d)) showToast && showToast('O browser não deixou guardar os dados do Bilance (falta espaço). Ficam só até fechares a app.', 'error'); };
+  const guardar = d => { setDados(d); const ok = gravarLS(LS_CACHE, d); try { window.dispatchEvent(new Event('bilance-atualizado')); } catch (e) { /* */ } if (!ok) showToast && showToast('O browser não deixou guardar os dados do Bilance (falta espaço). Ficam só até fechares a app.', 'error'); };
 
   const atualizar = async (comJanela) => {
     if (!carregar) return;
     setEstado({ a: true });
     try {
-      const mod = await carregar();
-      if (comJanela && mod.carregarGis) await mod.carregarGis().catch(() => {});
-      const fs = await mod.bilanceListar(contaDrive, comJanela);
-      if (!fs) { setEstado({ semLigacao: true }); return; }
-      let d = lerLS(LS_CACHE, null) || { ids: [], geradoEm: null, contexto: null, transacoes: [] };
-      const vistos = new Set(d.ids || []);
-      const novos = fs.filter(f => !vistos.has(f.id)).sort((a, b) => String(a.createdTime || a.name).localeCompare(String(b.createdTime || b.name)));
-      let n = 0;
-      for (const f of novos) {
-        try { const txt = await mod.bilanceBaixar(contaDrive, f.id, comJanela); const fic = lerFicheiroBilance(txt); d = { ...juntarBilance(d, fic), ids: [...(d.ids || []), f.id] }; n++; }
-        catch (e) { d = { ...d, ids: [...(d.ids || []), f.id] }; console.warn('Ficheiro do Bilance ignorado:', f.name, e); }
-      }
-      if (n || !dados) guardar(d);
-      setEstado({ ok: true, n, total: fs.length });
-      if (comJanela && showToast) showToast(n ? `🏦 ${n === 1 ? 'Um ficheiro novo' : `${n} ficheiros novos`} do Bilance` : '🏦 Já estava tudo atualizado');
+      const r = await sincronizarBilance(carregar, contaDrive, comJanela);
+      if (!r) { setEstado({ semLigacao: true }); return; }
+      if (r.d) setDados(r.d);
+      setEstado({ ok: true, n: r.n, total: r.total });
+      if (comJanela && showToast) showToast(r.n ? `🏦 ${r.n === 1 ? 'Um ficheiro novo' : `${r.n} ficheiros novos`} do Bilance` : '🏦 Já estava tudo atualizado');
     } catch (e) { setEstado({ erro: e.message || String(e) }); }
   };
   useEffect(() => { atualizar(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -579,5 +594,5 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes })
   );
 };
 
-export { Banco, lerFicheiroBilance, juntarBilance, resumoMes, montarCats, gastoOrcamento };
+export { Banco, sincronizarBilance, lerFicheiroBilance, juntarBilance, resumoMes, montarCats, gastoOrcamento };
 export const FICHEIRO_APP = 'banco';
