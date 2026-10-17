@@ -1334,8 +1334,17 @@ const impCalc = (G, M, hoje = new Date()) => {
   // Afinação: compara a fórmula com o que pagaste na declaração mais recente que tenha receitas na app
   const comDados = mesesSSPagos.filter(i => i > idxHoje - 13 && i <= idxHoje && ssForm(ssBase(i)).rec > 0);
   const baseRecente = comDados.length ? ssBase(comDados[comDados.length - 1]) : null;
-  const paresSS = comDados.filter(i => ssBase(i) === baseRecente).map(i => ({ real: somaMes('SS', i), f: ssForm(baseRecente) }));
-  const fatorSS = paresSS.length ? paresSS.reduce((a, x) => a + x.real, 0) / paresSS.reduce((a, x) => a + x.f.val, 0) : 1;
+  let paresSS = comDados.filter(i => ssBase(i) === baseRecente).map(i => ({ real: somaMes('SS', i), f: ssForm(baseRecente) }));
+  let baseAfina = baseRecente;
+  // O valor da notificação da SS (se for de uma declaração mais recente) também serve para afinar
+  const notifs = Object.entries(G.ssNotificadas || {}).map(([b, v]) => ({ b: Number(b), v: impNum(v) })).filter(x => x.v > 0 && ssForm(x.b).rec > 0 && x.b > idxHoje - 15).sort((a, b) => b.b - a.b);
+  if (notifs.length && (baseRecente == null || notifs[0].b > baseRecente)) { paresSS = [{ real: notifs[0].v, f: ssForm(notifs[0].b) }]; baseAfina = notifs[0].b; }
+  // A SS só deixa variar o rendimento até 25% para cima ou para baixo. Uma diferença maior quer dizer que a declaração
+  // e as receitas da app não batem (ex.: recibos esquecidos ou com datas noutro trimestre) — aí não se afina e avisa-se.
+  const fatorBruto = paresSS.length ? paresSS.reduce((a, x) => a + x.real, 0) / paresSS.reduce((a, x) => a + x.f.val, 0) : 1;
+  const ssDesencontro = paresSS.length && (fatorBruto < 0.7 || fatorBruto > 1.3) ? { base: baseAfina, nome: [0, 1, 2].map(k => curto(baseAfina + k)).join('+'), anoBase: Math.floor(baseAfina / 12), pago: paresSS[0].real, formula: paresSS[0].f.val, rec: paresSS[0].f.rec } : null;
+  if (ssDesencontro) paresSS = [];
+  const fatorSS = paresSS.length ? fatorBruto : 1;
   const ssPara = p => {
     const base = ssBase(p), f = ssForm(base);
     const info = { mes: p, base, rec: f.rec, formula: f.val, nomeBase: [0, 1, 2].map(k => curto(base + k)).join('+'), anoBase: Math.floor(base / 12) };
@@ -1416,7 +1425,7 @@ const impCalc = (G, M, hoje = new Date()) => {
   return {
     // SS
     ssPara, ivaPag: i => { const q = qDe(i - 3); return { ...ivaQ(q.ini), t: q.t, ano: q.ano }; },
-    ssEste, ssProx, ssDepois, ssMesAtual: ssEste.valor, ssProximoMes: ssProx.valor, ssMensal: ssProx.valor, ssAnual, fatorSS, paresSS: paresSS.length,
+    ssEste, ssProx, ssDepois, ssMesAtual: ssEste.valor, ssProximoMes: ssProx.valor, ssMensal: ssProx.valor, ssAnual, fatorSS, paresSS: paresSS.length, ssDesencontro,
     receitasTrimestreDeclarado: ssEste.rec, nomeMesesDeclarados: ssEste.nomeBase, anoMesesDeclarados: ssEste.anoBase,
     rendimentoRelevanteSS: ssProx.rec * 0.70,
     // IVA
