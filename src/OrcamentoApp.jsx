@@ -3394,24 +3394,12 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
        </>);
      })()}
    </Card></div>
- <Card className="m-mais">
-   <h3 className="font-semibold mb-2"><Ico e="📝"/>Notas de {mes}</h3>
-   <textarea
-     className={`w-full ${inputClass} text-sm resize-y`}
-     rows={4}
-     placeholder="Ex.: férias 2 semanas, cliente X pagou adiantado…"
-     key={'notas-' + mesKey}
-     defaultValue={M[mesKey]?.notas || ''}
-     onBlur={e => uM('notas', e.target.value)}
-     aria-label={`Notas de ${mes}`}
-   />
- </Card>
  </div>
  </div>
 
  {/* Telemóvel: abrir/fechar os cartões secundários */}
  <div className="sm:hidden flex flex-col gap-2">
-   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: trabalho e notas'}</button>
+   <button onClick={() => setResumoMaisMob(v => !v)} className="w-full py-3 rounded-xl tile text-sm font-medium">{resumoMaisMob ? 'Ver menos' : 'Ver mais: trabalho'}</button>
    <button onClick={() => { setTab('ano'); window.scrollTo({ top: 0 }); }} className="w-full py-2 text-sm text-blue-400">Como está a correr o ano? Ver «O meu ano» →</button>
  </div>
  </div>);
@@ -3923,18 +3911,6 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
              </div>
            </div>
            
-           {/* Notas do mês */}
-           <div className={`p-3 mb-4 rounded-xl border ${theme === 'light' ? 'bg-amber-50 border-amber-200' : 'bg-amber-500/10 border-amber-500/30'}`}>
-             <p className="text-xs text-slate-400 mb-2"><Ico e="📝"/>Notas de {mes}</p>
-             <textarea
-               className={`w-full ${inputClass} text-sm resize-none`}
-               rows={2}
-               placeholder="Ex: Férias 2 semanas, cliente X pagou adiantado..."
-               key={'notas-' + mesKey}
-               defaultValue={M[mesKey]?.notas || ''}
-               onBlur={e => uM('notas', e.target.value)}
-             />
-           </div>
            
          </Card>
          </>)}
