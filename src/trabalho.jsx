@@ -2539,7 +2539,8 @@ const MenuMais = ({ claro, itens }) => {
 };
 // No ecrã grande a janela da tarefa cabe toda no ecrã: cada coluna rola sozinha se precisar
 const COL_XL = 'xl:h-full xl:overflow-y-auto xl:pr-1 xl:-mr-1 [scrollbar-width:thin]';
-const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota, nav }) => {
+const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFechar, onEnviarAnexo, onApagarAnexo, showToast, notasDe, onAbrirNota, onNovaNota, nav, perguntarIA }) => {
+  const [sugNome, setSugNome] = useState(null); // sugestões de conceito pelo script do brief
   const claro = useClaro(theme);
   const [hManual, setHManual] = useState('');
   const [diaManual, setDiaManual] = useState(trabDia(new Date().toISOString()));
@@ -2594,6 +2595,44 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
     const lidas = contarPecas(cuPecas(nome));
     set({ nome, pecas: !Object.keys(limpas).length || mesmasPecas(lidas, limpas) ? null : limpas });
     setGravou(true);
+  };
+  // ✨ Sugerir o conceito pelo script do brief (o slide desta tarefa), no estilo dos nomes que já usas neste jogo
+  const sugerirNome = async () => {
+    if (!perguntarIA) return;
+    setSugNome({ a: true });
+    try {
+      let script = '', slideN = null;
+      const a = (t.anexos || []).find(x => tipoAnexo(x) === 'link' && googleId(x.url) && (tipoGoogle(x.url) === 'slides' || /\.pptx$/i.test(x.nome || '')));
+      if (a) {
+        const doc = await lerBrief(contaDe(t.cid), a.url);
+        if (doc.slides && doc.slides.length) {
+          slideN = slideDaTarefa(doc.slides, a.url, t);
+          if (!slideN) throw new Error('Não sei qual é o slide desta tarefa: abre o brief e escolhe-o em «★ Qual é o slide desta tarefa?».');
+          const sl = doc.slides[slideN - 1]; script = `${sl.texto || ''}\n${sl.notas || ''}`;
+        } else script = doc.texto || '';
+      }
+      if (!String(script).trim() && t.notas) script = t.notas;
+      script = String(script || '').trim().slice(0, 4000);
+      if (!script) throw new Error('Não encontrei o script: junta o brief (slides) à tarefa ou cola o script nas notas da tarefa.');
+      const kj = chaveJogoT(t);
+      const vistos = new Set();
+      const exemplos = (trab.tarefas || []).filter(x => x.id !== t.id && String(x.cid) === String(t.cid) && (!kj || chaveJogoT(x) === kj))
+        .sort((x, y) => String(y.criada || '').localeCompare(String(x.criada || '')))
+        .map(x => conceitoDoNome(x.nome, cu)).filter(c => c && !vistos.has(c.toLowerCase()) && vistos.add(c.toLowerCase())).slice(0, 30);
+      const j = jogoDaTarefa(trab, t);
+      const pergunta = `Tarefa de nomes (não é sobre finanças). Dá nomes curtos a conceitos de vídeos publicitários (user acquisition) de jogos mobile.${j && j.nome ? ` Jogo: ${j.nome}.` : ''}
+${exemplos.length ? `Nomes de conceitos já usados neste jogo — segue exatamente o mesmo estilo (língua, maiúsculas, tamanho, estrutura):\n${exemplos.map(x => `- ${x}`).join('\n')}\n` : 'Estilo: inglês, 2 a 5 palavras, só a primeira letra de cada palavra importante em maiúscula.\n'}
+Script / brief deste vídeo:
+"""
+${script}
+"""
+Responde só com 3 sugestões de nome do conceito para este vídeo, uma por linha, sem números, aspas, explicações nem a variação no fim.`;
+      const r = await perguntarIA(pergunta, {});
+      const lista = String(r || '').split('\n').map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/^["“'«]+|["”'»]+$/g, '').replace(/\*\*/g, '').trim())
+        .filter(l => l && l.length <= 70 && !/:$/.test(l)).slice(0, 3);
+      if (!lista.length) throw new Error('A IA não devolveu sugestões. Tenta outra vez.');
+      setSugNome({ lista, slide: slideN, n: exemplos.length });
+    } catch (e) { setSugNome({ erro: e.message || String(e) }); }
   };
   const gravarConceito = txt => {
     const v = String(txt || '').trim();
@@ -2674,7 +2713,7 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
             </label>
           ) : (
             <div className="flex flex-col gap-1 min-w-0">
-              <span className={`${lab} flex items-center gap-2`} title="O início vem do tipo (em Valor); escreves só o conceito">Nome da tarefa<button type="button" onClick={() => setNomeLivre(true)} className="ml-auto shrink-0 text-blue-400 hover:text-blue-300">Editar o nome todo</button></span>
+              <span className={`${lab} flex items-center gap-2`} title="O início vem do tipo (em Valor); escreves só o conceito">Nome da tarefa{perguntarIA && <button type="button" onClick={sugerirNome} disabled={sugNome && sugNome.a} className="ml-auto shrink-0 text-violet-400 hover:text-violet-300 disabled:opacity-60" title="Lê o script do brief (o slide desta tarefa) e sugere o nome do conceito no estilo dos nomes que já usas neste jogo">{sugNome && sugNome.a ? 'A pensar…' : '✨ Sugerir nome'}</button>}<button type="button" onClick={() => setNomeLivre(true)} className={`${perguntarIA ? '' : 'ml-auto '}shrink-0 text-blue-400 hover:text-blue-300`}>Editar o nome todo</button></span>
               <div className={`flex items-stretch rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${claro ? 'border-slate-300 bg-white' : 'border-slate-600 bg-slate-800'}`}>
                 <span className={`shrink-0 flex items-center px-3 py-1.5 text-sm font-semibold max-w-[45%] sm:max-w-none sm:whitespace-nowrap border-r ${claro ? 'bg-blue-50 text-blue-700 border-slate-200' : 'bg-blue-500/10 text-blue-300 border-slate-700'}`} title="Muda quando escolhes o tipo em Valor">{prefixo}</span>
                 <textarea key={t.id + 'c' + t.nome} defaultValue={conceitoAtual} rows={1} aria-label="Conceito da tarefa" placeholder="Conceito (ex.: Monthly earnings - variation)"
@@ -2684,6 +2723,15 @@ const DetalheTarefa = ({ t, trab, cu, clientes, theme, inputClass, mudar, onFech
                   onBlur={e => gravarConceito(e.target.value)}
                   className="flex-1 min-w-0 bg-transparent px-3 py-2 text-base font-semibold resize-none overflow-hidden leading-snug outline-none" />
               </div>
+              {sugNome && !sugNome.a && (
+                <div className={`flex flex-wrap items-center gap-1.5 text-xs ${sub}`}>
+                  {sugNome.erro ? <span className="text-amber-400">{sugNome.erro}</span> : <>
+                    <span>✨ {sugNome.slide ? `Pelo slide ${sugNome.slide}` : 'Pelo script'}{sugNome.n ? ` e ${sugNome.n} nomes deste jogo` : ''}:</span>
+                    {sugNome.lista.map(x => <button key={x} type="button" onClick={() => { gravarConceito(x); setSugNome(null); }} className={`px-2 py-1 rounded-md font-medium ${claro ? 'bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-violet-500/15 text-violet-300 hover:bg-violet-500/25'}`} title="Usar este nome (depois podes acrescentar o resto)">{x}</button>)}
+                  </>}
+                  <button type="button" onClick={() => setSugNome(null)} className="ml-auto hover:text-slate-200" aria-label="Fechar sugestões">✕</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -8744,7 +8792,7 @@ const importarFicheiro = async (file, trab, clientes) => {
 // ══ O separador ══
 const NAV_TRAB_FEITO = new Set();
 const ORDEM_VISIVEL = { ids: [] };
-const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onApagarRecibo, onMarcarRecibo, nIgnoradosDrive, onDesignorarDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
+const Trabalho = ({ perguntarIA, navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar, modo, clientes: clientesIn, cu, theme, inputClass: icIn, ano, mesNum, showToast, onPrecos, faturado, onCliente, onNovoCliente, onCu, onImportarClientes, calendario, onApagarCliente, onEnviarAnexo, onApagarAnexo, notasDe, onAbrirNota, onNovaNota, recibosDe, onAbrirRecibo, onJuntarRecibo, onCriarReciboFatura, onApagarReciboFatura, onIrMes, taxaReserva, contaDriveRecibos = '', obterRecibo, onImportarRecibo, recibosDrivePend = [], onIgnorarReciboDrive, onMesEmissaoRecibos, onApagarRecibo, onMarcarRecibo, nIgnoradosDrive, onDesignorarDrive, onSincRecibosDrive, recSinc, cfgRecibosDrive, onCfgRecibosDrive, itensRecibosDrive }) => {
   const inputClass = `${icIn || ''} w-full min-w-0`;
   const trab = trabIn || TRAB_VAZIO;
   // Faturas novas no Drive (ex.: guardadas no PC): vê ao abrir, quando voltas a esta janela e de 3 em 3 minutos
@@ -9428,7 +9476,7 @@ const Trabalho = ({ navSub, onNavEmpurrar, onNavSubstituir, trab: trabIn, mudar,
         const ordem = vis.includes(tarefaSel.id) ? vis : (trab.tarefas || []).filter(x => x.pastaId === tarefaSel.pastaId).sort((a, b) => String(a.criada || '').localeCompare(String(b.criada || ''))).map(x => x.id);
         const i = ordem.indexOf(tarefaSel.id);
         return i >= 0 && ordem.length > 1 ? { ant: ordem[i - 1] || null, seg: ordem[i + 1] || null, pos: i + 1, total: ordem.length, ir: id => setTarefaAberta(id) } : null;
-      })()} t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
+      })()} perguntarIA={perguntarIA} t={tarefaSel} trab={trab} cu={cu} clientes={clientes} theme={theme} inputClass={inputClass} mudar={mudar} onFechar={() => setTarefaAberta(null)} onEnviarAnexo={onEnviarAnexo} onApagarAnexo={onApagarAnexo} showToast={showToast} notasDe={notasDe} onAbrirNota={onAbrirNota} onNovaNota={onNovaNota} />}
     </div>
   );
 };

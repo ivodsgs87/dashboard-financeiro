@@ -12914,7 +12914,7 @@ ${transacoesOrdenadas.map(t => `<tr>
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}
    entidades={entidadesNotas} onIrEntidade={irEntidade} abrir={notaAbrir} onAberto={() => setNotaAbrir(null)} showToast={showToast} /></Suspense>}
-{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho taxaReserva={taxa} contaDriveRecibos={(G.recibosDrive || {}).conta || ''}
+{tab==='trabalho' && <Suspense fallback={<SeparadorCarregar/>}><Trabalho perguntarIA={perguntarIA} taxaReserva={taxa} contaDriveRecibos={(G.recibosDrive || {}).conta || ''}
    onImportarRecibo={user && user.uid && typeof enviarAnexo === 'function' ? importarReciboFicheiro : null} recibosDrivePend={(G.recibosDrive || {}).pasta ? (G.recibosDrivePend || []) : []}
    onIgnorarReciboDrive={ignorarReciboDrive} nIgnoradosDrive={(G.recibosDriveIgnorar || []).length}
    onDesignorarDrive={() => { saveUndo(); uG('recibosDriveIgnorar', []); showToast('Os ficheiros ignorados voltam a aparecer na próxima sincronização — carrega em «☁ Ver o Drive agora»'); }}
