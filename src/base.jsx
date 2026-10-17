@@ -864,6 +864,25 @@ const valorQueChega = r => (Number(r.val) || 0) + (parseFloat(r.iva) || 0) - (pa
 // (até 1 € ou 0,2% de diferença) entre 3 dias antes e 150 dias depois do recibo. Cada entrada só serve um recibo.
 const lerBilanceLocal = () => { try { return JSON.parse(localStorage.getItem('bilance-v1') || 'null'); } catch (e) { return null; } };
 const CATS_ENTRADA_CLIENTE = /^(c08_01|c08_12|c08:other|c08|c10|c09)$/;
+// ── Categorias do Bilance (os nomes vêm em inglês; aqui ficam como na app do Bilance em português) ──
+const BIL_CAT_PT = {
+  c01: 'Comida e Bebida', c01_01: 'Supermercado', c01_02: 'Restaurantes, Entregas', c01_03: 'Álcool, Tabaco', c01_04: 'Café, Lanches',
+  c02: 'Compras', c02_01: 'Roupa, Acessórios', c02_02: 'Produtos de beleza', c02_06: 'Eletrónica', c02_07: 'Presentes',
+  c03: 'Casa', c03_01: 'Renda, Prestação', c03_02: 'Energia, Água', c03_03: 'Manutenção, Reparações', c03_04: 'Seguro da casa', c03_05: 'Móveis, Decoração', c03_06: 'Jardim, Plantas', c03_07: 'Segurança', c03_08: 'Limpeza, Empregada', c03_09: 'Obras',
+  c04: 'Transporte', c04_01: 'Transportes públicos', c04_02: 'Táxi', c04_03: 'Viagens longas', c04_04: 'Combustível', c04_05: 'Estacionamento', c04_06: 'Manutenção do carro', c04_07: 'Aluguer', c04_08: 'Seguro do carro', c04_09: 'Leasing',
+  c05: 'Vida e Lazer', c05_04: 'Telemóvel, Internet', c05_05: 'Jogo, Lotaria', c05_06: 'Hobbies', c05_08: 'TV, Música, Streaming', c05_09: 'Férias, Viagens', c05_10: 'Caridade', c05_11: 'Cultura, Eventos', c05_13: 'Serviços digitais, Software', c05_14: 'Livros, Notícias', c05_15: 'Presentes', c05_16: 'Festas',
+  c06: 'Despesas Financeiras', c06_01: 'Impostos', c06_02: 'Seguros', c06_03: 'Crédito, Juros', c06_04: 'Multas', c06_05: 'Contabilidade', c06_06: 'Comissões bancárias', c06_08: 'Empresa',
+  c07: 'Investimentos', c07_01: 'Imobiliário', c07_02: 'Investimentos financeiros', c07_03: 'Poupança', c07_04: 'Reforma',
+  c08: 'Rendimento', c08_01: 'Salário', c08_02: 'Reembolsos de impostos', c08_03: 'Rendas recebidas', c08_04: 'Subsídios, Bolsas', c08_06: 'Vendas', c08_07: 'Pensão de alimentos', c08_08: 'Presentes', c08_09: 'Apoios', c08_10: 'Juros, Dividendos', c08_12: 'Compensações',
+  c09: 'Outros', c10: 'Por definir', c11: 'Transferências internas',
+  c12: 'Saúde e Educação', c12_01: 'Saúde, Médico', c12_02: 'Bem-estar, Beleza', c12_03: 'Desporto, Ginásio', c12_04: 'Educação, Formação',
+  c13: 'Filhos', c13_01: 'Mesada', c13_02: 'Escola', c13_03: 'Pensão de alimentos', c13_04: 'Atividades', c13_05: 'Saúde', c13_06: 'Roupa', c13_07: 'Brinquedos', c13_08: 'Presentes', c13_09: 'Ama',
+  c14: 'Animais', c14_01: 'Comida', c14_02: 'Veterinário', c14_03: 'Brinquedos', c14_04: 'Serviços', c14_05: 'Hotel',
+  c15: 'Excluídas',
+};
+const BIL_CAT_COR = { c01: '#43b649', c02: '#14a37f', c03: '#a3b800', c04: '#4a6ee0', c05: '#1aa3e8', c06: '#d05f5f', c07: '#8b5cf6', c08: '#f5a300', c09: '#94a3b8', c10: '#64748b', c11: '#7c7c9c', c12: '#e8823a', c13: '#ec4899', c14: '#a16207', c15: '#475569' };
+const BIL_CAT_ICO = { c01: '🍽', c02: '🛍', c03: '🏠', c04: '🚗', c05: '🎭', c06: '💲', c07: '📈', c08: '💼', c09: '•', c10: '?', c11: '⇄', c12: '🩺', c13: '🧒', c14: '🐾', c15: '⊘' };
+
 // Orçamentos do Bilance (dados guardados pelo separador Banco): quanto já se gastou em cada um num mês
 const bilPrincipal = (ctx, id) => { const s = String(id || 'c10'); if (s.includes(':')) return s.split(':')[0]; if (/^c\d\d_/.test(s)) return s.split('_')[0]; if (/^c\d\d$/.test(s)) return s; const c = ((ctx && ctx.categorias) || []).find(x => x.id === s); return (c && c.pai) || s; };
 const bilPartes = t => { const a = t.a != null ? t.a : t.v; if (!a) return []; if (Array.isArray(t.k)) { const soma = t.k.reduce((x, [, v]) => x + v, 0) || t.v || 1; return t.k.map(([id, v]) => [id, a * (v / soma)]); } return [[t.k || 'c10', a]]; };
@@ -885,6 +904,7 @@ const bilOrcDe = (d, orcs, conta = '') => {
   if (!d || !orcs || !orcs.length) return null;
   if (d.orcBil === '-') return null;
   if (d.orcBil) { const o = orcs.find(x => x.titulo === d.orcBil); if (o) return o; } // escolhido à mão (se mudou de nome no Bilance, volta a procurar)
+  if (d.orcBil && d.orcBil !== d.desc) { const r = bilOrcDe({ desc: d.orcBil }, orcs, conta); if (r) return r; } // primeiro pelo nome antigo do orçamento
   const wd = bilPalavras(d.desc); if (!wd.length) return null;
   const pref = conta ? new RegExp(conta, 'i') : null;
   let melhor = null, mp = 0;
@@ -895,6 +915,34 @@ const bilOrcDe = (d, orcs, conta = '') => {
     if (p > mp) { mp = p; melhor = o; }
   });
   return melhor;
+};
+// Impostos pagos vistos no banco: Segurança Social e Finanças (IGCP/AT). Um pagamento às Finanças num mês de IVA
+// (fev, mai, ago, nov) com o valor do IVA do trimestre (±10%) conta como IVA; os outros como IRS.
+// Devolve { novos, vistos } — os já registados à mão (mesmo tipo, mês e valor) só ficam marcados como vistos.
+const RE_IMP_SS = /seguran[cç]a\s*social|instituto\s*gest\S*\s*financ|igfss/i;
+const RE_IMP_AT = /\bigcp\b|autoridade\s*tribut|\bfinan[cç]as\b|\bdgci\b/i;
+const impostosDoBanco = (G, M, d) => {
+  const vistos = new Set((G && G.impostosBancoVistos) || []);
+  const pagos = [...(((G && G.impostosPagos) || []))];
+  const ivaTrim = (y, q) => { let t = 0; for (let m = q * 3 - 2; m <= q * 3; m++) ((M[`${y}-${m}`] || {}).regCom || []).forEach(r => { t += parseFloat(r.iva) || 0; }); return t; };
+  const novos = [], marcar = [];
+  ((d && d.transacoes) || []).forEach(t => {
+    if (t.x || t.p || !(t.v < 0) || vistos.has(t.i) || String(t.d) < '2026-01-01') return;
+    const tit = String(t.t || ''), ids = Array.isArray(t.k) ? t.k.map(x => x[0]) : [t.k || 'c10'];
+    let tipo = null;
+    if (RE_IMP_SS.test(tit)) tipo = 'SS';
+    else if (RE_IMP_AT.test(tit) || (ids.includes('c06_01') && /\bpag\b|imposto/i.test(tit))) {
+      const y = +t.d.slice(0, 4), m = +t.d.slice(5, 7); let iva = 0;
+      if ([2, 5, 8, 11].includes(m)) iva = m === 2 ? ivaTrim(y - 1, 4) : ivaTrim(y, (m - 2) / 3);
+      tipo = iva > 0 && Math.abs(-t.v - iva) <= Math.max(5, iva * 0.1) ? 'IVA' : 'IRS';
+    } else return;
+    const valor = Math.round(-t.v * 100) / 100;
+    marcar.push(t.i);
+    if (pagos.some(p => p && p.tipo === tipo && String(p.data || '').slice(0, 7) === t.d.slice(0, 7) && Math.abs((parseFloat(p.valor) || 0) - valor) < 1)) return;
+    const novo = { id: Date.now() + Math.random(), tipo, data: t.d, valor, referencia: `Banco: ${tit}`, notas: 'Marcado sozinho a partir do banco (Bilance)', txBanco: t.i };
+    novos.push(novo); pagos.push(novo);
+  });
+  return { novos, vistos: marcar };
 };
 const casarPagamentosBanco = (M, d) => {
   const txs = ((d && d.transacoes) || []).filter(t => !t.x && !t.p && t.v > 0 && (Array.isArray(t.k) || CATS_ENTRADA_CLIENTE.test(String(t.k || 'c10'))));
@@ -2872,22 +2920,23 @@ export {
   DraggableList, impRefAuto, PagamentosImpostos, CategoryDropdown, meses, ESCALOES_IRS, DEDUCAO_CATA, IRS_CFG_PADRAO,
   mesDoRecibo, mesEmissaoDe, comPlanoDe, PAGAMENTOS_DESDE, DIAS_PAGAR_PADRAO, hojeIsoPag, somarDiasIso, ddmm,
   diasPagarCli, dataBaseRecibo, PAG_MIN_RECIBOS, mediasPagamento, estadoPagamento, valorQueChega, lerBilanceLocal, CATS_ENTRADA_CLIENTE,
-  bilPrincipal, bilPartes, bilGastoOrc, bilNormOrc, BIL_VAZIAS, bilPalavras, bilPalIgual, bilOrcDe,
-  casarPagamentosBanco, retencaoPadrao, impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG,
-  Ico, IcoTxt, copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR,
-  _semAcentos, BILANCE_POR_DESC, BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance,
-  estimarImpostosRecibo, _normNome, clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO,
-  CU_PRECOS_CLIENTES, cuPresetCliente, cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN,
-  cuEur, cuLerHoras, cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia,
-  trabMsTempo, trabHoras, trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor,
-  pascoaDe, feriadosPT, isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana,
-  trabPorTipo, trabSugerirEstimativa, horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes,
-  trabDiasMes, trabParar, trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal,
-  cronoGravarSinal, CronoTopo, reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct,
-  ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos, nifPTValido,
-  NOME_PAIS_RECIBO, paisDoCliente, recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO, confirmar,
-  avisoApp, DialogoHost, MenuTopo, TemaCtx, Info, Card, StatCard, Button,
-  ProgressBar, Row, AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso,
-  vcData, vcDiasUteis, VC_DIAS_SEMANA, vcPrazosCPCV
+  BIL_CAT_PT, BIL_CAT_COR, BIL_CAT_ICO, bilPrincipal, bilPartes, bilGastoOrc, bilNormOrc, BIL_VAZIAS,
+  bilPalavras, bilPalIgual, bilOrcDe, RE_IMP_SS, RE_IMP_AT, impostosDoBanco, casarPagamentosBanco, retencaoPadrao,
+  impNum, impIRSEscaloes, guiaTransfCalc, transfFalta, transfFeita, ICO_SVG, Ico, IcoTxt,
+  copiasLocais, CAL_CORES, CalendarioFinanceiro, impCalc, anos, _fmtEUR, _semAcentos, BILANCE_POR_DESC,
+  BILANCE_GRUPOS, BILANCE_GRUPO_POR_DESC, BILANCE_POR_CATEGORIA, _grupoCompleto, _contemPalavra, mapearCategoriaBilance, estimarImpostosRecibo, _normNome,
+  clienteDoNome, PROCESS_INVOICE_URLS, ProtecaoErro, CU_TIPOS, CU_CAMPOS_PRECO, CU_PRECOS_PADRAO, CU_PRECOS_CLIENTES, cuPresetCliente,
+  cuTipoDe, cuPecas, cuClienteDe, cuEntregasMes, CU_NOMES_EN, MESES_EN, cuEur, cuLerHoras,
+  cuHorasTxt, EntregasClickUp, TRAB_ESTADOS, TRAB_VAZIO, trabId, trabDia, trabMsTempo, trabHoras,
+  trabACorrer, trabEntrega, cuPreco, trabPecas, trabValorAuto, trabValor, pascoaDe, feriadosPT,
+  isoDia, MES_ABREV, mesDoNomePasta, HORAS_TIPO_PADRAO, trabMedivel, mediana, trabPorTipo, trabSugerirEstimativa,
+  horasTipicas, estimarHorasTarefa, ORDEM_PRIO, planearMes, trabEntreguesMes, trabCustosMes, trabDiasMes, trabParar,
+  trabRelogio, trabPararEm, trabCortarPausa, CRONO_LONGO_H, CRONO_PAUSA_MIN, cronoLerSinal, cronoGravarSinal, CronoTopo,
+  reciboComValor, jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao,
+  faturacaoDoMes, taxaPoupancaDe, PAISES_UE_COD, MORADA_PAISES, semAcentos, nifPTValido, NOME_PAIS_RECIBO, paisDoCliente,
+  recibosDoCliente, regrasRecibo, verificarDados, VerificarDadosModal, DIALOGO, confirmar, avisoApp, DialogoHost,
+  MenuTopo, TemaCtx, Info, Card, StatCard, Button, ProgressBar, Row,
+  AbaEstavel, AvisoFicheiro, lazySeparador, SeparadorCarregar, VC_DEFAULT, vcIso, vcData, vcDiasUteis,
+  VC_DIAS_SEMANA, vcPrazosCPCV
 };
 export const FICHEIRO_APP = 'base';
