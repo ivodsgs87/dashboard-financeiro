@@ -6,16 +6,16 @@ import { adotarVersao, createGoogleSheet, getAccessToken, ouvirTrabalho, guardar
 import {
   StableInput, SliderWithInput, GraficoLinhas, LineChart, AreaChartAllTime, GRAF_COM, GRAF_SEM, BarChart,
   GraficoBarras, PieChart, DraggableList, impRefAuto, PagamentosImpostos, meses, IRS_CFG_PADRAO, mesDoRecibo,
-  mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, ddmm, mediasPagamento, estadoPagamento, valorQueChega,
-  lerBilanceLocal, BIL_CAT_PT, bilPrincipal, bilPartes, bilGastoOrc, bilRegistosMes, bilNormOrc, bilOrcDe,
-  impostosDoBanco, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico, copiasLocais,
-  CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome, PROCESS_INVOICE_URLS,
-  ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega, trabValor,
-  isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor, jsonEstavel,
-  juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes, taxaPoupancaDe,
-  paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo, TemaCtx,
-  Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador, SeparadorCarregar,
-  VC_DEFAULT, vcPrazosCPCV
+  mesEmissaoDe, comPlanoDe, DIAS_PAGAR_PADRAO, hojeIsoPag, somarDiasIso, ddmm, mediasPagamento, estadoPagamento,
+  valorQueChega, lerBilanceLocal, BIL_CAT_PT, bilPrincipal, bilPartes, bilGastoOrc, bilRegistosMes, bilNormOrc,
+  bilOrcDe, impostosDoBanco, casarPagamentosBanco, retencaoPadrao, guiaTransfCalc, transfFalta, transfFeita, Ico,
+  copiasLocais, CalendarioFinanceiro, impCalc, anos, _fmtEUR, mapearCategoriaBilance, estimarImpostosRecibo, clienteDoNome,
+  PROCESS_INVOICE_URLS, ProtecaoErro, EntregasClickUp, TRAB_VAZIO, trabDia, trabMsTempo, trabACorrer, trabEntrega,
+  trabValor, isoDia, planearMes, trabParar, trabPararEm, trabCortarPausa, CronoTopo, reciboComValor,
+  jsonEstavel, juntarVersoes, juntar3, fmtDec, fmtPct, ehNaoFaturacao, idsNaoFaturacao, faturacaoDoMes,
+  taxaPoupancaDe, paisDoCliente, recibosDoCliente, regrasRecibo, VerificarDadosModal, confirmar, DialogoHost, MenuTopo,
+  TemaCtx, Info, Card, StatCard, Button, ProgressBar, AbaEstavel, lazySeparador,
+  SeparadorCarregar, VC_DEFAULT, vcPrazosCPCV
 } from './base';
 import {
   PedirDados, txNumero, txMarcarDuplicados, txDuplicadosProvaveis, txLerFicheiro, patChave, patEhLiquidez, patRegras,
@@ -1752,6 +1752,24 @@ const OrcamentoApp = ({ user, initialData, onSaveData, onLogout, syncing, lastSy
      return { chave: ch, nome: g.nome, med: Math.round(med * 100) / 100, cat: g.cat, nova, fora, casal: /abanca/i.test(`${conta.banco || ''} ${conta.nome || ''}`), contaNome: conta.nome || '' };
    }).filter(Boolean).sort((a, b) => b.med - a.med);
  };
+ // Para o Banco › Clientes: quanto tempo cada cliente demora a pagar (recibos do último ano já recebidos) e o que falta receber
+ const clientesPagBanco = useMemo(() => {
+   const hojeP = hojeIsoPag(), desde = somarDiasIso(hojeP, -365), medias = mediasPagamento(M), por = {};
+   Object.entries(M || {}).forEach(([k, md]) => [...((md && md.regCom) || []), ...((md && md.regSem) || [])].forEach(r => {
+     if (!r || r.cid == null || !(Number(r.val) > 0)) return;
+     const e = estadoPagamento(r, k, G.clientes, hojeP, medias); if (e.semValor || e.assumido || !e.base) return;
+     const cli = (G.clientes || []).find(c => String(c.id) === String(r.cid)); if (!cli) return;
+     const o = por[cli.id] || (por[cli.id] = { nome: cli.nome, cor: cli.cor, dias: [], recebido: 0, pend: [] });
+     if (e.recebido && e.quando >= desde && e.demorou >= 0 && e.demorou < 200) { o.dias.push(e.demorou); o.recebido += valorQueChega(r); }
+     else if (!e.recebido) o.pend.push({ valor: valorQueChega(r), base: e.base, previsto: e.previsto, atraso: e.atraso, desc: r.desc || '' });
+   }));
+   return Object.values(por).filter(o => o.dias.length || o.pend.length).map(o => ({
+     nome: o.nome, cor: o.cor, n: o.dias.length, recebido: o.recebido,
+     media: o.dias.length ? Math.round(o.dias.reduce((a, b) => a + b, 0) / o.dias.length) : null,
+     max: o.dias.length ? Math.max(...o.dias) : null,
+     pend: o.pend.sort((a, b) => (a.previsto < b.previsto ? -1 : 1)), porReceber: o.pend.reduce((a, x) => a + x.valor, 0),
+   })).sort((a, b) => (b.porReceber > 0) - (a.porReceber > 0) || b.recebido - a.recebido);
+ }, [M, G.clientes]);
  const renderRepetidas = () => {
    const l = despesasRepetidas(); if (!l.length) return null;
    const juntar = x => { const chave = x.casal ? 'despABanca' : 'despPess'; const lista = (x.casal ? G.despABanca : G.despPess) || []; uG(chave, [...lista, { id: Date.now(), desc: x.nome, cat: 'Outros', val: Math.round(x.med) }]); showToast(`Juntei «${x.nome}» às despesas ${x.casal ? 'do casal' : 'pessoais'} (${fmt(Math.round(x.med))}/mês) — liga-a a um orçamento no 🏦`); };
@@ -13098,7 +13116,7 @@ ${transacoesOrdenadas.map(t => `<tr>
  {tab==='credito' && <AbaEstavel key="credito" render={Credito} />}
  {tab==='vendacasa' && <Suspense fallback={<SeparadorCarregar/>}><VendaCasa G={G} uG={uG} theme={theme}/></Suspense>}
  {tab==='casamento' && <Suspense fallback={<SeparadorCarregar/>}><Casamento G={G} uG={uG} theme={theme}/></Suspense>}
- {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco gastosBanco={<>{renderGastosBanco()}{renderRepetidas()}</>} theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
+ {tab==='banco' && <Suspense fallback={<SeparadorCarregar/>}><Banco clientesPag={clientesPagBanco} gastosBanco={<>{renderGastosBanco()}{renderRepetidas()}</>} theme={theme} showToast={showToast} contaDrive={(G.recibosDrive || {}).conta || ''} carregar={carregarTrabalho} mesAtivo={`${ano}-${String(meses.indexOf(mes) + 1).padStart(2, '0')}`} onMes={ym => { const [y, m] = ym.split('-').map(Number); setAno(y); setMes(meses[m - 1]); }} /></Suspense>}
 {tab==='notas' && <Suspense fallback={<SeparadorCarregar/>}><Notas perguntarIA={perguntarIA} navSub={navSub && navSub.tab === 'notas' ? navSub : null} onNavEmpurrar={sub => navEmpurrar('notas', sub)} onNavSubstituir={sub => navSubstituir('notas', sub)} indice={notasComb} mudarIndice={mudarNotasComb} modo={notasModo} theme={theme} partilha={partilhaApi}
    lerPagina={lerNotaComb} guardarPagina={guardarNotaComb} apagarPagina={apagarNotaComb}
    enviarImagem={user && user.uid && typeof enviarAnexo === 'function' ? (caminho, f, prog) => enviarAnexo(user.uid, caminho, f, prog) : null}

@@ -181,6 +181,40 @@ const gastoOrcamentoDet = (b, txs, cats) => {
   return { gasto: g, grandes };
 };
 
+// Pagamentos que se repetem (subscrições, contas fixas): o mesmo nome em 3+ dos últimos 6 meses com valor parecido
+// (ou 2 meses seguidos quando o Bilance já o marca como recorrente). Devolve também os que mudaram de preço e os novos.
+const chaveRep = t => norm(t.t).replace(/\d+/g, ' ').replace(/[^a-z ]+/g, ' ').replace(/\b(compra|pagamento|pag|tpa|mbway|dd|debito|direto|sepa)\b/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ');
+const mediana = l => { const a = [...l].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+const recorrentes = (txs, cats, conta, hoje) => {
+  const mesAt = mesDe(hoje), ini = mesSeguinte(mesAt, -6), g = {};
+  for (const t of txs) {
+    if (t.x || t.p || !(t.v < 0) || !daConta(t, conta) || mesDe(t.d) < ini) continue;
+    const k0 = Array.isArray(t.k) ? t.k[0][0] : (t.k || 'c10'), p = principalDe(cats, k0);
+    if (['c07', 'c08', 'c11', 'c15'].includes(p) || (cats[k0] && cats[k0].separada) || k0 === 'c06_01' || -t.v < 1) continue;
+    if (!t.r && ['c01', 'c02', 'c04'].includes(p)) continue; // comida, compras e transportes só se o Bilance os marcar como recorrentes
+    const ch = chaveRep(t); if (ch.length < 3) continue;
+    (g[ch] = g[ch] || []).push({ d: t.d, v: -t.v, nome: t.t, k: k0, r: !!t.r });
+  }
+  const out = [];
+  Object.values(g).forEach(l => {
+    l.sort((a, b) => (a.d < b.d ? -1 : 1));
+    const ms = [...new Set(l.map(x => mesDe(x.d)))];
+    if (l.length / ms.length > 1.5) return; // várias vezes por mês = compras normais (supermercado, café…)
+    const med = mediana(l.map(x => x.v));
+    const estaveis = l.filter(x => Math.abs(x.v - med) <= Math.max(1, med * 0.2)).length / l.length;
+    const ult = l[l.length - 1], ant = l.length > 1 ? l[l.length - 2] : null;
+    const seguidos = ms.length >= 2 && ms[ms.length - 1] === mesSeguinte(ms[ms.length - 2]);
+    if (!((ms.length >= 3 && estaveis >= 0.7) || (seguidos && (ult.r || (ant && Math.abs(ult.v - ant.v) <= Math.max(1, ult.v * 0.1)))))) return;
+    const diasDesde = Math.round((Date.parse(hoje) - Date.parse(ult.d)) / 864e5);
+    if (diasDesde > 45) return; // deixou de aparecer
+    const ant2 = l.length > 2 ? l[l.length - 3] : null;
+    // mudou de preço: o último é diferente dos dois anteriores, que eram iguais entre si
+    const mudou = ant && ant2 && Math.abs(ant.v - ant2.v) <= Math.max(0.5, ant.v * 0.03) && Math.abs(ult.v - ant.v) > Math.max(0.5, ant.v * 0.03) ? { de: ant.v, para: ult.v } : null;
+    out.push({ nome: ult.nome, k: ult.k, mensal: ult.v, ultimo: ult.d, n: l.length, meses: ms.length, nova: ms[0] >= mesSeguinte(mesAt, -1), mudou });
+  });
+  return out.sort((a, b) => b.mensal - a.mensal);
+};
+
 // ── Peças do ecrã ──
 const Bolinha = ({ id, cats, tam = 32 }) => {
   const p = principalDe(cats, id);
@@ -204,7 +238,7 @@ const Donut = ({ fatias, tam = 132, esp = 16, centro, fundo }) => {
   );
 };
 
-const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, gastosBanco }) => {
+const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, gastosBanco, clientesPag = [] }) => {
   const claro = theme === 'light';
   const sub = claro ? 'text-slate-500' : 'text-slate-400';
   const linha = claro ? 'border-slate-200' : 'border-slate-700/60';
@@ -302,6 +336,23 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
   }, [ctx, txs, mes, cats, ehMesAtual, diaHoje, diasMes]);
   const cats_ord = Object.entries(R.porPrinc).filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => b[1] - a[1]);
   const comerc = Object.values(R.comerciantes).sort((a, b) => b.total - a.total).slice(0, 10);
+  const subs = useMemo(() => recorrentes(txs, cats, conta, hojeIso()), [txs, cats, conta]);
+  // Gastos pequenos (menos de 15 €): no mês, e a média por mês este ano
+  const pequenos = useMemo(() => {
+    const eh = t => !t.x && t.v < 0 && t.v > -15 && (() => { const k0 = Array.isArray(t.k) ? t.k[0][0] : (t.k || 'c10'); const p = principalDe(cats, k0); return !['c07', 'c08', 'c11', 'c15'].includes(p) && !(cats[k0] && cats[k0].separada); })();
+    const doMes = txMes.filter(eh); const porCat = {}, porNome = {};
+    doMes.forEach(t => { const p = principalDe(cats, Array.isArray(t.k) ? t.k[0][0] : t.k); porCat[p] = (porCat[p] || 0) - t.v; const k = norm(t.t).replace(/\s+/g, ' ').trim(); const o = porNome[k] || (porNome[k] = { nome: t.t, n: 0, tot: 0 }); o.n++; o.tot -= t.v; });
+    const ano = mes.slice(0, 4); const doAno = txs.filter(t => String(t.d).startsWith(ano) && mesDe(t.d) <= mes && daConta(t, conta) && eh(t));
+    const mesesAno = new Set(doAno.map(t => mesDe(t.d))).size || 1; const totAno = doAno.reduce((a, t) => a - t.v, 0);
+    return { n: doMes.length, tot: doMes.reduce((a, t) => a - t.v, 0), porCat: Object.entries(porCat).sort((a, b) => b[1] - a[1]), top: Object.values(porNome).filter(o => o.n > 1).sort((a, b) => b.tot - a.tot).slice(0, 5), mediaMes: totAno / mesesAno, totAno, mesesAno };
+  }, [txMes, txs, mes, conta, cats]);
+  // Para quantos meses chega o dinheiro das contas, ao ritmo de gastos dos últimos 3 meses completos
+  const reserva = useMemo(() => {
+    const ms = [1, 2, 3].map(i => mesSeguinte(mesDe(hojeIso()), -i)).filter(m => txs.some(t => mesDe(t.d) === m));
+    if (!ms.length) return null;
+    const g = ms.reduce((a, m) => a + resumoMes(txs.filter(t => mesDe(t.d) === m && !(t.v <= -2000)), cats).gasto, 0) / ms.length; // sem gastos únicos de 2000 € ou mais
+    return g > 0 ? { gasto: g, n: ms.length } : null;
+  }, [txs, cats]);
 
   const registos = useMemo(() => {
     const q = norm(pesq.trim());
@@ -364,7 +415,7 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
       {estado && estado.erro && <p className="text-xs text-red-400">Não consegui ler o Drive: {estado.erro}</p>}
       <div className="lg:hidden">
         <div className={`flex gap-0.5 p-1 rounded-xl overflow-x-auto scrollbar-hide ${claro ? 'bg-slate-200/70' : 'bg-white/5'}`} role="tablist" aria-label="Secções do Banco">
-          {[['resumo', 'Resumo'], ['categorias', 'Categorias'], ['orcamentos', 'Orçamentos'], ['dias', 'Dias'], ['registos', 'Registos']].map(([k, l]) => (
+          {[['resumo', 'Resumo'], ['categorias', 'Categorias'], ['orcamentos', 'Orçamentos'], ['subscricoes', 'Subscrições'], ['clientes', 'Clientes'], ['dias', 'Dias'], ['registos', 'Registos']].map(([k, l]) => (
             <button key={k} type="button" role="tab" aria-selected={secao === k} onClick={() => setSecao(k)}
               className={`flex-1 min-w-max px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${secao === k ? (claro ? 'bg-white text-slate-900 shadow-sm' : 'bg-slate-700 text-white') : sub}`}>{l}</button>
           ))}
@@ -414,6 +465,18 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
               </div>
             ))}
           </div>
+          {reserva && saldoTotal > 0 && (() => {
+            const m = saldoTotal / reserva.gasto; const cor = m >= 6 ? 'text-emerald-500' : m >= 3 ? 'text-amber-500' : 'text-red-400';
+            return (
+              <div className={`mt-3 pt-3 border-t ${linha}`}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm">Chega para <Info>Saldo das contas ÷ o que gastaste em média por mês nos últimos {reserva.n === 1 ? 'mês' : `${reserva.n} meses`} ({eur0(reserva.gasto)}), sem os gastos únicos de 2000 € ou mais (obras, móveis grandes…). Os investimentos não contam como gasto. É uma medida de segurança: quanto tempo aguentavas sem receber nada. Entre 3 e 6 meses é o habitual para quem trabalha por conta própria; mais é folga.</Info></span>
+                  <span className={`text-lg font-bold ${cor}`}>{m >= 24 ? '24+' : m.toFixed(1).replace('.', ',')} meses</span>
+                </div>
+                <p className={`text-[11px] ${sub}`}>de gastos, a {eur0(reserva.gasto)}/mês</p>
+              </div>
+            );
+          })()}
           <p className={`text-[11px] mt-3 ${sub}`}>Saldos da última sincronização do Bilance{sincTxt ? ` (${sincTxt})` : ''}.</p>
         </Card>
       </div>
@@ -585,6 +648,86 @@ const Banco = ({ theme, showToast, contaDrive = '', carregar, mesAtivo, onMes, g
           </div>
         </Card>
       )}
+
+      {/* Gastos pequenos */}
+      {pequenos.n > 0 && (
+        <Card className={so('categorias')}>
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <h3 className="font-semibold">Gastos pequenos <span className={`text-xs font-normal ${sub}`}>(menos de 15 €)</span></h3>
+            <span className="text-lg font-bold tabular-nums">{eur(pequenos.tot)}</span>
+          </div>
+          <p className={`text-xs ${sub} mb-3`}>{pequenos.n} compras em {MESES[Number(mes.slice(5, 7)) - 1]} · este ano a média é {eur0(pequenos.mediaMes)}/mês, ~{eur0(pequenos.mediaMes * 12)} por ano</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {pequenos.porCat.slice(0, 4).map(([k, v]) => <span key={k} className={`text-xs px-2 py-1 rounded-full ${claro ? 'bg-slate-100' : 'bg-white/5'}`}>{CAT_ICO[k] || '•'} {(cats[k] || {}).titulo || CAT_PT[k] || k} {eur0(v)}</span>)}
+          </div>
+          {pequenos.top.length > 0 && <div className="space-y-1">
+            {pequenos.top.map(o => (
+              <button key={o.nome} type="button" onClick={() => { setPesq(o.nome); setCatSel(null); setNReg(60); irRegistos(); }} className={`w-full flex items-center justify-between gap-2 py-1.5 border-b ${linha} text-sm text-left hover:text-violet-400`}>
+                <span className="truncate"><span className="inline-block text-[10px] font-bold bg-violet-600 text-white rounded px-1 mr-1.5">{o.n}×</span>{o.nome}</span>
+                <span className="tabular-nums">{eur(o.tot)}</span>
+              </button>
+            ))}
+          </div>}
+        </Card>
+      )}
+
+      {/* Subscrições e clientes */}
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 ${soGrid('subscricoes', 'clientes')}`}>
+        <Card className={so('subscricoes')}>
+          {(() => {
+            const peq = subs.filter(x => x.mensal < 150), fix = subs.filter(x => x.mensal >= 150);
+            const tot = l => l.reduce((a, x) => a + x.mensal, 0);
+            const linhaSub = x => (
+              <div key={x.nome + x.ultimo} className={`flex items-center gap-3 py-2 border-b ${linha}`}>
+                <Bolinha id={x.k} cats={cats} tam={28} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{x.nome}{x.nova && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 align-middle">nova</span>}</div>
+                  <div className={`text-[11px] ${sub} truncate`}>{nomeCat(cats, x.k)} · última a {Number(x.ultimo.slice(8, 10))}/{Number(x.ultimo.slice(5, 7))}{x.mudou ? '' : ` · ${eur0(x.mensal * 12)}/ano`}</div>
+                  {x.mudou && <div className={`text-[11px] ${x.mudou.para > x.mudou.de ? 'text-amber-500' : 'text-emerald-500'}`}>{x.mudou.para > x.mudou.de ? '▲ subiu' : '▼ desceu'} de {eur(x.mudou.de)} para {eur(x.mudou.para)}</div>}
+                </div>
+                <span className="text-sm font-semibold tabular-nums whitespace-nowrap">{eur(x.mensal)}</span>
+              </div>
+            );
+            return (<>
+              <div className="flex items-baseline justify-between gap-2 mb-1">
+                <h3 className="font-semibold">Subscrições e pagamentos fixos</h3>
+                <span className="text-lg font-bold tabular-nums">{eur0(tot(subs))}<span className={`text-xs font-normal ${sub}`}>/mês</span></span>
+              </div>
+              <p className={`text-xs ${sub} mb-2`}>~{eur0(tot(subs) * 12)} por ano · o que aparece todos os meses com valor parecido (últimos 6 meses)</p>
+              {!subs.length && <p className={`text-sm ${sub}`}>Ainda não há meses suficientes para ver o que se repete.</p>}
+              {peq.length > 0 && <><p className={`text-xs font-semibold mt-3 ${sub}`}>Subscrições e serviços · {eur0(tot(peq))}/mês</p>{peq.map(linhaSub)}</>}
+              {fix.length > 0 && <><p className={`text-xs font-semibold mt-4 ${sub}`}>Contas fixas · {eur0(tot(fix))}/mês</p>{fix.map(linhaSub)}</>}
+            </>);
+          })()}
+        </Card>
+        <Card className={so('clientes')}>
+          <h3 className="font-semibold mb-1">Quando pagam os clientes</h3>
+          <p className={`text-xs ${sub} mb-3`}>Dias entre o recibo e o dinheiro chegar ao banco (recibos do último ano) e o que ainda falta receber.</p>
+          {!clientesPag.length && <p className={`text-sm ${sub}`}>Ainda não há recibos com o dia em que o dinheiro chegou. A app marca-o sozinha quando vê o pagamento no banco.</p>}
+          {clientesPag.length > 0 && (() => {
+            const totPend = clientesPag.reduce((a, c) => a + c.porReceber, 0);
+            return (<>
+              {totPend > 0 && <div className={`flex items-baseline justify-between rounded-xl border ${linha} px-3 py-2 mb-3`}><span className="text-sm">Por receber</span><span className="text-lg font-bold text-amber-500 tabular-nums">{eur0(totPend)}</span></div>}
+              <div className="space-y-3">
+                {clientesPag.map(c => (
+                  <div key={c.nome}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-medium truncate flex items-center gap-1.5"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.cor || '#94a3b8' }} />{c.nome}</span>
+                      <span className="text-sm tabular-nums whitespace-nowrap">{c.media != null ? <><b>{c.media} dias</b> <span className={`text-xs ${sub}`}>em média{c.n < 3 ? ` (${c.n} recibo${c.n === 1 ? '' : 's'})` : ''}</span></> : <span className={sub}>—</span>}</span>
+                    </div>
+                    {c.max != null && c.max > (c.media || 0) + 5 && <p className={`text-[11px] ${sub}`}>o mais demorado: {c.max} dias</p>}
+                    {c.pend.map((p, i) => (
+                      <p key={i} className={`text-[11px] ${p.atraso > 0 ? 'text-red-400' : 'text-amber-500'}`}>
+                        {eur(p.valor)} por receber · {p.atraso > 0 ? `${p.atraso} dias de atraso` : `previsto a ${Number(p.previsto.slice(8, 10))}/${Number(p.previsto.slice(5, 7))}`}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </>);
+          })()}
+        </Card>
+      </div>
 
       {/* Registos */}
       <div ref={regRef} className={`scroll-mt-24 ${so('registos')}`}>
